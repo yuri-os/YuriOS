@@ -1,0 +1,92 @@
+<!doctype html>
+<!-- The sanctuary (SPEC §6, → ch. 28/29): a small room with low warm light, rain
+     on the window, and her in it. One page served by FastAPI; three.js +
+     three-vrm are npm deps bundled by Vite into web/dist (SPEC §3, web/vite.config.js).
+     The click gate
+     (#enter) exists because of autoplay policy: her greeting must be audible,
+     so sockets connect only after a user gesture (SPEC §6.4). -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>yuri</title>
+  <link rel="stylesheet" href="sanctuary.css">
+  <!-- Desktop-pet mode (opened by world/window.py with ?desktop=1 — SPEC §6.5):
+       flip the page transparent + chromeless *before* first paint so there's no
+       flash of the dark sanctuary; main.js reads the class and sets the room
+       aside. Drag the window by grabbing her (pywebview drag region). -->
+  <script>
+    if (new URLSearchParams(location.search).has("desktop")) {
+      document.documentElement.classList.add("desktop");
+      addEventListener("DOMContentLoaded", () =>
+        document.getElementById("scene")?.classList.add("pywebview-drag-region"));
+    }
+  </script>
+</head>
+<body>
+  <!-- the 3D room fills the window; everything else floats over it -->
+  <div id="scene"></div>
+
+  <!-- the enter gesture (SPEC §6.4) -->
+  <div id="enter" class="enter">
+    <div class="enter-card">
+      <span class="glyph" aria-hidden="true">◇</span>
+      <span class="enter-name">yuri</span>
+      <p class="enter-sub">rain on the window · she's waiting</p>
+      <!-- the boot log (SPEC §6.4): js/boot.js polls /api/boot and fills this
+           while her local voice models load — a slow wake shows progress, not a
+           blank gate. -->
+      <div id="boot-list"></div>
+      <button id="enter-btn" class="enter-btn">enter the sanctuary</button>
+    </div>
+  </div>
+
+  <header class="masthead hud">
+    <span class="glyph" aria-hidden="true">◇</span>
+    <span class="name">yuri</span>
+    <span class="status" id="status">· offline</span>
+    <span class="avatar-status" id="avatar-status" title="/api/events">bus ·</span>
+    <span class="latency" id="latency" title="end-of-speech → first audio"></span>
+  </header>
+
+  <!-- desktop mode only (SPEC §6.5): the chat column carries text in a browser -->
+  <p class="caption hud" id="caption" aria-live="polite"></p>
+
+  <!-- the chat, beside the room (SPEC §2.6): rendered by js/chat.js off the
+       /api/events stream; typing here rides the voice socket (voice.js) so a
+       typed turn keeps TurnController semantics — TTS, barge-in, the works.
+       The second tab is the inner-life panel (SPEC §13.3, js/mind.js): her
+       journal, activity state, goals, and queued self-edits awaiting you. -->
+  <aside id="chat-col">
+    <header class="chat-head">
+      <span class="glyph" aria-hidden="true">◇</span>
+      <span id="chat-name">yuri</span>
+      <nav class="chat-tabs">
+        <button id="tab-chat" class="tab on">chat</button>
+        <button id="tab-mind" class="tab">inner life</button>
+      </nav>
+    </header>
+    <div id="messages" aria-live="polite"></div>
+    <div id="innerlife" hidden></div>
+    <div class="composer">
+      <input id="text" type="text" placeholder="…or type to her" autocomplete="off">
+    </div>
+  </aside>
+
+  <footer class="controls hud">
+    <button id="mic" class="mic" title="click to toggle listening">
+      <span class="dot" aria-hidden="true"></span>
+      <span id="mic-label">start listening</span>
+    </button>
+  </footer>
+
+  <!-- All four are ES modules so Vite bundles them (§3). boot/chat/mind were
+       classic scripts; each is a self-contained IIFE that only shares state via
+       window.WorldChat, and boot.js already guards document.readyState, so
+       deferred module execution is behaviour-preserving. -->
+  <script type="module" src="js/boot.js"></script>
+  <script type="module" src="js/chat.js"></script>
+  <script type="module" src="js/mind.js"></script>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

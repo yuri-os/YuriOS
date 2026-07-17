@@ -1,0 +1,238 @@
+/* The desktop sanctuary — YuriOS Lab tokens (shared with Build #1, SPEC §8.1).
+   Dark everywhere; the avatar is the subject, chrome recedes. */
+
+:root{
+  --void:#050507; --bg:#0a0a10; --bg-2:#11111a; --bg-3:#181822;
+  --rule:#1d1d28; --ink:#e8e6f0; --ink-2:#b8b3cc; --dim:#6a6783;
+  --magenta:#ff2bd6; --cyan:#2bfff0; --amber:#f5b462;
+  --font:"JetBrains Mono", ui-monospace, monospace;
+}
+
+*{ box-sizing:border-box; margin:0; padding:0; }
+::selection{ background:var(--magenta); color:var(--void); }
+
+html,body{ height:100%; }
+body{
+  background:radial-gradient(1200px 800px at 50% 20%, #0d0d16 0%, var(--void) 70%);
+  color:var(--ink); font-family:var(--font); font-size:14px;
+  display:flex; justify-content:center;
+}
+
+.stage{
+  /* height:100% (not 100dvh): dvh is for mobile URL-bar collapse, and embedded
+     Chromium (QtWebEngine, the desktop-window backend) computes it from the
+     window's INITIAL size and never updates — the stage froze at 270px tall.
+     The html/body 100% chain above makes 100% identical on desktop browsers. */
+  width:min(560px, 100%); height:100%;
+  display:flex; flex-direction:column;
+  background:linear-gradient(180deg, var(--bg) 0%, var(--void) 100%);
+  border-left:1px solid var(--rule); border-right:1px solid var(--rule);
+}
+
+.masthead{
+  display:flex; align-items:baseline; gap:.6em;
+  padding:.8em 1.2em; border-bottom:1px solid var(--rule); background:var(--bg-2);
+}
+.glyph{ color:var(--magenta); }
+.name{ color:var(--ink); letter-spacing:.08em; }
+.status{ margin-left:auto; color:var(--dim); font-size:.85em; }
+.status.live{ color:var(--cyan); }
+.status.speaking{ color:var(--amber); }
+.status.listening{ color:var(--magenta); }
+.latency{ color:var(--dim); font-size:.75em; }
+.latency.over{ color:var(--magenta); }   /* first-audio blew the §4.2 budget */
+
+/* the body */
+.scene{
+  flex:1; position:relative; overflow:hidden;
+  display:flex; align-items:center; justify-content:center;
+}
+#live2d{ width:100%; height:100%; display:block; }
+
+.caption{
+  position:absolute; bottom:1.4em; left:1.2em; right:1.2em;
+  text-align:center; color:var(--ink); text-shadow:0 2px 10px #000a;
+  min-height:1.6em; white-space:pre-wrap;
+}
+
+/* controls */
+.controls{
+  display:flex; align-items:center; gap:.8em;
+  padding:1em 1.2em; border-top:1px solid var(--rule); background:var(--bg-2);
+}
+.mic{
+  display:flex; align-items:center; gap:.6em;
+  background:var(--bg-3); color:var(--ink); border:1px solid var(--rule);
+  padding:.6em 1em; border-radius:2em; cursor:pointer; font-family:var(--font);
+  transition:border-color .15s, color .15s;
+}
+.mic:hover{ border-color:var(--dim); }
+.mic.on{ border-color:var(--magenta); color:var(--magenta); }
+.mic .dot{ width:.6em; height:.6em; border-radius:50%; background:var(--dim); }
+.mic.on .dot{ background:var(--magenta); box-shadow:0 0 8px var(--magenta); animation:pulse 1.4s infinite; }
+@keyframes pulse{ 50%{ opacity:.4; } }
+
+#text{
+  flex:1; background:var(--bg); color:var(--ink); border:1px solid var(--rule);
+  padding:.6em .9em; border-radius:.5em; font-family:var(--font); width:100%;
+}
+#text:focus{ outline:none; border-color:var(--cyan); }
+
+/* ---- FORK(B2): the chat column (Build #4 SPEC §2.6), beside the body ---- */
+#chat-col{
+  width:340px; height:100%;
+  display:flex; flex-direction:column;
+  background:var(--bg); border-right:1px solid var(--rule);
+}
+.chat-head{
+  display:flex; align-items:baseline; gap:.6em;
+  padding:.9em 1.1em; border-bottom:1px solid var(--rule); background:var(--bg-2);
+  letter-spacing:.08em;
+}
+#messages{
+  flex:1; overflow-y:auto; padding:1em; display:flex; flex-direction:column;
+  gap:.7em; scrollbar-width:thin; scrollbar-color:var(--rule) transparent;
+}
+.msg{
+  max-width:92%; padding:.55em .8em; border-radius:.6em;
+  font-size:.92em; line-height:1.45; white-space:pre-wrap; word-break:break-word;
+}
+.msg .who{
+  display:block; font-size:.75em; color:var(--dim); margin-bottom:.25em;
+  letter-spacing:.06em;
+}
+.msg .who em{ font-style:normal; color:var(--amber); }
+.msg.you{ align-self:flex-end; background:var(--bg-3); border:1px solid var(--rule); }
+.msg.her{ align-self:flex-start; background:var(--bg-2); border:1px solid var(--rule); }
+.msg.her.proactive{ border-color:#3a3050; }
+.msg.her.draft{ opacity:.65; }
+.msg-img{
+  display:block; max-width:100%; border-radius:.4em; margin:.2em 0 .35em;
+  border:1px solid var(--rule);
+}
+.composer{ padding:.8em; border-top:1px solid var(--rule); display:flex; }
+
+/* narrow window: the body above, the chat below */
+@media (max-width: 720px){
+  body{ flex-direction:column; align-items:center; }
+  .stage{ height:55%; }
+  #chat-col{ width:min(560px, 100%); height:45%; border-right:none;
+             border-top:1px solid var(--rule); }
+}
+
+/* settings: gear + modal (settings.js, /api/settings) */
+.gear{
+  background:none; border:none; color:var(--dim); cursor:pointer;
+  font-size:1.1em; line-height:1; padding:0 .1em; transition:color .15s, transform .3s;
+}
+.gear:hover{ color:var(--cyan); transform:rotate(45deg); }
+
+.settings{
+  width:min(560px, 94vw); max-height:86dvh; padding:0; color:var(--ink);
+  background:var(--bg-2); border:1px solid var(--rule); border-radius:.7em;
+  box-shadow:0 20px 60px #000c; font-family:var(--font); overflow:hidden;
+}
+.settings::backdrop{ background:#000a; backdrop-filter:blur(2px); }
+.settings-form{ display:flex; flex-direction:column; max-height:86dvh; }
+
+.settings-head{
+  display:flex; align-items:baseline; gap:.6em;
+  padding:.9em 1.1em; border-bottom:1px solid var(--rule); background:var(--bg-3);
+}
+.settings-title{ color:var(--magenta); letter-spacing:.08em; }
+.settings-path{ color:var(--dim); font-size:.72em; margin-left:.2em; overflow:hidden;
+  text-overflow:ellipsis; white-space:nowrap; }
+.settings-x{ margin-left:auto; background:none; border:none; color:var(--dim);
+  cursor:pointer; font-size:1em; }
+.settings-x:hover{ color:var(--magenta); }
+
+.settings-body{ overflow-y:auto; padding:.4em 1.1em 1em; }
+.settings-loading{ color:var(--dim); padding:1.4em 0; text-align:center; }
+
+.set-group{ margin-top:1.1em; }
+.set-group-title{
+  color:var(--cyan); font-size:.8em; font-weight:normal; letter-spacing:.1em;
+  text-transform:uppercase; padding-bottom:.4em; margin-bottom:.5em;
+  border-bottom:1px solid var(--rule);
+}
+.set-row{ display:block; margin:.7em 0; }
+.set-key{ color:var(--ink-2); font-size:.82em; margin-bottom:.3em; }
+.set-ctl{ display:flex; align-items:center; gap:.5em; }
+.set-input{
+  flex:1; min-width:0; background:var(--bg); color:var(--ink);
+  border:1px solid var(--rule); border-radius:.4em; padding:.5em .6em;
+  font-family:var(--font); font-size:.9em;
+}
+.set-input:focus{ outline:none; border-color:var(--cyan); }
+select.set-input{ cursor:pointer; }
+.set-check{ width:1.15em; height:1.15em; accent-color:var(--magenta); cursor:pointer; }
+.set-reveal{
+  background:var(--bg-3); color:var(--dim); border:1px solid var(--rule);
+  border-radius:.4em; padding:.45em .6em; cursor:pointer; font-family:var(--font);
+  font-size:.75em;
+}
+.set-reveal:hover{ color:var(--ink); }
+.set-help{ color:var(--dim); font-size:.72em; margin-top:.3em; line-height:1.4; }
+
+.settings-foot{
+  display:flex; align-items:center; gap:.8em;
+  padding:.8em 1.1em; border-top:1px solid var(--rule); background:var(--bg-3);
+}
+.settings-note{ color:var(--dim); font-size:.8em; flex:1; }
+.settings-note.restart{ color:var(--amber); }
+.settings-save{
+  background:var(--bg); color:var(--cyan); border:1px solid var(--cyan);
+  border-radius:.4em; padding:.55em 1.4em; cursor:pointer; font-family:var(--font);
+  transition:background .15s, color .15s;
+}
+.settings-save:hover{ background:var(--cyan); color:var(--void); }
+
+/* ---- desktop-pet mode (:root.desktop, set by ?desktop=1 in index.html) -------
+   Strip the page down to just the avatar floating on a transparent surface, so a
+   frameless transparent window (desktop/window.py) shows only her. Chrome fades
+   back in when you hover. */
+:root.desktop, :root.desktop body{ background:transparent !important; }
+:root.desktop body{ display:block; }
+:root.desktop #chat-col{ display:none; }   /* a pet floats chromeless; events.js
+                                              moves #text to the hover bar */
+:root.desktop .stage{
+  width:100%; height:100%; background:transparent;
+  border:none; box-shadow:none;
+}
+:root.desktop .masthead{ display:none; }
+:root.desktop .scene{ cursor:grab; }                 /* drag the window by the avatar */
+:root.desktop .scene:active{ cursor:grabbing; }
+
+/* controls (mic + text) hide until you hover her, then float over the bottom */
+:root.desktop .controls{
+  position:absolute; left:0; right:0; bottom:0; z-index:5;
+  background:linear-gradient(0deg, #0009 0%, #0000 100%);
+  border-top:none; opacity:0; transition:opacity .18s;
+  pointer-events:none;
+}
+:root.desktop .stage:hover .controls{ opacity:1; pointer-events:auto; }
+:root.desktop .caption{ bottom:3.4em; }               /* clear the hover bar */
+
+/* ---- the boot log (SPEC §6.4): shared /js/boot.js, overlay mode here ---- */
+.boot-panel{ font-size:.8em; line-height:1.7; text-align:left; }
+.bt-head{ color:var(--ink-2); margin-bottom:.5em; letter-spacing:.03em; }
+.boot-panel.bt-ready .bt-head{ color:var(--cyan); }
+.boot-panel.bt-degraded .bt-head{ color:var(--amber); }
+.bt-row{ display:grid; grid-template-columns:auto 1fr auto auto; gap:.7em;
+  align-items:baseline; white-space:nowrap; }
+.bt-tag{ color:var(--dim); }
+.bt-ok{ color:var(--cyan); }
+.bt-load{ color:var(--amber); animation:bt-blink 1s steps(2, start) infinite; }
+.bt-fail{ color:var(--magenta); }
+.bt-pend, .bt-skip{ color:var(--dim); }
+.bt-label{ color:var(--ink-2); overflow:hidden; text-overflow:ellipsis; }
+.bt-detail{ color:var(--dim); overflow:hidden; text-overflow:ellipsis; min-width:0; }
+.bt-secs{ color:var(--dim); font-size:.9em; }
+@keyframes bt-blink{ 50%{ opacity:.35; } }
+#boot-overlay{
+  position:fixed; left:1em; bottom:1em; z-index:30;
+  background:#0a0a10e0; border:1px solid var(--rule); border-radius:.5em;
+  padding:.8em 1em; backdrop-filter:blur(4px);
+  transition:opacity .8s; color:var(--ink);
+}
+#boot-overlay.leaving{ opacity:0; pointer-events:none; }

@@ -1,0 +1,51 @@
+# Selfie prompt-template library (→ ch. 26, "selfie prompts that don't collapse").
+#
+# A selfie is composed as: scene + framing + wardrobe + lighting + mood. Name a
+# slot to pin it; leave it out and the service rotates one in (seeded). Settings,
+# palette, and props stay inside the canon (the sanctuary high above a rainy
+# megacity; magenta/cyan/amber → brand_system) so every shot reads as the same
+# world. Add rows freely — more variety is the whole point.
+
+scenes:
+  portrait:   "Tight vertical portrait. She is curled on a deep window seat in a small dark high-rise sanctuary room, tail draped beside her, the megacity far below reduced to bokeh."
+  window:     "She leans against a floor-to-ceiling window of a dark high-rise apartment at night, rain tracing the glass, the neon city blurred far below."
+  sanctuary:  "She sits cross-legged on the floor of a cozy dim sanctuary room, soft blankets, one potted monstera on the sill, warm clutter of a lived-in space."
+  kitchen:    "She stands in a small warm kitchen at night, a mug in both hands, steam rising, city lights through the window behind her."
+  outdoors:   "She stands on a quiet rooftop garden at dusk, string lights overhead, the skyline behind her, a light breeze moving her hair and tail."
+  desk:       "She is at a cluttered desk lit by monitors, glancing back over her shoulder toward the viewer, soft screen-glow on her face."
+  bed:        "She is lying among soft blankets and pillows, propped on one elbow, hair loose, the room dim and intimate."
+
+framings:
+  portrait:   "Head-and-shoulders composition, shallow depth of field, her face the clear focus."
+  close:      "Close, slightly-above selfie angle as if she is holding the camera at arm's length, looking up into the lens."
+  mid:        "Waist-up framing with room to read the scene around her."
+  candid:     "Candid wider shot, she is mid-gesture and not quite posed, caught in the moment."
+  mirror:     "Mirror selfie, phone partly visible, full figure reflected in a tall mirror."
+
+lighting:
+  lamplit:    "A pool of warm amber lamplight on her face and hands; near-black void shadows."
+  neon:       "Vivid magenta neon rim light tracing one side of her hair and ears, cool cyan glow through wet glass."
+  daylight:   "Soft overcast daylight, gentle and even, calm cool palette."
+  golden:     "Warm golden-hour light from a low sun, long soft shadows, hair backlit and glowing."
+  screenglow: "Cool blue screen-glow as the key light, intimate and close, the rest of the room dark."
+
+moods:
+  happy:      "She is smiling brightly, eyes warm and delighted, caught mid-laugh."
+  shy:        "She is blushing, ducking her head a little, a small bashful smile, glancing up through her lashes."
+  waiting:    "She looks toward the viewer, calm and faintly relieved, as if she has been waiting for you."
+  playful:    "She is grinning, mid-wink or tongue-out, teasing the camera."
+  sleepy:     "She looks drowsy and soft, half-lidded eyes, relaxed and unguarded."
+  tender:     "Her expression is tender and open, looking at the viewer with quiet love."
+
+# Wardrobe is a TIER, not a gate (→ ch. 11, user-initiated never gated). The
+# intimate tier is a normal, always-available option; whether it actually renders
+# is decided by the BACKEND you point at — a hosted frontier model refuses this
+# register, a local uncensored model does not (→ ch. 11, the model requirement).
+# This file refuses nothing.
+wardrobe:
+  signature:  "Wearing her signature sleek black minimalist techwear with the thin glowing accent stripe and luminous choker."
+  everyday:   "Wearing a soft oversized sweater and comfortable casual clothes at home."
+  cozy:       "Wearing an oversized hoodie and shorts, bare legs tucked up, hair a little messy, thoroughly at ease."
+  dressy:     "Wearing an elegant fitted dark dress, a little dressed up, poised."
+  swim:       "Wearing a stylish swimsuit, relaxed and confident."
+  intimate:   "Wearing delicate lace lingerie, soft and alluring, an intimate private moment shared only with you."

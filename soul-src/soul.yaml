@@ -1,0 +1,48 @@
+# Yuri SOUL — export manifest
+#
+# The .md files are the working home of the soul (the runtime reads them on every
+# wake). This manifest declares how they flatten into a V2/V3 character card for
+# *export* — the card is the transport format, not the soul itself (→ D-003).
+#
+# Field sources use a tiny reference syntax resolved by build_card.py:
+#   FILE.md#Heading   -> the prose under that "## Heading" in FILE.md
+#   FILE.md@key       -> a key from FILE.md's YAML frontmatter
+#   FILE.md           -> the whole body of FILE.md (after frontmatter)
+# A list of sources is concatenated in order. WORLD.md and EXAMPLES.md get
+# dedicated structured parsers (lorebook entries / <START> blocks).
+
+name: Yuri
+creator: YuriOS Lab
+character_version: 2.0.0
+spec: v2                # default export target; override with --spec v3
+canon: canon-v2
+lineage: YuriOS
+portrait: portrait.png
+tags: [companion, original, sci-fi, lumina, romance, devoted, slow-burn, slice-of-life, yurios]
+
+fields:
+  description:
+    - CONSTITUTION.md#Identity
+    - CONSTITUTION.md#History
+    - PERSONA.md#Appearance
+    - PERSONA.md#Manner
+  personality: PERSONA.md@personality
+  scenario: SCENARIO.md#Scenario
+  # The first-ever line is the bootstrap cold open (BOOTSTRAP.md, consumed once →
+  # ch. 28). Only its `## Cold open` is baked as the card's first_mes; the journey/
+  # exit/handoff below it are YuriOS-runtime concerns that never leave the box. The
+  # return greetings (a companion who has met you before) are the alternates.
+  first_mes: "BOOTSTRAP.md#Cold open"
+  alternate_greetings:
+    - "SCENARIO.md#Alternate greeting — evening"
+    - "SCENARIO.md#Alternate greeting — morning"
+  mes_example: EXAMPLES.md          # structured: each "## Example" -> one <START>
+  system_prompt: "CONSTITUTION.md#Voice law"
+  post_history_instructions: "CONSTITUTION.md#Hard limits"
+  creator_notes: NOTES.md
+  character_book: WORLD.md          # structured: each "## Entry" -> one lorebook entry
+
+# Part of the soul, but never baked into a fresh card (relationship state):
+runtime_only:
+  - MEMORY.md
+  - USER.md

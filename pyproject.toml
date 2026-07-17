@@ -1,0 +1,54 @@
+[project]
+name = "yurios"
+version = "0.1.0"
+description = "YuriOS — an always-on, local-first agentic companion runtime: a VRM body and room with an autonomy engine behind it (book ch. 19/35, SPEC.md)"
+requires-python = ">=3.11"
+dependencies = [
+    # YuriOS is one self-contained project: the brain (yurios/app), the voice stack
+    # (yurios/desktop), the image service (yurios/forge), the body + mind — all
+    # first-party and maintained here. These are their deps too. Copy, install, run.
+    "fastapi",
+    "uvicorn[standard]",      # [standard] pulls the websockets impl for /ws/voice
+    "litellm",                # the model-router seam (B1 §3.1) — local or hosted
+    "pydantic-settings",      # typed config (§11)
+    "pyyaml",                 # soul.yaml + .md frontmatter
+    "numpy",                  # the flat vector index + audio frames
+    "httpx",                  # ollama embeddings, GPT-SoVITS client, Open-Meteo (§7.5)
+    "mcp",                    # the hands (§7): real MCP server + client, in-repo
+    "Pillow",                 # her camera (§7.6): the vendored forge's mock backend + provenance
+]
+
+[project.optional-dependencies]
+# Real voice backends are optional imports (B2 §3): the loop runs against fakes with
+# none installed, so `pytest` is green on a machine with no models or GPU.
+stt = ["faster-whisper"]                     # ears (B2 §3.2)
+# `tts` includes BOTH voices so the vendored fallback warning's advice
+# ("pip install -e '.[tts]'") fixes the DEFAULT backend (kokoro), not only qwen:
+tts = ["qwen-tts", "kokoro", "soundfile"]    # designed voice (GPU) + the GPU-free default
+tts-kokoro = ["kokoro", "soundfile"]         # just the fast, GPU-free default voice
+vad = ["silero-vad"]                         # turn-taking (B2 §3.4)
+local-embed = ["sentence-transformers"]      # EMBED_BACKEND=sentence_tf (else LM Studio/Ollama)
+# `--window`: float her on the desktop (§6.5, world/window.py). Installs the Qt
+# engine (QtWebEngine = Chromium), which the vendored launcher prefers: WebKitGTK
+# caps rAF at ~30fps and needs NVIDIA quirks — a full 3D body suffers more than
+# B2's Live2D did. WINDOW_GUI=gtk + pywebview[gtk] is the lighter fallback.
+desktop = ["pywebview", "qtpy", "PyQt6", "PyQt6-WebEngine"]
+test = ["pytest", "pytest-asyncio", "httpx", "numpy"]
+# the whole local stack in one go:
+all = ["faster-whisper", "qwen-tts", "kokoro", "soundfile", "silero-vad", "sentence-transformers"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.setuptools]
+# one namespace package `yurios`, with the former top-level modules as subpackages:
+# the brain (yurios.app), the voice stack (yurios.desktop), the image service
+# (yurios.forge, §7.6), Build #4's body (yurios.world), and the mind (yurios.mind).
+packages = { find = { include = ["yurios*"] } }
+
+[tool.setuptools.package-data]
+# the pinned voice clip the qwen3_tts backend clones (B2 §3.3) ships with the package
+"yurios.desktop" = ["voice/assets/*.wav"]
+# her look + the selfie template library (§7.6) travel with the forge
+"yurios.forge" = ["characters/*.yaml", "templates/*.yaml"]

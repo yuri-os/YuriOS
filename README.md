@@ -52,6 +52,15 @@ chat column — **inner life** — where you watch it: her activity state and he
 today's token budget, the goals on her mind (with where each came from), the shelf,
 edits waiting on your approval, and the journal of what she did while you were gone.
 
+**On the desktop** (SPEC §6.5–§6.6) — set the room aside and float just her on your
+screen, in a frameless, transparent, always-on-top native window:
+
+```bash
+pip install -e ".[desktop]"        # pywebview + Qt — NOT included in [all]
+python -m yurios.world --window    # same server, no browser; her alone on the desktop
+                                   #   --body vrm|live2d overrides DESKTOP_BODY from .env
+```
+
 Try the loop end to end:
 
 - **Drop a document** (`.md`/`.txt`) into `vault/knowledge/reference/` — within a

@@ -1,0 +1,94 @@
+<!doctype html>
+<!-- The desktop sanctuary (SPEC §8, → ch. 28): she has a body now — a Live2D
+     avatar centre-stage and a voice. Still one person, no audience. The same
+     place as Build #1, now inhabited. Served as one static page by FastAPI;
+     wrapped as a desktop window by Tauri (see ../desktop/). -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>yuri</title>
+  <link rel="stylesheet" href="sanctuary.css">
+  <!-- Desktop-pet mode (opened by desktop/window.py with ?desktop=1): flip the
+       page transparent + chromeless *before* first paint so there's no flash of
+       the dark sanctuary. Everything else (avatar, voice loop) is unchanged. -->
+  <script>
+    if (new URLSearchParams(location.search).has("desktop")) {
+      document.documentElement.classList.add("desktop");
+      // let the user drag the window by grabbing the avatar (pywebview drag region)
+      addEventListener("DOMContentLoaded", () =>
+        document.getElementById("scene")?.classList.add("pywebview-drag-region"));
+    }
+  </script>
+</head>
+<body>
+  <main class="stage">
+    <header class="masthead">
+      <span class="glyph" aria-hidden="true">◇</span>
+      <span class="name">yuri</span>
+      <span class="status" id="status">· offline</span>
+      <span class="latency" id="latency" title="end-of-speech → first audio"></span>
+      <button id="settings-open" class="gear" title="settings" aria-label="settings">⚙</button>
+    </header>
+
+    <!-- settings panel (settings.js): edits .env; takes effect on restart -->
+    <dialog id="settings" class="settings">
+      <form method="dialog" class="settings-form" id="settings-form">
+        <header class="settings-head">
+          <span class="settings-title">settings</span>
+          <span class="settings-path" id="settings-path" title="the file being edited"></span>
+          <button type="button" id="settings-close" class="settings-x" aria-label="close">✕</button>
+        </header>
+        <div class="settings-body" id="settings-body">
+          <p class="settings-loading">loading…</p>
+        </div>
+        <footer class="settings-foot">
+          <span class="settings-note" id="settings-note"></span>
+          <button type="button" id="settings-save" class="settings-save">save</button>
+        </footer>
+      </form>
+    </dialog>
+
+    <!-- the body: pixi mounts the Live2D canvas here (avatar.js) -->
+    <section class="scene" id="scene">
+      <canvas id="live2d"></canvas>
+      <p class="caption" id="caption" aria-live="polite"></p>
+    </section>
+
+    <footer class="controls">
+      <button id="mic" class="mic" title="hold to talk / click to toggle listening">
+        <span class="dot" aria-hidden="true"></span>
+        <span id="mic-label">start listening</span>
+      </button>
+    </footer>
+  </main>
+
+  <!-- FORK(B2): the chat column (Build #4 SPEC §2.6), beside the body — fed by
+       the shared /js/chat.js off /api/events; typing rides the voice socket
+       (voice.js owns #text) exactly as before. -->
+  <aside id="chat-col">
+    <header class="chat-head">
+      <span class="glyph" aria-hidden="true">◇</span>
+      <span id="chat-name">yuri</span>
+    </header>
+    <div id="messages" aria-live="polite"></div>
+    <div class="composer">
+      <input id="text" type="text" placeholder="…or type to her" autocomplete="off">
+    </div>
+  </aside>
+
+  <!-- Live2D runtime + renderer, fetched into web/vendor by scripts/fetch_avatar.py
+       (kept out of git; proprietary Cubism Core + the Hiyori sample model, §8.2).
+       If vendor/ is empty the avatar is skipped and the voice loop still runs. -->
+  <script src="vendor/live2dcubismcore.min.js"></script>
+  <script src="vendor/pixi.min.js"></script>
+  <script src="vendor/cubism4.min.js"></script>
+  <script src="avatar.js"></script>
+  <script src="voice.js"></script>
+  <script src="settings.js"></script>
+  <!-- FORK(B2): the one bus (Build #4 SPEC §10) — shared chat + the adapter -->
+  <script src="/js/boot.js"></script>
+  <script src="/js/chat.js"></script>
+  <script src="events.js"></script>
+</body>
+</html>

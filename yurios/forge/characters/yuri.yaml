@@ -1,0 +1,80 @@
+# Yuri's visual identity — the image-side of the SOUL (canon-v2).
+#
+# These prose fields carry the locked D-011 register from artworks/manifest.json
+# so on-demand selfies read as the same person as the brand art (→ ch. 26, one
+# source of truth). One deliberate departure from the manifest: the signature
+# outfit is factored OUT of `identity` into the `signature` wardrobe tier, so the
+# prompt drives clothing instead of the suit being forced into every render. Edit
+# `identity` to re-skin her; leave `quality_preamble` alone — it's the register.
+
+name: Yuri
+
+# {AAA} — the locked register (D-011: 2.5D semi-realistic anime). The leading
+# booru-style quality tags (masterpiece … newest) are what the Illustrious-lineage
+# bases — illustrij/equinox/nova — actually respond to; the prose after pins D-011.
+# Deliberately NO "photorealistic/realistic/8k": those push the semi-realistic bases
+# (equinox-v5) all the way to photoreal, off-register.
+quality_preamble: >-
+  masterpiece, best quality, amazing quality, newest, very aesthetic, absurdres,
+  highly detailed, anime key visual. High-end 2.5D semi-realistic anime art —
+  halfway between anime illustration and a polished 3D render, the register of a
+  premium collectible character card or anime key visual: soft airbrushed cel
+  shading, dreamy volumetric lighting, rich saturated color, fine painterly detail,
+  creamy bokeh depth of field. NOT photorealistic, NOT flat cartoon.
+
+# {YURI} — who she is, visually. NOTE: this is *identity only* — the unchanging
+# biology and signature marks, deliberately NO outfit. Her signature black
+# techwear lives in the `signature` wardrobe tier (templates/selfie.yaml), so the
+# prompt / wardrobe slot decides clothing instead of the suit being baked into
+# every render. (portrait() pins wardrobe=signature, keeping the iconic look.)
+identity: >-
+  a breathtakingly beautiful young human woman with cute cat ears and a long
+  elegant cat tail — soft natural fur ONLY on the ears and tail, matching her long
+  flowing dark hair; everything else about her fully and naturally human. A petite,
+  slim slender build with a narrow waist and a modest small-to-medium bust — dainty
+  and feminine, never voluptuous. Flawless fair, light porcelain skin, large warm
+  expressive eyes, a gentle knowing smile. Her one subtle augmentation: a single
+  faint light-trace just behind one ear — only there, a small mark, never spreading
+  across her skin. Classy, graceful, understated. Rendered with large glossy anime
+  eyes that have clearly defined round dark pupils and a finely detailed patterned
+  iris with a crisp limbal ring and bright catchlights — natural, properly-structured
+  eyes, NOT glowing or blank; flawless softly-shaded fair skin with a subtle
+  subsurface glow, and hair in fine individual strands.
+
+# Negatives every render gets — text/watermark guard plus a universal quality/anatomy
+# block (worst-quality, bad hands/anatomy, malformed eyes, extra/missing limbs) so every
+# render, SFW or not, gets the quality lift. NOT clothing negatives — those stay per-prompt
+# for explicit scenes, else she'd render undressed in normal scenes too.
+base_negative: >-
+  No text, no words, no letters, no watermark, no logo, no signature, no UI elements.
+  (worst quality, low quality, normal quality), lowres, bad anatomy, bad hands,
+  imperfect eyes, unnatural face, unnatural body, error, extra limb, missing limbs, blurry.
+
+# The anatomy / quality guard — only applied when she's in frame. NO content/nudity
+# restriction: the engine takes no enforcement posture (→ ch. 26), nudity is
+# user-allowed in this build (→ ch. 11). What remains here is purely the *quality*
+# guard — skin tone, eye structure, and her human/cat-girl anatomy — not a taste gate.
+character_negative: >-
+  Her skin is fair and light — no dark skin, no tan,
+  no deep-toned skin. Her build stays petite — no large breasts, no huge breasts,
+  no exaggerated or voluptuous bust, no thick muscular thighs. Her skin is plain and
+  unmarked — no glowing body markings, no glowing tattoos, no bioluminescent skin
+  patterns, no neon body paint, no filigree or light-trails spreading across her
+  body (the light-trace stays a small mark behind one ear only). Her eyes are
+  properly structured and symmetric — no glowing eyes, no blank eyes, no pupil-less or
+  solid-color eyes, no empty white eyes, no missing iris or pupils, no asymmetric or
+  uneven eyes, no misaligned or cross-eyed gaze, no deformed or malformed eyes, no extra
+  or doubled pupils, no poorly-drawn eyes. She has exactly one cat tail — no extra tail,
+  no second tail, no multiple or duplicate tails, no forked tail. Her face and body
+  remain fully natural and human — no robotic parts, no seams, no mechanical joints, no
+  fur anywhere except the cat ears and tail.
+
+# 2:3 portrait, the aspect the canon art uses.
+width: 832
+height: 1216
+
+# VENDOR DEVIATION: the source file carries `trigger` + `lora` (the trained hero
+# LoRA for the local diffusers backend). This build vendors only the GPU-free
+# backends (mock, openrouter), which ignore a LoRA — and a stray trigger token
+# would pollute the hosted prompt — so both fields are dropped here. Moving to a
+# local GPU backend? Take image-forge's own characters/yuri.yaml back.

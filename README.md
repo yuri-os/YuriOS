@@ -45,8 +45,8 @@ python -m yurios.world             # → http://localhost:8768
 ```
 
 Open it, click **enter the sanctuary**, and talk — the whole reactive body works as it
-always has (voice, chat, tools, selfies, both bodies, the desktop window; → book ch. 34
-for that tour, port 8768). What's new is what happens when you *stop* talking, and the
+always has (voice, chat, tools, selfies, both bodies, the desktop window — the full
+reactive tour, port 8768). What's new is what happens when you *stop* talking, and the
 second tab in the
 chat column — **inner life** — where you watch it: her activity state and heartbeat,
 today's token budget, the goals on her mind (with where each came from), the shelf,
@@ -110,10 +110,10 @@ was Tuesday", "the dark weekend", "the machine sleeps").
 ```
  python -m yurios.world  (FastAPI on :8768)
  ├── the whole reactive body (§2–§10): ToolBrain over the brain ·
- │   B2 voice loop (/ws/voice) · MCP hands + Guard · SelfieLab · VrmController ·
+ │   the voice loop (/ws/voice) · MCP hands + Guard · SelfieLab · VrmController ·
  │   EventHub → /api/events (SSE) · both bodies · the desktop window
  │
- ├── SignalBus (§16) — the inbound inbox B4 deliberately left out, now landed:
+ ├── SignalBus (§16) — the inbound inbox the reactive body left out, now landed:
  │   user turns (teed by the voice route) · presence (page attach/detach) ·
  │   landed timers · finished tasks · your self-edit decisions → signals.jsonl
  │
@@ -137,24 +137,24 @@ was Tuesday", "the dark weekend", "the machine sleeps").
         └─ state/            ← activity · budget · pending edits · engine cursor
 ```
 
-## Where the book lives in the code
+## Where the spec lives in the code
 
-| Book / SPEC | Code |
+| SPEC | Code |
 |---|---|
-| **The tick loop** (ch. 18 · §15) | `mind/loop.py` — `MindLoop.tick()` |
+| **The tick loop** (§15) | `mind/loop.py` — `MindLoop.tick()` |
 | **The inbound signal bus** (§16) | `mind/signals.py` + the `FORK(B5 §16)` tee in `world/routes/voice_ws.py` |
-| **Activity states + budget** (ch. 18 · §17) | `mind/policy.py` — `ActivityController` · `mind/budget.py` |
-| **The two salience gates** (ch. 18 · §18) | `mind/policy.py` — `appraise_*`, `score_interrupt` |
+| **Activity states + budget** (§17) | `mind/policy.py` — `ActivityController` · `mind/budget.py` |
+| **The two salience gates** (§18) | `mind/policy.py` — `appraise_*`, `score_interrupt` |
 | **Gate 2 in action** (§18.3) | `mind/loop.py` — `_act_reach_out` |
-| **The world model** (ch. 19 · §19) | `mind/world.py` + `world/situation.py` (the host lines, kept) |
-| **The seam swap B4 promised** (§19.2) | `world/brain.py` — `set_world` / `_assemble` |
-| **Drop-folder RAG** (ch. 16 · §20) | `mind/knowledge.py` + `tests/test_knowledge.py` |
-| **DREAM consolidation** (ch. 15/18 · §21) | `mind/dream.py` (B1's `consolidate()` stub, implemented) |
-| **Goals, promises, commitment** (ch. 18 · §22) | `mind/goals.py` — `extract_promises`, `reconsider` |
-| **The SOUL split, operational** (ch. 14 · §23) | `mind/selfedit.py` + `mind/vaultio.py` |
-| **The journal + trace** (ch. 18 · §24) | `mind/journal.py`, `mind/trace.py` |
+| **The world model** (§19) | `mind/world.py` + `world/situation.py` (the host lines, kept) |
+| **The world-model seam swap** (§19.2) | `world/brain.py` — `set_world` / `_assemble` |
+| **Drop-folder RAG** (§20) | `mind/knowledge.py` + `tests/test_knowledge.py` |
+| **DREAM consolidation** (§21) | `mind/dream.py` (the brain's `consolidate()` stub, implemented) |
+| **Goals, promises, commitment** (§22) | `mind/goals.py` — `extract_promises`, `reconsider` |
+| **The SOUL split, operational** (§23) | `mind/selfedit.py` + `mind/vaultio.py` |
+| **The journal + trace** (§24) | `mind/journal.py`, `mind/trace.py` |
 | **The inner-life surface** (§24.3) | `world/routes/mind.py` + `web/js/mind.js` |
-| **The scenario battery** (ch. 23/31 · §27.2) | `tests/test_mind_scenarios.py` + the sim rig in `tests/conftest.py` |
+| **The scenario battery** (§27.2) | `tests/test_mind_scenarios.py` + the sim rig in `tests/conftest.py` |
 | Injected time everywhere (§15.1) | `world/clock.py` — `Clock` / `VirtualClock` |
 
 ## The mind, briefly
@@ -170,7 +170,7 @@ agent that does one thing per heartbeat can be read like a diary — and is, in
 `traces/ticks.jsonl`.
 
 **Conversation stays on the fast path.** The reply pipeline (ears → brain → voice,
-with barge-in and the latency budget) is Build #2's, untouched — no tick cadence sits
+with barge-in and the latency budget) is inherited untouched — no tick cadence sits
 in front of it. The loop is its observer and consequence: a user turn preempts to
 ENGAGED from any state, and the committed exchange comes back as a signal whose
 REFLECT share is the world-model update and the promise scan. One mind, two cadences.
@@ -207,7 +207,7 @@ both. "What did you do while I was gone?" is a page you open (the inner-life tab
   embedder backend running, a mangled file) is marked seen with one loud WARNING and
   retried when the file changes — found the hard way, running the build with the
   embedder backend down.
-- **The murmur survived.** Build #4's self-talk was the room's heartbeat, and
+- **The murmur survived.** The reactive body's self-talk was the room's heartbeat, and
   deleting it would have made the mind a regression. It's now a decided impulse —
   IDLE only, user present, long quiet — instead of a dice roll, and still never
   persists.
@@ -218,11 +218,11 @@ both. "What did you do while I was gone?" is a page you open (the inner-life tab
 ## What it deliberately omits (§26)
 
 No sandboxed **workshop** — no code execution, no autonomous research, no wiki
-authoring; the heavy hands are the first rung *past* the ladder (→ ch. 17, ch. 19),
+authoring; the heavy hands are the first rung *past* this build,
 and the gated self-edit flow is already the door their products would cross. No
-**multimodal sensing** — text, time, files only (→ ch. 24). The world model stops at
+**multimodal sensing** — text, time, files only. The world model stops at
 the **snapshot** — the temporal knowledge graph waits until "what was true when"
-bites (→ ch. 19). No affective-state file, no multi-character hosting, and the mind
+bites. No affective-state file, no multi-character hosting, and the mind
 doesn't initiate MCP tool calls — her hands stay conversational until the broker
 arrives with the workshop.
 
@@ -232,6 +232,6 @@ Every seam past this build is already shaped: promote the stores' contracts to a
 protocol and the mind to a supervised process (the two-tier split, with the broker
 and true one-loop conversation); bolt the workshop's sandbox onto ACT's
 start-don't-await discipline; swap the snapshot world model for the temporal graph
-behind the same contract; and export the Vault's SOUL through Build #3's card studio
+behind the same contract; and export the Vault's SOUL through a card studio
 — the mind that grew here ships as a `.PNG` and boots on someone else's machine,
-which is the point of the whole ladder (→ ch. 03, property 6).
+which is the point of the whole design.

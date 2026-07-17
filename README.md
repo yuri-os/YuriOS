@@ -44,13 +44,16 @@ cp .env.example .env               # defaults are local-first; edit if you like
 python -m yurios.world             # → http://localhost:8768
 ```
 
-Open it, click **enter the sanctuary**, and talk — the whole reactive body works as it
-always has (voice, chat, tools, selfies, both bodies, the desktop window — the full
-reactive tour, port 8768). What's new is what happens when you *stop* talking, and the
-second tab in the
+Open it, click **enter the sanctuary**, then click **start listening** (the mic button,
+bottom-left) to give the page your microphone — voice won't work until you do. Now talk,
+or type to her in the chat column. The whole reactive body works as it always has
+(voice, chat, tools, selfies, both bodies, the desktop window — the full reactive tour,
+port 8768). What's new is what happens when you *stop* talking, and the second tab in the
 chat column — **inner life** — where you watch it: her activity state and heartbeat,
 today's token budget, the goals on her mind (with where each came from), the shelf,
 edits waiting on your approval, and the journal of what she did while you were gone.
+
+![The sanctuary in the browser: Yuri's VRM body in her room, the chat column beside her.](docs/img/browser-mode.png)
 
 **On the desktop** (SPEC §6.5–§6.6) — set the room aside and float just her on your
 screen, in a frameless, transparent, always-on-top native window:
@@ -60,6 +63,8 @@ pip install -e ".[desktop]"        # pywebview + Qt — NOT included in [all]
 python -m yurios.world --window    # same server, no browser; her alone on the desktop
                                    #   --body vrm|live2d overrides DESKTOP_BODY from .env
 ```
+
+![Desktop mode: Yuri floating transparently on the desktop, over the code editor.](docs/img/desktop-mode.png)
 
 Try the loop end to end:
 

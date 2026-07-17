@@ -29,8 +29,13 @@ cd YuriOS
 python3 -m venv .venv && source .venv/bin/activate
 sudo apt-get install espeak-ng     # for the kokoro voice (macOS: brew install espeak-ng)
 pip install -e ".[all,test]"       # brain + MCP + the real voice stack
-ollama pull qwen3:8b               # her thinking, local (any LiteLLM route works)
-ollama pull nomic-embed-text       # local embeddings for memory + knowledge
+
+# Her thinking + embeddings, local via LM Studio (the .env.example default).
+# In LM Studio: download these models, then start its server on :1234
+# (Developer tab → Start Server, or `lms server start`). Any LiteLLM route
+# works — point CHAT_MODEL at ollama/… or openrouter/… instead if you prefer.
+lms get google/gemma-4-12b-qat                     # her thinking (chat + utility)
+lms get text-embedding-nomic-embed-text-v1.5       # local embeddings for memory + knowledge
 
 python scripts/seed_vault.py       # once: her mind, from her SOUL source (./soul-src)
 cp .env.example .env               # defaults are local-first; edit if you like
@@ -191,8 +196,8 @@ both. "What did you do while I was gone?" is a page you open (the inner-life tab
   a room with nobody in it.
 - **A failing shelf item never becomes a retry loop.** A doc that won't ingest (no
   embedder backend running, a mangled file) is marked seen with one loud WARNING and
-  retried when the file changes — found the hard way, running the build with Ollama
-  off.
+  retried when the file changes — found the hard way, running the build with the
+  embedder backend down.
 - **The murmur survived.** Build #4's self-talk was the room's heartbeat, and
   deleting it would have made the mind a regression. It's now a decided impulse —
   IDLE only, user present, long quiet — instead of a dice roll, and still never

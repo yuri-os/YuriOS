@@ -9,8 +9,7 @@ shelf, proposes edits to her own persona that wait for your approval — and rea
 *first*, at most a few well-judged times a day, when a two-gate salience model says
 it's welcome. Everything she does lands in a journal you can read.
 
-Normative spec: **[SPEC.md](SPEC.md)**. Where the code came from — it grew out of the
-book's reference builds and is now maintained here as one independent project —
+Normative spec: **[SPEC.md](SPEC.md)**. Where the code came from —
 **[PROVENANCE.md](PROVENANCE.md)**.
 
 **One project, one process.** The body, the voice loop, the brain, the image service,
@@ -191,45 +190,6 @@ not notifications, carries the value — and both dials are yours, in `.env`.
 conversation does, as `[she]` lines — one journal, two authors, one DREAM pass over
 both. "What did you do while I was gone?" is a page you open (the inner-life tab, or
 `/api/mind/journal`), not a vibe.
-
-## Honest notes (where this build makes a call the spec leaves open)
-
-- **The mind is in-process.** One asyncio task on the server's loop, not a supervised
-  per-character OS process behind a wire protocol. The stores speak narrow contracts,
-  so the two-tier split is a topology change later, not a rewrite (§28) — but today,
-  kill the server and you kill the mind (it resumes from `state/engine.json`).
-- **APPRAISE is pure heuristics.** Base scores per signal type, priority/due-ness for
-  goals, a surprise bonus from violated expectations. No model, by design, at this
-  stage — the trace makes the scores auditable, and the thresholds are config.
-- **Promise extraction is a regex, not a model.** "I'll …" and "remind me to …" with
-  a negation guard. It's the pipeline that matters — REFLECT scans, goals carry
-  provenance, the scenario tests pin it; a cheap model call slots into the same seam.
-- **Reach-outs degrade by presence.** SPEAK goes aloud through the ambient seam
-  (barge-in-able, latency-masked) when a page is open; into the chat as a `proactive`
-  line — waiting like a text message — when the room is empty. She never speaks into
-  a room with nobody in it.
-- **A failing shelf item never becomes a retry loop.** A doc that won't ingest (no
-  embedder backend running, a mangled file) is marked seen with one loud WARNING and
-  retried when the file changes — found the hard way, running the build with the
-  embedder backend down.
-- **The murmur survived.** The reactive body's self-talk was the room's heartbeat, and
-  deleting it would have made the mind a regression. It's now a decided impulse —
-  IDLE only, user present, long quiet — instead of a dice roll, and still never
-  persists.
-- **`git -C vault log` is load-bearing.** One commit per dirty tick, `self-edit:`
-  commits for approved persona changes, `forget:` commits from the covenant — drift
-  is never silent, and `git revert` undoes any of it.
-
-## What it deliberately omits (§26)
-
-No sandboxed **workshop** — no code execution, no autonomous research, no wiki
-authoring; the heavy hands are the first rung *past* this build,
-and the gated self-edit flow is already the door their products would cross. No
-**multimodal sensing** — text, time, files only. The world model stops at
-the **snapshot** — the temporal knowledge graph waits until "what was true when"
-bites. No affective-state file, no multi-character hosting, and the mind
-doesn't initiate MCP tool calls — her hands stay conversational until the broker
-arrives with the workshop.
 
 ## How it extends (§28)
 

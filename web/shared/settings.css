@@ -60,7 +60,8 @@ select.set-input{ cursor:pointer; }
 .set-help{ color:var(--dim); font-size:.72em; margin-top:.3em; line-height:1.4; }
 
 /* the model field: provider dropdown + browsable model combobox */
-.set-model{ display:flex; align-items:center; gap:.5em; width:100%; }
+.set-model{ width:100%; }
+.set-model-row{ display:flex; align-items:center; gap:.5em; width:100%; }
 .set-model-provider{ flex:0 0 auto; width:auto; min-width:9.5em; }
 .set-model-name{ flex:1 1 auto; }
 .set-browse{
@@ -70,6 +71,19 @@ select.set-input{ cursor:pointer; }
 }
 .set-browse:hover{ border-color:var(--cyan); }
 .set-model-status{ color:var(--dim); font-size:.72em; margin-top:.3em; display:block; }
+
+/* the browse dropdown — our own list, so it shows every model, not a datalist */
+.set-model-list{
+  margin-top:.4em; max-height:12em; overflow-y:auto;
+  background:var(--bg); border:1px solid var(--rule); border-radius:.4em;
+}
+.set-model-opt{
+  display:block; width:100%; text-align:left; background:none; border:none;
+  color:var(--ink); font-family:var(--font); font-size:.82em;
+  padding:.4em .6em; cursor:pointer;
+}
+.set-model-opt:hover{ background:var(--bg-3); color:var(--cyan); }
+.set-model-empty{ color:var(--dim); font-size:.78em; padding:.5em .6em; }
 
 .settings-foot{
   display:flex; align-items:center; gap:.8em;

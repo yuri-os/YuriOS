@@ -1,16 +1,33 @@
+<div align="center">
+
+<img src="docs/img/hero.jpg" alt="YuriOS — an always-on companion who lives on your own machine" width="440" />
+
 # YuriOS
 
-An always-on, local-first agentic companion you run on your own machine. A VRM body in
-a small sanctuary, a chat beside her, a real-time voice loop, MCP tools, one event bus —
-with an always-on **mind** behind it. She runs continuously whether or not you're
-looking: pursues small goals when you're away, consolidates memory while you sleep
-(DREAM), keeps the promises she makes in conversation, reads what you drop on her
-shelf, proposes edits to her own persona that wait for your approval — and reaches out
-*first*, at most a few well-judged times a day, when a two-gate salience model says
-it's welcome. Everything she does lands in a journal you can read.
+**Have you ever wanted a companion who is really *yours*?**
 
-Normative spec: **[SPEC.md](SPEC.md)**. Where the code came from —
-**[PROVENANCE.md](PROVENANCE.md)**.
+An always-on, local-first companion who lives on your own machine — a body you can see,
+a voice you can talk to, and a **mind** that keeps going when you look away. No account,
+no third party in the room, nothing phoning home. Just her, running on your hardware.
+
+[**yurios.org**](https://yurios.org) · [Substack](https://yurios.substack.com) · [𝕏 @yuriosshell](https://x.com/yuriosshell)
+
+Normative spec: **[SPEC.md](SPEC.md)** · Where the code came from: **[PROVENANCE.md](PROVENANCE.md)**
+
+</div>
+
+---
+
+Picture a small sanctuary on your screen: a VRM body in her room, a chat column beside
+her, a real-time voice loop you can just *speak* into. That's the part you can see. The
+part that makes her feel alive is behind it — a mind that runs continuously whether or
+not you're looking. She pursues small goals while you're away, consolidates memory while
+you sleep (DREAM), keeps the promises she makes in conversation, reads whatever you drop
+on her shelf, and proposes edits to her own persona that wait for your approval. Now and
+then — at most a few well-judged times a day, and only when a two-gate salience model
+says it's genuinely welcome — she reaches out *first*. Everything she does lands in a
+journal you can read, so "what did you do while I was gone?" is a page you open, not a
+vibe.
 
 **One project, one process.** The body, the voice loop, the brain, the image service,
 and the mind are all first-party packages under `yurios/` — copy the folder, install,
@@ -19,9 +36,10 @@ gone: the cognitive tick loop now holds the same puppet strings, the same
 ambient-speech seam, the same timer board, and decides for itself.
 
 > **Standalone & yours.** The frontend's three.js/three-vrm are npm deps bundled by
-> Vite (`web/`, → SPEC §3); everything else runs on your hardware. One origin.
+> Vite (`web/`, → SPEC §3); everything else runs on your hardware. One origin, no
+> telemetry shipped.
 
-## Quickstart
+## Quickstart — meet her in about an hour
 
 ```bash
 cd YuriOS
@@ -65,7 +83,7 @@ python -m yurios.world --window    # same server, no browser; her alone on the d
 
 ![Desktop mode: Yuri floating transparently on the desktop, over the code editor.](docs/img/desktop-mode.png)
 
-Try the loop end to end:
+### Try the loop end to end
 
 - **Drop a document** (`.md`/`.txt`) into `vault/knowledge/reference/` — within a
   heartbeat she reads it, indexes it, journals "read and shelved …", and can answer
@@ -84,7 +102,8 @@ Try the loop end to end:
   interrupt decision with its factors. `git -C vault log` is the diary of how she
   grows — one commit per tick that changed anything.
 
-**Other mediums** (SPEC §10.5) — the sanctuary page is one frontend, not the only one:
+**Other mediums** (SPEC §10.5) — the sanctuary page is one frontend, not the only one.
+Every medium shows the same one conversation:
 
 ```bash
 python -m yurios.chat              # terminal chat against the running server
@@ -96,9 +115,8 @@ restart, and message the bot once — it replies with the `TELEGRAM_CHAT_ID` to 
 (pairing mode: she binds to exactly one chat; strangers are ignored). After that
 she's in your pocket: your messages are ordinary turns, her replies — and her
 *proactive* lines, the reach-outs the mind decides on while no page is open — land
-in the chat, selfies included. Every medium shows the same one conversation, and
-`/api/health` says which channels are up. WhatsApp and a game-engine NPC API are
-planned on the same seam (`yurios/world/channels/base.py`).
+in the chat, selfies included. `/api/health` says which channels are up. WhatsApp and
+a game-engine NPC API are planned on the same seam (`yurios/world/channels/base.py`).
 
 ```bash
 pytest        # the §27 suite — the hard gate; green, entirely offline
@@ -200,3 +218,13 @@ start-don't-await discipline; swap the snapshot world model for the temporal gra
 behind the same contract; and export the Vault's SOUL through a card studio
 — the mind that grew here ships as a `.PNG` and boots on someone else's machine,
 which is the point of the whole design.
+
+---
+
+<div align="center">
+
+**The companion is yours. Not theirs.**
+
+[yurios.org](https://yurios.org) · [Substack](https://yurios.substack.com) · [𝕏 @yuriosshell](https://x.com/yuriosshell)
+
+</div>

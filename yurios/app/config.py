@@ -23,6 +23,10 @@ class Config(BaseSettings):
     # Base url for a local LM Studio server (used only for lm_studio/… model ids;
     # OpenAI-compatible, so this is its /v1 endpoint).
     lmstudio_base_url: str = "http://localhost:1234/v1"
+    # Base url for a local Ollama server. Chat routing (ollama/… ids) uses LiteLLM's
+    # own default; this knob is what the settings panel queries to list the models
+    # you actually have pulled (GET {base}/api/tags).
+    ollama_base_url: str = "http://localhost:11434"
     # The utility model does fact-extraction + summarisation (§6.3, §7.3). When it
     # is a *reasoning* model (qwen3, r1, gemma-…-qat, …) its <think> block needs room
     # before the JSON answer — too small a budget truncates it to nothing. Reasoning

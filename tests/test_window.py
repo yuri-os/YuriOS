@@ -102,7 +102,7 @@ def test_vrm_page_carries_the_desktop_hooks():
 # ---- the second body: the Live2D client (§6.6) --------------------------------
 
 def test_live2d_client_is_served(client):
-    for name in ("index.html", "avatar.js", "voice.js", "settings.js",
+    for name in ("index.html", "avatar.js", "voice.js",
                  "sanctuary.css", "README.md"):
         assert (WEB / "live2d" / name).exists(), f"web/live2d/{name} missing"
     # it speaks the same wire the forked route preserves (SPEC §10)
@@ -110,6 +110,17 @@ def test_live2d_client_is_served(client):
     assert ":root.desktop" in (WEB / "live2d" / "sanctuary.css").read_text()
     r = client.get("/live2d/")
     assert r.status_code == 200 and "avatar.js" in r.text
+    # the settings panel is now the one shared source, loaded by both frontends
+    assert "/shared/settings.js" in r.text
+
+
+def test_shared_settings_panel_is_served(client):
+    for name in ("settings.js", "settings.css"):
+        assert (WEB / "shared" / name).exists(), f"web/shared/{name} missing"
+    r = client.get("/shared/settings.js")
+    assert r.status_code == 200 and "/api/settings" in r.text
+    # both frontends load the shared file
+    assert "/shared/settings.js" in client.get("/live2d/").text
 
 
 def test_live2d_config_falls_back_to_the_default_rig(client):
@@ -137,3 +148,23 @@ def test_settings_router_answers_here_too(client):
     body = client.get("/api/settings").json()
     keys = {f["key"] for g in body["groups"] for f in g["fields"]}
     assert "AVATAR_MODEL" in keys and "CHAT_MODEL" in keys
+    # the chat/utility model fields are the provider+model picker type, and the
+    # ollama base url is now editable (the panel queries it to list models)
+    fields = {f["key"]: f for g in body["groups"] for f in g["fields"]}
+    assert fields["CHAT_MODEL"]["type"] == "model"
+    assert fields["UTILITY_MODEL"]["type"] == "model"
+    assert "OLLAMA_BASE_URL" in keys
+
+
+def test_models_endpoint_degrades_gracefully(client):
+    # lm_studio may or may not be up on the machine running the suite; either way
+    # the shape holds — a `models` list, and an `error` string iff it's empty —
+    # never a 500 that would break the settings dialog (the panel renders inline).
+    r = client.get("/api/models", params={"provider": "lmstudio"})
+    assert r.status_code == 200
+    body = r.json()
+    assert isinstance(body["models"], list)
+    assert body["models"] or "error" in body
+    # an unknown provider is a soft no, not a crash
+    body = client.get("/api/models", params={"provider": "nope"}).json()
+    assert body["models"] == [] and "error" in body

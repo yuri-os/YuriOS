@@ -100,9 +100,15 @@ def create_app(cfg: Config | None = None, *, chat_model=None, utility_model=None
     embedder = embedder or _default_embedder(cfg)
     if chat_model is None or utility_model is None:
         from yurios.app.providers.openrouter import LiteLLMChatModel, LiteLLMUtilityModel
-        # lm_studio/… ids carry no key; they need the local server's base url instead.
+        # Local ids carry no key; they need their server's base url instead — the
+        # LM Studio /v1 endpoint, or the Ollama root (so a non-default OLLAMA_BASE_URL
+        # follows through to chat routing, not just the settings-panel model list).
         def _base(model: str) -> str:
-            return cfg.lmstudio_base_url if model.startswith("lm_studio/") else ""
+            if model.startswith("lm_studio/"):
+                return cfg.lmstudio_base_url
+            if model.startswith("ollama/"):
+                return cfg.ollama_base_url
+            return ""
         chat_model = chat_model or LiteLLMChatModel(
             cfg.chat_model, cfg.openrouter_api_key, cfg.temperature,
             api_base=_base(cfg.chat_model), thinking=cfg.chat_thinking)

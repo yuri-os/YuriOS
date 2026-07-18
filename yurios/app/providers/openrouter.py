@@ -29,6 +29,22 @@ def _route(model: str) -> str:
     return f"openrouter/{model}"
 
 
+# OpenRouter attributes each request to an app by two headers: X-Title (the name
+# shown in your dashboard and on the model's ranking) and HTTP-Referer (the
+# clickable link, and the favicon beside it). Left unset, LiteLLM sends its own
+# defaults and usage shows up as "liteLLM"; set ours so it reads as YuriOS.
+_APP_TITLE = "YuriOS"
+_APP_URL = "https://yurios.org"
+
+
+def _attribution(model: str) -> dict:
+    """`extra_headers` naming this app to OpenRouter — only for openrouter/… ids;
+    local routes (ollama / lm_studio) don't want them, so send nothing there."""
+    if model.startswith("openrouter/"):
+        return {"extra_headers": {"HTTP-Referer": _APP_URL, "X-Title": _APP_TITLE}}
+    return {}
+
+
 # Turn a reasoning model's <think> pass OFF for speed (SPEC §3, → ch. 13). The
 # real switch is OpenAI-style `reasoning_effort:"none"`, but it MUST ride in the
 # raw request body — passed as a top-level arg LiteLLM rewrites it and the server
@@ -75,6 +91,7 @@ class LiteLLMChatModel:
             temperature=params.get("temperature", self.temperature),
             max_tokens=params.get("max_tokens", 1024),
             stream=True,
+            **_attribution(self.model),
             **extra,
         )
         async for chunk in response:
@@ -112,6 +129,7 @@ class LiteLLMUtilityModel:
             api_base=self.api_base,
             temperature=params.get("temperature", 0.2),
             max_tokens=params.get("max_tokens", self.max_tokens),
+            **_attribution(self.model),
             **extra,
         )
         return response.choices[0].message.content or ""

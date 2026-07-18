@@ -75,13 +75,16 @@ SCHEMA: list[dict] = [
     ]},
     {"group": "Embeddings", "fields": [
         {"key": "EMBED_BACKEND", "attr": "embed_backend", "type": "select",
-         "options": ["lm_studio", "ollama", "sentence_tf"],
-         "help": "lm_studio reuses the chat server; a swap at the same dim auto-reindexes"},
+         "options": ["sentence_tf", "lm_studio", "ollama"],
+         "help": "sentence_tf runs in-process — no LM Studio/Ollama needed. "
+                 "lm_studio/ollama reuse a local server. A swap auto-reindexes."},
         {"key": "EMBED_MODEL", "attr": "embed_model", "type": "text",
-         "suggest": ["text-embedding-nomic-embed-text-v1.5", "nomic-embed-text",
-                     "BAAI/bge-small-en-v1.5"]},
+         "suggest": ["BAAI/bge-small-en-v1.5", "text-embedding-nomic-embed-text-v1.5",
+                     "nomic-embed-text"],
+         "help": "MUST match the backend: sentence_tf → a HF repo (BAAI/bge-small-en-v1.5); "
+                 "lm_studio/ollama → that server's model (text-embedding-nomic-…)"},
         {"key": "EMBED_DIM", "attr": "embed_dim", "type": "number",
-         "help": "must equal the index vector width (nomic=768, bge-small=384)"},
+         "help": "must equal the model's vector width (bge-small=384, nomic=768)"},
     ]},
     {"group": "Storage", "fields": [
         {"key": "VAULT_DIR", "attr": "vault_dir", "type": "text",

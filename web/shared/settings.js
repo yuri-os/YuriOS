@@ -61,6 +61,11 @@
   }
 
   // ---- the model field: provider dropdown + browsable model combobox ----
+  // The "browse" list is a real dropdown we render ourselves, NOT a native
+  // <datalist> — a datalist silently filters its options against whatever is
+  // already typed in the box, so a manually-entered model would hide the very
+  // list you clicked browse to see. Ours shows every model on browse and only
+  // narrows as you type into it.
   function modelField(f) {
     const id = "set-" + f.key;
     const { provider, model } = splitModel(f.value == null ? "" : String(f.value));
@@ -69,48 +74,70 @@
     for (const p of PROVIDERS)
       sel.append(el("option", { value: p.id, textContent: p.label, selected: p.id === provider }));
 
-    const listId = id + "-list";
     const input = el("input", {
       id, className: "set-input set-model-name", type: "text",
       value: model, placeholder: "model id (or click browse)", autocomplete: "off",
     });
-    input.setAttribute("list", listId);
-    const datalist = el("datalist", { id: listId });
-
-    const browse = el("button", {
-      type: "button", className: "set-browse", textContent: "browse",
-    });
+    const browse = el("button", { type: "button", className: "set-browse", textContent: "browse" });
     const status = el("span", { className: "set-model-status" });
+    const list = el("div", { className: "set-model-list", hidden: true });
 
-    async function loadList() {
-      const p = sel.value;
-      if (p === "custom") {
-        status.textContent = "custom: type the full id";
-        datalist.replaceChildren();
+    let all = [];              // last fetched models for this provider
+    let fetchedFor = null;     // which provider `all` was fetched for
+
+    function renderList(filter) {
+      list.replaceChildren();
+      const q = (filter || "").trim().toLowerCase();
+      const shown = (q ? all.filter((m) => m.toLowerCase().includes(q)) : all).slice(0, 500);
+      if (!shown.length) {
+        list.append(el("div", { className: "set-model-empty",
+          textContent: all.length ? "no match" : "nothing to show" }));
         return;
       }
+      for (const m of shown) {
+        const opt = el("button", { type: "button", className: "set-model-opt", textContent: m });
+        // mousedown (not click) so we win the race against the input's blur
+        opt.addEventListener("mousedown", (e) => { e.preventDefault(); input.value = m; hide(); });
+        list.append(opt);
+      }
+    }
+    const show = () => { list.hidden = false; };
+    const hide = () => { list.hidden = true; };
+
+    async function browseModels() {
+      const p = sel.value;
+      if (p === "custom") { status.textContent = "custom: type the full id"; return; }
+      if (fetchedFor === p && all.length) {   // already have them — just reopen, full list
+        renderList(""); show(); input.focus(); return;
+      }
       status.textContent = "loading…";
-      datalist.replaceChildren();
       try {
         const r = await fetch("/api/models?provider=" + encodeURIComponent(p));
         const data = await r.json();
         if (data.error) { status.textContent = data.error; return; }
-        const models = data.models || [];
-        for (const m of models) datalist.append(el("option", { value: m }));
-        status.textContent = models.length
-          ? `${models.length} available — click the box`
-          : "none loaded there";
-        if (models.length) input.focus();      // pop the datalist for the user
+        all = data.models || []; fetchedFor = p;
+        status.textContent = all.length ? `${all.length} available` : "none loaded there";
+        renderList("");                       // browse shows ALL, ignoring the typed value
+        if (all.length) { show(); input.focus(); }
       } catch (e) {
         status.textContent = "couldn't load: " + e;
       }
     }
 
-    browse.addEventListener("click", loadList);
-    // switching provider invalidates the last browse and clears stale hints
-    sel.addEventListener("change", () => { datalist.replaceChildren(); status.textContent = ""; });
+    browse.addEventListener("click", browseModels);
+    input.addEventListener("input", () => { if (!list.hidden) renderList(input.value); });
+    input.addEventListener("focus", () => {
+      if (all.length && fetchedFor === sel.value) { renderList(input.value); show(); }
+    });
+    input.addEventListener("keydown", (e) => { if (e.key === "Escape") hide(); });
+    // switching provider invalidates the last browse
+    sel.addEventListener("change", () => { all = []; fetchedFor = null; hide(); status.textContent = ""; });
 
-    const combo = el("div", { className: "set-model" }, sel, input, browse, datalist);
+    const combo = el("div", { className: "set-model" },
+      el("div", { className: "set-model-row" }, sel, input, browse), list);
+    // click anywhere outside this field closes the open list
+    document.addEventListener("mousedown", (e) => { if (!combo.contains(e.target)) hide(); });
+
     const read = () => joinModel(sel.value, input.value);
     return { node: combo, read, status };
   }

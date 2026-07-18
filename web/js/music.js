@@ -21,6 +21,8 @@ export class Music {
   constructor(getCtx) {
     this.getCtx = getCtx;
     this.rain = undefined;       // { gain }
+    this.rainLevel = 0;          // last intensity the `rain` command asked for
+    this.rainMuted = false;      // the mute button; overrides the bed to silence
     this.current = undefined;    // { name, stop() }
   }
 
@@ -51,10 +53,24 @@ export class Music {
 
   /** Follows the `rain` command's intensity (0..1). */
   setRainLevel(i) {
+    this.rainLevel = Math.min(1, Math.max(0, i ?? 0));
+    this.applyRainGain(1.2);                                    // weather eases in
+  }
+
+  /** The mute button: silence (or restore) the audible rain bed without losing
+   *  the intensity the weather is at, so the window keeps raining either way.
+   *  @param muted boolean, or undefined to toggle. @returns the new muted state. */
+  setRainMuted(muted) {
+    this.rainMuted = muted ?? !this.rainMuted;
+    this.applyRainGain(0.25);                                   // a quick, clean cut
+    return this.rainMuted;
+  }
+
+  applyRainGain(timeConstant) {
     const ctx = this.getCtx();
     const { gain } = this.ensureRain();
-    const target = 0.09 * Math.min(1, Math.max(0, i ?? 0));
-    gain.gain.setTargetAtTime(target, ctx.currentTime, 1.2);   // weather eases in
+    const target = this.rainMuted ? 0 : 0.09 * this.rainLevel;
+    gain.gain.setTargetAtTime(target, ctx.currentTime, timeConstant);
   }
 
   // ---- the tracks (play_music) ------------------------------------------------

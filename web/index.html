@@ -11,6 +11,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>yuri</title>
   <link rel="stylesheet" href="sanctuary.css">
+  <!-- the settings panel's shared stylesheet, served raw at /shared/ (SPEC §11) -->
+  <link rel="stylesheet" href="/shared/settings.css">
   <!-- Desktop-pet mode (opened by world/window.py with ?desktop=1 — SPEC §6.5):
        flip the page transparent + chromeless *before* first paint so there's no
        flash of the dark sanctuary; main.js reads the class and sets the room
@@ -47,7 +49,28 @@
     <span class="status" id="status">· offline</span>
     <span class="avatar-status" id="avatar-status" title="/api/events">bus ·</span>
     <span class="latency" id="latency" title="end-of-speech → first audio"></span>
+    <button id="settings-open" class="gear" title="settings" aria-label="settings">⚙</button>
   </header>
+
+  <!-- the settings panel (SPEC §11, → /shared/settings.js): the gear opens it; it
+       edits .env and the change lands on the next restart. Same markup and the
+       same script the Live2D client uses — one codepath. -->
+  <dialog id="settings" class="settings">
+    <form method="dialog" class="settings-form" id="settings-form">
+      <header class="settings-head">
+        <span class="settings-title">settings</span>
+        <span class="settings-path" id="settings-path" title="the file being edited"></span>
+        <button type="button" id="settings-close" class="settings-x" aria-label="close">✕</button>
+      </header>
+      <div class="settings-body" id="settings-body">
+        <p class="settings-loading">loading…</p>
+      </div>
+      <footer class="settings-foot">
+        <span class="settings-note" id="settings-note"></span>
+        <button type="button" id="settings-save" class="settings-save">save</button>
+      </footer>
+    </form>
+  </dialog>
 
   <!-- desktop mode only (SPEC §6.5): the chat column carries text in a browser -->
   <p class="caption hud" id="caption" aria-live="polite"></p>
@@ -88,5 +111,8 @@
   <script type="module" src="js/chat.js"></script>
   <script type="module" src="js/mind.js"></script>
   <script type="module" src="js/main.js"></script>
+  <!-- the settings panel, from the raw /shared/ mount (not bundled): the exact
+       same file the Live2D client loads. Absolute src so Vite leaves it alone. -->
+  <script src="/shared/settings.js"></script>
 </body>
 </html>

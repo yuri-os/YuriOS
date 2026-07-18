@@ -120,72 +120,9 @@ body{
              border-top:1px solid var(--rule); }
 }
 
-/* settings: gear + modal (settings.js, /api/settings) */
-.gear{
-  background:none; border:none; color:var(--dim); cursor:pointer;
-  font-size:1.1em; line-height:1; padding:0 .1em; transition:color .15s, transform .3s;
-}
-.gear:hover{ color:var(--cyan); transform:rotate(45deg); }
-
-.settings{
-  width:min(560px, 94vw); max-height:86dvh; padding:0; color:var(--ink);
-  background:var(--bg-2); border:1px solid var(--rule); border-radius:.7em;
-  box-shadow:0 20px 60px #000c; font-family:var(--font); overflow:hidden;
-}
-.settings::backdrop{ background:#000a; backdrop-filter:blur(2px); }
-.settings-form{ display:flex; flex-direction:column; max-height:86dvh; }
-
-.settings-head{
-  display:flex; align-items:baseline; gap:.6em;
-  padding:.9em 1.1em; border-bottom:1px solid var(--rule); background:var(--bg-3);
-}
-.settings-title{ color:var(--magenta); letter-spacing:.08em; }
-.settings-path{ color:var(--dim); font-size:.72em; margin-left:.2em; overflow:hidden;
-  text-overflow:ellipsis; white-space:nowrap; }
-.settings-x{ margin-left:auto; background:none; border:none; color:var(--dim);
-  cursor:pointer; font-size:1em; }
-.settings-x:hover{ color:var(--magenta); }
-
-.settings-body{ overflow-y:auto; padding:.4em 1.1em 1em; }
-.settings-loading{ color:var(--dim); padding:1.4em 0; text-align:center; }
-
-.set-group{ margin-top:1.1em; }
-.set-group-title{
-  color:var(--cyan); font-size:.8em; font-weight:normal; letter-spacing:.1em;
-  text-transform:uppercase; padding-bottom:.4em; margin-bottom:.5em;
-  border-bottom:1px solid var(--rule);
-}
-.set-row{ display:block; margin:.7em 0; }
-.set-key{ color:var(--ink-2); font-size:.82em; margin-bottom:.3em; }
-.set-ctl{ display:flex; align-items:center; gap:.5em; }
-.set-input{
-  flex:1; min-width:0; background:var(--bg); color:var(--ink);
-  border:1px solid var(--rule); border-radius:.4em; padding:.5em .6em;
-  font-family:var(--font); font-size:.9em;
-}
-.set-input:focus{ outline:none; border-color:var(--cyan); }
-select.set-input{ cursor:pointer; }
-.set-check{ width:1.15em; height:1.15em; accent-color:var(--magenta); cursor:pointer; }
-.set-reveal{
-  background:var(--bg-3); color:var(--dim); border:1px solid var(--rule);
-  border-radius:.4em; padding:.45em .6em; cursor:pointer; font-family:var(--font);
-  font-size:.75em;
-}
-.set-reveal:hover{ color:var(--ink); }
-.set-help{ color:var(--dim); font-size:.72em; margin-top:.3em; line-height:1.4; }
-
-.settings-foot{
-  display:flex; align-items:center; gap:.8em;
-  padding:.8em 1.1em; border-top:1px solid var(--rule); background:var(--bg-3);
-}
-.settings-note{ color:var(--dim); font-size:.8em; flex:1; }
-.settings-note.restart{ color:var(--amber); }
-.settings-save{
-  background:var(--bg); color:var(--cyan); border:1px solid var(--cyan);
-  border-radius:.4em; padding:.55em 1.4em; cursor:pointer; font-family:var(--font);
-  transition:background .15s, color .15s;
-}
-.settings-save:hover{ background:var(--cyan); color:var(--void); }
+/* settings: gear + modal — styled by the shared /shared/settings.css, linked in
+   index.html alongside this file (SPEC §11). Kept out of here so the panel has
+   one stylesheet across both frontends. */
 
 /* ---- desktop-pet mode (:root.desktop, set by ?desktop=1 in index.html) -------
    Strip the page down to just the avatar floating on a transparent surface, so a

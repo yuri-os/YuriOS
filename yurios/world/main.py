@@ -462,6 +462,10 @@ def create_app(cfg: Config | None = None, *, brain=None, chat_model=None,
     # The _ModelsNoCache shim above keeps /models/ revalidated.
     app.mount("/models", StaticFiles(directory=WEB_DIR / "models", html=True),
               name="models")
+    # The settings panel's one shared source (SPEC §11): web/shared/settings.{js,css},
+    # served raw so BOTH the bundled VRM app and the raw Live2D client load the
+    # exact same file — one codepath for the .env editor, no per-frontend copy.
+    app.mount("/shared", StaticFiles(directory=WEB_DIR / "shared"), name="shared")
     # The sanctuary app itself is the Vite build (web/dist, → §3). check_dir=False
     # so a fresh checkout that hasn't run `npm run build` still boots — / just
     # 404s until then, and the warning tells them what to run — instead of raising

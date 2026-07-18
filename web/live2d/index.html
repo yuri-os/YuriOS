@@ -9,6 +9,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>yuri</title>
   <link rel="stylesheet" href="sanctuary.css">
+  <!-- the settings panel's shared stylesheet, served raw at /shared/ (SPEC §11) -->
+  <link rel="stylesheet" href="/shared/settings.css">
   <!-- Desktop-pet mode (opened by desktop/window.py with ?desktop=1): flip the
        page transparent + chromeless *before* first paint so there's no flash of
        the dark sanctuary. Everything else (avatar, voice loop) is unchanged. -->
@@ -31,7 +33,7 @@
       <button id="settings-open" class="gear" title="settings" aria-label="settings">⚙</button>
     </header>
 
-    <!-- settings panel (settings.js): edits .env; takes effect on restart -->
+    <!-- settings panel (/shared/settings.js): edits .env; takes effect on restart -->
     <dialog id="settings" class="settings">
       <form method="dialog" class="settings-form" id="settings-form">
         <header class="settings-head">
@@ -85,7 +87,7 @@
   <script src="vendor/cubism4.min.js"></script>
   <script src="avatar.js"></script>
   <script src="voice.js"></script>
-  <script src="settings.js"></script>
+  <script src="/shared/settings.js"></script>
   <!-- FORK(B2): the one bus (Build #4 SPEC §10) — shared chat + the adapter -->
   <script src="/js/boot.js"></script>
   <script src="/js/chat.js"></script>

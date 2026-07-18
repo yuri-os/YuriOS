@@ -21,6 +21,7 @@ from __future__ import annotations
 import ipaddress
 from pathlib import Path
 
+import httpx
 from fastapi import APIRouter, HTTPException, Request
 
 from ..avatar_models import MODELS
@@ -51,18 +52,16 @@ _WHISPER = ["tiny.en", "base.en", "small.en", "medium.en", "large-v3"]
 # for a select; suggest = datalist hints for an open combobox; help = one line.
 SCHEMA: list[dict] = [
     {"group": "Brain", "fields": [
-        {"key": "CHAT_MODEL", "attr": "chat_model", "type": "text",
-         "suggest": ["lm_studio/google/gemma-4-12b-qat", "ollama/qwen3:8b",
-                     "ollama/llama3.1:8b", "openrouter/deepseek/deepseek-v4-flash",
-                     "openrouter/anthropic/claude-sonnet-5"],
-         "help": "prefix picks the route: lm_studio/… or ollama/… (local) · openrouter/… (hosted)"},
-        {"key": "UTILITY_MODEL", "attr": "utility_model", "type": "text",
-         "suggest": ["lm_studio/google/gemma-4-12b-qat", "ollama/qwen3:8b",
-                     "openrouter/deepseek/deepseek-v4-flash"],
+        {"key": "CHAT_MODEL", "attr": "chat_model", "type": "model",
+         "help": "her reply voice — pick a provider, then type a model or browse what's loaded"},
+        {"key": "UTILITY_MODEL", "attr": "utility_model", "type": "model",
          "help": "model for summaries/extraction (runs off the hot path)"},
         {"key": "LMSTUDIO_BASE_URL", "attr": "lmstudio_base_url", "type": "text",
          "suggest": ["http://localhost:1234/v1"],
          "help": "OpenAI-compatible endpoint for lm_studio/… ids (chat + embeddings)"},
+        {"key": "OLLAMA_BASE_URL", "attr": "ollama_base_url", "type": "text",
+         "suggest": ["http://localhost:11434"],
+         "help": "local Ollama server — routes ollama/… ids and lists your pulled models"},
         {"key": "CHAT_THINKING", "attr": "chat_thinking", "type": "bool",
          "help": "reply <think> pass — OFF for real-time voice (a reasoning model would stall)"},
         {"key": "UTILITY_THINKING", "attr": "utility_thinking", "type": "bool",
@@ -208,6 +207,44 @@ def _update_env(path: Path, updates: dict[str, str]) -> list[str]:
 
     path.write_text("\n".join(lines) + "\n")
     return list(updates)
+
+
+async def _fetch_json(url: str, headers: dict | None = None) -> dict:
+    async with httpx.AsyncClient(timeout=8.0) as client:
+        r = await client.get(url, headers=headers or {})
+        r.raise_for_status()
+        return r.json()
+
+
+@router.get("/api/models")
+async def list_models(request: Request, provider: str = ""):
+    """The models a provider can actually serve right now, for the settings panel's
+    model picker. lm_studio + ollama hit the local server; openrouter hits its
+    public catalogue (the key, if set, is sent so private/BYOK models show too).
+    Any failure — server down, no such provider — comes back as an empty list plus
+    an `error` string the panel renders inline, never a 500 that breaks the dialog."""
+    _require_local(request)
+    cfg = request.app.state.rt.cfg
+    provider = (provider or "").lower()
+    try:
+        if provider in ("lmstudio", "lm_studio"):
+            base = cfg.lmstudio_base_url.rstrip("/")
+            data = await _fetch_json(f"{base}/models")
+            ids = [m.get("id", "") for m in data.get("data", [])]
+        elif provider == "ollama":
+            base = cfg.ollama_base_url.rstrip("/")
+            data = await _fetch_json(f"{base}/api/tags")
+            ids = [m.get("name", "") for m in data.get("models", [])]
+        elif provider == "openrouter":
+            headers = ({"Authorization": f"Bearer {cfg.openrouter_api_key}"}
+                       if cfg.openrouter_api_key else None)
+            data = await _fetch_json("https://openrouter.ai/api/v1/models", headers)
+            ids = [m.get("id", "") for m in data.get("data", [])]
+        else:
+            return {"models": [], "error": f"no live listing for '{provider}' — type the id"}
+    except Exception as e:                     # unreachable server, bad json, timeout…
+        return {"models": [], "error": f"couldn't reach {provider}: {str(e)[:120]}"}
+    return {"models": sorted({i for i in ids if i})}
 
 
 @router.get("/api/settings")

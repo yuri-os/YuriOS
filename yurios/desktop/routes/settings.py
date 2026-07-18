@@ -52,6 +52,10 @@ _WHISPER = ["tiny.en", "base.en", "small.en", "medium.en", "large-v3"]
 # for a select; suggest = datalist hints for an open combobox; help = one line.
 SCHEMA: list[dict] = [
     {"group": "Brain", "fields": [
+        # the key comes first: set it once and it's ready before you pick an
+        # openrouter/… route below (and it's what the model browse authenticates with).
+        {"key": "OPENROUTER_API_KEY", "attr": "openrouter_api_key", "type": "password",
+         "help": "needed for openrouter/… models — set this first (openrouter.ai/keys)"},
         {"key": "CHAT_MODEL", "attr": "chat_model", "type": "model",
          "help": "her reply voice — pick a provider, then type a model or browse what's loaded"},
         {"key": "UTILITY_MODEL", "attr": "utility_model", "type": "model",
@@ -68,8 +72,6 @@ SCHEMA: list[dict] = [
          "help": "extraction/summary <think> pass — ON (off the hot path, quality matters)"},
         {"key": "UTILITY_MAX_TOKENS", "attr": "utility_max_tokens", "type": "number",
          "help": "budget for the utility call's <think> block + JSON — too small loses the fact"},
-        {"key": "OPENROUTER_API_KEY", "attr": "openrouter_api_key", "type": "password",
-         "help": "only needed for openrouter/… models (openrouter.ai/keys)"},
     ]},
     {"group": "Embeddings", "fields": [
         {"key": "EMBED_BACKEND", "attr": "embed_backend", "type": "select",

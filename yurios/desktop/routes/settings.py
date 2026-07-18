@@ -78,11 +78,10 @@ SCHEMA: list[dict] = [
          "options": ["sentence_tf", "lm_studio", "ollama"],
          "help": "sentence_tf runs in-process — no LM Studio/Ollama needed. "
                  "lm_studio/ollama reuse a local server. A swap auto-reindexes."},
-        {"key": "EMBED_MODEL", "attr": "embed_model", "type": "text",
-         "suggest": ["BAAI/bge-small-en-v1.5", "text-embedding-nomic-embed-text-v1.5",
-                     "nomic-embed-text"],
+        {"key": "EMBED_MODEL", "attr": "embed_model", "type": "embed_model",
+         "backend_key": "EMBED_BACKEND",
          "help": "MUST match the backend: sentence_tf → a HF repo (BAAI/bge-small-en-v1.5); "
-                 "lm_studio/ollama → that server's model (text-embedding-nomic-…)"},
+                 "lm_studio/ollama → browse that server's models (text-embedding-nomic-…)"},
         {"key": "EMBED_DIM", "attr": "embed_dim", "type": "number",
          "help": "must equal the model's vector width (bge-small=384, nomic=768)"},
     ]},

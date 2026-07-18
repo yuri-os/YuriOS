@@ -60,29 +60,22 @@
     return m.startsWith(p.prefix) ? m : p.prefix + m;   // don't double a pasted prefix
   }
 
-  // ---- the model field: provider dropdown + browsable model combobox ----
+  // ---- the browsable model combobox, shared by chat + embedding fields ----
   // The "browse" list is a real dropdown we render ourselves, NOT a native
   // <datalist> — a datalist silently filters its options against whatever is
   // already typed in the box, so a manually-entered model would hide the very
   // list you clicked browse to see. Ours shows every model on browse and only
   // narrows as you type into it.
-  function modelField(f) {
-    const id = "set-" + f.key;
-    const { provider, model } = splitModel(f.value == null ? "" : String(f.value));
-
-    const sel = el("select", { className: "set-input set-model-provider" });
-    for (const p of PROVIDERS)
-      sel.append(el("option", { value: p.id, textContent: p.label, selected: p.id === provider }));
-
-    const input = el("input", {
-      id, className: "set-input set-model-name", type: "text",
-      value: model, placeholder: "model id (or click browse)", autocomplete: "off",
-    });
+  //
+  // `getProviderId()` is read live at browse time — for chat it's the provider
+  // dropdown beside the box; for embeddings it's the EMBED_BACKEND select above.
+  // `hints[provider]` short-circuits the fetch with a message for providers that
+  // have nothing to list (custom ids; sentence_tf, which is an in-process HF repo).
+  function attachBrowse(input, getProviderId, hints) {
     const browse = el("button", { type: "button", className: "set-browse", textContent: "browse" });
     const status = el("span", { className: "set-model-status" });
     const list = el("div", { className: "set-model-list", hidden: true });
-
-    let all = [];              // last fetched models for this provider
+    let all = [];              // last fetched models
     let fetchedFor = null;     // which provider `all` was fetched for
 
     function renderList(filter) {
@@ -105,8 +98,8 @@
     const hide = () => { list.hidden = true; };
 
     async function browseModels() {
-      const p = sel.value;
-      if (p === "custom") { status.textContent = "custom: type the full id"; return; }
+      const p = getProviderId();
+      if (hints && hints[p] != null) { status.textContent = hints[p]; hide(); return; }
       if (fetchedFor === p && all.length) {   // already have them — just reopen, full list
         renderList(""); show(); input.focus(); return;
       }
@@ -127,19 +120,52 @@
     browse.addEventListener("click", browseModels);
     input.addEventListener("input", () => { if (!list.hidden) renderList(input.value); });
     input.addEventListener("focus", () => {
-      if (all.length && fetchedFor === sel.value) { renderList(input.value); show(); }
+      if (all.length && fetchedFor === getProviderId()) { renderList(input.value); show(); }
     });
     input.addEventListener("keydown", (e) => { if (e.key === "Escape") hide(); });
-    // switching provider invalidates the last browse
-    sel.addEventListener("change", () => { all = []; fetchedFor = null; hide(); status.textContent = ""; });
 
+    return { browse, list, status, hide };
+  }
+
+  // the chat/utility model field: a provider dropdown + the browsable box. The
+  // provider is a prefix baked into the stored id, so we split it off / rejoin it.
+  function modelField(f) {
+    const id = "set-" + f.key;
+    const { provider, model } = splitModel(f.value == null ? "" : String(f.value));
+    const sel = el("select", { className: "set-input set-model-provider" });
+    for (const p of PROVIDERS)
+      sel.append(el("option", { value: p.id, textContent: p.label, selected: p.id === provider }));
+    const input = el("input", {
+      id, className: "set-input set-model-name", type: "text",
+      value: model, placeholder: "model id (or click browse)", autocomplete: "off",
+    });
+    const b = attachBrowse(input, () => sel.value, { custom: "custom: type the full id" });
+    sel.addEventListener("change", () => b.hide());   // stale list is for the old provider
     const combo = el("div", { className: "set-model" },
-      el("div", { className: "set-model-row" }, sel, input, browse), list);
-    // click anywhere outside this field closes the open list
-    document.addEventListener("mousedown", (e) => { if (!combo.contains(e.target)) hide(); });
+      el("div", { className: "set-model-row" }, sel, input, b.browse), b.list);
+    document.addEventListener("mousedown", (e) => { if (!combo.contains(e.target)) b.hide(); });
+    return { node: combo, read: () => joinModel(sel.value, input.value), status: b.status };
+  }
 
-    const read = () => joinModel(sel.value, input.value);
-    return { node: combo, read, status };
+  // the embedding model field: no provider dropdown of its own — the "provider" IS
+  // the EMBED_BACKEND select rendered just above it (read live). The id is bare, so
+  // read() returns it verbatim. sentence_tf has no server to list, so it hints HF.
+  function embedModelField(f) {
+    const id = "set-" + f.key;
+    const backendId = "set-" + (f.backend_key || "EMBED_BACKEND");
+    const input = el("input", {
+      id, className: "set-input set-model-name", type: "text",
+      value: f.value == null ? "" : String(f.value),
+      placeholder: "embedding model", autocomplete: "off",
+    });
+    const getProvider = () => (document.getElementById(backendId)?.value || "");
+    const b = attachBrowse(input, getProvider, {
+      sentence_tf: "sentence_tf runs in-process — type a HuggingFace repo id (e.g. BAAI/bge-small-en-v1.5)",
+    });
+    const combo = el("div", { className: "set-model" },
+      el("div", { className: "set-model-row" }, input, b.browse), b.list);
+    document.addEventListener("mousedown", (e) => { if (!combo.contains(e.target)) b.hide(); });
+    return { node: combo, read: () => input.value, status: b.status };
   }
 
   function control(f) {
@@ -184,8 +210,8 @@
     const wrap = el("div", { className: "set-ctl" });
 
     let ctl;
-    if (f.type === "model") {
-      ctl = modelField(f);
+    if (f.type === "model" || f.type === "embed_model") {
+      ctl = f.type === "embed_model" ? embedModelField(f) : modelField(f);
       wrap.append(ctl.node);
     } else {
       ctl = control(f);

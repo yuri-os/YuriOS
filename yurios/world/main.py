@@ -95,12 +95,34 @@ class Runtime:
                                      speak=self.speak_ambient)
         # `brain` is injectable for the same reason as B2's: the route tests run
         # against a FakeBrain (no Vault, no SQLite). The real one is a ToolBrain —
-        # the BrainAdapter with the §7 tool loop wrapped around it.
-        self.brain = brain or ToolBrain.build(
-            cfg, guard=self.guard, timers=self.timers,
-            controller=self.controller, selfies=self.selfies,
-            chat_model=chat_model,
-            utility_model=utility_model, embedder=embedder)
+        # the BrainAdapter with the §7 tool loop wrapped around it. Building it
+        # loads the embedding model that indexes her memory (SPEC §3) — with the
+        # sentence-transformers default that's a cold torch model on the CPU, as
+        # slow to wake as the voice stack — so surface it in the boot panel first
+        # (it loads here, before the voice warm-up thread even starts). A
+        # server-backed embedder (ollama / lm_studio) has no local weights to
+        # load; it still gets a line so the panel names what indexes her.
+        if brain is not None:
+            self.brain = brain                 # injected (tests): no embedder loads
+        else:
+            self.boot.declare("embed", "memory · embedding model")
+            if embedder is None:
+                from yurios.app.main import _default_embedder
+                self.boot.start("embed", detail=cfg.embed_model)
+                try:
+                    embedder = _default_embedder(cfg)
+                except Exception as e:
+                    self.boot.done("embed", state="failed", detail=str(e)[:80])
+                    raise
+                self.boot.done("embed",
+                               detail=f"{cfg.embed_model} · {cfg.embed_dim}d")
+            else:
+                self.boot.done("embed", detail="injected")
+            self.brain = ToolBrain.build(
+                cfg, guard=self.guard, timers=self.timers,
+                controller=self.controller, selfies=self.selfies,
+                chat_model=chat_model,
+                utility_model=utility_model, embedder=embedder)
         self._tool_runner = tool_runner        # injected, or built at startup
         self.tools_status = "off"
         # the inbound inbox (SPEC §16): everything that happens to her becomes a

@@ -34,6 +34,7 @@ const els = {
   mic: document.getElementById('mic'),
   micLabel: document.getElementById('mic-label'),
   text: document.getElementById('text'),
+  rainMute: document.getElementById('rain-mute'),
   enter: document.getElementById('enter'),
   enterBtn: document.getElementById('enter-btn'),
 };
@@ -58,6 +59,16 @@ async function boot() {
   const viseme = new VisemeDriver();
   stage.setVisemeSource(viseme.level);         // loop step 9 reads this (SPEC §5)
   const music = new Music(() => viseme.context());
+
+  // the rain-mute button (footer): silences just the audible rain bed; the
+  // window keeps raining and the brain's `rain` commands still land, they're
+  // simply inaudible until you toggle back.
+  els.rainMute?.addEventListener('click', () => {
+    const muted = music.setRainMuted();
+    els.rainMute.classList.toggle('muted', muted);
+    els.rainMute.setAttribute('aria-pressed', String(muted));
+    els.rainMute.title = muted ? 'unmute the rain' : 'mute the rain';
+  });
 
   try {
     // The ?v tag busts caches that predate the Cache-Control fix (world/main.py):

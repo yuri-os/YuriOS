@@ -64,6 +64,22 @@ body{ background:var(--void); color:var(--ink); font-family:var(--font); font-si
 .mic.on .dot{ background:var(--magenta); box-shadow:0 0 8px var(--magenta); animation:pulse 1.4s infinite; }
 @keyframes pulse{ 50%{ opacity:.4; } }
 
+.rain-mute{
+  display:flex; align-items:center; justify-content:center;
+  background:#181822cc; color:var(--ink); border:1px solid var(--rule);
+  width:2.6em; height:2.6em; border-radius:50%; cursor:pointer;
+  font-family:var(--font); font-size:1em; line-height:1;
+  transition:border-color .15s, color .15s, opacity .15s;
+}
+.rain-mute:hover{ border-color:var(--dim); }
+/* muted: dimmed, with a slash across the cloud */
+.rain-mute.muted{ color:var(--dim); opacity:.6; }
+.rain-mute.muted .rain-glyph{ position:relative; }
+.rain-mute.muted .rain-glyph::after{
+  content:""; position:absolute; left:-15%; top:50%; width:130%; height:1px;
+  background:currentColor; transform:rotate(-45deg);
+}
+
 #text{
   flex:1; background:#0a0a10cc; color:var(--ink);
   border:1px solid var(--rule); padding:.6em .9em; border-radius:.5em;

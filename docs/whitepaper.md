@@ -210,23 +210,23 @@ degrades to a fully functional reactive companion.
 
 ```mermaid
 flowchart TB
-  subgraph FE["Frontends (thin views)"]
-    W["Browser — VRM stage + chat"]
-    L["Browser — Live2D body"]
-    C["Terminal client<br/>python -m yurios.chat"]
+  subgraph FE["Frontends — thin views"]
+    direction LR
+    W["Browser<br/>VRM stage + chat"]
+    L["Browser<br/>Live2D body"]
+    C["Terminal<br/>python -m yurios.chat"]
     TG["Telegram"]
   end
 
-  subgraph HOST["yurios.world — one process, one origin (:8768)"]
-    direction TB
-    VOICE["Voice loop<br/>(STT · VAD · TTS · TurnController)"]
-    TURNS["Text-turn runner<br/>(shared, per-channel)"]
-    BRAIN["ToolBrain<br/>= brain + in-stream MCP tool loop"]
-    MEM["MemoryStore + Vault<br/>(git-backed files)"]
-    MCP["MCP server (4 tools)<br/>timer · music · weather · selfie"]
+  subgraph HOST["yurios.world — one process · one origin · :8768"]
+    VOICE["Voice loop<br/>STT · VAD · TTS · TurnController"]
+    TURNS["Text-turn runner<br/>shared, per-channel"]
+    BRAIN["ToolBrain<br/>brain + in-stream MCP tool loop"]
+    MEM["MemoryStore + Vault<br/>git-backed files"]
+    MCP["MCP server — 4 tools<br/>timer · music · weather · selfie"]
     FORGE["SelfieLab → ImageForge"]
-    VRM["VrmController<br/>(the puppet strings)"]
-    HUB["EventHub (one outbound bus)"]
+    VRM["VrmController<br/>the puppet strings"]
+    HUB["EventHub<br/>one outbound bus"]
   end
 
   W & L -- "mic PCM (binary)" --> VOICE
@@ -237,10 +237,11 @@ flowchart TB
   BRAIN -- "[[tool ...]]" --> MCP
   MCP --> FORGE
   BRAIN --> VRM
-  VRM --> HUB
   BRAIN -- "message / draft" --> HUB
-  HUB -- "/api/events (SSE): hello·message·draft·avatar·journal·mind" --> W & L & C
-  VOICE -- "audio (PCM) /ws/voice" --> W & L
+  VRM --> HUB
+
+  HUB -. "/api/events (SSE): hello · message · draft · avatar · journal · mind" .-> FE
+  VOICE -. "audio (PCM) /ws/voice" .-> W & L
 ```
 
 **The brain** (`yurios/app`) assembles every prompt from a static **SOUL** (identity files
@@ -336,15 +337,16 @@ a single `suspend_gap` catch-up — never a pile of stale reactions, never thirt
 
 ```mermaid
 stateDiagram-v2
+  direction LR
   [*] --> ENGAGED
   ENGAGED --> IDLE: quiet > engaged_timeout
   IDLE --> DORMANT: away > idle_timeout
   DORMANT --> DREAM: local night window
   DREAM --> DORMANT: window ends / backlog clear
+  ENGAGED --> ENGAGED: user message
   IDLE --> ENGAGED: user message (preempt)
   DORMANT --> ENGAGED: user message (preempt)
   DREAM --> ENGAGED: user message (preempt)
-  ENGAGED --> ENGAGED: user message
 ```
 
 An always-on mind is affordable only because it is almost always nearly asleep. Four states
@@ -370,7 +372,7 @@ flowchart TB
   g1 -- "yes (reach_out goal)" --> g2{"Gate 2<br/>salience-to-interrupt"}
   g2 --> hard{"Hard gates:<br/>quiet hours?<br/>daily cap hit?"}
   hard -- blocked --> silent["SILENT — do it quietly,<br/>journal it"]
-  hard -- allowed --> score["Score: relevance · urgency ·<br/>contact-license · availability ·<br/>decaying welcome"]
+  hard -- allowed --> score["Score five factors:<br/>relevance · urgency<br/>contact-license · availability<br/>decaying welcome"]
   score -- low --> silent
   score -- mid --> suggest["SUGGEST — one line in chat,<br/>awaits a glance"]
   score -- high --> speak["SPEAK — aloud if a page is open,<br/>proactive line if empty"]

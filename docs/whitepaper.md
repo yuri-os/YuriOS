@@ -229,8 +229,10 @@ flowchart TB
     HUB["EventHub<br/>one outbound bus"]
   end
 
-  W & L -- "mic PCM (binary)" --> VOICE
-  C & TG -- "POST /api/chat" --> TURNS
+  W -- "mic PCM (binary)" --> VOICE
+  L --> VOICE
+  C -- "POST /api/chat" --> TURNS
+  TG --> TURNS
   VOICE --> BRAIN
   TURNS --> BRAIN
   BRAIN <--> MEM
@@ -241,7 +243,8 @@ flowchart TB
   VRM --> HUB
 
   HUB -. "/api/events (SSE): hello · message · draft · avatar · journal · mind" .-> FE
-  VOICE -. "audio (PCM) /ws/voice" .-> W & L
+  VOICE -. "audio (PCM) /ws/voice" .-> W
+  VOICE -.-> L
 ```
 
 **The brain** (`yurios/app`) assembles every prompt from a static **SOUL** (identity files

@@ -212,10 +212,16 @@ degrades to a fully functional reactive companion.
 flowchart TB
   subgraph FE["Frontends — thin views"]
     direction LR
-    W["Browser<br/>VRM stage + chat"]
-    L["Browser<br/>Live2D body"]
-    C["Terminal<br/>python -m yurios.chat"]
-    TG["Telegram"]
+    subgraph BR["Browser bodies"]
+      direction LR
+      W["VRM stage + chat"]
+      L["Live2D body"]
+    end
+    subgraph TX["Text channels"]
+      direction LR
+      C["Terminal<br/>python -m yurios.chat"]
+      TG["Telegram"]
+    end
   end
 
   subgraph HOST["yurios.world — one process · one origin · :8768"]
@@ -229,10 +235,8 @@ flowchart TB
     HUB["EventHub<br/>one outbound bus"]
   end
 
-  W -- "mic PCM (binary)" --> VOICE
-  L --> VOICE
-  C -- "POST /api/chat" --> TURNS
-  TG --> TURNS
+  BR -- "mic PCM (binary)" --> VOICE
+  TX -- "POST /api/chat" --> TURNS
   VOICE --> BRAIN
   TURNS --> BRAIN
   BRAIN <--> MEM
@@ -243,8 +247,7 @@ flowchart TB
   VRM --> HUB
 
   HUB -. "/api/events (SSE): hello · message · draft · avatar · journal · mind" .-> FE
-  VOICE -. "audio (PCM) /ws/voice" .-> W
-  VOICE -.-> L
+  VOICE -. "audio (PCM) /ws/voice" .-> BR
 ```
 
 **The brain** (`yurios/app`) assembles every prompt from a static **SOUL** (identity files

@@ -195,6 +195,9 @@ def test_a_brain_with_no_such_seam_is_left_alone(cfg):
 
 
 def test_an_unset_window_is_null_all_the_way_out(cfg):
-    app = create_app(cfg, brain=FakeBrain())
+    # unset explicitly: the machine's own .env may well name a CONTEXT_LENGTH,
+    # and a gauge that reads null only on machines without one proves nothing
+    app = create_app(cfg.model_copy(update={"context_length": 0}),
+                     brain=FakeBrain())
     with TestClient(app) as c:
         assert c.get("/api/context").json()["limit"] is None

@@ -1,0 +1,13 @@
+{
+  "name": "yurios-desktop-shell",
+  "private": true,
+  "version": "0.1.0",
+  "description": "The Windows-native frame for her desktop mode: a transparent, frameless, always-on-top window over the same ?desktop=1 page the browser serves.",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^41.2.1"
+  }
+}

@@ -17,8 +17,11 @@
        page transparent + chromeless *before* first paint so there's no flash of
        the dark sanctuary. Everything else (avatar, voice loop) is unchanged. -->
   <script>
-    if (new URLSearchParams(location.search).has("desktop")) {
+    const q = new URLSearchParams(location.search);
+    if (q.has("desktop")) {
       document.documentElement.classList.add("desktop");
+      // `framed=1`: a browser window can't be transparent (WSL — world/window.py)
+      if (q.has("framed")) document.documentElement.classList.add("framed");
       // let the user drag the window by grabbing the avatar (pywebview drag region)
       addEventListener("DOMContentLoaded", () =>
         document.getElementById("scene")?.classList.add("pywebview-drag-region"));

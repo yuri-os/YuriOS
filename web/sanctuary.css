@@ -160,6 +160,10 @@ body{ background:var(--void); color:var(--ink); font-family:var(--font); font-si
    all that's left floating on the desktop is her. Chrome recedes: no masthead,
    no enter gate; the controls fade in when you hover her. */
 :root.desktop, :root.desktop body{ background:transparent !important; }
+/* …unless the frame can't be transparent (`framed=1`: a Windows browser window,
+   which is what WSL's launcher can offer — world/window.py). Transparent there
+   means white, so she gets the sanctuary's night behind her instead. */
+:root.desktop.framed, :root.desktop.framed body{ background:var(--void) !important; }
 :root.desktop .enter{ display:none; }                /* no gate in a native window */
 :root.desktop .masthead{ display:none; }
 :root.desktop #chat-col{ display:none; }             /* a pet floats chromeless; main.js

@@ -129,6 +129,9 @@ body{
    frameless transparent window (desktop/window.py) shows only her. Chrome fades
    back in when you hover. */
 :root.desktop, :root.desktop body{ background:transparent !important; }
+/* `framed=1` — a Windows browser window can't be transparent (WSL), and
+   transparent there just means white; give her the night back instead. */
+:root.desktop.framed, :root.desktop.framed body{ background:var(--void) !important; }
 :root.desktop body{ display:block; }
 :root.desktop #chat-col{ display:none; }   /* a pet floats chromeless; events.js
                                               moves #text to the hover bar */

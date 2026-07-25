@@ -22,8 +22,13 @@
        flash of the dark sanctuary; main.js reads the class and sets the room
        aside. Drag the window by grabbing her (pywebview drag region). -->
   <script>
-    if (new URLSearchParams(location.search).has("desktop")) {
+    const q = new URLSearchParams(location.search);
+    if (q.has("desktop")) {
       document.documentElement.classList.add("desktop");
+      // `framed=1` (WSL: the launcher hands her to a Windows browser, which
+      // cannot make a window transparent) — stay chromeless, but paint the
+      // night back in, or a transparent page is just a white box.
+      if (q.has("framed")) document.documentElement.classList.add("framed");
       addEventListener("DOMContentLoaded", () =>
         document.getElementById("scene")?.classList.add("pywebview-drag-region"));
     }

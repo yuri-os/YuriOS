@@ -26,7 +26,10 @@ import threading
 import time
 
 # Build #2 launcher internals, called not copied (§2.2's discipline):
-from yurios.desktop.window import _pick_gui, _wait_for_server
+from yurios.desktop.window import (
+    _is_wsl, _pick_gui, _require_webview, _run_wsl_window, _wait_for_server,
+    _wsl_bind_host, _wsl_window_url,
+)
 
 from .config import Config
 from .main import build_server, create_app
@@ -67,6 +70,9 @@ def _serve(cfg: Config) -> tuple[threading.Thread, list[BaseException]]:
 
 def run(cfg: Config | None = None) -> None:
     cfg = cfg or Config()
+    wsl = _is_wsl()
+    if wsl:
+        cfg = _wsl_bind_host(cfg)   # the window is outside the VM (B2's window.py)
 
     # A foreign server on our port would hand the window a stale instance (old
     # code, old .env) — refuse loudly instead (B2's rule; the incident is
@@ -83,13 +89,8 @@ def run(cfg: Config | None = None) -> None:
     # backends / other GPUs; setdefault means the shell can override.
     os.environ.setdefault("WEBKIT_DISABLE_DMABUF_RENDERER", "1")
 
-    try:
-        import webview                       # the [desktop] extra (pywebview)
-    except ImportError as e:
-        raise SystemExit(
-            "desktop-window mode needs pywebview — install the extra:\n"
-            '    pip install -e ".[desktop]"   # or: pip install "pywebview[gtk]"\n'
-            f"(import failed: {e})")
+    if not wsl:
+        _require_webview()          # WSL's window is a Windows browser, not pywebview
 
     print("starting her up… (her voice keeps loading in the background)", flush=True)
     thread, errors = _serve(cfg)
@@ -102,6 +103,15 @@ def run(cfg: Config | None = None) -> None:
             raise SystemExit(f"server didn't come up on {cfg.host}:{cfg.port} "
                              "within 3 minutes")
 
+    if wsl:
+        url = _wsl_window_url(desktop_url(cfg))
+        print(f"[window] WSL: opening her in a Windows browser window — {url}\n"
+              "[window] (a browser frame can't go transparent; close the window to stop her)",
+              flush=True)
+        _run_wsl_window(url, cfg)
+        return
+
+    import webview                  # already imported by _require_webview above
     webview.create_window(
         "yuri",
         desktop_url(cfg),

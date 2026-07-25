@@ -11,6 +11,7 @@ discipline.
 from __future__ import annotations
 
 import socket
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -68,6 +69,114 @@ def test_reuses_the_shared_launcher_helpers():
     # probe and the engine pick are the desktop module's own functions, reused.
     assert window._wait_for_server is b2_window._wait_for_server
     assert window._pick_gui is b2_window._pick_gui
+    assert window._run_wsl_window is b2_window._run_wsl_window
+    assert window._require_webview is b2_window._require_webview
+    assert window._is_wsl is b2_window._is_wsl
+    assert window._wsl_bind_host is b2_window._wsl_bind_host
+
+
+@pytest.fixture
+def spy_run(monkeypatch):
+    """Catch the one subprocess the WSL launcher ends up spawning."""
+    called = {}
+
+    def run(command, **kwargs):
+        called.update(command=command, **kwargs)
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(b2_window.subprocess, "run", run)
+    return called
+
+
+def test_wsl_window_uses_windows_edge(monkeypatch, spy_run):
+    # no Windows shell installed → the always-available frame
+    monkeypatch.setattr(b2_window, "_wsl_electron_shell", lambda: None)
+    cfg = Config(window_width=420, window_height=700, window_on_top=True)
+    b2_window._run_wsl_window("http://127.0.0.1:8768/?desktop=1", cfg)
+
+    assert spy_run["command"][:3] == ["powershell.exe", "-NoProfile", "-NonInteractive"]
+    script = spy_run["command"][-1]
+    assert "Microsoft\\Edge" in script
+    # a browser window can't be transparent, so the page is told to paint itself
+    assert "http://127.0.0.1:8768/?desktop=1&framed=1" in script
+    assert "$size = '420,700'" in script
+    assert "$onTop = $true" in script
+    # …and her ears need the origin whitelisted: getUserMedia is secure-context only
+    assert "$origin = 'http://127.0.0.1:8768'" in script
+    assert "--unsafely-treat-insecure-origin-as-secure=$origin" in script
+    # PowerShell owns $profile and $args — the script must not assign either
+    assert "\n$args =" not in script and "\n$profile =" not in script
+
+    # and it must wait on the profile's processes, not on the launcher pid Edge
+    # discards a second after handoff (that would kill her server under her)
+    assert "while (Get-YuriProcesses)" in script and "WaitForExit" not in script
+
+
+def test_wsl_prefers_the_windows_shell(monkeypatch, spy_run):
+    # installed → she gets the frame Windows can actually draw, and the URL stays
+    # unframed: this window IS transparent (desktop-shell/main.js)
+    monkeypatch.setattr(b2_window, "_wsl_electron_shell",
+                        lambda: ("/mnt/c/y/desktop-shell/node_modules/electron/"
+                                 "dist/electron.exe", "C:\\y\\desktop-shell"))
+    cfg = Config(window_width=420, window_height=700, window_on_top=False)
+    b2_window._run_wsl_window("http://172.20.240.9:8768/?desktop=1", cfg)
+
+    assert spy_run["command"][0].endswith("electron.exe")
+    assert spy_run["command"][1] == "C:\\y\\desktop-shell"
+    assert "--url=http://172.20.240.9:8768/?desktop=1" in spy_run["command"]
+    assert "--width=420" in spy_run["command"] and "--height=700" in spy_run["command"]
+    assert "--on-top=false" in spy_run["command"]
+
+
+def test_the_windows_shell_is_the_transparent_frame():
+    # source-scanned (§3.4): the whole reason this folder exists is the three
+    # window flags a browser can't offer — and it must load the served page,
+    # not carry a copy of the app.
+    shell = Path(__file__).resolve().parent.parent / "desktop-shell"
+    main = (shell / "main.js").read_text()
+    for flag in ("frame: false", "transparent: true", "hasShadow: false"):
+        assert flag in main, flag
+    assert "?desktop=1" in main and "loadURL" in main
+    assert "autoplay-policy" in main            # her greeting, with no gate to click
+    assert "unsafely-treat-insecure-origin-as-secure" in main   # her ears, over the VM address
+    assert "pywebview-drag-region" in main      # the page's own drag surface, reused
+    assert '"main": "main.js"' in (shell / "package.json").read_text()
+
+
+def test_wsl_is_detected_and_widens_the_bind(monkeypatch):
+    cfg = Config(host="127.0.0.1")
+    monkeypatch.delenv("WSL_DISTRO_NAME", raising=False)
+    assert b2_window._is_wsl() is False
+    assert b2_window._wsl_bind_host(cfg).host == "127.0.0.1"    # closed elsewhere
+
+    monkeypatch.setenv("WSL_DISTRO_NAME", "Ubuntu")
+    assert b2_window._is_wsl() is True
+    # the window runs on the Windows side of the VM: loopback-only can't be opened
+    assert b2_window._wsl_bind_host(cfg).host == "0.0.0.0"
+    # an address the user chose on purpose is left alone
+    assert b2_window._wsl_bind_host(Config(host="192.168.1.5")).host == "192.168.1.5"
+
+
+def test_wsl_window_url_falls_back_to_the_vm_address(monkeypatch):
+    url = "http://127.0.0.1:8768/?desktop=1"
+    monkeypatch.setattr(b2_window, "_wsl_vm_ip", lambda: "172.20.240.9")
+    # the suite runs on Linux/CI, where there is no Windows side to ask
+    monkeypatch.setattr(b2_window.shutil, "which", lambda name: "/usr/bin/" + name)
+
+    # localhost forwarding up → keep the portable loopback URL
+    monkeypatch.setattr(b2_window, "_windows_can_reach", lambda host, port: True)
+    assert b2_window._wsl_window_url(url) == url
+
+    # down → the VM's own address, which the host can always route to
+    monkeypatch.setattr(b2_window, "_windows_can_reach",
+                        lambda host, port: host == "172.20.240.9")
+    assert b2_window._wsl_window_url(url) == "http://172.20.240.9:8768/?desktop=1"
+
+    # neither answers → say so; a window opened on ERR_CONNECTION_REFUSED just
+    # looks like "desktop mode is broken"
+    monkeypatch.setattr(b2_window, "_windows_can_reach", lambda host, port: False)
+    with pytest.raises(SystemExit, match="Windows can reach neither"):
+        b2_window._wsl_window_url(url)
 
 
 def test_run_refuses_an_occupied_port():
@@ -82,6 +191,16 @@ def test_run_refuses_an_occupied_port():
 
 
 # ---- the VRM page honours the flag (§6.5) ------------------------------------
+
+def test_the_framed_fallback_reaches_both_pages():
+    # WSL's window is a browser window: it can't be transparent, so `framed=1`
+    # must be understood by whichever body DESKTOP_BODY names, or she stands on
+    # a white box (SPEC §6.5–§6.6).
+    for page, css in ((WEB / "index.html", WEB / "sanctuary.css"),
+                      (WEB / "live2d/index.html", WEB / "live2d/sanctuary.css")):
+        assert 'q.has("framed")' in page.read_text(), page
+        assert ":root.desktop.framed" in css.read_text(), css
+
 
 def test_vrm_page_carries_the_desktop_hooks():
     # source-scanned: the flag the window opens with must be the flag the page

@@ -107,6 +107,19 @@ python -m yurios.world --window    # same server, no browser; her alone on the d
 
 ![Desktop mode: Yuri floating transparently on the desktop, over the code editor.](docs/img/desktop-mode.png)
 
+On **WSL** that window has to be drawn by Windows, not by the VM, so the
+launcher hands it over the boundary — and it needs a frame on the other side.
+Install one once, **from Windows** (not from WSL, it fetches a Windows binary):
+
+```powershell
+cd C:\path\to\YuriOS\desktop-shell
+npm.cmd install                        # a ~120-line Electron shell over the SAME page
+```
+
+`python -m yurios.world --window` then finds it, works out an address Windows can
+reach her on, and she floats on the wallpaper as above. Skip it and you still get
+a window — an app-mode Edge one, opaque and titled. See `desktop-shell/README.md`.
+
 ## Try the loop end to end
 
 - **Drop a document** (`.md`/`.txt`) into `vault/knowledge/reference/` — within a

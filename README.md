@@ -36,7 +36,7 @@ gone: the cognitive tick loop now holds the same puppet strings, the same
 ambient-speech seam, the same timer board, and decides for itself.
 
 > **Standalone & yours.** The frontend's three.js/three-vrm are npm deps bundled by
-> Vite (`web/`, → SPEC §3); everything else runs on your hardware. One origin, no
+> Vite (`web/`); everything else runs on your hardware. One origin, no
 > telemetry shipped.
 
 ## Quickstart
@@ -96,7 +96,7 @@ edits waiting on your approval, and the journal of what she did while you were g
 
 ![The sanctuary in the browser: Yuri's VRM body in her room, the chat column beside her.](docs/img/browser-mode.png)
 
-**On the desktop** (SPEC §6.5–§6.6) — set the room aside and float just her on your
+**On the desktop** — set the room aside and float just her on your
 screen, in a frameless, transparent, always-on-top native window:
 
 ```bash
@@ -126,7 +126,7 @@ python -m yurios.world --window    # same server, no browser; her alone on the d
   interrupt decision with its factors. `git -C vault log` is the diary of how she
   grows — one commit per tick that changed anything.
 
-**Other mediums** (SPEC §10.5) — the sanctuary page is one frontend, not the only one.
+**Other mediums** — the sanctuary page is one frontend, not the only one.
 Every medium shows the same one conversation:
 
 ```bash
@@ -184,7 +184,7 @@ the LM Studio models the shipped `.env` expects.
 
 ### The extras — pay only for the backends you select
 
-Every heavy backend is a lazy import behind a seam (SPEC §3), so the base install
+Every heavy backend is a lazy import behind a seam, so the base install
 carries none of them and each extra installs exactly one. Missing deps are not a hard
 failure: the seam falls back to its fake and logs the command that fixes it.
 
@@ -221,7 +221,7 @@ needs no torch at all). `./install.sh` runs it as its last step.
 
 ```bash
 pip install -e ".[test]"           # nothing else — the suite runs against the fakes
-pytest                             # the §27 suite: 225 tests, offline, no GPU
+pytest                             # 225 tests, offline, no GPU
 ```
 
 That is the contract the seams buy you: every heavy backend has a fake, so the whole
@@ -230,30 +230,30 @@ also why a thin install is a *testable* install.
 
 It runs with fake models on a `VirtualClock`, so **days of an always-on mind run in
 milliseconds**. That's the only way the make-or-break component — the interrupt
-threshold — ships tuned instead of vibed (§27.2's scenario battery: "the interview was
+threshold — ships tuned instead of vibed (the scenario battery: "the interview was
 Tuesday", "the dark weekend", "the machine sleeps").
 
 ## The shape of it
 
 ```
  python -m yurios.world  (FastAPI on :8768)
- ├── the whole reactive body (§2–§10): ToolBrain over the brain ·
+ ├── the whole reactive body: ToolBrain over the brain ·
  │   the voice loop (/ws/voice) · MCP hands + Guard · SelfieLab · VrmController ·
  │   EventHub → /api/events (SSE) · both bodies · the desktop window
  │
- ├── SignalBus (§16) — the inbound inbox the reactive body left out, now landed:
+ ├── SignalBus — the inbound inbox the reactive body left out, now landed:
  │   user turns (teed by the voice route) · presence (page attach/detach) ·
  │   landed timers · finished tasks · your self-edit decisions → signals.jsonl
  │
- └── MindLoop (§15) — SENSE → APPRAISE → DECIDE → ACT → REFLECT → REGULATE
-       ├── activity: ENGAGED / IDLE / DORMANT / DREAM + the budget governor (§17)
-       ├── gate 1 (act) + gate 2 (interrupt): SILENT | SUGGEST | SPEAK (§18)
-       ├── WorldModelStore — the situation every prompt carries (§19)
-       ├── KnowledgeStore — drop-folder RAG, citable to doc+span (§20)
-       ├── DreamConsolidator — episodic → semantic, nightly, resumable (§21)
-       ├── GoalStore — goals.md, promises extracted from her own replies (§22)
-       ├── SelfEdit — constitution read-only; persona edits queue for you (§23)
-       └── Journal + TickTrace → /api/mind + the inner-life tab (§24)
+ └── MindLoop — SENSE → APPRAISE → DECIDE → ACT → REFLECT → REGULATE
+       ├── activity: ENGAGED / IDLE / DORMANT / DREAM + the budget governor
+       ├── gate 1 (act) + gate 2 (interrupt): SILENT | SUGGEST | SPEAK
+       ├── WorldModelStore — the situation every prompt carries
+       ├── KnowledgeStore — drop-folder RAG, citable to doc+span
+       ├── DreamConsolidator — episodic → semantic, nightly, resumable
+       ├── GoalStore — goals.md, promises extracted from her own replies
+       ├── SelfEdit — constitution read-only; persona edits queue for you
+       └── Journal + TickTrace → /api/mind + the inner-life tab
 
  the mind's home is the same Vault the brain keeps (one folder, one git repo):
  vault/ ── soul/ (CONSTITUTION.md immutable · PERSONA.md editable, gated)
@@ -265,25 +265,25 @@ Tuesday", "the dark weekend", "the machine sleeps").
         └─ state/            ← activity · budget · pending edits · engine cursor
 ```
 
-## Where the spec lives in the code
+## Where it lives in the code
 
-| SPEC | Code |
+| Piece | Code |
 |---|---|
-| **The tick loop** (§15) | `mind/loop.py` — `MindLoop.tick()` |
-| **The inbound signal bus** (§16) | `mind/signals.py` + the `FORK(B5 §16)` tee in `world/routes/voice_ws.py` |
-| **Activity states + budget** (§17) | `mind/policy.py` — `ActivityController` · `mind/budget.py` |
-| **The two salience gates** (§18) | `mind/policy.py` — `appraise_*`, `score_interrupt` |
-| **Gate 2 in action** (§18.3) | `mind/loop.py` — `_act_reach_out` |
-| **The world model** (§19) | `mind/world.py` + `world/situation.py` (the host lines, kept) |
-| **The world-model seam swap** (§19.2) | `world/brain.py` — `set_world` / `_assemble` |
-| **Drop-folder RAG** (§20) | `mind/knowledge.py` + `tests/test_knowledge.py` |
-| **DREAM consolidation** (§21) | `mind/dream.py` (the brain's `consolidate()` stub, implemented) |
-| **Goals, promises, commitment** (§22) | `mind/goals.py` — `extract_promises`, `reconsider` |
-| **The SOUL split, operational** (§23) | `mind/selfedit.py` + `mind/vaultio.py` |
-| **The journal + trace** (§24) | `mind/journal.py`, `mind/trace.py` |
-| **The inner-life surface** (§24.3) | `world/routes/mind.py` + `web/js/mind.js` |
-| **The scenario battery** (§27.2) | `tests/test_mind_scenarios.py` + the sim rig in `tests/conftest.py` |
-| Injected time everywhere (§15.1) | `world/clock.py` — `Clock` / `VirtualClock` |
+| **The tick loop** | `mind/loop.py` — `MindLoop.tick()` |
+| **The inbound signal bus** | `mind/signals.py` + the `FORK` tee in `world/routes/voice_ws.py` |
+| **Activity states + budget** | `mind/policy.py` — `ActivityController` · `mind/budget.py` |
+| **The two salience gates** | `mind/policy.py` — `appraise_*`, `score_interrupt` |
+| **Gate 2 in action** | `mind/loop.py` — `_act_reach_out` |
+| **The world model** | `mind/world.py` + `world/situation.py` (the host lines, kept) |
+| **The world-model seam swap** | `world/brain.py` — `set_world` / `_assemble` |
+| **Drop-folder RAG** | `mind/knowledge.py` + `tests/test_knowledge.py` |
+| **DREAM consolidation** | `mind/dream.py` (the brain's `consolidate()` stub, implemented) |
+| **Goals, promises, commitment** | `mind/goals.py` — `extract_promises`, `reconsider` |
+| **The SOUL split, operational** | `mind/selfedit.py` + `mind/vaultio.py` |
+| **The journal + trace** | `mind/journal.py`, `mind/trace.py` |
+| **The inner-life surface** | `world/routes/mind.py` + `web/js/mind.js` |
+| **The scenario battery** | `tests/test_mind_scenarios.py` + the sim rig in `tests/conftest.py` |
+| Injected time everywhere | `world/clock.py` — `Clock` / `VirtualClock` |
 
 ## The mind, briefly
 
@@ -315,7 +315,7 @@ conversation does, as `[she]` lines — one journal, two authors, one DREAM pass
 both. "What did you do while I was gone?" is a page you open (the inner-life tab, or
 `/api/mind/journal`), not a vibe.
 
-## How it extends (§28)
+## How it extends
 
 Every seam past this build is already shaped: promote the stores' contracts to a wire
 protocol and the mind to a supervised process (the two-tier split, with the broker

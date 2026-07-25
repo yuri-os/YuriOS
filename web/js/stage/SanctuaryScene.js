@@ -350,79 +350,89 @@ export class SanctuaryScene {
     BOX(0.58, 0.03, 1.2, darkMetal, deskX, 0.3, deskZ);
     strip(0.03, 0.03, 1.24, deskX - 0.3, 0.71, deskZ, neonViolet);   // under-desk glow
 
-    // The terminal sits on the desk's near corner, turned off the wall so its
-    // face is angled at the room — a screen flat against the +x wall is edge-on
-    // to a camera that sits at −z, and nothing on it can be read from here.
+    // The terminal, turned off the wall so its face is angled at the room — a
+    // screen flat against the +x wall is edge-on to a camera that sits at −z,
+    // and nothing on it can be read from here. Everything on the desk lives in
+    // this group's local space (screen faces local +z, the sitter's side), which
+    // is the only way to keep the monitor's foot and the keyboard *on* the desk:
+    // world-space offsets against a rotated console slide off the top.
+    //
+    //   desk top: x ∈ [1.17, 1.83], z ∈ [1.05, 2.39], y = 0.78
+    //
+    // The group sits at the desk's middle, so the whole 0.76-wide monitor and
+    // the keyboard in front of it stay inside that rectangle once rotated.
     this.terminal = new Terminal({ low });
     const console_ = new Group();
-    console_.position.set(1.28, 0, 1.15);
-    console_.rotation.y = -Math.PI / 2 - 0.62;
+    console_.position.set(1.55, 0, 1.55);
+    console_.rotation.y = -Math.PI / 2 - 0.72;
     room.add(console_);
-    const screen = new Mesh(new PlaneGeometry(0.8, 0.5), new MeshBasicMaterial({
+    const screen = new Mesh(new PlaneGeometry(0.68, 0.42), new MeshBasicMaterial({
       map: this.terminal.texture, toneMapped: false,
     }));
-    screen.position.set(0, 1.26, 0.026);
+    screen.position.set(0, 1.18, 0.026);
     console_.add(screen);
-    const shell = new Mesh(new BoxGeometry(0.88, 0.58, 0.05), darkMetal);
-    shell.position.set(0, 1.26, 0);
+    const shell = new Mesh(new BoxGeometry(0.76, 0.5, 0.05), darkMetal);
+    shell.position.set(0, 1.18, 0);
     console_.add(shell);
-    const neck = new Mesh(new BoxGeometry(0.06, 0.3, 0.06), darkMetal);
-    neck.position.set(0, 0.92, -0.02);
+    const neck = new Mesh(new BoxGeometry(0.06, 0.18, 0.06), darkMetal);
+    neck.position.set(0, 0.87, -0.02);
     console_.add(neck);
-    const foot = new Mesh(new BoxGeometry(0.3, 0.02, 0.2), darkMetal);
-    foot.position.set(0, 0.79, -0.04);
+    const foot = new Mesh(new BoxGeometry(0.28, 0.02, 0.18), darkMetal);
+    foot.position.set(0, 0.79, -0.03);
     console_.add(foot);
 
     const keycaps = createKeycapTex();
-    const keyboard = new Mesh(new BoxGeometry(0.42, 0.02, 0.16), new MeshStandardMaterial({
+    const keyboard = new Mesh(new BoxGeometry(0.38, 0.02, 0.15), new MeshStandardMaterial({
       map: keycaps, emissive: 0xffffff, emissiveMap: keycaps,
       emissiveIntensity: 0.6, roughness: 0.5, metalness: 0.3,
     }));
-    keyboard.position.set(0.02, 0.79, 0.3);
+    keyboard.position.set(0, 0.79, 0.22);            // squarely in front of the screen
     keyboard.castShadow = !low;
     console_.add(keyboard);
 
     // the tea she makes and can't drink — the ritual is the point (PERSONA.md)
     const mug = new Mesh(new CylinderGeometry(0.042, 0.036, 0.1, 14),
       new MeshStandardMaterial({ color: 0x7b2a46, roughness: 0.45, metalness: 0.15 }));
-    mug.position.set(deskX + 0.16, 0.83, deskZ - 0.62);
+    mug.position.set(deskX + 0.12, 0.83, deskZ + 0.33);
     mug.castShadow = !low;
     room.add(mug);
 
-    // The chair, turned out from the desk as if she had got up from it. Built as
-    // a group in its own local space (sitter faces local +z) so the back stays
-    // on the back of the seat whatever angle the chair is left at.
+    // A stool, not a chair: four splayed legs, a footrest ring, a worn cushion,
+    // no back and no casters. Backless is the honest choice for her — she doesn't
+    // recline into anything, she perches at the desk for as long as the thought
+    // lasts and then gets up. It also survives being seen from any angle, which
+    // a swivel back does not: there is no wrong side to a circle.
     const chairMat = new MeshStandardMaterial({ color: 0x211a2b, roughness: 0.72, metalness: 0.2 });
-    const chair = new Group();
-    chair.position.set(1.02, 0, 1.94);
-    chair.rotation.y = Math.PI / 2 + 0.7;           // pushed back, half turned
-    room.add(chair);
-    for (let i = 0; i < 5; i++) {                    // five-star foot with casters
-      const a = (i / 5) * Math.PI * 2;
-      const arm = new Mesh(new BoxGeometry(0.26, 0.035, 0.05), darkMetal);
-      arm.position.set(Math.sin(a) * 0.13, 0.05, Math.cos(a) * 0.13);
-      arm.rotation.y = a;
-      chair.add(arm);
-      const caster = new Mesh(new CylinderGeometry(0.028, 0.028, 0.02, 8), darkMetal);
-      caster.rotation.x = Math.PI / 2;
-      caster.position.set(Math.sin(a) * 0.25, 0.028, Math.cos(a) * 0.25);
-      chair.add(caster);
+    const stool = new Group();
+    stool.position.set(0.95, 0, 1.66);               // pushed out from the desk edge
+    stool.rotation.y = 0.4;
+    room.add(stool);
+
+    const LEG_TOP = 0.42, R_TOP = 0.10, R_BOT = 0.20;
+    const up = new Vector3(0, 1, 0);
+    for (let i = 0; i < 4; i++) {
+      const a = Math.PI / 4 + (i / 4) * Math.PI * 2;
+      const s = Math.sin(a), c = Math.cos(a);
+      const dir = new Vector3(-(R_BOT - R_TOP) * s, LEG_TOP, -(R_BOT - R_TOP) * c);
+      const leg = new Mesh(new CylinderGeometry(0.014, 0.02, dir.length(), 8), darkMetal);
+      leg.quaternion.setFromUnitVectors(up, dir.clone().normalize());
+      leg.position.set((R_TOP + R_BOT) / 2 * s, LEG_TOP / 2, (R_TOP + R_BOT) / 2 * c);
+      leg.castShadow = !low;
+      stool.add(leg);
     }
-    const gas = new Mesh(new CylinderGeometry(0.03, 0.038, 0.34, 10), darkMetal);
-    gas.position.set(0, 0.24, 0);
-    chair.add(gas);
-    const seat = new Mesh(new RoundedBoxGeometry(0.44, 0.09, 0.42, 3, 0.04), chairMat);
-    seat.position.set(0, 0.45, 0.02);
-    seat.castShadow = !low;
-    chair.add(seat);
-    const back = new Mesh(new RoundedBoxGeometry(0.42, 0.5, 0.07, 3, 0.03), chairMat);
-    back.position.set(0, 0.72, -0.2);
-    back.rotation.x = 0.12;                          // a little recline
-    back.castShadow = !low;
-    chair.add(back);
-    const backPost = new Mesh(new BoxGeometry(0.07, 0.16, 0.06), darkMetal);
-    backPost.position.set(0, 0.5, -0.19);
-    chair.add(backPost);
+    const ring = new Mesh(new TorusGeometry(0.155, 0.011, 6, 24), darkMetal);
+    ring.rotation.x = Math.PI / 2;                   // the footrest, scuffed bright
+    ring.position.y = 0.15;
+    stool.add(ring);
+    const stoolSeat = new Mesh(new CylinderGeometry(0.21, 0.2, 0.05, 24), chairMat);
+    stoolSeat.position.y = 0.445;
+    stoolSeat.castShadow = !low;
+    stool.add(stoolSeat);
+    // the same woven pad as the window seat — the two places she sits, matching
+    const stoolPad = new Mesh(new CylinderGeometry(0.195, 0.205, 0.035, 24), cushionMat);
+    stoolPad.position.y = 0.487;
+    stoolPad.castShadow = !low;
+    stool.add(stoolPad);
 
     // ---- shelves and paper on the +x wall ----
     strip(0.03, 0.03, 1.1, WALL_X - 0.2, 1.66, deskZ, neonAmber);   // under-shelf warm

@@ -17,18 +17,48 @@ from .config import Config
 from .main import build_server, create_app
 
 
+log = logging.getLogger("world")
+
+
+def _warn_missing(cfg) -> None:
+    """One consolidated line naming the seams .env selects but hasn't installed,
+    with the command that fixes all of them. The per-seam warnings still fire from
+    desktop.main._graceful as each backend fails to build, but those land minutes
+    into a cold voice warmup — this arrives before anything else does."""
+    from yurios.doctor import collect
+    missing = [c for c in collect(cfg) if not c.ok and not c.advisory]
+    if not missing:
+        return
+    extras = sorted({c.extra for c in missing if c.extra})
+    log.warning("%s not installed (%s) — those seams fall back to the fakes. "
+                "Fix: pip install -e \".[%s]\"  ·  details: python -m yurios.doctor",
+                ", ".join(c.seam for c in missing),
+                ", ".join(f"{c.knob}={c.want}" for c in missing),
+                ",".join(extras))
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(prog="python -m yurios.world")
     ap.add_argument("--window", action="store_true",
                     help="float her on the desktop in a native transparent window (§6.5)")
     ap.add_argument("--body", choices=("vrm", "live2d"), default=None,
                     help="which body --window floats (§6.6; default: DESKTOP_BODY)")
+    ap.add_argument("--check", action="store_true",
+                    help="print the dependency check (yurios.doctor) and exit")
     args = ap.parse_args()
 
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(name)s %(levelname)s: %(message)s")
     cfg = Config()
+    if args.check:
+        from yurios.doctor import collect, report
+        raise SystemExit(1 if report(collect(cfg)) else 0)
+    # The heavy backends are opt-in extras and the seams degrade to fakes rather
+    # than refusing to boot (§3), so say up front which ones .env selected but
+    # can't have — one line before the log fills with warmup chatter. Cheap:
+    # find_spec only, nothing heavy is imported.
+    _warn_missing(cfg)
     if args.body:
         cfg = cfg.model_copy(update={"desktop_body": args.body})
     if args.window:

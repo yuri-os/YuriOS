@@ -1,6 +1,7 @@
 # personal + derived — never committed (SPEC §11–§13)
 .env
 .venv/
+.wvenv/          # install.sh keeps WSL's venv separate from the Linux/macOS one
 __pycache__/
 *.egg-info/
 .pytest_cache/

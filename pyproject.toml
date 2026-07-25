@@ -2,11 +2,25 @@
 name = "yurios"
 version = "0.1.0"
 description = "YuriOS — an always-on, local-first agentic companion runtime: a VRM body and room with an autonomy engine behind it (book ch. 19/35, SPEC.md)"
-requires-python = ">=3.11"
+# UPPER bound on purpose. litellm caps the Python it supports (1.92.x is
+# ">=3.10,<3.14"), and this project declares the floor for everything else. With no
+# ceiling here, `python3.14 -m venv` + pip is legal at the project level and then
+# backtracks through years of litellm releases hunting for one that accepts 3.14 —
+# which surfaces as a bafflingly slow resolve, or a very old litellm, or a hard
+# conflict (the failure mode hit on Windows). Cap it so the error arrives at
+# `pip install` time, in one line, naming the real constraint. 3.14 also has thin
+# wheel coverage across the optional ML extras below. Raise this when litellm does.
+requires-python = ">=3.11,<3.14"
 dependencies = [
     # YuriOS is one self-contained project: the brain (yurios/app), the voice stack
     # (yurios/desktop), the image service (yurios/forge), the body + mind — all
     # first-party and maintained here. These are their deps too. Copy, install, run.
+    #
+    # Everything here is pure-Python-ish and small: a bare `pip install -e .` is
+    # ~270 MB and pulls NO torch, NO CUDA, NO models. That is a complete, working
+    # YuriOS — her body, brain, memory, tools and text chat. The heavy local voice
+    # and embedding backends are opt-in extras, and every one of them is a lazy
+    # import behind a seam that degrades with a printed install hint (§3).
     "fastapi",
     "uvicorn[standard]",      # [standard] pulls the websockets impl for /ws/voice
     "litellm",                # the model-router seam (B1 §3.1) — local or hosted
@@ -20,22 +34,62 @@ dependencies = [
 
 [project.optional-dependencies]
 # Real voice backends are optional imports (B2 §3): the loop runs against fakes with
-# none installed, so `pytest` is green on a machine with no models or GPU.
-stt = ["faster-whisper"]                     # ears (B2 §3.2)
-# `tts` includes BOTH voices so the vendored fallback warning's advice
-# ("pip install -e '.[tts]'") fixes the DEFAULT backend (kokoro), not only qwen:
-tts = ["qwen-tts", "kokoro", "soundfile"]    # designed voice (GPU) + the GPU-free default
-tts-kokoro = ["kokoro", "soundfile"]         # just the fast, GPU-free default voice
+# none installed, so `pytest` is green on a machine with no models or GPU — the full
+# 166-test suite passes on a bare `pip install -e ".[test]"`.
+#
+# Each extra is ONE backend, so you pay only for what your .env actually selects.
+# Rough download cost on Linux (a GPU torch build is ~4.5 GB of it — see CPU TORCH):
+#
+#   (none)        ~270 MB   body + brain + memory + tools + text chat
+#   test           +7 MB    pytest; the whole suite runs against the fakes
+#   stt           ~200 MB   faster-whisper — CTranslate2, no torch at all
+#   tts            ~5 GB    kokoro → torch (~500 MB CPU-only)
+#   vad            ~5 GB    silero-vad → torch (shared with tts, so ~0 extra)
+#   local-embed    ~5 GB    sentence-transformers → torch (shared)
+#   tts-qwen       +300 MB  on top of tts: transformers, accelerate, gradio, pandas
+#
+stt = ["faster-whisper"]                     # ears (B2 §3.2) — CTranslate2, torch-free
+tts = ["kokoro", "soundfile"]                # the DEFAULT voice: CPU, GPU-free, fast
 vad = ["silero-vad"]                         # turn-taking (B2 §3.4)
 local-embed = ["sentence-transformers"]      # EMBED_BACKEND=sentence_tf (else LM Studio/Ollama)
+# TTS_BACKEND=qwen3_tts — the designed persona voice, and the only extra that really
+# wants a CUDA GPU (QWEN_DEVICE=cuda:0). Deliberately NOT in [voice] or [all]: it
+# drags transformers + accelerate + gradio + pandas for a backend nothing defaults to.
+tts-qwen = ["qwen-tts", "soundfile"]
+# TTS_BACKEND=gpt_sovits — an HTTP client for a GPT-SoVITS server you run yourself,
+# so there is no model here at all: just the audio decode. Nothing CUDA in-process.
+tts-sovits = ["soundfile"]
+tts-kokoro = ["kokoro", "soundfile"]         # alias of [tts], kept for older docs
 # `--window`: float her on the desktop (§6.5, world/window.py). Installs the Qt
 # engine (QtWebEngine = Chromium), which the vendored launcher prefers: WebKitGTK
 # caps rAF at ~30fps and needs NVIDIA quirks — a full 3D body suffers more than
 # B2's Live2D did. WINDOW_GUI=gtk + pywebview[gtk] is the lighter fallback.
 desktop = ["pywebview", "qtpy", "PyQt6", "PyQt6-WebEngine"]
 test = ["pytest", "pytest-asyncio", "httpx", "numpy"]
-# the whole local stack in one go:
-all = ["faster-whisper", "qwen-tts", "kokoro", "soundfile", "silero-vad", "sentence-transformers"]
+# The default local voice stack, GPU-free: ears + the kokoro voice + turn-taking.
+# This is what "install the real voice" means; `pip install -e ".[voice,test]"`.
+voice = ["faster-whisper", "kokoro", "soundfile", "silero-vad"]
+# Every local backend the defaults can select, plus local embeddings. Still NO qwen
+# and NO Qt — `all` used to mean "6.2 GB including a CUDA build you don't run".
+all = ["faster-whisper", "kokoro", "soundfile", "silero-vad", "sentence-transformers"]
+# Genuinely everything, GPU voice and desktop window included. Opt in by name.
+gpu = ["faster-whisper", "kokoro", "soundfile", "silero-vad", "sentence-transformers",
+       "qwen-tts", "pywebview", "qtpy", "PyQt6", "PyQt6-WebEngine"]
+
+# --- CPU TORCH -------------------------------------------------------------------
+# kokoro, silero-vad and sentence-transformers all depend on torch, and on Linux the
+# default PyPI torch wheel bundles CUDA: nvidia-* (2.7 GB) + triton (691 MB) + torch
+# (1.1 GB). That is the bulk of the old 6.2 GB install — and none of it runs, because
+# the default voice (kokoro) is CPU-only and the GPU belongs to your LLM anyway.
+#
+# Install the CPU build FIRST and the extras below reuse it (~500 MB, not ~4.5 GB):
+#
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
+#   pip install -e ".[voice,test]"
+#
+# Not pinned here as an index override: that would force CPU torch on people running
+# TTS_BACKEND=qwen3_tts or EMBED_BACKEND=sentence_tf on a real GPU. It stays a choice.
+# (Windows/macOS PyPI wheels are CPU-only already, so this only matters on Linux.)
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

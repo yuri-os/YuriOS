@@ -7,10 +7,24 @@ The chat model may be rented (Build #1 accepts a hosted reply voice) but the
 from __future__ import annotations
 
 
+_INSTALL_HINT = (
+    "EMBED_BACKEND=sentence_tf needs sentence-transformers, which isn't installed. "
+    "Either install it — `pip install -e '.[local-embed]'`, and on Linux fetch the "
+    "CPU torch build first to skip ~4 GB of CUDA you won't use: `pip install torch "
+    "--index-url https://download.pytorch.org/whl/cpu` — or embed against a server "
+    "you're already running and install nothing: EMBED_BACKEND=lm_studio (the "
+    "default) or EMBED_BACKEND=ollama.")
+
+
 class SentenceTFEmbedder:
     def __init__(self, model_name: str = "BAAI/bge-small-en-v1.5", dim: int = 384):
-        # Lazy import: torch is heavy; tests use a fake Embedder instead.
-        from sentence_transformers import SentenceTransformer
+        # Lazy import: torch is heavy; tests use a fake Embedder instead. This is the
+        # one heavy backend with no fake to degrade into — her memory can't silently
+        # run on nothing — so it fails loudly, and says how to fix it both ways.
+        try:
+            from sentence_transformers import SentenceTransformer
+        except ImportError as e:  # pragma: no cover — needs a torch-free env
+            raise RuntimeError(_INSTALL_HINT) from e
 
         self._model = SentenceTransformer(model_name)
         self.dim = dim

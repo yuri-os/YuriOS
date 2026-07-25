@@ -60,7 +60,8 @@ class SoVITSClient:
         try:
             import httpx  # noqa: F401
         except ImportError as e:  # pragma: no cover
-            raise RuntimeError("pip install httpx soundfile for the SoVITS client") from e
+            raise RuntimeError("pip install -e '.[tts-sovits]' for the SoVITS client "
+                               "(no model here — it talks to a server you run)") from e
 
     def stream(self, text: str, register: str | None = None):
         import httpx

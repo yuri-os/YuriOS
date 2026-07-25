@@ -28,6 +28,11 @@ log = logging.getLogger("desktop.main")
 WEB_DIR = Path(__file__).resolve().parent.parent.parent / "web"
 
 
+# Which pyproject extra installs each TTS backend. The extras are deliberately
+# one-backend-each so nobody downloads a CUDA voice stack to run the CPU default.
+TTS_EXTRAS = {"kokoro": "tts", "qwen3_tts": "tts-qwen", "gpt_sovits": "tts-sovits"}
+
+
 def _graceful(kind: str, want: str, build_real, build_fake, extra: str):
     """Build the real backend; if its deps aren't installed, warn loudly and fall
     back to the fake so `python -m desktop` always boots (§3, the seam degrades
@@ -66,7 +71,11 @@ def build_tts(cfg: Config):
                        instruct=cfg.qwen_instruct, language=cfg.qwen_language,
                        device=cfg.qwen_device, dtype=cfg.qwen_dtype,
                        attn=cfg.qwen_attn, sample_rate=cfg.tts_sample_rate)
-    return _graceful("TTS", cfg.tts_backend, real, FakeTTS, "tts")
+    # One extra per TTS backend (pyproject), so the hint installs the voice she is
+    # actually configured for. Telling a qwen3_tts user to `pip install '.[tts]'`
+    # downloads kokoro and leaves her just as silent.
+    return _graceful("TTS", cfg.tts_backend, real, FakeTTS,
+                     TTS_EXTRAS.get(cfg.tts_backend, "tts"))
 
 
 def build_stt(cfg: Config):

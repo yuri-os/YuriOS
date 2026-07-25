@@ -13,8 +13,9 @@ from __future__ import annotations
 
 import numpy as np
 
-_INSTALL_HINT = ("faster-whisper not installed. `pip install faster-whisper`, or "
-                 "run against the fake ears: STT_BACKEND=fake.")
+_INSTALL_HINT = ("faster-whisper not installed. `pip install -e '.[stt]'` — it is "
+                 "CTranslate2, not torch, so this one is a ~200 MB install with no "
+                 "CUDA. Or run against the fake ears: STT_BACKEND=fake.")
 
 
 class WhisperSTT:

@@ -19,9 +19,11 @@ from ..protocols import AudioChunk
 from ..sentences import cut_sentences
 
 _INSTALL_HINT = (
-    "Kokoro not installed. `pip install kokoro soundfile` and install espeak-ng "
-    "(apt-get install espeak-ng / brew install espeak-ng). Or run against the "
-    "fake voice: TTS_BACKEND=fake.")
+    "Kokoro not installed. `pip install -e '.[tts]'` and install espeak-ng "
+    "(apt-get install espeak-ng / brew install espeak-ng). Kokoro is CPU-only, so "
+    "on Linux get the CPU torch build first and save ~4 GB of unused CUDA: "
+    "`pip install torch --index-url https://download.pytorch.org/whl/cpu`. "
+    "Or run against the fake voice: TTS_BACKEND=fake.")
 
 # A small register→voice map (the ../kokoro impl has the full 54-voice table).
 REGISTERS = {"default": "af_heart", "late_night": "af_nicole", "expressive": "af_bella"}

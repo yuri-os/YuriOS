@@ -14,8 +14,11 @@ from __future__ import annotations
 
 import numpy as np
 
-_INSTALL_HINT = ("silero-vad not installed. `pip install silero-vad`, or run "
-                 "against the fake VAD: VAD_BACKEND=fake.")
+_INSTALL_HINT = ("silero-vad not installed. `pip install -e '.[vad]'` — it pulls "
+                 "torch, so on Linux fetch the CPU build first unless you want the "
+                 "~4 GB CUDA one: `pip install torch --index-url "
+                 "https://download.pytorch.org/whl/cpu`. Or run against the fake "
+                 "VAD: VAD_BACKEND=fake.")
 
 
 class SileroVAD:

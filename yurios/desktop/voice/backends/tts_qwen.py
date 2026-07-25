@@ -42,8 +42,9 @@ DEFAULT_REF_AUDIO = ASSETS / "designed.wav"
 DEFAULT_REF_TEXT = "Hey. You made it back. I kept the light on."
 
 _INSTALL_HINT = (
-    "qwen-tts not installed. `pip install qwen-tts soundfile` (first synthesis "
-    "downloads the weights from Hugging Face; needs a CUDA GPU). Or run a "
+    "qwen-tts not installed. `pip install -e '.[tts-qwen]'` (first synthesis "
+    "downloads the weights from Hugging Face; needs a CUDA GPU). It is not in "
+    "[voice] or [all] on purpose — nothing defaults to it. Or run a "
     "lighter/faster voice: TTS_BACKEND=kokoro, or TTS_BACKEND=fake.")
 
 

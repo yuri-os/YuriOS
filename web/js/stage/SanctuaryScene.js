@@ -227,16 +227,14 @@ export class SanctuaryScene {
     BOX(winW + 0.16, 0.12, 0.34, darkMetal, winCx, W.y0 - 0.06, fz - 0.06); // sill, deep enough to sit things on
     BOX(0.1, winH + 0.2, 0.18, darkMetal, W.x0 - 0.05, (W.y0 + W.y1) / 2, fz);
     BOX(0.1, winH + 0.2, 0.18, darkMetal, W.x1 + 0.05, (W.y0 + W.y1) / 2, fz);
-    for (const mx of [-0.68, 0.68])                                          // mullions
-      BOX(0.055, winH, 0.1, darkMetal, mx, (W.y0 + W.y1) / 2, fz, { shadow: false });
-    BOX(winW, 0.05, 0.1, darkMetal, winCx, 1.9, fz, { shadow: false });      // transom
+    // no mullions, no transom: one unbroken pane. The city is the thing she looks
+    // at from the seat, and a frame member crossing it costs her the hoarding.
 
     const retD = RETURN.z1 - RETURN.z0, retCz = (RETURN.z0 + RETURN.z1) / 2;
     const rx = -WALL_X + 0.02;
     BOX(0.16, 0.09, retD + 0.16, darkMetal, rx, W.y1 + 0.045, retCz);
     BOX(0.3, 0.12, retD + 0.16, darkMetal, rx + 0.06, W.y0 - 0.06, retCz);
     BOX(0.16, winH + 0.2, 0.1, darkMetal, rx, (W.y0 + W.y1) / 2, RETURN.z0 - 0.05);
-    BOX(0.1, winH, 0.05, darkMetal, rx, (W.y0 + W.y1) / 2, retCz, { shadow: false });
 
     const glassMat = new MeshStandardMaterial({
       color: 0xa9cfff, transparent: true, opacity: 0.09, roughness: 0.1,

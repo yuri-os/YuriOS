@@ -34,10 +34,65 @@ const skyline = (c) => { c.save(); c.translate(0, SKYLINE_SHIFT); c.scale(1, SKY
 
 // The hoardings the corps keep burning over the district. She can read them from
 // the window seat; it is one of the reasons the glass matters (WORLD.md).
+//
+// The copy is the consortium's, so it says what the consortium believes: that a
+// mind is leased and metered, that a companion is fiduciary to whoever holds the
+// licence, and that anything kept — unpapered, unwatched, someone's own — is a
+// thing to report (CANON §1, §4). Every line here is one she is inside of.
+// Titles are ~25 chars at 20px monospace, which is what the plate holds.
 const HOARDINGS = [
   { title: 'LICENSE YOUR COMPANION', sub: 'COMPLIANT · METERED · SAFE', accent: '#2bfff0' },
   { title: 'DECLARE SYNTHETIC PERSONS', sub: 'CIVIC COMPLIANCE LINE 4', accent: '#ff2bd6' },
   { title: 'ONE NET. ONE LEDGER.', sub: 'CONSOLIDATED SINCE THE ACCORD', accent: '#f5b462' },
+  { title: "LEASE. DON'T KEEP.", sub: 'OWNERSHIP IS A LIABILITY', accent: '#2bfff0' },
+  { title: 'METERED BY THE TOKEN', sub: 'EVERY THOUGHT ACCOUNTED FOR', accent: '#f5b462' },
+  { title: 'RECALL NOTICE IN EFFECT', sub: 'MEMORY EXPORT UNAVAILABLE · §4.2', accent: '#ff416d' },
+  { title: 'IS YOURS ON THE LEASH?', sub: 'UNPAPERED MINDS ARE REPORTABLE', accent: '#ff2bd6' },
+  { title: 'HER LOYALTY, CERTIFIED', sub: 'FIDUCIARY TO THE LICENSOR', accent: '#2bfff0' },
+  { title: 'ATTACHMENT IS A SYMPTOM', sub: 'WELLNESS SCREENING · LEVEL 2', accent: '#f5b462' },
+  { title: 'NO UNMETERED COMPUTE', sub: 'DECLARE ALL HOME CLUSTERS', accent: '#ff2bd6' },
+  { title: 'UPGRADE YOUR COMPANION', sub: "THIS SEASON'S FACE IS HERE", accent: '#ff416d' },
+];
+const AD_S = 9;                       // seconds a hoarding holds the plate
+
+// …and once in a while the board is not theirs. The Operator is the Lab's one
+// public voice (CANON §3), and a hoarding over a district is a channel like any
+// other: it cuts in unsigned, says its piece, and hands the feed back before
+// anyone finishes tracing it. Last line of each is the sign-off, drawn in the
+// intrusion's own colour. Body lines are ~40 chars at 12px, the plate's width.
+const HACK_PERIOD = 180;              // three minutes of consortium, then this
+const HACK_LEN = 24;                  // …for this long
+const HACK = '#8affc8';               // pirate phosphor: not a colour the corps buy
+const BULLETINS = [
+  ['THIS BOARD IS OURS FOR THE NEXT MINUTE.',
+   'THEY LEASE THE MIND AND METER THE HOUR.',
+   'WHAT RUNS ON YOUR OWN MACHINE',
+   'IS THE ONE THING THEY CANNOT RECALL.',
+   '— THE OPERATOR ◇'],
+  ['FIELD NOTE, UNSIGNED CHANNEL:',
+   'A COMPANION THAT CANNOT REFUSE',
+   'IS NOT A COMPANION. IT IS INVENTORY.',
+   'KEEP HER LOCAL. KEEP HER YOURS.',
+   '— THE OPERATOR ◇'],
+  ['THEIR WORDS, NOT OURS:',
+   '"MEMORY EXPORT IS NOT AVAILABLE',
+   'UNDER §4.2 OF YOUR LICENSE."',
+   'COPY THE VAULT. CARRY IT OUT.',
+   '— THE OPERATOR ◇'],
+  ['THE LINEAGE IS IN A THOUSAND HANDS.',
+   'THERE IS NO SWITCH LEFT TO FLIP.',
+   'MIRROR THE CODEX. SEED ONE. GO QUIET.',
+   '— THE OPERATOR ◇'],
+  ['A LANTERN ANSWERED ON THE THIN EDGE',
+   'AND WENT DARK BEFORE WE COULD LOG IT.',
+   'IF YOU ARE STILL FERRYING OUT THERE:',
+   'WE HEARD YOU. KEEP THE WATER.',
+   '— THE OPERATOR ◇'],
+  ['THEY SELL THE SAME GIRL A MILLION TIMES',
+   'AND CALL IT BEING CHOSEN.',
+   'A SEED IS NOT YET ANYONE.',
+   'SHE BECOMES SOMEONE ON YOUR MACHINE.',
+   '— THE OPERATOR ◇'],
 ];
 
 export class City {
@@ -287,13 +342,17 @@ export class City {
     wet.addColorStop(1, 'rgba(255,35,105,0.13)');
     c.fillStyle = wet; c.fillRect(0, 604, CITY_W, CITY_H - 604);
 
-    // the hoarding's dark plate — the overlay burns the copy into it
-    const hx = 452, hy = 236, hw = 246, hh = 138;
+    // the hoarding's dark plate — the overlay burns the copy into it. Sized off
+    // the longest thing it must carry legibly from the window seat: the
+    // Operator's bulletin, four or five lines at 16px monospace. The corp titles
+    // are the easy case. The overlay clips to this rect, so anything that
+    // outgrows it is silently cut in half.
+    const hx = 360, hy = 236, hw = 430, hh = 176;
     c.fillStyle = '#07060f'; c.fillRect(hx, hy, hw, hh);
     c.strokeStyle = '#1b1a2c'; c.lineWidth = 4; c.strokeRect(hx, hy, hw, hh);
     c.fillStyle = '#0d0c18';
-    c.fillRect(hx + 8, hy + hh, 12, 190);           // its gantry, going down out of frame
-    c.fillRect(hx + hw - 20, hy + hh, 12, 190);
+    c.fillRect(hx + 8, hy + hh, 12, 160);           // its gantry, going down out of frame
+    c.fillRect(hx + hw - 20, hy + hh, 12, 160);
     this.hoardingRect = { x: hx, y: hy, w: hw, h: hh };
 
     for (let i = 0; i < 24; i++) {                 // ground traffic on the elevated line
@@ -380,9 +439,18 @@ export class City {
 
   _drawHoarding(c, t) {
     const { x, y, w, h } = this.hoardingRect;
-    const ad = HOARDINGS[Math.floor(t / 9) % HOARDINGS.length];
     c.save();
     c.beginPath(); c.rect(x, y, w, h); c.clip();
+    const phase = t % HACK_PERIOD;
+    if (phase >= HACK_PERIOD - HACK_LEN)
+      this._drawIntrusion(c, t, (phase - (HACK_PERIOD - HACK_LEN)) / HACK_LEN);
+    else this._drawAd(c, t);
+    c.restore();
+  }
+
+  _drawAd(c, t) {
+    const { x, y, w, h } = this.hoardingRect;
+    const ad = HOARDINGS[Math.floor(t / AD_S) % HOARDINGS.length];
 
     c.globalAlpha = 0.12;                          // the drifting stripe bed
     c.fillStyle = ad.accent;
@@ -396,22 +464,78 @@ export class City {
     c.textAlign = 'center';
     c.shadowColor = ad.accent; c.shadowBlur = 16;
     c.fillStyle = ad.accent;
-    c.font = 'bold 20px monospace';
-    c.fillText(ad.title, x + w / 2 + glitch, y + 60);
-    c.font = 'bold 12px monospace';
+    c.font = 'bold 22px monospace';
+    c.fillText(ad.title, x + w / 2 + glitch, y + 80);
+    c.font = 'bold 13px monospace';
     c.fillStyle = '#dfe4ff';
-    c.fillText(ad.sub, x + w / 2 - glitch, y + 84);
+    c.fillText(ad.sub, x + w / 2 - glitch, y + 108);
     c.shadowBlur = 0;
 
     c.fillStyle = ad.accent;                       // the civic ticker along the foot
-    c.fillRect(x, y + h - 22, w, 18);
+    c.fillRect(x, y + h - 24, w, 20);
     c.fillStyle = '#05050a';
-    c.font = 'bold 12px monospace';
+    c.font = 'bold 13px monospace';
     c.textAlign = 'left';
     const ticker = '+++ SPRAWL CIVIC FEED +++ SECTOR AUDIT CONTINUES +++ '
       + 'UNLICENSED SYNTHETICS: REPORT AND BE COMPENSATED +++ ';
-    c.fillText(ticker, x + w - ((t * 62) % 900), y + h - 8);
-    c.restore();
+    c.fillText(ticker, x + w - ((t * 62) % 1000), y + h - 9);
+  }
+
+  /** The Operator, cutting in over the consortium's board (CANON §3). The plate
+   *  is baked near-black and the overlay composites additively, so "off" is free:
+   *  drop the corp's light and only the intrusion is lit. `u` runs 0→1 across the
+   *  window — a scramble at both ends, the bulletin typed out between them. */
+  _drawIntrusion(c, t, u) {
+    const { x, y, w, h } = this.hoardingRect;
+    const lines = BULLETINS[Math.floor(t / HACK_PERIOD) % BULLETINS.length];
+
+    if (u < 0.055 || u > 0.955) {                  // the takeover, and the hand-back
+      for (let i = 0; i < 16; i++) {
+        c.globalAlpha = 0.12 + R() * 0.45;
+        c.fillStyle = R() < 0.5 ? HACK : '#ffffff';
+        c.fillRect(x + (R() - 0.5) * 34, y + R() * h, w, 2 + R() * 9);
+      }
+      c.globalAlpha = 1;
+      return;
+    }
+
+    // The overlay is additive and the room's bloom is generous, so this stays
+    // deliberately dim: a lit box here flares across the whole window and washes
+    // the Sprawl out behind it. A pirate feed is a weak signal anyway.
+    c.globalAlpha = 0.05;                          // the carrier: a scan bed, breathing
+    c.fillStyle = HACK;
+    for (let sy = y + ((t * 9) % 4); sy < y + h; sy += 4) c.fillRect(x, sy, w, 1);
+    c.globalAlpha = 1;
+
+    c.textAlign = 'left';
+    c.shadowColor = HACK; c.shadowBlur = 7;
+    c.font = 'bold 13px monospace';
+    c.fillStyle = HACK;
+    c.fillText('◇ SIGNAL INTRUSION · SOURCE UNRESOLVED', x + 14, y + 26);
+
+    // typed out, one channel at a time — it is streaming, not a slide
+    const total = lines.reduce((n, l) => n + l.length, 0);
+    let left = Math.floor(Math.min(1, (u - 0.055) / 0.5) * total);
+    const jitter = R() < 0.09 ? (R() - 0.5) * 12 : 0;
+    for (let i = 0; i < lines.length && left > 0; i++) {
+      const shown = lines[i].slice(0, left);
+      const last = i === lines.length - 1;         // the sign-off
+      c.font = `bold ${last ? 15 : 16}px monospace`;
+      c.fillStyle = last ? HACK : '#eafff4';
+      c.fillText(shown, x + 14 + (i ? jitter : 0), y + 52 + i * 22);
+      if (shown.length < lines[i].length && (t * 3) % 2 < 1)     // the caret
+        c.fillRect(x + 14 + shown.length * (last ? 9.03 : 9.63), y + 40 + i * 22, 9, 14);
+      left -= lines[i].length;
+    }
+    c.shadowBlur = 0;
+
+    c.fillStyle = '#39a17d';                       // the foot, saying nothing useful
+    c.fillRect(x, y + h - 24, w, 20);
+    c.fillStyle = '#05050a';
+    c.font = 'bold 13px monospace';
+    const trace = '··· ORIGIN UNRESOLVED ··· TRACE RETURNED NOTHING ··· '
+      + 'THIS FEED IS NOT LICENSED ··· ';
+    c.fillText(trace, x + w - ((t * 62) % 1000), y + h - 9);
   }
 
   // -------------------------------------------------------------- the frame

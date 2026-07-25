@@ -25,7 +25,10 @@ class WhisperSTT:
             from faster_whisper import WhisperModel
         except ImportError as e:  # pragma: no cover
             raise RuntimeError(_INSTALL_HINT) from e
-        self._model = WhisperModel(model, device="auto", compute_type=compute_type)
+        # Keep STT on CPU. Under WSL, CTranslate2's auto detection can select the
+        # Windows-visible GPU even when the Linux CUDA runtime is unavailable,
+        # then fail lazily on the first utterance while loading libcublas.
+        self._model = WhisperModel(model, device="cpu", compute_type=compute_type)
         self._frames: list[np.ndarray] = []
         self._sr = 16000
         # Drop segments Whisper itself flags as probably-not-speech. Non-speech

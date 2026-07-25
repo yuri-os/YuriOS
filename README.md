@@ -12,7 +12,7 @@ no third party in the room, nothing phoning home. Just her, running on your hard
 
 [**yurios.org**](https://yurios.org) · [Substack](https://yurios.substack.com) · [𝕏 @yuriosshell](https://x.com/yuriosshell)
 
-Normative spec: **[SPEC.md](SPEC.md)** · Where the code came from: **[PROVENANCE.md](PROVENANCE.md)**
+How she was built, chapter by chapter: **[Building Agentic Waifus](https://yurios.org/book/index.html)**
 
 </div>
 
@@ -159,27 +159,22 @@ to the fake rather than take the server with it (`voice/backends/tts_kokoro.py`)
 # 1. a venv on a supported Python
 python3.12 -m venv .venv && source .venv/bin/activate
 
-# 2. CPU torch FIRST — the voice needs torch, and PyPI's Linux wheel bundles 3.8 GB
-#    of CUDA that the CPU voice never runs. Skip this line only if you want the
-#    CUDA build; on macOS/Windows the wheels are CPU-only already. (See below.)
-pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
-
-# 3. YuriOS + everything .env.example selects: body, brain, memory, MCP tools,
+# 2. YuriOS + everything .env.example selects: body, brain, memory, MCP tools,
 #    text chat, her ears, her voice, turn-taking. Drop `,voice` for text only.
 pip install -e ".[test,voice]"
 
-# 4. her config. The defaults are local-first and need no cloud key. Without the
+# 3. her config. The defaults are local-first and need no cloud key. Without the
 #    voice extra, set STT_BACKEND / TTS_BACKEND / VAD_BACKEND to `fake` in it.
 cp .env.example .env
 
-# 5. her mind: the Vault, seeded once from her SOUL source (./soul-src). Idempotent —
+# 4. her mind: the Vault, seeded once from her SOUL source (./soul-src). Idempotent —
 #    it refuses rather than overwriting a Vault that already exists.
 python scripts/seed_vault.py
 
-# 6. her body: three.js/three-vrm bundled by Vite → web/dist
+# 5. her body: three.js/three-vrm bundled by Vite → web/dist
 (cd web && npm ci && npm run build)
 
-# 7. go
+# 6. go
 python -m yurios.doctor            # what .env selects vs what's installed
 python -m yurios.world             # → http://localhost:8768
 ```
@@ -195,75 +190,21 @@ failure: the seam falls back to its fake and logs the command that fixes it.
 
 `./install.sh` installs `[test,voice]` — the row in bold — because that is what
 `.env.example` selects. Sizes are **measured on disk** (Linux, Python 3.12, venv total —
-not deltas), with CPU torch where torch is involved:
+not deltas):
 
 | Install | Adds | On disk |
 | --- | --- | --- |
 | `pip install -e ".[test]"` | body, brain, memory, MCP tools, text chat, pytest | 280 MB |
 | `.[stt]` | her ears: faster-whisper — CTranslate2, **no torch** | 564 MB |
-| `.[tts]` | her voice: kokoro — the CPU default, needs `espeak-ng` | 1.3 GB¹ |
+| `.[tts]` | her voice: kokoro — the CPU default, needs `espeak-ng` | 1.3 GB |
 | `.[vad]` | turn-taking: silero-vad — torch, shared with `tts` | — |
-| `.[test,voice]` | `stt` + `tts` + `vad`: **the default install** | **1.6 GB¹** |
+| `.[test,voice]` | `stt` + `tts` + `vad`: **the default install** | **1.6 GB** |
 | `.[local-embed]` | `EMBED_BACKEND=sentence_tf` — no LM Studio/Ollama needed | — |
-| `.[all]` | `voice` + `local-embed` | 1.8 GB¹ |
+| `.[all]` | `voice` + `local-embed` | 1.8 GB |
 | `.[tts-sovits]` | `TTS_BACKEND=gpt_sovits` — client for a server you run | +2 MB |
-| `.[voice,tts-qwen]` | `TTS_BACKEND=qwen3_tts` — the designed voice, **wants CUDA** | 2.1 GB¹ |
+| `.[voice,tts-qwen]` | `TTS_BACKEND=qwen3_tts` — the designed voice, **wants CUDA** | 2.1 GB |
 | `.[desktop]` | `--window`: pywebview + Qt (QtWebEngine) | 798 MB |
 | `.[gpu]` | genuinely everything: GPU voice and Qt, on CUDA torch | 6.4 GB |
-
-¹ **On Linux, install CPU torch first** — this is the single biggest win available.
-
-kokoro, silero-vad and sentence-transformers all depend on torch, and PyPI's Linux
-torch wheel bundles CUDA. Measured: the default wheel is **4.5 GB on disk** (2.73 GB
-download, 23 CUDA packages — `nvidia-cublas` 423 MB, `nvidia-cudnn` 366 MB, `cufft`
-214 MB, `nccl` 206 MB, `triton` 198 MB…), against **747 MB** for the CPU build. Torch
-itself is only 527 MB of that download; the rest is CUDA the CPU default voice never
-touches, and your GPU belongs to the LLM anyway.
-
-```bash
-pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
-pip install -e ".[voice,test]"
-sudo apt-get install espeak-ng libsndfile1   # macOS: brew install espeak-ng libsndfile
-```
-
-That's the 1.6 GB in the table instead of ~5.4 GB — the whole reason her voice can ship
-in the default install at all. Windows and macOS PyPI wheels are CPU-only already, so
-this only matters on Linux, and `./install.sh` does it for you.
-It is deliberately *not* pinned as an index override in `pyproject.toml`:
-that would force CPU torch on people running `qwen3_tts` or `sentence_tf` on a real
-GPU. Use `--cuda-torch` (or just skip the first line) if you want the CUDA build.
-
-**`torchaudio` belongs on that first line, not just `torch`.** kokoro and silero-vad
-both load torchaudio's C++ extension, and PyPI's torchaudio is built against CUDA
-torch: on a CPU-only torch it dies with `libcudart.so.13: cannot open shared object
-file`, both seams fall back to their fakes, and she is silent — while `pip list` shows
-kokoro and silero-vad installed exactly as expected. Take the pair from one index and
-the extras reuse both. `python -m yurios.doctor` checks the two build tags against each
-other for this reason, since no import probe can see it.
-
-### Two Python-version traps, and why the bounds exist
-
-Both of these were real failures, and both are now pinned shut.
-
-**`requires-python = ">=3.11,<3.14"`.** The upper bound is there because `litellm`
-carries one (1.92.x is `>=3.10,<3.14`). Without a ceiling here, a 3.14 venv installs
-YuriOS at the project level and *then* sends the resolver backtracking through years
-of litellm releases hunting for one that accepts 3.14 — a bafflingly slow resolve that
-ends in a stale litellm or a hard conflict. With the cap you get one line, up front:
-
-```
-ERROR: Package 'yurios' requires a different Python: 3.14.2 not in '<3.14,>=3.11'
-```
-
-**`numba>=0.61` in `[tts-qwen]`.** `qwen-tts` → `librosa` → `numba`, and numba caps
-numpy (0.62+ is `numpy<2.4`). Our numpy is unpinned, so it resolves to 2.5.x — and
-rather than cap numpy, the resolver walks *numba* backwards looking for a release with
-no numpy ceiling. It reaches numba 0.53.1 / llvmlite 0.36.0, which support only Python
-`>=3.6,<3.10`, ship no wheel for any Python we support, and so attempt a source build
-that dies with `Cannot install on Python version 3.12.7; only >=3.6,<3.10 supported`.
-The floor makes capping numpy the resolver's only move. Worth knowing if you add a
-dependency: `uv pip compile` calls that resolution *fine*, because it never builds —
-only a real install catches it.
 
 ### Which backends is she actually using?
 
@@ -275,26 +216,6 @@ It reads the same `.env` the server reads, checks each selected backend against 
 importable, and prints the exact install command for anything missing — plus the `.env`
 change that avoids the download altogether where one exists (`EMBED_BACKEND=lm_studio`
 needs no torch at all). `./install.sh` runs it as its last step.
-
-### How full is her context window?
-
-The masthead shows it: `ctx ~8.1k/32k`, amber near the ceiling, magenta once the prompt
-plus the reply she still has to write no longer fits. That last state is what used to
-arrive as a lost turn and `Context size has been exceeded` in the log — a local model is
-loaded into a *fixed* window, and every turn's prompt is bigger than the last.
-
-The window is a knob:
-
-```bash
-CONTEXT_LENGTH=32768               # .env — 0 = whatever the provider defaults to
-```
-
-Set it and her LM Studio model is *loaded* at that size at boot (not just measured
-against it), so the number on the gauge is the window she is actually running in. Leave
-it at 0 and LM Studio's own per-model default stands — usually far below what the model
-can do, which is how a good long conversation ends in a refused turn. Bigger windows cost
-RAM/VRAM for the KV cache, so the number is yours to pick. `GET /api/context` serves the
-same reading for anything that isn't a browser.
 
 ### Running the tests
 

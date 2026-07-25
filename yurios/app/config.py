@@ -18,8 +18,8 @@ class Config(BaseSettings):
     # picks the route (openrouter/… hosted, ollama/… or lm_studio/… local); a bare
     # id is assumed OpenRouter. The openrouter/ prefix is added in the provider.
     openrouter_api_key: str = ""
-    chat_model: str = "lm_studio/google/gemma-4-12b-qat"
-    utility_model: str = "lm_studio/google/gemma-4-12b-qat"
+    chat_model: str = "lm_studio/HauhauCS/Gemma-4-E4B-Uncensored-HauhauCS-Aggressive"
+    utility_model: str = "lm_studio/HauhauCS/Gemma-4-E4B-Uncensored-HauhauCS-Aggressive"
     # Base url for a local LM Studio server (used only for lm_studio/… model ids;
     # OpenAI-compatible, so this is its /v1 endpoint).
     lmstudio_base_url: str = "http://localhost:1234/v1"

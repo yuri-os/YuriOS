@@ -13,17 +13,99 @@ asset lesson. Swapping to the canon voice is one config line: TTS_BACKEND=gpt_so
 """
 from __future__ import annotations
 
+import logging
+import os
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
 import numpy as np
 
 from ..protocols import AudioChunk
 from ..sentences import cut_sentences
 
+log = logging.getLogger(__name__)
+
 _INSTALL_HINT = (
     "Kokoro not installed. `pip install -e '.[tts]'` and install espeak-ng "
     "(apt-get install espeak-ng / brew install espeak-ng). Kokoro is CPU-only, so "
     "on Linux get the CPU torch build first and save ~4 GB of unused CUDA: "
-    "`pip install torch --index-url https://download.pytorch.org/whl/cpu`. "
+    "`pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu`. "
     "Or run against the fake voice: TTS_BACKEND=fake.")
+
+_ESPEAK_HINT = (
+    "Kokoro is installed but espeak-ng can't load its phoneme data here, and it exits "
+    "the PROCESS rather than raising — so this refuses up front instead of taking the "
+    "server down with it. Install espeak-ng (apt-get install espeak-ng / brew install "
+    "espeak-ng), or point ESPEAK_DATA_PATH at a directory containing `phontab`. Or run "
+    "against the fake voice: TTS_BACKEND=fake.")
+
+# What misaki does at import, and where the failure lands: constructing the wrapper
+# calls espeak_Initialize, which is what dies. Run in a CHILD so its exit(1) costs a
+# subprocess instead of the server.
+_PROBE = ("import misaki.espeak;"
+          "from phonemizer.backend.espeak.wrapper import EspeakWrapper;"
+          "EspeakWrapper()")
+
+
+def _espeak_ok(data_dir: Path | None = None) -> bool:
+    """Does espeak-ng initialise — with ESPEAK_DATA_PATH=`data_dir`, if given?
+
+    Asked by running it, not by inspecting paths: espeak-ng resolves its data
+    directory through several fallbacks (the caller's path, ESPEAK_DATA_PATH, $HOME,
+    then an absolute path baked in at build time), and the `espeakng-loader` wheel's
+    copy loses that race — the baked-in path is a CI checkout under /home/runner. The
+    C library's answer to a data dir it can't read is one printed line and exit(1),
+    with no exception for `_graceful` to catch: the server just stops mid-boot."""
+    env = dict(os.environ)
+    if data_dir is not None:
+        env["ESPEAK_DATA_PATH"] = str(data_dir)
+    try:
+        done = subprocess.run([sys.executable, "-c", _PROBE], env=env,
+                              capture_output=True, timeout=120)
+    except (OSError, subprocess.SubprocessError):        # pragma: no cover
+        return False
+    return done.returncode == 0
+
+
+def _system_espeak_data() -> Path | None:
+    """The data directory of the *installed* espeak-ng, which is the package the
+    README and install.sh already ask for. `espeak-ng --version` prints it:
+
+        eSpeak NG text-to-speech: 1.51  Data at: /usr/lib/x86_64-linux-gnu/espeak-ng-data
+    """
+    exe = shutil.which("espeak-ng") or shutil.which("espeak")
+    if not exe:
+        return None
+    try:
+        out = subprocess.run([exe, "--version"], capture_output=True, text=True,
+                             timeout=10).stdout
+    except (OSError, subprocess.SubprocessError):        # pragma: no cover
+        return None
+    if "Data at:" not in out:                            # pragma: no cover
+        return None
+    found = Path(out.split("Data at:", 1)[1].strip())
+    return found if (found / "phontab").is_file() else None
+
+
+def ensure_espeak() -> None:
+    """Leave the environment in a state where kokoro can phonemise, or refuse.
+
+    Costs one short child process when everything is already fine, which is the
+    normal case and is nothing beside loading the voice model itself."""
+    if _espeak_ok():
+        return
+    system = _system_espeak_data()
+    if system is not None and _espeak_ok(system):
+        # Not setdefault: we only get here because whatever was set didn't work.
+        os.environ["ESPEAK_DATA_PATH"] = str(system)
+        log.warning("kokoro: espeak-ng couldn't find its phoneme data (the "
+                    "espeakng-loader wheel's copy doesn't resolve) — using the system "
+                    "install at %s", system)
+        return
+    raise RuntimeError(_ESPEAK_HINT)
+
 
 # A small register→voice map (the ../kokoro impl has the full 54-voice table).
 REGISTERS = {"default": "af_heart", "late_night": "af_nicole", "expressive": "af_bella"}
@@ -37,6 +119,7 @@ class KokoroTTS:
             from kokoro import KPipeline
         except ImportError as e:  # pragma: no cover - environment dependent
             raise RuntimeError(_INSTALL_HINT) from e
+        ensure_espeak()
         self._pipeline = KPipeline(lang_code="a", repo_id="hexgrad/Kokoro-82M")
         self._voice = REGISTERS.get(register, register)
 

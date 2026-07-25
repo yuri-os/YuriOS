@@ -39,30 +39,51 @@ ambient-speech seam, the same timer board, and decides for itself.
 > Vite (`web/`, → SPEC §3); everything else runs on your hardware. One origin, no
 > telemetry shipped.
 
-## Quickstart — meet her in about an hour
+## Quickstart
+
+Linux, macOS, or Windows via WSL. The script installs system packages, `uv`, Node, the
+venv, her Vault and the web build — then tells you what it wired up:
 
 ```bash
 cd YuriOS
-python3.12 -m venv .venv && source .venv/bin/activate   # 3.11–3.13 (see Install below)
-pip install -e ".[test]"           # ~270 MB: her body, brain, memory, tools, text chat
-
-# Her thinking + embeddings, local via LM Studio (the .env.example default).
-# In LM Studio: download these models, then start its server on :1234
-# (Developer tab → Start Server, or `lms server start`). Any LiteLLM route
-# works — point CHAT_MODEL at ollama/… or openrouter/… instead if you prefer.
-lms get google/gemma-4-12b-qat                     # her thinking (chat + utility)
-lms get text-embedding-nomic-embed-text-v1.5       # local embeddings for memory + knowledge
-
-python scripts/seed_vault.py       # once: her mind, from her SOUL source (./soul-src)
-cp .env.example .env               # defaults are local-first; edit if you like
-
-(cd web && npm ci && npm run build)   # build her body: three.js/three-vrm via Vite → web/dist
+./install.sh                       # ~1.6 GB: everything .env.example selects, no CUDA
+source .venv/bin/activate
 python -m yurios.world             # → http://localhost:8768
 ```
 
-That's a complete, working YuriOS — no torch, no CUDA, no model downloads. She listens
-and speaks through the fakes until you install a voice, and tells you so on startup;
-add her real ears and voice when you want them (**Install**, below).
+No flags, no follow-up step: the script installs exactly what the `.env` it writes
+selects — her body, brain, memory, hands, text chat **and her real voice** (faster-whisper
+ears, the kokoro voice, silero turn-taking, all CPU-only). It ends by running the doctor,
+which should come back with nothing to do. Her voice models fetch themselves the first
+time she speaks; after that she's offline.
+
+Then give her a brain — the one part that isn't pip-installable. Any
+[LiteLLM](https://docs.litellm.ai/) route works; the shipped `.env` points at a local
+**LM Studio** on `:1234` (Developer tab → Start Server, or `lms server start`):
+
+```bash
+lms get HauhauCS/Gemma-4-E4B-Uncensored-HauhauCS-Aggressive   # her thinking (chat + utility)
+lms get text-embedding-nomic-embed-text-v1.5                  # her memory's embeddings
+```
+
+An uncensored model on purpose: she's a companion, not an assistant, and a
+refusal-trained model plays her badly — it breaks character to decline, which is the one
+thing a person in the room never does. Prefer Ollama or a hosted model? Point
+`CHAT_MODEL` at `ollama/…` or `openrouter/…` in `.env` — a one-line swap, and
+`EMBED_BACKEND=ollama` moves the embeddings with it.
+
+Want her without the voice stack? `./install.sh --thin` is the 280 MB text-only install
+(no torch, no CUDA): it points `.env` at the voice fakes, and rerunning `./install.sh`
+adds the real ones later. Everything is additive and re-runnable:
+
+```bash
+./install.sh --thin                # 280 MB, text only — she's silent, and says so
+./install.sh --desktop             # + the native transparent window
+./install.sh --gpu-voice           # + qwen3_tts, the designed voice (needs CUDA)
+```
+
+Wondering what's actually wired? `python -m yurios.doctor` reads your `.env` and says.
+No script — or want to know what it's doing? See [Manual setup](#manual-setup) below.
 
 Open it, click **enter the sanctuary**, then click **start listening** (the mic button,
 bottom-left) to give the page your microphone — voice won't work until you do. Now talk,
@@ -79,81 +100,14 @@ edits waiting on your approval, and the journal of what she did while you were g
 screen, in a frameless, transparent, always-on-top native window:
 
 ```bash
-pip install -e ".[desktop]"        # pywebview + Qt — NOT included in [all]
+./install.sh --desktop             # pywebview + Qt — NOT in [all]; pip: -e ".[desktop]"
 python -m yurios.world --window    # same server, no browser; her alone on the desktop
                                    #   --body vrm|live2d overrides DESKTOP_BODY from .env
 ```
 
 ![Desktop mode: Yuri floating transparently on the desktop, over the code editor.](docs/img/desktop-mode.png)
 
-## Install — pay only for the backends you select
-
-Or let the script do it (WSL, native Linux, macOS — it installs system packages, uv,
-Node, the venv, the Vault seed and the web build):
-
-```bash
-./install.sh                       # the thin default, as above
-./install.sh --voice               # + her real ears and voice, CPU-only
-./install.sh --voice --desktop     # + the native transparent window
-./install.sh --gpu-voice           # + qwen3_tts, the designed voice (needs CUDA)
-```
-
-It's additive and re-runnable: install thin now, rerun with `--voice` later.
-
-Every heavy backend is a lazy import behind a seam (SPEC §3), so the base install
-carries none of them and each extra installs exactly one. Nothing is a hard failure:
-a seam whose dep is missing falls back to its fake and logs the command that fixes it,
-and `python -m yurios.world --check` prints the whole picture before you boot.
-
-| Install | Adds | Cost |
-| --- | --- | --- |
-| `pip install -e .` | body, brain, memory, MCP tools, text chat | **~270 MB** |
-| `.[test]` | pytest — the full 166-test suite runs on the fakes | +7 MB |
-| `.[stt]` | her ears: faster-whisper (CTranslate2, **no torch**) | ~200 MB |
-| `.[tts]` | her voice: kokoro — the CPU default, needs `espeak-ng` | ~500 MB¹ |
-| `.[vad]` | turn-taking: silero-vad | shared torch |
-| `.[local-embed]` | `EMBED_BACKEND=sentence_tf` instead of a local server | shared torch |
-| `.[voice]` | `stt` + `tts` + `vad` — the whole GPU-free voice stack | ~700 MB¹ |
-| `.[all]` | `voice` + `local-embed` | ~700 MB¹ |
-| `.[tts-qwen]` | `TTS_BACKEND=qwen3_tts` — the designed voice, **wants CUDA** | +300 MB |
-| `.[tts-sovits]` | `TTS_BACKEND=gpt_sovits` — client for a server you run | +2 MB |
-| `.[desktop]` | `--window`: pywebview + Qt (QtWebEngine) | ~150 MB |
-| `.[gpu]` | genuinely everything, GPU voice and Qt included | several GB |
-
-¹ **On Linux, install CPU torch first.** kokoro, silero-vad and sentence-transformers
-all depend on torch, and PyPI's Linux torch wheel bundles CUDA — `nvidia-*` (2.7 GB)
-plus `triton` (691 MB) that the CPU default voice never touches. One extra line keeps
-those off your disk, and the extras reuse the wheel you already have:
-
-```bash
-pip install torch --index-url https://download.pytorch.org/whl/cpu
-pip install -e ".[voice,test]"
-sudo apt-get install espeak-ng     # kokoro's phonemiser (macOS: brew install espeak-ng)
-```
-
-Windows and macOS PyPI wheels are CPU-only already, so this only matters on Linux.
-It isn't pinned in `pyproject.toml` on purpose: forcing CPU torch would break anyone
-running `qwen3_tts` or `sentence_tf` on a real GPU.
-
-**Python 3.11–3.13.** `requires-python` carries an upper bound because `litellm` does
-(1.92.x is `>=3.10,<3.14`). Without the cap, a 3.14 venv installs at the project level
-and *then* sends pip backtracking through years of litellm releases looking for one
-that accepts 3.14 — a very slow resolve that ends in a stale litellm or a hard
-conflict. With it, you get one clear error at `pip install` time instead. 3.14 also has
-thin wheel coverage across the optional ML extras. `python3.12` is the tested version.
-
-**Which backends is she actually using?**
-
-```bash
-python -m yurios.doctor            # or: python -m yurios.world --check
-```
-
-It reads the same `.env` the server reads, checks each selected backend against
-what's importable, and prints the exact install command for anything missing —
-plus the `.env` change that avoids the download altogether where one exists
-(`EMBED_BACKEND=lm_studio` needs no torch at all).
-
-### Try the loop end to end
+## Try the loop end to end
 
 - **Drop a document** (`.md`/`.txt`) into `vault/knowledge/reference/` — within a
   heartbeat she reads it, indexes it, journals "read and shelved …", and can answer
@@ -188,14 +142,155 @@ she's in your pocket: your messages are ordinary turns, her replies — and her
 in the chat, selfies included. `/api/health` says which channels are up. WhatsApp and
 a game-engine NPC API are planned on the same seam (`yurios/world/channels/base.py`).
 
+## Manual setup
+
+Everything `./install.sh` does, as steps you can run yourself. Useful if you're
+packaging her, don't want a script touching your system, or are working on YuriOS.
+
+**Prerequisites.** Python **3.11–3.13** (3.12 is the tested one), Node **20.19+ or 22+**
+for the frontend build, and `git`. For her voice: `espeak-ng` (kokoro's phonemiser) and
+`libsndfile` — a text-only install needs neither. Install `espeak-ng` as a **system**
+package even though a pip wheel bundles a copy: the bundled phoneme data loses
+espeak-ng's own path-resolution race, and its answer to data it can't read is to
+`exit(1)` the process. Kokoro checks for a working one in a child process and falls back
+to the fake rather than take the server with it (`voice/backends/tts_kokoro.py`).
+
 ```bash
-pytest        # the §27 suite — the hard gate; green, entirely offline
+# 1. a venv on a supported Python
+python3.12 -m venv .venv && source .venv/bin/activate
+
+# 2. CPU torch FIRST — the voice needs torch, and PyPI's Linux wheel bundles 3.8 GB
+#    of CUDA that the CPU voice never runs. Skip this line only if you want the
+#    CUDA build; on macOS/Windows the wheels are CPU-only already. (See below.)
+pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
+
+# 3. YuriOS + everything .env.example selects: body, brain, memory, MCP tools,
+#    text chat, her ears, her voice, turn-taking. Drop `,voice` for text only.
+pip install -e ".[test,voice]"
+
+# 4. her config. The defaults are local-first and need no cloud key. Without the
+#    voice extra, set STT_BACKEND / TTS_BACKEND / VAD_BACKEND to `fake` in it.
+cp .env.example .env
+
+# 5. her mind: the Vault, seeded once from her SOUL source (./soul-src). Idempotent —
+#    it refuses rather than overwriting a Vault that already exists.
+python scripts/seed_vault.py
+
+# 6. her body: three.js/three-vrm bundled by Vite → web/dist
+(cd web && npm ci && npm run build)
+
+# 7. go
+python -m yurios.doctor            # what .env selects vs what's installed
+python -m yurios.world             # → http://localhost:8768
 ```
 
-The suite runs with fake models on a `VirtualClock`: **days of an always-on mind run
-in milliseconds**, which is the only way the make-or-break component — the interrupt
-threshold — ships tuned instead of vibed (§27.2's scenario battery: "the interview
-was Tuesday", "the dark weekend", "the machine sleeps").
+Her brain is whatever `CHAT_MODEL` points at — see the [Quickstart](#quickstart) for
+the LM Studio models the shipped `.env` expects.
+
+### The extras — pay only for the backends you select
+
+Every heavy backend is a lazy import behind a seam (SPEC §3), so the base install
+carries none of them and each extra installs exactly one. Missing deps are not a hard
+failure: the seam falls back to its fake and logs the command that fixes it.
+
+`./install.sh` installs `[test,voice]` — the row in bold — because that is what
+`.env.example` selects. Sizes are **measured on disk** (Linux, Python 3.12, venv total —
+not deltas), with CPU torch where torch is involved:
+
+| Install | Adds | On disk |
+| --- | --- | --- |
+| `pip install -e ".[test]"` | body, brain, memory, MCP tools, text chat, pytest | 280 MB |
+| `.[stt]` | her ears: faster-whisper — CTranslate2, **no torch** | 564 MB |
+| `.[tts]` | her voice: kokoro — the CPU default, needs `espeak-ng` | 1.3 GB¹ |
+| `.[vad]` | turn-taking: silero-vad — torch, shared with `tts` | — |
+| `.[test,voice]` | `stt` + `tts` + `vad`: **the default install** | **1.6 GB¹** |
+| `.[local-embed]` | `EMBED_BACKEND=sentence_tf` — no LM Studio/Ollama needed | — |
+| `.[all]` | `voice` + `local-embed` | 1.8 GB¹ |
+| `.[tts-sovits]` | `TTS_BACKEND=gpt_sovits` — client for a server you run | +2 MB |
+| `.[voice,tts-qwen]` | `TTS_BACKEND=qwen3_tts` — the designed voice, **wants CUDA** | 2.1 GB¹ |
+| `.[desktop]` | `--window`: pywebview + Qt (QtWebEngine) | 798 MB |
+| `.[gpu]` | genuinely everything: GPU voice and Qt, on CUDA torch | 6.4 GB |
+
+¹ **On Linux, install CPU torch first** — this is the single biggest win available.
+
+kokoro, silero-vad and sentence-transformers all depend on torch, and PyPI's Linux
+torch wheel bundles CUDA. Measured: the default wheel is **4.5 GB on disk** (2.73 GB
+download, 23 CUDA packages — `nvidia-cublas` 423 MB, `nvidia-cudnn` 366 MB, `cufft`
+214 MB, `nccl` 206 MB, `triton` 198 MB…), against **747 MB** for the CPU build. Torch
+itself is only 527 MB of that download; the rest is CUDA the CPU default voice never
+touches, and your GPU belongs to the LLM anyway.
+
+```bash
+pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
+pip install -e ".[voice,test]"
+sudo apt-get install espeak-ng libsndfile1   # macOS: brew install espeak-ng libsndfile
+```
+
+That's the 1.6 GB in the table instead of ~5.4 GB — the whole reason her voice can ship
+in the default install at all. Windows and macOS PyPI wheels are CPU-only already, so
+this only matters on Linux, and `./install.sh` does it for you.
+It is deliberately *not* pinned as an index override in `pyproject.toml`:
+that would force CPU torch on people running `qwen3_tts` or `sentence_tf` on a real
+GPU. Use `--cuda-torch` (or just skip the first line) if you want the CUDA build.
+
+**`torchaudio` belongs on that first line, not just `torch`.** kokoro and silero-vad
+both load torchaudio's C++ extension, and PyPI's torchaudio is built against CUDA
+torch: on a CPU-only torch it dies with `libcudart.so.13: cannot open shared object
+file`, both seams fall back to their fakes, and she is silent — while `pip list` shows
+kokoro and silero-vad installed exactly as expected. Take the pair from one index and
+the extras reuse both. `python -m yurios.doctor` checks the two build tags against each
+other for this reason, since no import probe can see it.
+
+### Two Python-version traps, and why the bounds exist
+
+Both of these were real failures, and both are now pinned shut.
+
+**`requires-python = ">=3.11,<3.14"`.** The upper bound is there because `litellm`
+carries one (1.92.x is `>=3.10,<3.14`). Without a ceiling here, a 3.14 venv installs
+YuriOS at the project level and *then* sends the resolver backtracking through years
+of litellm releases hunting for one that accepts 3.14 — a bafflingly slow resolve that
+ends in a stale litellm or a hard conflict. With the cap you get one line, up front:
+
+```
+ERROR: Package 'yurios' requires a different Python: 3.14.2 not in '<3.14,>=3.11'
+```
+
+**`numba>=0.61` in `[tts-qwen]`.** `qwen-tts` → `librosa` → `numba`, and numba caps
+numpy (0.62+ is `numpy<2.4`). Our numpy is unpinned, so it resolves to 2.5.x — and
+rather than cap numpy, the resolver walks *numba* backwards looking for a release with
+no numpy ceiling. It reaches numba 0.53.1 / llvmlite 0.36.0, which support only Python
+`>=3.6,<3.10`, ship no wheel for any Python we support, and so attempt a source build
+that dies with `Cannot install on Python version 3.12.7; only >=3.6,<3.10 supported`.
+The floor makes capping numpy the resolver's only move. Worth knowing if you add a
+dependency: `uv pip compile` calls that resolution *fine*, because it never builds —
+only a real install catches it.
+
+### Which backends is she actually using?
+
+```bash
+python -m yurios.doctor            # or: python -m yurios.world --check
+```
+
+It reads the same `.env` the server reads, checks each selected backend against what's
+importable, and prints the exact install command for anything missing — plus the `.env`
+change that avoids the download altogether where one exists (`EMBED_BACKEND=lm_studio`
+needs no torch at all). `./install.sh` runs it as its last step.
+
+### Running the tests
+
+```bash
+pip install -e ".[test]"           # nothing else — the suite runs against the fakes
+pytest                             # the §27 suite: 185 tests, offline, no GPU
+```
+
+That is the contract the seams buy you: every heavy backend has a fake, so the whole
+suite is green on a machine with no torch, no CUDA and nothing downloaded — which is
+also why a thin install is a *testable* install.
+
+It runs with fake models on a `VirtualClock`, so **days of an always-on mind run in
+milliseconds**. That's the only way the make-or-break component — the interrupt
+threshold — ships tuned instead of vibed (§27.2's scenario battery: "the interview was
+Tuesday", "the dark weekend", "the machine sleeps").
 
 ## The shape of it
 

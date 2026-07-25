@@ -25,9 +25,11 @@ class Config(BrainConfig):
     # --- brain defaults, re-pointed for a local-first desktop build ---
     # Local LM Studio by default (§2.4): one OpenAI-compatible server backs both
     # the mind and — with embed_backend below — its memory. `ollama/…` and a
-    # hosted `openrouter/…` are one-line swaps (the id's prefix routes it).
-    chat_model: str = "lm_studio/google/gemma-4-12b-qat"   # local by default (§2.4)
-    utility_model: str = "lm_studio/google/gemma-4-12b-qat"
+    # hosted `openrouter/…` are one-line swaps (the id's prefix routes it). The
+    # default is the uncensored Gemma-4 E4B the shipped .env.example names too — she
+    # is a companion, and a refusal-happy assistant model is the wrong voice for her.
+    chat_model: str = "lm_studio/HauhauCS/Gemma-4-E4B-Uncensored-HauhauCS-Aggressive"
+    utility_model: str = "lm_studio/HauhauCS/Gemma-4-E4B-Uncensored-HauhauCS-Aggressive"
     # Real-time voice: disable the *reply's* <think> pass so a local reasoning model
     # answers immediately instead of thinking first (§2.6; see app/providers). The
     # utility model keeps thinking ON (inherited default) — it runs off the hot path

@@ -17,7 +17,7 @@ dependencies = [
     # first-party and maintained here. These are their deps too. Copy, install, run.
     #
     # Everything here is pure-Python-ish and small: a bare `pip install -e .` is
-    # ~270 MB and pulls NO torch, NO CUDA, NO models. That is a complete, working
+    # ~280 MB and pulls NO torch, NO CUDA, NO models. That is a complete, working
     # YuriOS — her body, brain, memory, tools and text chat. The heavy local voice
     # and embedding backends are opt-in extras, and every one of them is a lazy
     # import behind a seam that degrades with a printed install hint (§3).
@@ -35,18 +35,23 @@ dependencies = [
 [project.optional-dependencies]
 # Real voice backends are optional imports (B2 §3): the loop runs against fakes with
 # none installed, so `pytest` is green on a machine with no models or GPU — the full
-# 166-test suite passes on a bare `pip install -e ".[test]"`.
+# 185-test suite passes on a bare `pip install -e ".[test]"`.
 #
 # Each extra is ONE backend, so you pay only for what your .env actually selects.
-# Rough download cost on Linux (a GPU torch build is ~4.5 GB of it — see CPU TORCH):
+# Measured venv size on disk (Linux, py3.12, CPU torch where torch is involved — with
+# PyPI's CUDA torch instead, add ~3.8 GB to every torch row; see CPU TORCH below):
 #
-#   (none)        ~270 MB   body + brain + memory + tools + text chat
-#   test           +7 MB    pytest; the whole suite runs against the fakes
-#   stt           ~200 MB   faster-whisper — CTranslate2, no torch at all
-#   tts            ~5 GB    kokoro → torch (~500 MB CPU-only)
-#   vad            ~5 GB    silero-vad → torch (shared with tts, so ~0 extra)
-#   local-embed    ~5 GB    sentence-transformers → torch (shared)
-#   tts-qwen       +300 MB  on top of tts: transformers, accelerate, gradio, pandas
+#   [test]         280 MB   body + brain + memory + tools + text chat, + pytest
+#   [stt]          564 MB   faster-whisper — CTranslate2, no torch at all
+#   [tts]          1.3 GB   kokoro → torch (747 MB of it is torch itself)
+#   [vad]            —      silero-vad → torch, shared with [tts]
+#   [test,voice]   1.6 GB   stt + tts + vad — what ./install.sh installs by default,
+#                           because it is what .env.example selects
+#   [all]          1.8 GB   voice + local-embed
+#   [tts-sovits]    +2 MB   just soundfile — the model lives in a server you run
+#   [voice,tts-qwen] 2.1 GB transformers, accelerate, librosa, gradio, pandas
+#   [desktop]      798 MB   pywebview + Qt (QtWebEngine)
+#   [gpu]          6.4 GB   everything, on PyPI's CUDA torch — the old default
 #
 stt = ["faster-whisper"]                     # ears (B2 §3.2) — CTranslate2, torch-free
 tts = ["kokoro", "soundfile"]                # the DEFAULT voice: CPU, GPU-free, fast
@@ -55,7 +60,17 @@ local-embed = ["sentence-transformers"]      # EMBED_BACKEND=sentence_tf (else L
 # TTS_BACKEND=qwen3_tts — the designed persona voice, and the only extra that really
 # wants a CUDA GPU (QWEN_DEVICE=cuda:0). Deliberately NOT in [voice] or [all]: it
 # drags transformers + accelerate + gradio + pandas for a backend nothing defaults to.
-tts-qwen = ["qwen-tts", "soundfile"]
+#
+# The numba floor is load-bearing, and the failure without it is a nasty one.
+# qwen-tts → librosa → numba, and numba caps numpy (0.62+ is "numpy<2.4"). Our core
+# numpy is unpinned, so it resolves to 2.5.x — and rather than cap numpy, the resolver
+# walks numba BACKWARDS looking for a release with no numpy ceiling. It gets all the
+# way to numba 0.53.1 / llvmlite 0.36.0, which support only Python >=3.6,<3.10, have
+# no wheel for any Python we support, and so attempt a source build that dies with:
+#   "RuntimeError: Cannot install on Python version 3.12.7; only >=3.6,<3.10"
+# `uv pip compile` reports that resolution as fine — it never builds — so this is only
+# visible on a real install. The floor makes capping numpy the resolver's only move.
+tts-qwen = ["qwen-tts", "soundfile", "numba>=0.61"]
 # TTS_BACKEND=gpt_sovits — an HTTP client for a GPT-SoVITS server you run yourself,
 # so there is no model here at all: just the audio decode. Nothing CUDA in-process.
 tts-sovits = ["soundfile"]
@@ -74,18 +89,31 @@ voice = ["faster-whisper", "kokoro", "soundfile", "silero-vad"]
 all = ["faster-whisper", "kokoro", "soundfile", "silero-vad", "sentence-transformers"]
 # Genuinely everything, GPU voice and desktop window included. Opt in by name.
 gpu = ["faster-whisper", "kokoro", "soundfile", "silero-vad", "sentence-transformers",
-       "qwen-tts", "pywebview", "qtpy", "PyQt6", "PyQt6-WebEngine"]
+       "qwen-tts", "numba>=0.61",          # the floor matters here too — see [tts-qwen]
+       "pywebview", "qtpy", "PyQt6", "PyQt6-WebEngine"]
 
 # --- CPU TORCH -------------------------------------------------------------------
 # kokoro, silero-vad and sentence-transformers all depend on torch, and on Linux the
-# default PyPI torch wheel bundles CUDA: nvidia-* (2.7 GB) + triton (691 MB) + torch
-# (1.1 GB). That is the bulk of the old 6.2 GB install — and none of it runs, because
-# the default voice (kokoro) is CPU-only and the GPU belongs to your LLM anyway.
+# default PyPI torch wheel bundles CUDA. Measured, in a venv with nothing else in it:
 #
-# Install the CPU build FIRST and the extras below reuse it (~500 MB, not ~4.5 GB):
+#   torch (default PyPI wheel)   4.5 GB on disk   2.73 GB download, 23 CUDA packages
+#   torch (whl/cpu index)        747 MB on disk   ~195 MB download
 #
-#   pip install torch --index-url https://download.pytorch.org/whl/cpu
+# torch itself is only 527 MB of that 2.73 GB; the rest is nvidia-cublas (423 MB),
+# nvidia-cudnn (366 MB), cufft (214 MB), nccl (206 MB), triton (198 MB), cusparselt
+# (170 MB) and friends. None of it runs: the default voice (kokoro) is CPU-only and
+# the GPU belongs to your LLM anyway. This was the bulk of the old 6.2 GB install.
+#
+# Install the CPU build FIRST and the extras below reuse it (747 MB, not 4.5 GB):
+#
+#   pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
 #   pip install -e ".[voice,test]"
+#
+# torchAUDIO has to be on that line too, not just torch: kokoro and silero-vad load its
+# C++ extension, and PyPI's torchaudio is built against CUDA torch, so on a CPU-only
+# torch it fails with "libcudart.so.13: cannot open shared object file" — both seams
+# quietly degrade to fakes while pip and find_spec both call the install fine. The
+# doctor compares the two build tags because nothing else can see it.
 #
 # Not pinned here as an index override: that would force CPU torch on people running
 # TTS_BACKEND=qwen3_tts or EMBED_BACKEND=sentence_tf on a real GPU. It stays a choice.

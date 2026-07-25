@@ -1,6 +1,6 @@
 """`python -m yurios.doctor` — what your .env asks for vs what's installed.
 
-The install is deliberately thin: a bare `pip install -e .` is ~270 MB with no
+The install is deliberately thin: a bare `pip install -e .` is ~280 MB with no
 torch, no CUDA and no models, and every heavy backend is an opt-in extra behind a
 lazy import (see pyproject). The cost of that is a gap between what `.env`
 *selects* and what's actually importable — and the server, by design, degrades
@@ -98,6 +98,48 @@ def collect(cfg) -> list[Check]:
     return checks
 
 
+def _collapse(extras: list[str]) -> list[str]:
+    """Print the umbrella extra when the pieces add up to it. Someone missing all
+    three voice seams should be told `.[voice]`, not `.[stt,tts,vad]` — same install,
+    but it matches how pyproject and the README name it. Longest cover first."""
+    out = list(extras)
+    for umbrella, parts in (("all", {"stt", "tts", "vad", "local-embed"}),
+                            ("voice", {"stt", "tts", "vad"})):
+        if parts <= set(out):
+            out = [umbrella] + [e for e in out if e not in parts]
+            break
+    return out
+
+
+def torch_pair_mismatch() -> str:
+    """The one broken install every check above still calls "ok", as a printable line.
+
+    kokoro and silero-vad load torchaudio's C++ extension, and it has to come from the
+    same build channel as torch. Take CPU torch first (the whole reason her voice fits
+    in 1.6 GB) and then let the extras pull torchaudio from PyPI, and you get a
+    CUDA-built extension on a CUDA-less torch: it dies with "libcudart.so.13: cannot
+    open shared object file", both seams degrade to their fakes, and she is silent —
+    while `find_spec` finds both modules exactly where they should be.
+
+    Spotted from metadata alone, so it costs nothing: PyPI's wheels carry no local
+    version tag, the pytorch.org CPU ones are `+cpu`. Only mismatched *that* way is a
+    bug — macOS and Windows wheels are CPU-only with no tag at all, so a plain pair
+    there is correct and must not warn."""
+    try:
+        from importlib.metadata import version
+        torch_v, audio_v = version("torch"), version("torchaudio")
+    except Exception:                       # torchaudio absent (no voice) — nothing to say
+        return ""
+    if not torch_v.endswith("+cpu") or audio_v.endswith("+cpu"):
+        return ""
+    return (f"\ntorch {torch_v} is the CPU build, but torchaudio {audio_v} came from "
+            f"PyPI\n(CUDA). kokoro and silero-vad load torchaudio's extension, so they "
+            f"will fail\nat runtime and fall back to the fakes. Take the pair from one "
+            f"index:\n\n"
+            "  pip install torch torchaudio --index-url "
+            "https://download.pytorch.org/whl/cpu\n")
+
+
 def _optional_line(skipped: list[Check]) -> str:
     names = ", ".join(f"{c.seam} (`pip install -e '.[{c.extra}]'`)" for c in skipped)
     return f"Optional, not installed (fine to ignore): {names}"
@@ -105,7 +147,8 @@ def _optional_line(skipped: list[Check]) -> str:
 
 def report(checks: list[Check], *, out=None) -> int:
     """Print the table + the fix. Returns the number of missing *required* seams
-    (advisory ones are listed but never counted — see Check.advisory).
+    (advisory ones are listed but never counted — see Check.advisory; the torch/
+    torchaudio warning is printed but not counted either, since nothing is missing).
 
     `out` resolves at call time, not as a default argument: binding sys.stdout at
     import would ignore any later redirection (pytest's capsys, a caller's
@@ -120,10 +163,17 @@ def report(checks: list[Check], *, out=None) -> int:
         print(f"{mark} {c.seam:<{seam_w}}  {f'{c.knob}={c.want}':<{knob_w}}  "
               f"{c.state:<{state_w}}" + (f"  ({c.note})" if c.note else ""), file=out)
 
+    # Printed either way: this one is invisible in the table above by construction.
+    mismatch = torch_pair_mismatch()
+    if mismatch:
+        print(mismatch, file=out)
+
     missing = [c for c in checks if not c.ok and not c.advisory]
     skipped = [c for c in checks if not c.ok and c.advisory]
     if not missing:
-        print("\nEverything your .env selects is installed. Nothing to do.", file=out)
+        print("\nEverything your .env selects is installed."
+              + (" Fix the torch pair above and she'll speak."
+                 if mismatch else " Nothing to do."), file=out)
         if skipped:
             print(_optional_line(skipped), file=out)
         print(file=out)
@@ -134,17 +184,19 @@ def report(checks: list[Check], *, out=None) -> int:
     print("\nMissing — she'll boot and run, but these seams fall back to the fakes"
           "\n(silent voice / no transcription), which is usually not what you want:\n",
           file=out)
-    extras = sorted({c.extra for c in missing if c.extra})
+    extras = _collapse(sorted({c.extra for c in missing if c.extra}))
     for c in missing:
         print(f"  - {c.seam}: {c.knob}={c.want} needs `{c.module}`", file=out)
     if extras:
-        torchy = {"tts", "vad", "local-embed", "tts-qwen"} & set(extras)
+        torchy = {"tts", "vad", "local-embed", "tts-qwen", "voice", "all"} & set(extras)
         print(f"\nInstall them:\n\n  pip install -e \".[{','.join(extras)}]\"\n", file=out)
         if torchy and sys.platform.startswith("linux"):
-            print("On Linux those pull the CUDA torch wheel (~4.5 GB of nvidia-* and\n"
-                  "triton). If you're not running a GPU backend, get the CPU build\n"
-                  "first and the extras reuse it (~500 MB instead):\n\n"
-                  "  pip install torch --index-url https://download.pytorch.org/whl/cpu\n"
+            # Measured in an otherwise-empty venv: the default PyPI wheel is 4.5 GB on
+            # disk (2.73 GB download, 23 CUDA packages) against 747 MB for whl/cpu.
+            print("On Linux those pull torch, and PyPI's wheel bundles CUDA: 4.5 GB on\n"
+                  "disk, vs 747 MB for the CPU build. Unless you're running a GPU\n"
+                  "backend, fetch CPU torch first and the extras reuse it:\n\n"
+                  "  pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu\n"
                   f"  pip install -e \".[{','.join(extras)}]\"\n", file=out)
         print("Or install nothing and set the fakes/hosted routes in .env — see the\n"
               "note beside each seam above.\n", file=out)

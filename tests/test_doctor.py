@@ -14,10 +14,11 @@ These pin both against the real files rather than against a copy of the table.
 from __future__ import annotations
 
 import re
+import subprocess
 import tomllib
 from pathlib import Path
 
-from yurios.doctor import Check, collect, report
+from yurios.doctor import Check, _collapse, collect, report
 from yurios.world.config import Config
 
 PYPROJECT = Path(__file__).resolve().parent.parent / "pyproject.toml"
@@ -118,6 +119,120 @@ def test_advisory_seams_never_fail_the_check(capsys):
     assert not check.ok
     assert report([check]) == 0
     assert "fine to ignore" in capsys.readouterr().out
+
+
+def test_missing_voice_seams_collapse_to_the_voice_extra(capsys):
+    """Three separate extras for one obvious install is worse advice than the name
+    pyproject and the README both use."""
+    assert _collapse(["stt", "tts", "vad"]) == ["voice"]
+    assert _collapse(["local-embed", "stt", "tts", "vad"]) == ["all"]
+    assert _collapse(["stt", "tts", "vad", "desktop"]) == ["voice", "desktop"]
+    assert _collapse(["stt"]) == ["stt"]                      # nothing to collapse
+    assert _collapse(["tts", "vad"]) == ["tts", "vad"]        # not the full set
+
+    cfg = Config(_env_file=None, embed_backend="lm_studio")   # only the voice missing
+    checks = [c for c in collect(cfg) if c.knob != "--window"]
+    if all(not c.ok for c in checks if c.extra in {"stt", "tts", "vad"}):
+        report(checks)
+        assert 'pip install -e ".[voice]"' in capsys.readouterr().out
+
+
+def test_the_cpu_torch_recipe_takes_torchaudio_from_the_same_index(monkeypatch, capsys):
+    """CPU torch + PyPI torchaudio is a silent-voice install, so every place that
+    prints the recipe has to name both packages, and the doctor has to spot the pair.
+
+    This one actually shipped broken: `./install.sh --voice` installed CPU torch, the
+    extras pulled torchaudio from PyPI, and kokoro/silero-vad died on
+    `libcudart.so.13` — with every doctor row still saying "ok"."""
+    from yurios import doctor
+
+    root = Path(__file__).resolve().parent.parent
+    recipes = [root / n for n in ("install.sh", "README.md", "pyproject.toml")]
+    # …plus the install hints the seams print. Only the torchaudio-shaped ones: the
+    # sentence_tf embedder needs torch and nothing else, so its hint is right to
+    # name only torch.
+    recipes += [p for p in sorted((root / "yurios").rglob("*.py"))
+                if any(dep in p.read_text() for dep in ("kokoro", "silero"))]
+    for path in recipes:
+        # install.sh wraps the command over a shell continuation, so fold those first
+        # or the second half looks like a torch-less install.
+        for line in path.read_text().replace("\\\n", " ").splitlines():
+            if "download.pytorch.org/whl/cpu" in line and "index-url" in line:
+                assert "torchaudio" in line, (
+                    f"{path.name}: `{line.strip()}` installs torch without torchaudio "
+                    f"— kokoro and silero-vad will fall back to fakes")
+
+    versions = {"torch": "2.13.0+cpu", "torchaudio": "2.11.0"}
+    monkeypatch.setattr("importlib.metadata.version", lambda pkg: versions[pkg])
+    assert "libcudart" not in doctor.torch_pair_mismatch()   # no scary strings, just the fix
+    assert "whl/cpu" in doctor.torch_pair_mismatch()
+
+    # …and it is printed even when every seam checks out, which is the whole point.
+    report([Check("embeddings", "EMBED_BACKEND", "lm_studio", "", "local-embed")])
+    assert "torchaudio 2.11.0 came from PyPI" in capsys.readouterr().out
+
+    for pair in (("2.13.0+cpu", "2.11.0+cpu"),      # both from pytorch.org — correct
+                 ("2.13.0", "2.11.0"),              # both from PyPI (CUDA) — correct
+                 ("2.11.0", "2.11.0+cpu")):         # odd, but not the failure we mean
+        versions["torch"], versions["torchaudio"] = pair
+        assert doctor.torch_pair_mismatch() == "", pair
+
+    versions.pop("torchaudio")                      # a thin install: nothing to say
+    assert doctor.torch_pair_mismatch() == ""
+
+
+def test_install_sh_default_installs_what_env_example_selects():
+    """`./install.sh` with no flags must cover every backend the .env it writes selects.
+
+    That is what "works out of the box" reduces to: install.sh copies .env.example to
+    .env, so any seam the file names and the default extras don't install is a fresh
+    checkout that boots into a fake — silent voice, no transcription — with a MISSING
+    line in the doctor and no way for the user to know that was on purpose. Pinned via
+    the script's own dry run, so the two can't drift."""
+    root = Path(__file__).resolve().parent.parent
+    installed = set(subprocess.run(
+        ["bash", str(root / "install.sh"), "--print-extras"],
+        capture_output=True, text=True, check=True,
+    ).stdout.strip().split(","))
+
+    cfg = Config(_env_file=str(root / ".env.example"))
+    wanted = {c.extra for c in collect(cfg)
+              if c.extra and not c.free and not c.advisory}
+    missing = set(_collapse(sorted(wanted))) - installed
+    assert not missing, (
+        f".env.example selects backends the default install doesn't provide: "
+        f"{sorted(missing)} (install.sh installs [{','.join(sorted(installed))}])")
+
+    # And the other direction, so --thin stays honest: it must NOT claim the voice.
+    thin = subprocess.run(
+        ["bash", str(root / "install.sh"), "--thin", "--print-extras"],
+        capture_output=True, text=True, check=True,
+    ).stdout.strip()
+    assert thin == "test", f"--thin resolved to [{thin}], which isn't a thin install"
+
+
+def test_env_example_embeddings_need_no_extra():
+    """The shipped .env.example must select an embedder the BASE install provides.
+
+    Embeddings are the one seam with no fake to degrade into, so an .env pointing at
+    sentence_tf turns `./install.sh --thin` into a hard boot failure rather than a quiet
+    one. Every other backend in the file can fall back; this one has to be free."""
+    env = Path(__file__).resolve().parent.parent / ".env.example"
+    settings: dict[str, str] = {}
+    for raw in env.read_text().splitlines():
+        raw = raw.strip()
+        if not raw or raw.startswith("#") or "=" not in raw:
+            continue
+        key, _, value = raw.partition("=")
+        settings[key.strip()] = value.split("#")[0].strip()
+
+    assert settings.get("EMBED_BACKEND") in {"lm_studio", "ollama"}, (
+        f"EMBED_BACKEND={settings.get('EMBED_BACKEND')} in .env.example needs an "
+        f"extra installed, and embeddings have no fake — a base install would not boot")
+
+    cfg = Config(_env_file=str(env))
+    embed = next(c for c in collect(cfg) if c.knob == "EMBED_BACKEND")
+    assert embed.ok, "the shipped .env.example selects an uninstallable embedder"
 
 
 def test_probing_does_not_import_the_module():

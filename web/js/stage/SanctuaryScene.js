@@ -16,7 +16,9 @@
  *   floor y=0 · ceiling y=2.72 · window wall z=+2.45 · side walls x=±1.85
  *
  * The camera looks along +z, so the window wall *is* the frame: the city is her
- * backdrop and the room reads at the edges. The corner return on the −x wall is
+ * backdrop and the room reads at the edges. The one thing in here that moves on
+ * its own is the cat (sanctuary/Cat.js), which owns the coordinates of the seat,
+ * the sill, the rug, the desk and the stool. The corner return on the −x wall is
  * what the idle machine's WINDOW_TARGET (yurios/mind/loop.py) points at when she
  * rain-gazes — move the glass, move that constant.
  */
@@ -35,6 +37,7 @@ import { Reflector } from 'three/addons/objects/Reflector.js';
 
 import { Post } from './Post.js';
 import { Rain } from './Rain.js';
+import { Cat } from './sanctuary/Cat.js';
 import { City } from './sanctuary/City.js';
 import { Terminal } from './sanctuary/Screens.js';
 import {
@@ -515,6 +518,11 @@ export class SanctuaryScene {
 
     this._buildHolo(room, scene, metalMat, darkMetal);
 
+    // ---- the cat: the one thing in here that decides where to be ----
+    // It knows the room's perches by their world coordinates (Cat.js SPOTS), so
+    // moving the seat, the sill, the stool or the desk moves them there too.
+    this.cat = new Cat(room, { low, camera });
+
     // ---- light (SPEC §6.1: LOW and WARM — the lamp carries the room) ----
     scene.add(new HemisphereLight(0x28304a, 0x0a0a12, 0.28));
 
@@ -778,6 +786,7 @@ export class SanctuaryScene {
   setRain(intensity) {
     this.rain.setIntensity(intensity);
     this.city.setRain(this.rain.intensity);
+    this.cat.setRain(this.rain.intensity);
     this.cityLight.intensity = this.cityLightBase * (1 - 0.3 * this.rain.intensity);
     if (this.returnLight)
       this.returnLight.intensity = 0.8 * (1 - 0.3 * this.rain.intensity);
@@ -790,6 +799,7 @@ export class SanctuaryScene {
     this.rain.update(dt);
     this.city.update(dt);
     this.terminal.update(dt);
+    this.cat.update(dt);
 
     // the lamp breathes — two slow sines, never a strobe
     this.lamp.intensity = this.lampBase

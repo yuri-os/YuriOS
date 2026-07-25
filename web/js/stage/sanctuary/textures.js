@@ -242,6 +242,31 @@ export function createWeaveTex() {
   return toTex(cv);
 }
 
+/** The cat's coat — a smoke tabby, kept mid-value on purpose. A black cat is
+ *  the obvious noir animal and it disappears entirely in a room lit by one lamp;
+ *  this one is pale enough to hold an edge against the floor, with the stripes
+ *  running around the body the way the sphere UVs already run. */
+export function createFurTex() {
+  const S = 256, cv = mkCanvas(S), c = cv.getContext('2d');
+  c.fillStyle = '#4a4552'; c.fillRect(0, 0, S, S);
+  // No banding: sphere UVs run in rings, and anything with contrast in them
+  // turns the animal into an armadillo. What is left is soft mottling and the
+  // fur itself, which is all that survives at the distance it is seen from.
+  for (let i = 0; i < 40; i++) {
+    const x = R() * S, y = R() * S, rr = 20 + R() * 60;
+    const g = c.createRadialGradient(x, y, 1, x, y, rr);
+    g.addColorStop(0, `rgba(32,28,40,${0.05 + R() * 0.09})`);
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    c.fillStyle = g; c.beginPath(); c.arc(x, y, rr, 0, 7); c.fill();
+  }
+  for (let i = 0; i < 9000; i++) {                 // the fur itself
+    const v = R() * 44;
+    c.fillStyle = `rgba(${84 + v},${78 + v},${94 + v},${0.04 + R() * 0.16})`;
+    c.fillRect(R() * S, R() * S, 1.3, 2.4);
+  }
+  return toTex(cv);
+}
+
 /** A printed sheet taped to a wall — a Lab field note, a warning, a handbill. */
 export function createPosterTex(lines, accent, bg) {
   const cv = mkCanvas(256, 384), c = cv.getContext('2d');

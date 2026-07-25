@@ -406,8 +406,12 @@ to every new subscriber before its first live event. Malformed JSON is logged an
   **window seat** under it, and a **single plant** on the sill. The window is the room's hero and
   faces the camera, so the **city beyond the glass** is her backdrop: neon, hoardings, hover
   traffic, weather. She **MUST NOT** stand in a void or a default grey scene. The rest of the
-  set — desk and terminal, holo table, the cove neon, the block's dying fixtures — is
-  furnishing, free to change; the five elements above are not.
+  set — desk and terminal, holo table, the cat, the cove neon, the block's dying fixtures — is
+  furnishing, free to change; the five elements above are not. The cat (`web/js/stage/sanctuary/Cat.js`,
+  lorebook "The cat") is furnishing that decides where to be: it chooses among the room's perches,
+  walks a path around the furniture and jumps at the end of it, on the same reduced tier as the
+  rest of §6.2. It is unnamed on purpose — naming it is {{user}}'s, and §27's promise scenario
+  already assumes she has cat names to sleep on.
 - §6.2 The set **MUST** be procedural three.js geometry and shader work — no binary scene assets
   in git: surfaces are canvases drawn at boot, the city is a baked canvas plus a small animated
   overlay, and the weather is a shader. Rain **MUST** respond to the `rain` command (§4): a

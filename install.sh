@@ -122,18 +122,16 @@ if [ "$PRINT_EXTRAS" = true ]; then
     exit 0
 fi
 
+VENV_DIR="$ROOT_DIR/.venv"
 case "$(uname -s)" in
     Darwin)
         PLATFORM="macos"
-        VENV_DIR="$ROOT_DIR/.venv"
         ;;
     Linux)
         if [ -r /proc/sys/kernel/osrelease ] && grep -qi microsoft /proc/sys/kernel/osrelease; then
             PLATFORM="wsl"
-            VENV_DIR="$ROOT_DIR/.wvenv"
         else
             PLATFORM="linux"
-            VENV_DIR="$ROOT_DIR/.venv"
         fi
         ;;
     *) fail "unsupported operating system: $(uname -s). On Windows, run this script inside WSL." ;;
@@ -196,6 +194,55 @@ configure_voice() {
     rm -f .env.bak
 }
 
+configure_wsl_lmstudio() {
+    [ "$PLATFORM" = "wsl" ] || return 0
+
+    local default_url="http://localhost:1234/v1"
+    local current_line current_url gateway interface subnet target_url
+    current_line="$(grep '^LMSTUDIO_BASE_URL=' .env 2>/dev/null)"
+    current_url="$(printf '%s' "${current_line#*=}" | cut -d' ' -f1)"
+    if [ "$current_url" != "$default_url" ] \
+        && [[ "$current_line" != *"# managed by install.sh for WSL" ]]; then
+        log "Keeping your LMSTUDIO_BASE_URL as-is"
+        return 0
+    fi
+
+    # Mirrored-network WSL can reach Windows localhost directly, so keep the
+    # portable default when it already works.
+    if curl -fsS --connect-timeout 1 "$default_url/models" >/dev/null 2>&1; then
+        return 0
+    fi
+    command -v powershell.exe >/dev/null 2>&1 \
+        || fail "powershell.exe is required to connect WSL to LM Studio on Windows"
+
+    read -r _ _ gateway _ interface _ < <(ip -4 route show default | sed -n '1p')
+    read -r subnet _ < <(ip -4 route show dev "$interface" proto kernel scope link | sed -n '1p')
+    if [[ ! "$gateway" =~ ^[0-9]+(\.[0-9]+){3}$ ]] \
+        || [[ ! "$subnet" =~ ^[0-9]+(\.[0-9]+){3}/[0-9]+$ ]]; then
+        fail "could not detect the Windows gateway and WSL subnet"
+    fi
+
+    # LM Studio may already listen on the Windows-facing adapter. Prefer that
+    # over changing the host when it is reachable.
+    if curl -fsS --connect-timeout 1 "http://$gateway:1234/v1/models" >/dev/null 2>&1; then
+        target_url="http://$gateway:1234/v1"
+    else
+        log "Configuring the Windows LM Studio bridge (approve the UAC prompt)"
+        # Windows 10 cannot route WSL back to a localhost-only server. A scoped
+        # portproxy preserves LM Studio's safe loopback bind and exposes only its
+        # API port to this WSL subnet. Both addresses are discovered, never fixed.
+        if ! powershell.exe -NoProfile -NonInteractive -Command \
+            "\$p = Start-Process powershell.exe -Verb RunAs -ArgumentList '-NoProfile -NonInteractive -Command \"netsh interface portproxy delete v4tov4 listenaddress=$gateway listenport=1235; netsh interface portproxy add v4tov4 listenaddress=$gateway listenport=1235 connectaddress=127.0.0.1 connectport=1234; Remove-NetFirewallRule -DisplayName YuriOS-LMStudio-WSL -ErrorAction SilentlyContinue; New-NetFirewallRule -DisplayName YuriOS-LMStudio-WSL -Direction Inbound -Action Allow -Protocol TCP -LocalAddress $gateway -LocalPort 1235 -RemoteAddress $subnet -Profile Any\"' -Wait -PassThru; exit \$p.ExitCode"; then
+            fail "Windows declined the LM Studio bridge; rerun the installer and approve its UAC prompt"
+        fi
+        target_url="http://$gateway:1235/v1"
+    fi
+
+    log "Pointing WSL at LM Studio through $target_url"
+    sed -i.bak "s|^LMSTUDIO_BASE_URL=.*|LMSTUDIO_BASE_URL=$target_url # managed by install.sh for WSL|" .env
+    rm -f .env.bak
+}
+
 install_docker() {
     [ -f compose.yaml ] || fail "no compose.yaml in this checkout — the Docker setup isn't part of it. Run ./install.sh without --docker for a host install."
     command -v docker >/dev/null 2>&1 || fail "Docker is not installed. Install Docker Desktop (WSL/macOS) or Docker Engine with the Compose plugin (Linux)."
@@ -223,15 +270,58 @@ run_root() {
     fi
 }
 
+sync_wsl_clock() {
+    local windows_epoch linux_epoch drift
+
+    if ! command -v powershell.exe >/dev/null 2>&1; then
+        log "Cannot check the Windows clock because powershell.exe is unavailable; if apt reports 'not valid yet', run 'wsl --shutdown' in Windows and retry"
+        return
+    fi
+    if ! windows_epoch="$(powershell.exe -NoProfile -NonInteractive \
+        -Command '[DateTimeOffset]::UtcNow.ToUnixTimeSeconds()')"; then
+        log "Cannot read the Windows clock; if apt reports 'not valid yet', run 'wsl --shutdown' in Windows and retry"
+        return
+    fi
+    windows_epoch="${windows_epoch//$'\r'/}"
+    if [[ ! "$windows_epoch" =~ ^[0-9]+$ ]]; then
+        log "Windows returned an invalid clock value; if apt reports 'not valid yet', run 'wsl --shutdown' in Windows and retry"
+        return
+    fi
+
+    linux_epoch="$(date -u +%s)"
+    drift=$((windows_epoch - linux_epoch))
+    if (( drift < 0 )); then
+        drift=$((-drift))
+    fi
+    if (( drift > 60 )); then
+        log "Synchronizing the WSL clock with Windows (${drift}s drift)"
+        run_root date -u --set="@$windows_epoch" >/dev/null
+    fi
+}
+
 install_system_packages() {
     # espeak-ng (kokoro's phonemiser) and libsndfile (soundfile's decoder) are voice
     # deps — needed by the default install, but not by --thin, which gets away with
     # git and curl. Both stay empty when no voice extra was requested, and an empty
     # var word-splits to nothing, so the package simply drops off the command.
-    local ESPEAK="" SNDFILE=""
+    local ESPEAK="" SNDFILE="" DESKTOP_APT=""
     if [ "$INSTALL_VOICE" = true ] || [ "$INSTALL_GPU_VOICE" = true ]; then
         ESPEAK="espeak-ng"
         SNDFILE="libsndfile"
+    fi
+    if [ "$INSTALL_DESKTOP" = true ] && [ "$PLATFORM" != "wsl" ]; then
+        # PyQt's wheels contain Qt itself, but not Chromium's NSS runtime or the
+        # libraries used by Qt's XCB platform plugin. Minimal Ubuntu images do not
+        # carry these, so the Python packages install cleanly and --window then
+        # dies while importing QtWebEngine. WSL is excluded on purpose: there
+        # --window never touches Qt (world/window.py hands the window to a
+        # Windows-side browser instead), so this would be a dozen packages and a
+        # sudo prompt spent on a code path that cannot run.
+        DESKTOP_APT="libnspr4 libnss3 libxkbfile1 libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 libxcb-util1 libxcb-image0 libxcb-keysyms1 libxcb-render-util0 libxcb-shape0 libxcb-xkb1"
+    fi
+
+    if [ "$PLATFORM" = "wsl" ]; then
+        sync_wsl_clock
     fi
 
     if [ "$PLATFORM" = "macos" ]; then
@@ -256,10 +346,26 @@ install_system_packages() {
     fi
 
     if command -v apt-get >/dev/null 2>&1; then
+        # A typical WSL distro already has these packages after the first run. Avoid
+        # asking for the Windows user's sudo password again when there is no work to do.
+        if [ "$PLATFORM" = "wsl" ]; then
+            local pkg all_installed=true
+            for pkg in git curl ca-certificates $ESPEAK ${SNDFILE:+libsndfile1} $DESKTOP_APT; do
+                if ! dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null \
+                    | grep -q '^install ok installed$'; then
+                    all_installed=false
+                    break
+                fi
+            done
+            if [ "$all_installed" = true ]; then
+                log "WSL system packages are already installed"
+                return
+            fi
+        fi
         log "Installing Debian/Ubuntu system packages"
         run_root apt-get update
         # shellcheck disable=SC2086
-        run_root apt-get install -y git curl ca-certificates $ESPEAK ${SNDFILE:+libsndfile1}
+        run_root apt-get install -y git curl ca-certificates $ESPEAK ${SNDFILE:+libsndfile1} $DESKTOP_APT
     elif command -v dnf >/dev/null 2>&1; then
         log "Installing Fedora/RHEL system packages"
         # shellcheck disable=SC2086
@@ -376,6 +482,7 @@ uv pip install --python "$PYTHON" -e ".[$EXTRAS]"
 prepare_local_state
 configure_embeddings
 configure_voice
+configure_wsl_lmstudio
 # seed_vault.py refuses to overwrite a seeded Vault (it is her mind, and re-seeding
 # would reset the relationship to zero), so guard on the same file it checks — that
 # keeps a re-run idempotent instead of erroring out under `set -e`.
@@ -430,5 +537,19 @@ Installed --thin, so .env selects the voice fakes: she is silent and doesn't
 transcribe. Add her real ears and voice whenever you like (and flip the three
 *_BACKEND knobs back) — this script is re-runnable:
   ./install.sh
+EOF
+fi
+
+# The one piece a WSL install cannot finish from in here: --window has to be
+# drawn by Windows, and Electron's binary is a Windows one, so Windows' own node
+# must fetch it. Without it she still gets a window — an opaque browser one.
+if [ "$PLATFORM" = "wsl" ] && [ "$INSTALL_DESKTOP" = true ]; then
+    cat <<EOF
+
+One more step for the transparent desktop window, run from WINDOWS (not in here —
+it installs a Windows binary), in PowerShell:
+  cd $(wslpath -w "$ROOT_DIR" 2>/dev/null || printf '%s' "$ROOT_DIR")\\desktop-shell
+  npm install
+Then \`python -m yurios.world --window\` finds it. Details: desktop-shell/README.md
 EOF
 fi

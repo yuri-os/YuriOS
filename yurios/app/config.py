@@ -23,6 +23,12 @@ class Config(BaseSettings):
     # Base url for a local LM Studio server (used only for lm_studio/… model ids;
     # OpenAI-compatible, so this is its /v1 endpoint).
     lmstudio_base_url: str = "http://localhost:1234/v1"
+    # Load the lm_studio/… chat model and embedder at boot and pin them there, so
+    # LM Studio's JIT loader stops evicting one to serve the other every turn
+    # (providers/lmstudio.ensure_resident). Off = the old behaviour, one reload per
+    # turn. The timeout only has to cover a cold load off disk.
+    lmstudio_preload: bool = True
+    lmstudio_load_timeout_s: float = 600.0
     # Base url for a local Ollama server. Chat routing (ollama/… ids) uses LiteLLM's
     # own default; this knob is what the settings panel queries to list the models
     # you actually have pulled (GET {base}/api/tags).

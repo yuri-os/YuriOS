@@ -238,6 +238,19 @@ LM Studio embedder (`EMBED_BACKEND=lm_studio`) reuses the same server for memory
 process behind both. Embeddings are always local and ownable. A failed backend **MUST**
 degrade gracefully (keep talking, log the truth) rather than crash.
 
+**Model residency.** Sharing one server has a cost that is not obvious: LM Studio JIT-loads
+whatever model a request names, and by default unloads the previously JIT-loaded one to do it.
+Every turn touches both models — the chat model streams the reply, the embedder recalls and
+remembers — so left alone each turn evicts the other's model and pays a full reload (measured:
+5.7 s for a 6.3 GB chat model, 1.9 s for an 84 MB embedder, *per turn*). At boot YuriOS
+therefore **MUST** load every model it routes to LM Studio explicitly, through that server's
+developer API (`POST /api/v1/models/load`), with no `ttl_seconds` — an explicit load is not a
+JIT load, so the eviction rule never touches it and no idle timer unloads it. This changes
+nothing in the user's LM Studio configuration: it is the Load button, pressed over HTTP, and
+so **MUST** work against a stock install (`LMSTUDIO_PRELOAD=false` opts out). Like any backend
+it degrades: an unreachable server, a model that is not downloaded, or one that will not fit
+is logged and boots anyway, back to JIT loading — slow, not broken.
+
 **The reasoning switch.** A local model **MAY** be a reasoning model (a `<think>` pass before
 the answer). Two knobs, one per role: `CHAT_THINKING` (the reply voice) and `UTILITY_THINKING`
 (fact extraction / summarisation). For the **real-time voice loop, reply reasoning is OFF**

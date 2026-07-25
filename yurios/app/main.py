@@ -86,9 +86,43 @@ def _default_embedder(cfg: Config):
     return SentenceTFEmbedder(cfg.embed_model, cfg.embed_dim)
 
 
+def _lmstudio_ids(cfg: Config, *, chat: bool, embed: bool) -> list[str]:
+    """Which of her models live on the LM Studio server, as LM Studio names them.
+
+    Two seams can land on that one server: the reply voice (lm_studio/… ids — the
+    prefix is LiteLLM routing, not part of the id) and the embedder
+    (EMBED_BACKEND=lm_studio). Only counts the seams we are actually building —
+    an injected fake never touches a server, so the test suite never reaches for
+    localhost:1234."""
+    ids: list[str] = []
+    if embed and cfg.embed_backend == "lm_studio":
+        ids.append(cfg.embed_model)
+    if chat:
+        ids += [m.split("/", 1)[1] for m in (cfg.chat_model, cfg.utility_model)
+                if m.startswith("lm_studio/")]
+    return ids
+
+
+def _preload_lmstudio(cfg: Config, *, chat: bool, embed: bool) -> list[str]:
+    """Pin those models in LM Studio before the first request; return what stuck.
+
+    Left to JIT loading they evict each other on every turn — the story is in
+    providers/lmstudio.ensure_resident."""
+    ids = _lmstudio_ids(cfg, chat=chat, embed=embed)
+    if not ids:
+        return []
+    from yurios.app.providers.lmstudio import ensure_resident
+    return ensure_resident(cfg.lmstudio_base_url, ids,
+                           timeout=cfg.lmstudio_load_timeout_s)
+
+
 def create_app(cfg: Config | None = None, *, chat_model=None, utility_model=None,
                embedder=None) -> FastAPI:
     cfg = cfg or Config()
+
+    if cfg.lmstudio_preload:
+        _preload_lmstudio(cfg, chat=chat_model is None or utility_model is None,
+                          embed=embedder is None)
 
     soul_dir = cfg.vault_dir / "soul"
     if not (soul_dir / "soul.yaml").exists():

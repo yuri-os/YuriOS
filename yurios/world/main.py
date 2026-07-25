@@ -105,6 +105,7 @@ class Runtime:
         if brain is not None:
             self.brain = brain                 # injected (tests): no embedder loads
         else:
+            self._pin_lmstudio_models(cfg, chat_model, utility_model, embedder)
             self.boot.declare("embed", "memory · embedding model")
             if embedder is None:
                 from yurios.app.main import _default_embedder
@@ -176,6 +177,36 @@ class Runtime:
         self.voice_ready = threading.Event()
         threading.Thread(target=self._warm_voice, daemon=True,
                          name="voice-warmup").start()
+
+    def _pin_lmstudio_models(self, cfg, chat_model, utility_model, embedder) -> None:
+        """Load her LM Studio models and pin them there, before the first turn.
+
+        The brain does this too (app.main._preload_lmstudio) — it has to, since
+        Build #1 and the desktop boot without this panel. Doing it here as well
+        buys the panel: a cold 6 GB model off disk is a minute of silence, and the
+        enter gate should say which model it is waiting for rather than hang. The
+        second call is a no-op by then (already resident costs one GET).
+
+        Why pin at all: chat and embeddings share one LM Studio server, whose JIT
+        loader evicts the previously JIT-loaded model to serve the next request —
+        so every turn used to unload one to load the other (see
+        providers/lmstudio.ensure_resident)."""
+        from yurios.app.main import _lmstudio_ids, _preload_lmstudio
+
+        if not cfg.lmstudio_preload:
+            return
+        chat = chat_model is None or utility_model is None
+        ids = _lmstudio_ids(cfg, chat=chat, embed=embedder is None)
+        if not ids:
+            return
+        self.boot.declare("models", "mind · language models")
+        self.boot.start("models", detail=f"{len(ids)} on LM Studio")
+        pinned = _preload_lmstudio(cfg, chat=chat, embed=embedder is None)
+        if pinned:
+            self.boot.done("models", detail=f"{len(pinned)} resident · no idle unload")
+        else:
+            # she still runs: LM Studio JIT-loads per request, slowly (§3.1)
+            self.boot.done("models", state="failed", detail="none pinned — see the log")
 
     def _warm_voice(self) -> None:
         # These local torch models (Kokoro TTS, faster-whisper, silero) load

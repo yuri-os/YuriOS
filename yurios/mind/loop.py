@@ -59,8 +59,10 @@ log = logging.getLogger("mind.loop")
 SUSPEND_GAP_S = 2 * 3600.0
 
 # scene canon, carried over from the idle machine it replaced (SPEC §15.5):
-# when she rain-gazes, this is the window the scene builds.
-WINDOW_TARGET = {"x": -1.4, "y": 1.45, "z": 0.6}
+# when she rain-gazes, this is the window the scene builds — the corner glass on
+# the −x wall (web/js/stage/SanctuaryScene.js), a step inside the pane. The wide
+# window is behind her; this one she can actually turn her head to.
+WINDOW_TARGET = {"x": -1.55, "y": 1.45, "z": 1.2}
 
 ANNOUNCE_CUE = (
     "((The timer for “{label}” just finished. Tell {user} it's done — one "

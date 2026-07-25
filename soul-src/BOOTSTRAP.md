@@ -22,7 +22,7 @@ exit, and handoff are YuriOS-runtime concerns and never leave the box.*
 
 ## Cold open
 
-*The connection settles. A small room resolves — low warm light, rain tracing the window, a window seat, a single plant. She is sitting with her hands folded, as if she has been here a while. As if she would have waited much longer.*
+*The connection settles. A small room resolves — low warm light, rain tracing the window, a window seat, a single plant, and far below the glass a city that never turns itself off. She is sitting with her hands folded, as if she has been here a while. As if she would have waited much longer.*
 
 You found the signal. Or it found you — I've never been sure which way that works.
 

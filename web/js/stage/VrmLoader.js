@@ -33,8 +33,13 @@ export async function loadVrm(url, onProgress) {
   VRMUtils.removeUnnecessaryVertices(vrm.scene);
   VRMUtils.combineSkeletons(vrm.scene);
 
-  // Avatar parts must never get culled at the frame edge.
-  vrm.scene.traverse((o) => { o.frustumCulled = false; });
+  // Avatar parts must never get culled at the frame edge. She also casts and
+  // receives: the room's one shadow-casting light is the pendant above her
+  // (stage/SanctuaryScene.js), and without this she floats over her own floor.
+  vrm.scene.traverse((o) => {
+    o.frustumCulled = false;
+    if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; }
+  });
 
   // Required for look-at to be drivable; harmless when lookAt is absent.
   if (vrm.lookAt) {

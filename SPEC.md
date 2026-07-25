@@ -401,13 +401,23 @@ to every new subscriber before its first live event. Malformed JSON is logged an
 
 ## §6 — The sanctuary scene
 
-- §6.1 The room is canonical and its elements are normative: a **small room** with **low warm
-  light** (a lamp), a **window with rain**, a **window seat**, and a **single plant**. She
-  **MUST NOT** stand in a void or a default grey scene.
+- §6.1 The room is canonical and its elements are normative: a **small room** — one unit high in
+  a stacked block over the Sprawl — with **low warm light** (a lamp), a **window with rain**, a
+  **window seat** under it, and a **single plant** on the sill. The window is the room's hero and
+  faces the camera, so the **city beyond the glass** is her backdrop: neon, hoardings, hover
+  traffic, weather. She **MUST NOT** stand in a void or a default grey scene. The rest of the
+  set — desk and terminal, holo table, the cove neon, the block's dying fixtures — is
+  furnishing, free to change; the five elements above are not.
 - §6.2 The set **MUST** be procedural three.js geometry and shader work — no binary scene assets
-  in git. Rain **MUST** respond to the `rain` command (§4): a window-pane streak shader plus
-  falling drops outside, and a synthesized rain-noise bed (client-side) whose gain follows
-  intensity.
+  in git: surfaces are canvases drawn at boot, the city is a baked canvas plus a small animated
+  overlay, and the weather is a shader. Rain **MUST** respond to the `rain` command (§4): a
+  glass streak-and-bead shader, falling drops outside, the far rain over the city, and a
+  synthesized rain-noise bed (client-side) whose gain follows intensity. The room renders
+  through a post chain (bloom → tone-map → grade) — without it the neon does not leave the
+  surface it is painted on. Cost is a first-class constraint: this GPU is usually also holding
+  her model (§3), so the room **MUST** carry a reduced tier (`?fx=low`, and automatically on
+  small or coarse-pointer displays) that drops the planar floor reflection, the shadow map, the
+  area lights and the post-AA.
 - §6.3 The page chrome carries the dark-sanctuary brand (JetBrains Mono; magenta/cyan/amber
   accents on near-black). The camera is fixed and cinematic — framing her in the room with
   subtle mouse parallax — not an orbit-controls model viewer: a place, not an asset inspector.

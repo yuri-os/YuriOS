@@ -50,6 +50,10 @@ export class VrmStage {
 
     this.vrm = undefined;
     this.group = undefined;
+    // The room's post chain (stage/Post.js), registered by main.js when the
+    // sanctuary is built. Desktop mode (SPEC §6.5) leaves it undefined and the
+    // renderer draws straight to the transparent framebuffer.
+    this.post = undefined;
     this.mixer = undefined;
     this.emote = undefined;
     this.gaze = undefined;
@@ -80,6 +84,7 @@ export class VrmStage {
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(w, h);
+    this.post?.setSize(w, h);
   }
 
   async loadModel(url, onProgress) {
@@ -112,9 +117,14 @@ export class VrmStage {
     const hipsY = this.vrm.humanoid?.getNormalizedBoneNode('hips')
       ?.getWorldPosition(new Vector3()).y ?? headY - 0.55;
     const top = headY + (this.frameBody ? 0.16 : 0.22);
-    const bottom = this.frameBody ? -0.02 : hipsY - 0.35;
+    const bottom = this.frameBody ? -0.02 : hipsY - 0.55;
     const mid = (top + bottom) / 2;
-    const dist = ((top - bottom) / 2) / Math.tan(MathUtils.degToRad(this.camera.fov / 2)) + 0.25;
+    // The margin is what leaves room for the room: at 0.25 the sanctuary's
+    // window wall was cropped to a strip behind her head. Half a metre back and
+    // the whole picture window, the seat and the desk edge are in frame, and she
+    // still reads head-and-torso rather than as a figure on a set.
+    const dist = ((top - bottom) / 2) / Math.tan(MathUtils.degToRad(this.camera.fov / 2))
+      + (this.frameBody ? 0.25 : 0.5);
     if (this.frameBody) this.cameraHome.set(0, mid, -dist);
     else this.cameraHome.set(0.18, headY - 0.06, -dist);   // slightly off-axis: a room, not a lineup
     this.cameraTarget.set(0, mid, 0);
@@ -250,7 +260,8 @@ export class VrmStage {
       const delta = Math.min((now - this.lastTime) / 1000, 0.05);
       this.lastTime = now;
       this.update(delta);
-      this.renderer.render(this.scene, this.camera);
+      if (this.post) this.post.render(delta);     // bloom + grade (SPEC §6.2)
+      else this.renderer.render(this.scene, this.camera);
       requestAnimationFrame(tick);
     };
     requestAnimationFrame(tick);

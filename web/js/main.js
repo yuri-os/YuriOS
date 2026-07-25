@@ -90,8 +90,9 @@ async function boot() {
     key.position.set(-1.2, 1.9, -1.6);
     stage.scene.add(hemi, key);
   } else {
-    room = new SanctuaryScene(stage.scene);
+    room = new SanctuaryScene(stage.scene, stage.renderer, stage.camera);
     stage.environment = room;                  // room.update(dt) joins the frame
+    stage.post = room.post;                    // …and the frame goes through bloom
   }
   stage.start();                               // renders while she loads
 

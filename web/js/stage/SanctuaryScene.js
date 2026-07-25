@@ -298,23 +298,52 @@ export class SanctuaryScene {
     SOFTBOX(0.5, 0.06, 0.44, 0.03, cushionMat, -0.1, 0.55, seatZ, 0.1);
 
     // ---- the plant (canon: exactly one), on the sill ----
+    // Half the height it used to be, and shaped rather than clumped: the old one
+    // stood a third of the way up the glass and took the district's left edge
+    // with it, which is a lot of view to spend on a houseplant. It is a squat
+    // rosette now — every leaf hangs from a pivot at the soil and bends once
+    // above it, so the fan opens outward and the outer ones fall further,
+    // instead of seven stretched blobs standing in a ring.
     const sillY = W.y0;
-    const pot = new Mesh(new CylinderGeometry(0.1, 0.085, 0.17, 14),
-      new MeshStandardMaterial({ color: 0x27201c, roughness: 0.9 }));
-    pot.position.set(0.98, sillY + 0.085, BACK_Z - 0.14);
+    const plant = new Group();
+    plant.position.set(0.98, sillY, BACK_Z - 0.14);
+    room.add(plant);
+
+    const potMat = new MeshStandardMaterial({ color: 0x27201c, roughness: 0.9 });
+    const pot = new Mesh(new CylinderGeometry(0.08, 0.062, 0.1, 16), potMat);
+    pot.position.y = 0.05;
     pot.castShadow = !low;
-    room.add(pot);
-    const leafMat = new MeshStandardMaterial({ color: 0x1d3a24, roughness: 0.9 });
-    for (let i = 0; i < 7; i++) {
-      const a = (i / 7) * Math.PI * 2;
-      const leaf = new Mesh(new SphereGeometry(0.055, 8, 6), leafMat);
-      leaf.scale.set(1, 2.6 + (i % 3) * 0.5, 0.5);
-      leaf.position.set(0.98 + Math.cos(a) * 0.07,
-        sillY + 0.32 + (i % 3) * 0.05, BACK_Z - 0.14 + Math.sin(a) * 0.07);
-      leaf.rotation.z = Math.cos(a) * 0.5;
-      leaf.rotation.x = -Math.sin(a) * 0.5;
+    plant.add(pot);
+    const rim = new Mesh(new CylinderGeometry(0.086, 0.086, 0.018, 16), potMat);
+    rim.position.y = 0.101;
+    plant.add(rim);
+    const soil = new Mesh(new CylinderGeometry(0.076, 0.076, 0.012, 14),
+      new MeshStandardMaterial({ color: 0x120d0a, roughness: 1 }));
+    soil.position.y = 0.108;
+    plant.add(soil);
+
+    // one blade, unit-length up the +y axis; each leaf scales its own copy
+    const bladeGeo = new SphereGeometry(1, 7, 5);
+    const leafMats = [0x24462b, 0x2d5334, 0x1c3a23].map((color) =>
+      new MeshStandardMaterial({ color, roughness: 0.85 }));
+    for (let i = 0; i < 11; i++) {
+      const inner = i < 4;                         // the young ones, still upright
+      const len = inner ? 0.13 + (i % 2) * 0.025 : 0.115 + (i % 3) * 0.018;
+      const lean = (inner ? 0.2 : 0.62) + (i % 3) * 0.12;
+      const base = new Group();                    // rooted in the soil, leaning out
+      base.position.y = 0.112;
+      base.rotation.y = (i / 11) * Math.PI * 2 + (inner ? 0.9 : 0);
+      base.rotation.z = lean * 0.55;
+      const bend = new Group();                    // …and falling further past halfway
+      bend.position.y = len * 0.45;
+      bend.rotation.z = lean * 0.5;
+      base.add(bend);
+      const leaf = new Mesh(bladeGeo, leafMats[i % 3]);
+      leaf.scale.set(0.025 + (i % 2) * 0.007, len * 0.55, 0.011);
+      leaf.position.y = len * 0.5;
       leaf.castShadow = !low;
-      room.add(leaf);
+      bend.add(leaf);
+      plant.add(base);
     }
     // the watering can she keeps beside it, because nothing requires her to
     const can = new Mesh(new CylinderGeometry(0.05, 0.055, 0.1, 12), metalMat);

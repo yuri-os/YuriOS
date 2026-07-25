@@ -127,6 +127,13 @@ class ToolBrain(BrainAdapter):
         finally:
             self._raw[session_id] = "".join(raw)
 
+    def abandon(self, session_id: str) -> None:
+        """B1's rollback, plus this subclass's own half-turn state: the verbatim
+        record of a turn that didn't happen must not survive to be persisted
+        against the next one (§7.4)."""
+        self._raw.pop(session_id, None)
+        super().abandon(session_id)
+
     async def persist(self, session_id: str, user_text: str, reply: str) -> None:
         """B1's post-turn pipeline, but the corpus gets the model-verbatim record
         — markers and tool results included — so the training log reflects what

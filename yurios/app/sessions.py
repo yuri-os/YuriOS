@@ -61,6 +61,20 @@ class SessionStore:
         s["last_active"] = _now()
         self._save()
 
+    def drop_last(self, session_id: str, role: str) -> bool:
+        """Undo the last `append_message` if it was `role`'s. A turn is written
+        to the transcript in two halves — the user's line when the reply starts
+        streaming, hers when it commits — so a turn torn down in between (a
+        barge-in, a brain failure) leaves an orphaned user line that the next
+        prompt reads as an unanswered question. This is the rollback: a turn
+        that didn't happen leaves no trace (SPEC §4.4)."""
+        s = self._data["sessions"][session_id]
+        if not s["transcript"] or s["transcript"][-1]["role"] != role:
+            return False
+        s["transcript"].pop()
+        self._save()
+        return True
+
     def bump_turn(self, session_id: str) -> None:
         s = self._data["sessions"][session_id]
         s["turn_count"] += 1

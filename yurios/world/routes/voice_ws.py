@@ -162,6 +162,16 @@ async def voice(ws: WebSocket):
             await safe_send({"type": "error", "message": "turn failed"})
         finally:
             rt.turn_ended()                        # FORK(B2 §10)
+            # FORK(B2 §10): "no trace" has to mean her memory too. `stream_reply`
+            # writes the user's line into the session window before the first
+            # token (the model must see it); `persist` writes her half. Every way
+            # out of the pump that isn't a clean commit — barge-in, brain error,
+            # a client that vanished mid-turn — leaves only the first half, and
+            # the next prompt reads it as a question she still owes an answer to:
+            # she replies to it a second time, folded into the new turn. This is
+            # the rollback. A no-op after a clean turn (persist took the pending)
+            # and for greeting/ambient lines (they never append one).
+            brain.abandon(session_id)
 
     # FORK(B2 §10): the ambient injector (SPEC §15.5). The mind calls this to
     # speak a self-initiated line — a murmur, a timer announcement, a reach-out

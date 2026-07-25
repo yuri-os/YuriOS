@@ -90,3 +90,10 @@ class ReplyBrain(Protocol):
         """Run Build #1's post-turn pipeline (journal, index, USER.md, commit,
         corpus) off the hot path. Never called on a barged-in (incomplete) turn."""
         ...
+
+    def abandon(self, session_id: str) -> None:
+        """`persist`'s opposite number: this turn ended without committing, so
+        drop whatever half of it the brain already wrote down. Called wherever
+        `persist` isn't — barge-in, a brain failure, a client that vanished
+        mid-turn — and safe to call twice, or after a clean turn."""
+        ...

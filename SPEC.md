@@ -549,7 +549,14 @@ STT/TTS/VAD SDK, and fakes implement each seam so the whole loop runs offline (�
   `TurnController` (§15.5).
 - §9.6 **Failure/cancel leave no trace.** A barged-in turn and a mid-stream brain error **MUST**
   persist nothing — no corpus line, no commit. Only a fully completed turn calls `persist()`,
-  off the hot path.
+  off the hot path. **No trace includes the session window.** `stream_reply` appends the user's
+  line to the transcript before the first token (the model must see it) while `persist` appends
+  hers, so a turn torn down in between leaves a half-written exchange behind. Every path that
+  ends a turn without committing — barge-in, brain error, a client that vanished mid-turn, an
+  empty reply — **MUST** call `abandon()`, `persist()`'s opposite number, which drops the
+  pending turn and rolls the user's line back out of `sessions.json`. Without it the next
+  prompt reads that line as a question still owed an answer and she answers it a second time,
+  folded into the new turn.
 - §9.7 **Emotion → expression.** The model is asked (appended system blocks, voice-only) to
   treat the exchange as *spoken* (no narration, no stage directions, no asterisk actions) and to
   emit inline expression tags from the §3.4 palette. The parser (`yurios/desktop/voice/emotion.py`)

@@ -82,17 +82,32 @@ class TurnController:
         """Barge-in. Idempotent; safe to call from the mic handler at any instant."""
         self._cancel.set()
 
-    async def run_turn(self, session_id: str, text: str,
-                       trace: TurnTrace | None = None,
-                       persist: bool = True,
-                       tokens: AsyncIterator[str] | None = None) -> AsyncIterator[OutEvent]:
+    def run_turn(self, session_id: str, text: str,
+                 trace: TurnTrace | None = None,
+                 persist: bool = True,
+                 tokens: AsyncIterator[str] | None = None) -> AsyncIterator[OutEvent]:
         """Drive one turn end to end. Caller has already endpointed + transcribed.
 
         `persist=False` + a `tokens` override is the greeting path (SPEC §7): she
         speaks first from `brain.stream_greeting`, but an opener is not a turn the
         user took, so it is not remembered as one. With no override, tokens come
-        from `brain.stream_reply` — the normal turn."""
+        from `brain.stream_reply` — the normal turn.
+
+        A plain method wrapping the generator, on purpose: an async generator's
+        body doesn't run until the first `__anext__`, so arming the cancel token
+        inside it left a window — between `create_task(run(controller.run_turn(…)))`
+        and the pump's first step — where `cancel()` set an event this turn was
+        about to throw away, and the barge-in vanished. The window is widest at
+        the start of a session, where the greeting turn is created and only then
+        does the route start reading the socket. Arming here closes it: the token
+        is live from the moment the caller has the iterator."""
         self._cancel = asyncio.Event()      # fresh cancel token per turn
+        return self._run_turn(session_id, text, trace, persist, tokens)
+
+    async def _run_turn(self, session_id: str, text: str,
+                        trace: TurnTrace | None,
+                        persist: bool,
+                        tokens: AsyncIterator[str] | None) -> AsyncIterator[OutEvent]:
         trace = trace or TurnTrace()
         trace.mark("endpoint")
 

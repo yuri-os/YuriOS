@@ -114,6 +114,20 @@ class BrainAdapter:
                 max_tokens=self.cfg.max_reply_tokens):
             yield token
 
+    def abandon(self, session_id: str) -> None:
+        """The other close-out: this turn never happened (barge-in, brain error).
+
+        `stream_reply` appends the user's line to the session transcript before
+        the first token, because the model must see it — but `persist` is what
+        writes her half. A turn torn down in between must undo that half, or the
+        next prompt carries an unanswered question and she answers it a second
+        time alongside the new one. Idempotent, and a no-op unless *this*
+        session had a reply in flight (a greeting or an ambient line appends
+        nothing, so cancelling one must never touch the transcript)."""
+        if self._pending.pop(session_id, None) is None:
+            return
+        self.state.sessions.drop_last(session_id, "user")
+
     async def persist(self, session_id: str, user_text: str, reply: str) -> None:
         """Build #1's post-turn pipeline, verbatim: corpus line, then journal +
         index + USER.md + summary + exactly one git commit (SPEC §2, §4.4)."""

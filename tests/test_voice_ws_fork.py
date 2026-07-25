@@ -213,6 +213,11 @@ def test_bargein_drops_the_draft_and_commits_nothing(rig):
     # the user's turn is in the chat; her cut-off reply is not (no trace, B2 §4.4)
     assert wait_for(lambda: len(rt.transcript) == 2)
     assert [m["role"] for m in rt.transcript] == ["assistant", "user"]
+    # …and the pump rolled the half-written turn out of her memory, so the next
+    # prompt won't carry the question as still unanswered (test_integration
+    # pins what that rollback actually does over the real brain)
+    assert wait_for(lambda: brain.abandon_calls)
+    assert not brain.persist_calls                     # nothing was committed
 
 
 def test_expressions_ride_the_puppet_lane_not_the_wire(rig):

@@ -81,6 +81,22 @@
 
   let es = null;
 
+  // The backfill lands asynchronously, and the stream is already live by then:
+  // a message that arrives in that gap would render ABOVE the older history it
+  // follows — she answers before you asked. So live messages queue until the
+  // backfill has been laid down, then replay in order behind it. (Only messages:
+  // drafts and avatar ops are about *now* and never need re-ordering.)
+  let backfilled = false;
+  let queued = [];
+
+  function flushBackfill(history) {
+    if (backfilled) return;               // the failsafe already fired
+    history.forEach(addMsg);
+    backfilled = true;
+    queued.forEach(addMsg);               // addMsg dedups by id — an overlap is fine
+    queued = [];
+  }
+
   function connect({ onStatus } = {}) {
     if (es) return;                       // one stream per page
     es = new EventSource('/api/events');
@@ -95,14 +111,18 @@
         charName = m.character || '';
         const el = document.getElementById('chat-name');
         if (el && charName) el.textContent = charName;
-      } else if (m.type === 'message') addMsg(m);
-      else if (m.type === 'draft') addDraft(m.text);
+      } else if (m.type === 'message') {
+        if (backfilled) addMsg(m); else queued.push(m);
+      } else if (m.type === 'draft') addDraft(m.text);
       else if (m.type === 'draft_cancel') dropDraft();
     };
     // backfill what was said before this page opened (SPEC §2.6)
     fetch('/api/history').then((r) => r.json())
-      .then((d) => (d.messages || []).forEach(addMsg))
-      .catch(() => {});
+      .then((d) => flushBackfill(d.messages || []))
+      .catch(() => flushBackfill([]));   // no history is still "history is done"
+    // …and a hung fetch must never cost her a live word: give up waiting and
+    // show what's arriving, out of order but present.
+    setTimeout(() => flushBackfill([]), 5000);
   }
 
   window.WorldChat = { connect };

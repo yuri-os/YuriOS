@@ -79,14 +79,21 @@ class TextTurns:
                 if buf.strip():
                     shown.append(buf.strip())
             except Exception:
-                # a turn that didn't happen leaves no trace (B2 §4.4)
+                # a turn that didn't happen leaves no trace (B2 §4.4) — including
+                # in her memory: stream_reply already put the user's line in the
+                # session window, and only persist writes her half, so an
+                # un-rolled-back failure leaves a question the next prompt reads
+                # as still unanswered (she answers it again, in the next turn).
                 rt.hub.publish("draft_cancel", {})
+                rt.brain.abandon(session_id)
                 log.exception("text turn failed mid-stream (channel %s)", channel)
                 raise
             finally:
                 rt.turn_ended()
 
             entry = None
+            if not shown:
+                rt.brain.abandon(session_id)   # nothing to commit — same rollback
             if shown:
                 reply = " ".join(shown)
                 entry = rt.post_message("assistant", reply, channel=channel)

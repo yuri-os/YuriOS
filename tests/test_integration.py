@@ -121,6 +121,56 @@ async def test_tool_turn_over_the_real_brain(vault, cfg, clock):
     assert sum("turn" in l for l in log.splitlines()) == 1
 
 
+async def test_a_barged_in_turn_leaves_nothing_in_her_memory(vault, cfg, clock):
+    """The other half of "a turn that didn't happen leaves no trace" (§4.4).
+
+    `stream_reply` writes the user's line into the session window before the
+    first token — the model has to see it — while only `persist` writes her
+    half. Cut the turn off in between and, without the rollback, the window
+    keeps a question she never answered: the very next prompt reads it as still
+    open and she answers it a second time, folded into the new turn. That is
+    what the chat panel showed as two `you` bubbles and one merged reply.
+    """
+    cfg = cfg.model_copy(update={
+        "vault_dir": vault, "embed_dim": 8,
+        "corpus_dir": vault.parent / "corpus"})
+    chat = ScriptedChat([
+        ["Yes, ", "I ", "hear ", "you. ", "Every ", "word."],   # turn 1 — cut off
+        ["Seoul. ", "You ", "told ", "me ", "yesterday."],      # turn 2
+    ])
+    brain = ToolBrain.build(
+        cfg, guard=Guard(rates_per_min={}, log_dir=cfg.tool_log_dir, clock=clock),
+        timers=TimerBoard(clock), controller=VrmController(),
+        chat_model=chat, utility_model=FakeUtility(), embedder=FakeEmbedder())
+    sid = brain.resolve_session(None)
+    tc = TurnController(brain=brain, tts=FakeTTS(), filler_bank=None,
+                        mask_latency=False)
+
+    # turn 1: she gets a sentence out, then the user talks (or types) over her
+    events = []
+    async for ev in tc.run_turn(sid, "hello, can you hear me?"):
+        events.append(ev)
+        if ev.kind == "audio":
+            tc.cancel()
+    assert events[-1].kind == "cancelled"
+    brain.abandon(sid)                       # what every cancel path now does
+
+    # turn 2: the prompt must carry no sign of the turn that didn't happen
+    async for _ in tc.run_turn(sid, "where do I live?"):
+        pass
+    window = [m["content"] for m in chat.calls[1] if m["role"] != "system"]
+    assert not any("can you hear me" in c for c in window)
+    assert any("where do I live" in c for c in window)
+
+    # …and the rollback is only ever the abandoned turn's own line: turn 2
+    # committed, so its exchange stays put for turn 3
+    async for _ in tc.run_turn(sid, "and what did I say?"):
+        pass
+    window = [m["content"] for m in chat.calls[2] if m["role"] != "system"]
+    assert any("where do I live" in c for c in window)
+    assert any("You told me yesterday" in c for c in window)
+
+
 async def test_ambient_stream_over_the_real_brain_never_persists(vault, cfg, clock):
     cfg = cfg.model_copy(update={
         "vault_dir": vault, "embed_dim": 8,

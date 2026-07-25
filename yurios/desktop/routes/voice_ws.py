@@ -114,6 +114,14 @@ async def voice(ws: WebSocket):
         except Exception:
             log.exception("turn stream failed")
             await safe_send({"type": "error", "message": "turn failed"})
+        finally:
+            # §9.6: no trace includes her memory. stream_reply put the user's
+            # line in the session window before the first token; only persist
+            # writes her half. Every exit from this pump that isn't a clean
+            # commit rolls the orphan back — otherwise the next prompt reads it
+            # as unanswered and she answers it again. No-op after a clean turn,
+            # and for the greeting (it appends nothing).
+            brain.abandon(session_id)
 
     # she speaks first (§7): greet from memory the moment the headset goes on —
     # but only once per session. A reconnect (or a second connection that parked

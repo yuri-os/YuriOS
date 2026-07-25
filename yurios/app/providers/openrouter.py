@@ -19,6 +19,8 @@ from typing import AsyncIterator
 
 import litellm
 
+from yurios.app.providers.usage import chunk_prompt_tokens, chunk_text
+
 
 def _route(model: str) -> str:
     """Prefix for LiteLLM's OpenRouter routing, unless the caller already routed
@@ -53,6 +55,22 @@ def _attribution(model: str) -> dict:
 # then answers directly. This is what makes Build #2's voice loop real-time.
 _NO_THINK_BODY = {"reasoning_effort": "none"}
 
+# Routes that accept OpenAI's `stream_options` — verified against LM Studio 0.4,
+# which otherwise sends no usage at all (its streams end on a plain finish_reason
+# chunk). Asking turns the context gauge from a ~4-chars/token estimate into the
+# server's own prompt_tokens. It is an allowlist and not a default because a
+# provider that rejects an unknown parameter fails the whole request — which
+# would cost her voice for the sake of a number — and Ollama is exactly that
+# kind of maybe. Only sent when something is actually reading the count, so a
+# meter-less brain (Build #1, the desktop) puts nothing new on the wire.
+_USAGE_ROUTES = ("lm_studio/", "openrouter/", "openai/")
+
+
+def _ask_for_usage(model: str, meter) -> dict:
+    if meter is None or not model.startswith(_USAGE_ROUTES):
+        return {}
+    return {"stream_options": {"include_usage": True}}
+
 
 def _no_think_messages(messages: list[dict]) -> list[dict]:
     """Belt-and-suspenders for models that ignore `reasoning_effort` (e.g. Ollama
@@ -68,21 +86,29 @@ class LiteLLMChatModel:
     """The reply voice (§3): streams tokens for /api/chat and /api/greeting.
 
     `thinking=False` disables a reasoning model's <think> pass (see `_no_think`) so
-    short replies come back fast and non-empty — the Build #2 real-time default."""
+    short replies come back fast and non-empty — the Build #2 real-time default.
+
+    `meter` is an optional observer of how big each prompt got (world/context.py):
+    it is told the messages before the call, and the server's own `prompt_tokens`
+    afterwards when the stream volunteers usage. Nothing here depends on one being
+    attached — Build #1's brain runs with `meter = None`."""
 
     def __init__(self, model: str, api_key: str = "", temperature: float = 0.9,
-                 *, api_base: str = "", thinking: bool = True):
+                 *, api_base: str = "", thinking: bool = True, meter=None):
         self.model = _route(model)
         self.api_base = api_base or None
         self.api_key = api_key or None
         self.temperature = temperature
         self.thinking = thinking
+        self.meter = meter
 
     async def stream(self, messages: list[dict], **params) -> AsyncIterator[str]:
         extra = {}
         if not self.thinking:
             messages = _no_think_messages(messages)
             extra["extra_body"] = _NO_THINK_BODY
+        if self.meter is not None:
+            self.meter.note_prompt(messages)      # the estimate, before the call
         response = await litellm.acompletion(
             model=self.model,
             messages=messages,
@@ -92,12 +118,19 @@ class LiteLLMChatModel:
             max_tokens=params.get("max_tokens", 1024),
             stream=True,
             **_attribution(self.model),
+            **_ask_for_usage(self.model, self.meter),
             **extra,
         )
         async for chunk in response:
-            delta = chunk.choices[0].delta
-            if delta and delta.get("content"):
-                yield delta["content"]
+            # usage rides a final choice-less chunk when the server volunteers it
+            # at all; providers/usage.py holds both hazards and the reasoning
+            if self.meter is not None:
+                prompt_tokens = chunk_prompt_tokens(chunk)
+                if prompt_tokens:
+                    self.meter.note_usage(prompt_tokens)
+            text = chunk_text(chunk)
+            if text:
+                yield text
 
 
 class LiteLLMUtilityModel:

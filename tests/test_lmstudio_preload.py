@@ -12,7 +12,8 @@ import json
 
 import httpx
 
-from yurios.app.providers.lmstudio import _api_root, _resolve_key, ensure_resident
+from yurios.app.providers.lmstudio import (_api_root, _resolve_key,
+                                           ensure_resident, probe_context)
 
 GEMMA = {"key": "gemma-4-e4b-uncensored-hauhaucs-aggressive", "publisher": "HauhauCS",
          "type": "llm", "loaded_instances": []}
@@ -96,6 +97,89 @@ def test_chat_and_utility_being_the_same_model_loads_it_once():
     same = "HauhauCS/Gemma-4-E4B-Uncensored-HauhauCS-Aggressive"
     ensure_resident("http://lms/v1", [same, same, NOMIC["key"]], transport=t)
     assert [c[1]["model"] for c in t.calls] == [GEMMA["key"], NOMIC["key"]]
+
+
+# ---- the context window (SPEC §11) ------------------------------------------
+#
+# The bug THESE guard: LM Studio loads a model in its own per-model default
+# window, which is routinely smaller than the model can do — so a long enough
+# conversation dies on "Context size has been exceeded". CONTEXT_LENGTH is the
+# cure, and it only works if the number actually reaches /models/load.
+
+def test_context_length_rides_the_load():
+    t = transport([GEMMA])
+    ensure_resident("http://lms/v1", [GEMMA["key"]], context_length=32768,
+                    transport=t)
+    assert t.calls == [("/api/v1/models/load",
+                        {"model": GEMMA["key"], "context_length": 32768})]
+
+
+def test_no_context_length_asks_for_nothing():
+    """0 = leave it to LM Studio: the old behaviour, byte for byte."""
+    t = transport([GEMMA])
+    ensure_resident("http://lms/v1", [GEMMA["key"]], transport=t)
+    assert t.calls == [("/api/v1/models/load", {"model": GEMMA["key"]})]
+
+
+def test_an_embedder_never_gets_a_chat_window():
+    """An embedding model has no conversation to hold — its own window is right."""
+    t = transport([NOMIC])
+    ensure_resident("http://lms/v1", [NOMIC["key"]], context_length=32768,
+                    transport=t)
+    assert t.calls == [("/api/v1/models/load", {"model": NOMIC["key"]})]
+
+
+def test_a_model_pinned_too_small_is_reloaded_bigger():
+    # LM Studio reports the loaded window inside the instance's `config` block
+    small = {**GEMMA, "loaded_instances": [
+        {"id": GEMMA["key"], "config": {"context_length": 4096}}]}
+    t = transport([small])
+    ensure_resident("http://lms/v1", [GEMMA["key"]], context_length=32768,
+                    transport=t)
+    assert t.calls == [("/api/v1/models/unload", {"instance_id": GEMMA["key"]}),
+                       ("/api/v1/models/load",
+                        {"model": GEMMA["key"], "context_length": 32768})]
+
+
+def test_a_model_already_big_enough_is_left_alone():
+    big = {**GEMMA, "loaded_instances": [
+        {"id": GEMMA["key"], "config": {"context_length": 65536}}]}
+    t = transport([big])
+    ensure_resident("http://lms/v1", [GEMMA["key"]], context_length=32768,
+                    transport=t)
+    assert t.calls == []          # reloading 6 GB of weights to shrink is madness
+
+
+def test_a_server_that_does_not_report_the_window_is_not_churned():
+    """No context_length in the instance = an older LM Studio. Reloading on every
+    boot to chase a number it will never report would be a permanent tax."""
+    t = transport([{**GEMMA, "loaded_instances": [{"id": GEMMA["key"], "config": {}}]}])
+    ensure_resident("http://lms/v1", [GEMMA["key"]], context_length=32768,
+                    transport=t)
+    assert t.calls == []
+
+
+def test_probe_reports_the_loaded_window_and_the_ceiling_separately():
+    """The two are 4× apart here and 30× apart in the wild — the gauge wants the
+    window she's IN, not the one the model could have had."""
+    entry = {**GEMMA, "max_context_length": 131072,
+             "loaded_instances": [{"id": GEMMA["key"],
+                                   "config": {"context_length": 32768}}]}
+    found = probe_context("http://lms/v1", GEMMA["key"], transport=transport([entry]))
+    assert found == {"loaded": 32768, "max": 131072}
+
+
+def test_probe_of_an_unloaded_model_reports_no_window():
+    found = probe_context("http://lms/v1", GEMMA["key"],
+                          transport=transport([{**GEMMA, "max_context_length": 262144}]))
+    assert found == {"loaded": 0, "max": 262144}
+
+
+def test_probe_survives_a_dead_server():
+    def refuse(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("connection refused")
+    assert probe_context("http://lms/v1", GEMMA["key"],
+                         transport=httpx.MockTransport(refuse)) == {"loaded": 0, "max": 0}
 
 
 # ---- best-effort: she boots either way --------------------------------------

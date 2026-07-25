@@ -98,10 +98,77 @@ def _resolve_key(catalog: list[dict], model_id: str) -> str | None:
     return None
 
 
+def _instance_ctx(inst: dict) -> int:
+    """A loaded instance's context window. LM Studio reports it inside the
+    instance's `config` (the load-time settings block, verified against 0.4);
+    the top level is checked too in case that ever moves. 0 = it didn't say —
+    treated as "don't touch it"."""
+    for source in (inst.get("config") or {}, inst):
+        for field in ("context_length", "contextLength", "loaded_context_length"):
+            val = source.get(field)
+            if isinstance(val, (int, float)) and val > 0:
+                return int(val)
+    return 0
+
+
+def _too_small(pinned: list[dict], want: int) -> bool:
+    """Is every pinned instance running in a window smaller than `want`? Only
+    then is a reload worth the seconds — an unknown or larger window already
+    serves the prompts we're going to send."""
+    if want <= 0:
+        return False
+    sizes = [_instance_ctx(i) for i in pinned]
+    return bool(sizes) and all(0 < s < want for s in sizes)
+
+
+def probe_context(base_url: str, model_id: str, *,
+                  transport: httpx.BaseTransport | None = None) -> dict:
+    """What context window `model_id` is actually running in, if LM Studio says.
+
+    Returns {"loaded": n, "max": n} with whichever it knows (0 = it didn't say),
+    so the UI can show a real ceiling on a machine where CONTEXT_LENGTH was never
+    set. Never raises — an unreachable or older server just yields zeros, and the
+    readout falls back to showing the used side alone.
+
+    The two numbers are NOT interchangeable. `loaded` is the window she is running
+    in; `max` is the largest that model could be loaded with, and they are worlds
+    apart — a gemma-4-12b reports `max_context_length` 262144 while LM Studio's
+    own default loads a small fraction of it. Only `loaded` belongs on a gauge;
+    `max` is what to tell someone they're leaving on the table."""
+    out = {"loaded": 0, "max": 0}
+    root = _api_root(base_url)
+    try:
+        with httpx.Client(timeout=_QUERY_TIMEOUT_S, transport=transport) as client:
+            r = client.get(f"{root}/api/v1/models")
+            r.raise_for_status()
+            catalog = r.json()["models"]
+    except Exception as e:
+        log.debug("LM Studio context probe failed at %s (%s)", root, e)
+        return out
+    key = _resolve_key(catalog, model_id)
+    if key is None:
+        return out
+    entry = next(m for m in catalog if m.get("key") == key)
+    for field in ("max_context_length", "maxContextLength"):
+        if isinstance(entry.get(field), (int, float)):
+            out["max"] = int(entry[field])
+            break
+    loaded = [_instance_ctx(i) for i in (entry.get("loaded_instances") or [])]
+    out["loaded"] = max(loaded, default=0)
+    return out
+
+
 def ensure_resident(base_url: str, model_ids: list[str], *,
+                    context_length: int = 0,
                     timeout: float = _LOAD_TIMEOUT_S,
                     transport: httpx.BaseTransport | None = None) -> list[str]:
     """Pin `model_ids` in LM Studio's memory, with no idle TTL. Never raises.
+
+    `context_length` (CONTEXT_LENGTH in .env, 0 = leave it to LM Studio) is the
+    window each model is loaded with — the knob that answers "Context size has
+    been exceeded", since LM Studio's per-model default is usually well under
+    what the model can do. A model already resident in a SMALLER window is
+    reloaded to get the bigger one; a bigger one is left alone (it already fits).
 
     Returns the keys that ended up resident — for the caller's boot panel, and
     short of the whole list when something could not be loaded.
@@ -131,25 +198,35 @@ def ensure_resident(base_url: str, model_ids: list[str], *,
             continue
         entry = next(m for m in catalog if m.get("key") == key)
         instances = entry.get("loaded_instances") or []
-        # An instance with no TTL is already pinned — nothing to do. One WITH a
+        # the window is a chat knob: an embedding model has no conversation to
+        # hold, and its own tiny window is the right one
+        want = context_length if entry.get("type", "llm") == "llm" else 0
+        # An instance with no TTL is already pinned — nothing to do, unless it is
+        # pinned in a window smaller than the one asked for (a stale instance from
+        # before CONTEXT_LENGTH was set), which is worth the reload. One WITH a
         # TTL was JIT-loaded (by us on an earlier run, or by anything else on this
         # machine): it expires on idle and comes back through the evicting path,
-        # so trade it for a pinned one. Loading on top of it would just make a
+        # so trade it for a pinned one. Loading on top of either would just make a
         # second instance and pay for the weights twice.
-        if any(i.get("remaining_ttl_seconds") is None for i in instances):
+        pinned = [i for i in instances if i.get("remaining_ttl_seconds") is None]
+        if pinned and not _too_small(pinned, want):
             log.info("LM Studio: %s already resident", key)
             resident.append(key)
             continue
         try:
             with httpx.Client(timeout=timeout, transport=transport) as client:
                 for inst in instances:
-                    log.info("LM Studio: dropping the TTL'd instance of %s "
-                             "(expires in %ss)", key, inst.get("remaining_ttl_seconds"))
+                    log.info("LM Studio: dropping the %s instance of %s",
+                             "under-sized" if inst in pinned else "TTL'd", key)
                     client.post(f"{root}/api/v1/models/unload",
                                 json={"instance_id": inst["id"]}).raise_for_status()
-                # no ttl_seconds → no idle unload; no context_length → LM Studio's
-                # own per-model default, the same config its UI would load with
-                r = client.post(f"{root}/api/v1/models/load", json={"model": key})
+                # no ttl_seconds → no idle unload. No context_length → LM Studio's
+                # own per-model default, the same config its UI would load with;
+                # set it and she gets the window .env asked for.
+                payload: dict = {"model": key}
+                if want > 0:
+                    payload["context_length"] = int(want)
+                r = client.post(f"{root}/api/v1/models/load", json=payload)
                 r.raise_for_status()
             log.info("LM Studio: pinned %s in memory (%.1fs)",
                      key, r.json().get("load_time_seconds", 0.0))

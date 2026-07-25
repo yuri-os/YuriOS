@@ -29,6 +29,15 @@ class Config(BaseSettings):
     # turn. The timeout only has to cover a cold load off disk.
     lmstudio_preload: bool = True
     lmstudio_load_timeout_s: float = 600.0
+    # The context window to run her in, in tokens. 0 = don't ask for one: the
+    # provider serves whatever it defaults to (for LM Studio, the per-model
+    # config its own UI would load with — often far smaller than the model can
+    # do, which is how a long conversation ends in "Context size has been
+    # exceeded"). Set it and the number becomes real in two places: it is sent
+    # as `context_length` when the model is pinned at boot (lmstudio.py), and it
+    # is the ceiling the UI's context readout measures against. Bigger windows
+    # cost RAM/VRAM for the KV cache, so this is your dial, not a default.
+    context_length: int = 0
     # Base url for a local Ollama server. Chat routing (ollama/… ids) uses LiteLLM's
     # own default; this knob is what the settings panel queries to list the models
     # you actually have pulled (GET {base}/api/tags).

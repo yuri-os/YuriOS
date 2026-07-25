@@ -38,6 +38,10 @@ body{ background:var(--void); color:var(--ink); font-family:var(--font); font-si
 .avatar-status.live{ color:var(--cyan); }
 .latency{ color:var(--dim); font-size:.75em; }
 .latency.over{ color:var(--magenta); }   /* first-audio blew the B2 §4.2 budget */
+/* the context gauge (SPEC §11): quiet until it isn't */
+.context{ color:var(--dim); font-size:.75em; font-variant-numeric:tabular-nums; }
+.context.near{ color:var(--amber); }     /* ≥75% of the window is spoken for */
+.context.over{ color:var(--magenta); }   /* the next reply no longer fits */
 
 .caption{
   display:none;                          /* the chat column carries text now… */

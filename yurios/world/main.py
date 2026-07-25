@@ -40,6 +40,7 @@ from .brain import ToolBrain
 from .channels.manager import ChannelManager
 from .clock import Clock
 from .config import Config
+from .context import ContextMeter, short_tokens
 from .hub import EventHub
 from .turns import TextTurns
 from .selfies import SelfieLab, build_forge
@@ -70,6 +71,12 @@ class Runtime:
         # backfills and every `message` event appends to. In-memory on purpose;
         # her *memory* is the Vault, this is just the visible chat.
         self.transcript: list[dict] = []
+        # how full her context window is (SPEC §11): the masthead readout, fed by
+        # the chat provider on every model pass and published as a sticky
+        # `context` event. CONTEXT_LENGTH names the ceiling; unset, the LM Studio
+        # probe below fills it in, and a hosted route leaves it unknown.
+        self.context = ContextMeter(self.hub, limit=cfg.context_length,
+                                    reserve=cfg.max_reply_tokens)
         self.stopping = asyncio.Event()        # ends open SSE streams on shutdown
         # the boot log the UI shows while she wakes (SPEC §6.4). Voice services
         # are declared here and resolved on the warm-up thread; tools/mind on
@@ -124,6 +131,9 @@ class Runtime:
                 controller=self.controller, selfies=self.selfies,
                 chat_model=chat_model,
                 utility_model=utility_model, embedder=embedder)
+        # the meter reads the prompt where every path funnels through: the chat
+        # provider itself (reply, greeting, ambient, each tool-loop pass)
+        self._wire_context_meter()
         self._tool_runner = tool_runner        # injected, or built at startup
         self.tools_status = "off"
         # the inbound inbox (SPEC §16): everything that happens to her becomes a
@@ -178,6 +188,51 @@ class Runtime:
         threading.Thread(target=self._warm_voice, daemon=True,
                          name="voice-warmup").start()
 
+    def _wire_context_meter(self) -> None:
+        """Point the chat provider at the meter, if this brain has a real one.
+
+        One attachment covers every path she speaks through — reply, greeting,
+        ambient self-talk, each pass of the tool loop — because they all end at
+        the same `state.chat.stream()`. An injected test brain (no AppState) or a
+        fake model (no `meter` attribute) simply leaves the gauge at zero."""
+        chat = getattr(getattr(self.brain, "state", None), "chat", None)
+        if chat is not None and hasattr(chat, "meter"):
+            chat.meter = self.context
+
+    def _probe_context_window(self, cfg) -> str:
+        """Ask LM Studio how big the window her chat model is loaded with is.
+
+        Worth a call even when CONTEXT_LENGTH said: what we asked for and what
+        the server managed are not the same claim, and a window that wouldn't fit
+        in RAM comes back smaller. Only an lm_studio/… route has a local server
+        to ask. Returns a short label for the boot panel, "" when nothing was
+        learned."""
+        if not cfg.chat_model.startswith("lm_studio/"):
+            return f"{short_tokens(cfg.context_length)} ctx" if cfg.context_length else ""
+        from yurios.app.providers.lmstudio import probe_context
+        found = probe_context(cfg.lmstudio_base_url,
+                              cfg.chat_model.split("/", 1)[1])
+        if found["loaded"] and cfg.context_length \
+                and found["loaded"] != cfg.context_length:
+            log.warning("LM Studio loaded %s in a %d-token window, not the "
+                        "CONTEXT_LENGTH=%d in .env — the gauge shows what she "
+                        "actually has (too big to fit? try a smaller one)",
+                        cfg.chat_model, found["loaded"], cfg.context_length)
+        if not found["loaded"]:
+            if cfg.context_length:                # asked for one; trust it
+                return f"{short_tokens(cfg.context_length)} ctx"
+            # Only the window she is actually LOADED in can go on the gauge. The
+            # model's maximum is a different number entirely — often 30× bigger —
+            # and showing it would promise room that isn't there. Say so instead.
+            if found["max"]:
+                log.info("LM Studio has not said what window %s is loaded in; it "
+                         "can do up to %s tokens — set CONTEXT_LENGTH in .env to "
+                         "pick one and put it on the gauge",
+                         cfg.chat_model, found["max"])
+            return ""
+        self.context.set_limit(found["loaded"], "lm studio")
+        return f"{short_tokens(found['loaded'])} ctx"
+
     def _pin_lmstudio_models(self, cfg, chat_model, utility_model, embedder) -> None:
         """Load her LM Studio models and pin them there, before the first turn.
 
@@ -193,17 +248,23 @@ class Runtime:
         providers/lmstudio.ensure_resident)."""
         from yurios.app.main import _lmstudio_ids, _preload_lmstudio
 
-        if not cfg.lmstudio_preload:
-            return
         chat = chat_model is None or utility_model is None
+        if not cfg.lmstudio_preload:
+            if chat:
+                self._probe_context_window(cfg)   # the readout still wants a ceiling
+            return
         ids = _lmstudio_ids(cfg, chat=chat, embed=embedder is None)
         if not ids:
             return
         self.boot.declare("models", "mind · language models")
         self.boot.start("models", detail=f"{len(ids)} on LM Studio")
         pinned = _preload_lmstudio(cfg, chat=chat, embed=embedder is None)
+        # the window they were loaded with — the number the masthead gauge and
+        # every "context size exceeded" both hang off (SPEC §11)
+        window = self._probe_context_window(cfg) if chat else ""
         if pinned:
-            self.boot.done("models", detail=f"{len(pinned)} resident · no idle unload")
+            detail = f"{len(pinned)} resident · no idle unload"
+            self.boot.done("models", detail=f"{detail} · {window}" if window else detail)
         else:
             # she still runs: LM Studio JIT-loads per request, slowly (§3.1)
             self.boot.done("models", state="failed", detail="none pinned — see the log")

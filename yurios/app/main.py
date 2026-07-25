@@ -107,12 +107,15 @@ def _preload_lmstudio(cfg: Config, *, chat: bool, embed: bool) -> list[str]:
     """Pin those models in LM Studio before the first request; return what stuck.
 
     Left to JIT loading they evict each other on every turn — the story is in
-    providers/lmstudio.ensure_resident."""
+    providers/lmstudio.ensure_resident. CONTEXT_LENGTH, if set, is the window
+    the chat model is pinned with (§11) — the cure for a conversation that ends
+    in "Context size has been exceeded"."""
     ids = _lmstudio_ids(cfg, chat=chat, embed=embed)
     if not ids:
         return []
     from yurios.app.providers.lmstudio import ensure_resident
     return ensure_resident(cfg.lmstudio_base_url, ids,
+                           context_length=cfg.context_length,
                            timeout=cfg.lmstudio_load_timeout_s)
 
 

@@ -29,7 +29,21 @@ async def health(request: Request) -> dict:
         "activity": rt.mind.activity.state if rt.mind else None,
         "selfies": rt.selfies_status,      # "openrouter" | "mock" | "mock (no key…)" | "off" (§7.6)
         "viewers": rt.hub.subscribers,     # attached /api/events subscribers
+        "context": rt.context.snapshot(),  # prompt tokens vs the window (§11)
     }
+
+
+@router.get("/api/context")
+async def context(request: Request) -> dict:
+    """How full her context window is (SPEC §11) — what the masthead readout
+    shows, for a caller that isn't holding the event stream open.
+
+    `limit` is CONTEXT_LENGTH when .env set one, else whatever LM Studio admitted
+    to at boot, else null: a hosted route never says how big its window is, and a
+    made-up ceiling would be worse than none. `used` is the last prompt measured —
+    exact when the server volunteered usage, a ~4-chars/token estimate otherwise
+    (`exact` says which). The turn has to fit `used + reserve`, not `used`."""
+    return request.app.state.rt.context.snapshot()
 
 
 @router.get("/api/boot")

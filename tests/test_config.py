@@ -18,6 +18,9 @@ def test_defaults():
     assert cfg.mind_max_interrupts_per_day == 3
     assert cfg.mind_dormant_cadence_s == 900.0
     assert cfg.idle_settle_s == 20.0              # the reflex windows survive
+    # the context window is unset by default: the provider's own default stands
+    # until someone says otherwise (§11)
+    assert cfg.context_length == 0
     # the B2 layer is still underneath (one Config object, four builds)
     assert cfg.tts_backend and cfg.vad_onset_frames
 
@@ -27,7 +30,9 @@ def test_env_overrides(monkeypatch):
     monkeypatch.setenv("MIND_INTERRUPT_THRESHOLD", "0.9")
     monkeypatch.setenv("MIND_ENABLED", "false")
     monkeypatch.setenv("RAIN_INTENSITY", "0.1")
+    monkeypatch.setenv("CONTEXT_LENGTH", "32768")
     cfg = Config(_env_file=None)
+    assert cfg.context_length == 32768
     assert cfg.tools_backend == "off"
     assert cfg.mind_interrupt_threshold == 0.9
     assert not cfg.mind_enabled

@@ -251,6 +251,27 @@ so **MUST** work against a stock install (`LMSTUDIO_PRELOAD=false` opts out). Li
 it degrades: an unreachable server, a model that is not downloaded, or one that will not fit
 is logged and boots anyway, back to JIT loading — slow, not broken.
 
+**The context window.** A local model is loaded into a *fixed* window, and the prompt grows
+every turn (§7.1's blocks, the raw window, the situation, the tools directive). Left to the
+provider's default — for LM Studio the per-model config its UI would load with, routinely a
+fraction of what the model can do — a long enough conversation ends with the server refusing
+the turn outright ("Context size has been exceeded") and the reply lost. So the window is a
+knob and a readout, both. `CONTEXT_LENGTH` (0 = the provider's default) **MUST** be sent as
+`context_length` on the explicit load above, so the number in `.env` is the window she
+actually runs in, and a model already pinned in a *smaller* window **MUST** be reloaded to
+honour it (a larger one is left alone — it already fits). The frontend **MUST** show how full
+that window is: prompt tokens against the ceiling, published as a sticky `context` event on
+the one bus (§10) so a page joining mid-conversation sees the last reading. The used side is
+the server's own `prompt_tokens` where the route will report it (`stream_options`, allowlisted
+per route — a rejected parameter costs the whole reply), else the §7.2 estimator, and which
+one it is **MUST** be on the wire: an estimate is shown as approximate. Where the server
+reports the window it actually loaded, that observation **MUST** outrank `CONTEXT_LENGTH` on
+the gauge: a request that could not be honoured (a window too large for the machine) must
+never be displayed as room she has. An unknown ceiling
+(a hosted route, an LM Studio that will not say what it loaded) **MUST** read as unknown
+rather than be guessed from the model's *maximum* window, which is a different number — often
+30× larger — and would promise room that is not there.
+
 **The reasoning switch.** A local model **MAY** be a reasoning model (a `<think>` pass before
 the answer). Two knobs, one per role: `CHAT_THINKING` (the reply voice) and `UTILITY_THINKING`
 (fact extraction / summarisation). For the **real-time voice loop, reply reasoning is OFF**
@@ -600,7 +621,8 @@ Typed (`yurios/world/config.py`), read once from env/`.env`, extending the voice
 extends the brain's). Every knob in `.env.example` **MUST** have a default and the default stack
 **MUST** need no key (`SELFIE_BACKEND=openrouter` without a key degrades to mock — §7.6 — so the
 no-key rule survives it). The port is **8768**. The brain knobs (model routes, `LMSTUDIO_BASE_URL`,
-the reasoning switches, `EMBED_BACKEND` and its auto-reindex, retrieval and summary budgets, the
+the reasoning switches, `CONTEXT_LENGTH` and the context readout it feeds — §3, `EMBED_BACKEND`
+and its auto-reindex, retrieval and summary budgets, the
 Vault dir) are inherited; the body knobs are `COMPANION_NAME`, `TOOLS_BACKEND=mcp|fake|off`, the
 tool caps/timeouts/log dir and per-tool rate limits, `TIMER_MAX_MINUTES`,
 `WEATHER_BACKEND`/`WEATHER_CITY`, `SELFIE_BACKEND`/`SELFIE_MODEL`/`SELFIE_DIR`, `RAIN_INTENSITY`,

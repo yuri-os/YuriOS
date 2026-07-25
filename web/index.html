@@ -48,6 +48,10 @@
     <span class="name">yuri</span>
     <span class="status" id="status">· offline</span>
     <span class="avatar-status" id="avatar-status" title="/api/events">bus ·</span>
+    <!-- how full her context window is (SPEC §11): prompt tokens / CONTEXT_LENGTH.
+         Goes amber near the ceiling, magenta once the reply no longer fits — the
+         warning that used to arrive as "Context size has been exceeded". -->
+    <span class="context" id="context" title="context window"></span>
     <span class="latency" id="latency" title="end-of-speech → first audio"></span>
     <button id="settings-open" class="gear" title="settings" aria-label="settings">⚙</button>
   </header>

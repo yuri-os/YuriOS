@@ -276,11 +276,31 @@ importable, and prints the exact install command for anything missing — plus t
 change that avoids the download altogether where one exists (`EMBED_BACKEND=lm_studio`
 needs no torch at all). `./install.sh` runs it as its last step.
 
+### How full is her context window?
+
+The masthead shows it: `ctx ~8.1k/32k`, amber near the ceiling, magenta once the prompt
+plus the reply she still has to write no longer fits. That last state is what used to
+arrive as a lost turn and `Context size has been exceeded` in the log — a local model is
+loaded into a *fixed* window, and every turn's prompt is bigger than the last.
+
+The window is a knob:
+
+```bash
+CONTEXT_LENGTH=32768               # .env — 0 = whatever the provider defaults to
+```
+
+Set it and her LM Studio model is *loaded* at that size at boot (not just measured
+against it), so the number on the gauge is the window she is actually running in. Leave
+it at 0 and LM Studio's own per-model default stands — usually far below what the model
+can do, which is how a good long conversation ends in a refused turn. Bigger windows cost
+RAM/VRAM for the KV cache, so the number is yours to pick. `GET /api/context` serves the
+same reading for anything that isn't a browser.
+
 ### Running the tests
 
 ```bash
 pip install -e ".[test]"           # nothing else — the suite runs against the fakes
-pytest                             # the §27 suite: 185 tests, offline, no GPU
+pytest                             # the §27 suite: 225 tests, offline, no GPU
 ```
 
 That is the contract the seams buy you: every heavy backend has a fake, so the whole

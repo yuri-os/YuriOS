@@ -66,6 +66,11 @@ SCHEMA: list[dict] = [
         {"key": "OLLAMA_BASE_URL", "attr": "ollama_base_url", "type": "text",
          "suggest": ["http://localhost:11434"],
          "help": "local Ollama server — routes ollama/… ids and lists your pulled models"},
+        {"key": "CONTEXT_LENGTH", "attr": "context_length", "type": "number",
+         "min": "0",
+         "help": "her context window in tokens — 0 = the provider's default. "
+                 "Loads the LM Studio model at this size and sets the ceiling the "
+                 "masthead gauge measures against; raise it if turns start failing"},
         {"key": "CHAT_THINKING", "attr": "chat_thinking", "type": "bool",
          "help": "reply <think> pass — OFF for real-time voice (a reasoning model would stall)"},
         {"key": "UTILITY_THINKING", "attr": "utility_thinking", "type": "bool",

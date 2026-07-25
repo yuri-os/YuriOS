@@ -133,7 +133,9 @@ async function boot() {
     window.WorldChat.connect({
       onStatus: (up) => {
         els.avatarStatus.classList.toggle('live', up);
-        els.avatarStatus.textContent = up ? 'bus ·' : 'bus ✕';
+        // × (U+00D7), not ✕ (U+2715): the Latin-1 one is in every font stack,
+        // the dingbat one is tofu wherever the gear was (Chromium/Linux)
+        els.avatarStatus.textContent = up ? 'bus ·' : 'bus ×';
       },
     });
 

@@ -8,6 +8,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>yuri</title>
+  <!-- her ◇ as an inline SVG favicon: nothing to 404 on, no font to depend on -->
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M8 1.5 14.5 8 8 14.5 1.5 8Z' fill='none' stroke='%23ff2bd6' stroke-width='1.6'/></svg>">
   <link rel="stylesheet" href="sanctuary.css">
   <!-- the settings panel's shared stylesheet, served raw at /shared/ (SPEC §11) -->
   <link rel="stylesheet" href="/shared/settings.css">
@@ -30,7 +32,8 @@
       <span class="name">yuri</span>
       <span class="status" id="status">· offline</span>
       <span class="latency" id="latency" title="end-of-speech → first audio"></span>
-      <button id="settings-open" class="gear" title="settings" aria-label="settings">⚙</button>
+      <!-- empty on purpose: the gear is an SVG mask in /shared/settings.css -->
+      <button id="settings-open" class="gear" title="settings" aria-label="settings"></button>
     </header>
 
     <!-- settings panel (/shared/settings.js): edits .env; takes effect on restart -->
@@ -39,7 +42,8 @@
         <header class="settings-head">
           <span class="settings-title">settings</span>
           <span class="settings-path" id="settings-path" title="the file being edited"></span>
-          <button type="button" id="settings-close" class="settings-x" aria-label="close">✕</button>
+          <!-- empty like the gear: the ✕ is an SVG mask in /shared/settings.css -->
+          <button type="button" id="settings-close" class="settings-x" aria-label="close"></button>
         </header>
         <div class="settings-body" id="settings-body">
           <p class="settings-loading">loading…</p>

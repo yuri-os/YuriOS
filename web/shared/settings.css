@@ -6,11 +6,35 @@
  * page's palette it lands in without hardcoding a colour. */
 
 /* settings: gear + modal */
-.gear{
-  background:none; border:none; color:var(--dim); cursor:pointer;
-  font-size:1.1em; line-height:1; padding:0 .1em; transition:color .15s, transform .3s;
+
+/* The icon buttons are DRAWN, not typed. U+2699 GEAR and U+2715 MULTIPLICATION
+ * X are text-presentation codepoints with no guaranteed fallback: Chrome ships
+ * a font that covers them, Chromium (notably the snap/flatpak builds, whose
+ * sandbox sees a thinner fontconfig set) often does not, and the buttons render
+ * as tofu — or as nothing at all. An SVG mask painted with background-color
+ * depends on no font whatsoever, still takes its colour from the page's
+ * palette, and keeps the hover transitions. Each button supplies its own
+ * --icon; the shared rule does the rest. */
+.gear, .settings-x{
+  width:1.05em; height:1.05em; align-self:center; flex:none;
+  padding:0; border:none; cursor:pointer; background:var(--dim);
+  -webkit-mask:var(--icon) center/contain no-repeat;
+          mask:var(--icon) center/contain no-repeat;
+  transition:background-color .15s, transform .3s;
 }
-.gear:hover{ color:var(--cyan); transform:rotate(45deg); }
+
+/* six teeth, so the 45° turn on hover actually reads */
+.gear{
+  --icon:url('data:image/svg+xml;utf8,\
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="%23000" \
+stroke-linecap="round">\
+<circle cx="12" cy="12" r="6.6" stroke-width="1.6"/>\
+<circle cx="12" cy="12" r="2.4" stroke-width="1.6"/>\
+<path stroke-width="2.4" d="M18.2 12h3.2M15.1 17.37l1.6 2.77M8.9 17.37l-1.6 2.77\
+M5.8 12H2.6M8.9 6.63 7.3 3.86M15.1 6.63l1.6-2.77"/></svg>');
+  width:1.15em; height:1.15em;
+}
+.gear:hover{ background:var(--cyan); transform:rotate(45deg); }
 
 .settings{
   width:min(560px, 94vw); max-height:86dvh; padding:0; color:var(--ink);
@@ -27,9 +51,14 @@
 .settings-title{ color:var(--magenta); letter-spacing:.08em; }
 .settings-path{ color:var(--dim); font-size:.72em; margin-left:.2em; overflow:hidden;
   text-overflow:ellipsis; white-space:nowrap; }
-.settings-x{ margin-left:auto; background:none; border:none; color:var(--dim);
-  cursor:pointer; font-size:1em; }
-.settings-x:hover{ color:var(--magenta); }
+.settings-x{
+  --icon:url('data:image/svg+xml;utf8,\
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" stroke="%23000" \
+stroke-width="2.4" stroke-linecap="round"><path d="M5.5 5.5 18.5 18.5M18.5 5.5 5.5 18.5"/>\
+</svg>');
+  margin-left:auto;
+}
+.settings-x:hover{ background:var(--magenta); }
 
 .settings-body{ overflow-y:auto; padding:.4em 1.1em 1em; }
 .settings-loading{ color:var(--dim); padding:1.4em 0; text-align:center; }

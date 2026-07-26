@@ -1,7 +1,8 @@
-"""/ws/voice — the Build #2 voice loop, forked (SPEC §2.2, §9, §10).
+"""/ws/voice — the real-time voice loop (SPEC §2.2, §9, §10).
 
-FORK(B2 §10): this file is a copy of the `desktop/routes/voice_ws.py`
-with a small set of additions, each marked `FORK(B2 §10)` below:
+The turn spine — the audio wire, the SpeechGate, the greeting-once logic, the
+barge-in path — pumps one turn's OutEvents at a time through a TurnController.
+On top of that spine:
 
   1. engagement notifications — `rt.turn_started()` / `rt.turn_ended()` around
      each turn's pump, so the mind knows when she's talking (the ENGAGED
@@ -15,19 +16,15 @@ with a small set of additions, each marked `FORK(B2 §10)` below:
      her committed reply are posted to the EventHub as `message` events, with
      an accumulating `draft` while she speaks — the chat panel's feed. A
      barged-in turn drops its draft and commits nothing, mirroring the corpus
-     rule: a turn that didn't happen leaves no trace (B2 §4.4);
+     rule: a turn that didn't happen leaves no trace (§4.4);
   5. expressions leave this wire: an expression OutEvent becomes a
      `controller.set_expression(…, reset_ms=0)` — one lane for the face, so
      both bodies and every open page see turn emotions on the hub (SPEC §10);
-  6. FORK(B5 §16) — the signal tee: a user turn posts `user_message` (the
-     mind's ENGAGED preempt) and a committed exchange posts `turn_committed`
-     (the mind's REFLECT share: world model, promise extraction) onto the
+  6. the signal tee (SPEC §16): a user turn posts `user_message` (the mind's
+     ENGAGED preempt) and a committed exchange posts `turn_committed` (the
+     mind's REFLECT share: world model, promise extraction) onto the
      SignalBus. The reply itself still streams on this reactive path — the
      loop observes the conversation, it never sits in front of it (SPEC §15.3).
-
-Everything else — the audio wire, the SpeechGate, the greeting-once logic, the
-barge-in path — is B2 §10 in behaviour. If Build #2's route changes, re-diff
-this file against it.
 
 Client → server messages (JSON, except audio which is binary frames):
     {"type":"hello", "session_id": "<optional prior id>"}
@@ -126,43 +123,43 @@ async def voice(ws: WebSocket):
     async def run(agen, proactive: bool = False, user_text: str = "") -> None:
         """Pump one turn's OutEvents to the client until it ends or the client goes.
 
-        FORK(B2 §10) #4/#5 live here: spoken sentences accumulate into a `draft`
-        on the hub and commit as a `message` on `done` (drop on `cancelled`);
-        expression events reroute onto the puppet lane instead of this wire.
-        `proactive` marks lines she spoke unprompted (greeting, ambient).
-        FORK(B5 §16): a committed real turn is teed onto the SignalBus as a
-        `turn_committed` signal — the mind's REFLECT share of the conversation
-        (world model, promise extraction). A barged-in turn posts nothing."""
-        rt.turn_started(proactive=proactive)       # FORK(B2 §10): the mind (§15.3)
-        spoken: list[str] = []                     # FORK(B2 §10): the draft
+        Spoken sentences accumulate into a `draft` on the hub and commit as a
+        `message` on `done` (drop on `cancelled`); expression events reroute
+        onto the puppet lane instead of this wire. `proactive` marks lines she
+        spoke unprompted (greeting, ambient). A committed real turn is teed
+        onto the SignalBus as a `turn_committed` signal — the mind's REFLECT
+        share of the conversation (world model, promise extraction). A
+        barged-in turn posts nothing."""
+        rt.turn_started(proactive=proactive)       # the mind (§15.3)
+        spoken: list[str] = []                     # the draft
         try:
             async for ev in agen:
-                if ev.kind == "expression":        # FORK(B2 §10): one lane (§10)
+                if ev.kind == "expression":        # one lane for the face (§10)
                     rt.controller.set_expression(ev.expression, 1.0, reset_ms=0)
                     continue
-                if ev.kind == "audio" and ev.text:  # FORK(B2 §10): the draft grows
+                if ev.kind == "audio" and ev.text:  # the draft grows
                     spoken.append(ev.text)
                     rt.hub.publish("draft", {"text": " ".join(spoken)})
-                elif ev.kind == "done" and spoken:  # FORK(B2 §10): commit
+                elif ev.kind == "done" and spoken:  # commit
                     rt.post_message("assistant", " ".join(spoken),
                                     proactive=proactive)
-                    if user_text:                  # FORK(B5 §16): the tee
+                    if user_text:                  # the SignalBus tee
                         rt.signals.post("turn_committed",
                                         {"text": user_text,
                                          "reply": " ".join(spoken)},
                                         source="voice")
-                elif ev.kind in ("cancelled", "error"):   # FORK(B2 §10): no trace
+                elif ev.kind in ("cancelled", "error"):   # no trace
                     rt.hub.publish("draft_cancel", {})
                 if not await safe_send(_encode(ev)):
                     controller.cancel()        # client vanished → tear the turn down
                     return
         except Exception:
             log.exception("turn stream failed")
-            rt.hub.publish("draft_cancel", {})     # FORK(B2 §10)
+            rt.hub.publish("draft_cancel", {})
             await safe_send({"type": "error", "message": "turn failed"})
         finally:
-            rt.turn_ended()                        # FORK(B2 §10)
-            # FORK(B2 §10): "no trace" has to mean her memory too. `stream_reply`
+            rt.turn_ended()
+            # "no trace" has to mean her memory too. `stream_reply`
             # writes the user's line into the session window before the first
             # token (the model must see it); `persist` writes her half. Every way
             # out of the pump that isn't a clean commit — barge-in, brain error,
@@ -173,7 +170,7 @@ async def voice(ws: WebSocket):
             # and for greeting/ambient lines (they never append one).
             brain.abandon(session_id)
 
-    # FORK(B2 §10): the ambient injector (SPEC §15.5). The mind calls this to
+    # the ambient injector (SPEC §15.5). The mind calls this to
     # speak a self-initiated line — a murmur, a timer announcement, a reach-out
     # — THROUGH this connection: same TurnController, so a barge-in cancels her
     # own initiative the same way it cancels a reply. Returns False when a turn
@@ -185,7 +182,7 @@ async def voice(ws: WebSocket):
         turn_task = asyncio.create_task(run(
             controller.run_turn(session_id, "", persist=False,
                                 tokens=brain.stream_ambient(session_id, cue)),
-            proactive=True))                       # FORK(B2 §10): she reached out
+            proactive=True))                       # she reached out
         return True
 
     rt.attach_ambient(session_id, inject)
@@ -197,7 +194,7 @@ async def voice(ws: WebSocket):
         turn_task = asyncio.create_task(run(
             controller.run_turn(session_id, "", persist=False,
                                 tokens=brain.stream_greeting(session_id)),
-            proactive=True))                       # FORK(B2 §10): she speaks first
+            proactive=True))                       # she speaks first
 
     try:
         while True:
@@ -237,10 +234,10 @@ async def voice(ws: WebSocket):
                 # last net: a punctuation-only hallucination is not a turn (B2 §3.2)
                 if not is_meaningful_transcript(text):
                     continue
-                # FORK(B2 §10): the user's turn joins the transcript — this is
+                # the user's turn joins the transcript — this is
                 # what makes a *spoken* turn visible in the chat panel (§2.6)
                 rt.post_message("user", text)
-                # FORK(B5 §16): and the SignalBus — the ENGAGED preempt rides it
+                # …and the SignalBus — the ENGAGED preempt rides it
                 rt.signals.post("user_message", {"text": text}, source="voice")
                 trace = TurnTrace()
                 turn_task = asyncio.create_task(
@@ -249,7 +246,7 @@ async def voice(ws: WebSocket):
     except WebSocketDisconnect:
         pass
     finally:
-        rt.detach_ambient(session_id)              # FORK(B2 §10)
+        rt.detach_ambient(session_id)
         if turn_task and not turn_task.done():
             controller.cancel()
             await asyncio.gather(turn_task, return_exceptions=True)

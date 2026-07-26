@@ -28,9 +28,10 @@ Waifus*), assembled and then carried forward as first-party code:
 - **`soul-src/`** — the SOUL source the Vault is seeded from.
 
 `world/brain.py` subclasses `desktop/brain.py`'s `BrainAdapter` to add the tool loop;
-`world/routes/voice_ws.py` is a documented fork of `desktop/routes/voice_ws.py` (every
-divergence marked `FORK`). These are ordinary internal-reuse relationships between
-packages of one project — call the base class, mark the fork — not cross-repo vendoring.
+`world/routes/voice_ws.py` began as a copy of `desktop/routes/voice_ws.py`, extended
+with the engagement notifications, ambient injector, transcript tee, and signal tee
+described in its own module docstring. These are ordinary internal-reuse
+relationships between packages of one project, not cross-repo vendoring.
 
 ## What the mind (`yurios/mind/`) added on top of the Build #4 body
 
@@ -48,8 +49,8 @@ always-on one. For the record, its arrival:
 - `world/main.py` — the `Runtime` builds a `SignalBus` + `MindLoop` instead of the
   `IdleMachine`; the boot board's `idle` service becomes `mind`; the mind router is
   included.
-- `world/routes/voice_ws.py` — one more marked fork block, `FORK(B5 §16)`: the signal
-  tee (`user_message`, `turn_committed`).
+- `world/routes/voice_ws.py` — one more addition: the signal tee (`user_message`,
+  `turn_committed`).
 - `world/routes/events.py` — presence signals on subscriber attach/detach (SPEC §16.2).
 - `world/routes/health.py` — reports `mind` + `activity` instead of `idle`.
 - `world/brain.py` — `set_world()`: the situation block is filled by the

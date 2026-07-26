@@ -3,9 +3,20 @@
 and a VirtualClock for everything timed."""
 from __future__ import annotations
 
+import dotenv
 import pytest
 
-from yurios.desktop.config import Config as VoiceConfig  # noqa: F401 (re-export habit)
+# Unpair the developer's `.env` from the suite, before anything can read it.
+# `import litellm` calls `load_dotenv()`, which copies this machine's `.env` into
+# `os.environ` for the rest of the process — so the test file that first reaches
+# the brain hands every later one real values (CONTEXT_LENGTH, a live Telegram
+# token…) through the environment, behind `Config(_env_file=None)`'s back. conftest
+# is imported before any test module, and litellm binds the name at ITS import, so
+# stubbing it here is what keeps the suite offline (SPEC §13) whatever order the
+# files run in. (`.env` still reaches a Config that asks for it by path.)
+dotenv.load_dotenv = lambda *a, **kw: False
+
+from yurios.desktop.config import Config as VoiceConfig  # noqa: E402,F401 (re-export habit)
 from yurios.world.avatar.controller import VrmController
 from yurios.world.clock import VirtualClock
 from yurios.world.config import Config

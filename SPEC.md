@@ -233,6 +233,16 @@ hosted are a one-line change with no code change:
 | `ollama/<model>` | local Ollama | — |
 | `lm_studio/<model>` | local LM Studio (OpenAI-compatible) | `LMSTUDIO_BASE_URL` |
 
+**Attribution.** Every *billed* OpenRouter request — the chat/utility models here, her camera
+in §7.6 — **MUST** carry the app-attribution headers from `yurios/attribution.py`
+(`HTTP-Referer`, `X-OpenRouter-Title`, and its legacy `X-Title` spelling, which overrides the
+`liteLLM` default LiteLLM would otherwise send). OpenRouter keys the app page on the referer
+URL, so all callers **MUST** send the same one or the usage splits in two; local routes send
+none. Reads that cost nothing (the model listing behind the settings page) need no headers.
+The same headers carry a composite `User-Agent` — `YuriOS/<version> <client>/<version>` —
+which affects no attribution and exists so a provider's logs name her, not just her plumbing.
+`python -m yurios.doctor` prints what a given `.env` actually puts on the wire.
+
 The default stack is **local and needs no key**: an LM Studio model backs the mind, and an
 LM Studio embedder (`EMBED_BACKEND=lm_studio`) reuses the same server for memory — one local
 process behind both. Embeddings are always local and ownable. A failed backend **MUST**

@@ -17,7 +17,10 @@ imports a heavy dep unless it's already installed — running the doctor is free
 from __future__ import annotations
 
 import importlib.util
+import os
 import sys
+
+from yurios import attribution
 
 # Backends that need nothing installed: they either use the core deps (httpx to a
 # server you run) or they ARE the no-dep path. Listed so the table can say "ok"
@@ -140,12 +143,72 @@ def torch_pair_mismatch() -> str:
             "https://download.pytorch.org/whl/cpu\n")
 
 
+# Mirrors providers/openrouter._route: a bare model id means OpenRouter, and only
+# ollama/… and lm_studio/… are somebody's own machine. Reimplemented rather than
+# imported because that module imports litellm, and running the doctor has to stay
+# free (tests/test_doctor.py pins this against the real router).
+_LOCAL_PREFIXES = ("ollama/", "lm_studio/")
+_OTHER_HOSTS = ("openai/", "anthropic/")
+
+
+def _hosted_on_openrouter(model: str) -> bool:
+    return not model.startswith(_LOCAL_PREFIXES + _OTHER_HOSTS)
+
+
+def _on(value: str) -> bool:
+    return value.strip().lower() in ("1", "true", "yes", "on")
+
+
+def network_lines(cfg) -> list[str]:
+    """What this configuration puts on the wire, and under whose name.
+
+    The table above answers "will she work"; for a local-first companion the other
+    half of the same question is what leaves the machine, and it is just as
+    invisible until something surprises you. Environment is the right thing to read
+    here, not the libraries: litellm and huggingface_hub take these at IMPORT time,
+    so yurios/__init__.py has already applied them (or deferred to your .env) before
+    the doctor could ask, and importing either one to double-check would cost more
+    than the whole run."""
+    hosted = [seam for seam, model in (("chat", cfg.chat_model),
+                                       ("utility", cfg.utility_model))
+              if _hosted_on_openrouter(model)]
+    if getattr(cfg, "selfie_backend", "") == "openrouter":
+        hosted.append("selfies")
+
+    lines = ["\nWhat leaves the machine\n"]
+    if hosted:
+        # The composite user-agent of whichever path is actually hosted — the chat
+        # seam posts through litellm, the camera through the standard library.
+        client = (attribution.client_token("litellm") if len(hosted) > 1
+                  or "selfies" not in hosted else attribution.URLLIB_CLIENT)
+        lines.append(f"   OpenRouter        {', '.join(hosted)} — billed to "
+                     f"{attribution.APP_TITLE} at {attribution.APP_URL}")
+        lines.append(f"   sent as           {attribution.user_agent(client)}  "
+                     f"(app page: openrouter.ai/apps?url={attribution.APP_URL})")
+    else:
+        lines.append("   OpenRouter        nothing hosted selected — every model "
+                     "is on your own machine")
+    cost_map = os.environ.get("LITELLM_LOCAL_MODEL_COST_MAP", "")
+    lines.append("   litellm prices    " + (
+        "the copy in the wheel — no fetch at start"
+        if _on(cost_map) else
+        "1.67 MB fetched from raw.githubusercontent.com at EVERY start "
+        "(LITELLM_LOCAL_MODEL_COST_MAP)"))
+    hf = os.environ.get("HF_HUB_DISABLE_TELEMETRY", "")
+    lines.append("   Hugging Face      " + (
+        "telemetry off — downloads name no torch build or AI harness"
+        if _on(hf) else
+        "model downloads report your torch build and AI harness "
+        "(HF_HUB_DISABLE_TELEMETRY)"))
+    return lines
+
+
 def _optional_line(skipped: list[Check]) -> str:
     names = ", ".join(f"{c.seam} (`pip install -e '.[{c.extra}]'`)" for c in skipped)
     return f"Optional, not installed (fine to ignore): {names}"
 
 
-def report(checks: list[Check], *, out=None) -> int:
+def report(checks: list[Check], *, network: list[str] | None = None, out=None) -> int:
     """Print the table + the fix. Returns the number of missing *required* seams
     (advisory ones are listed but never counted — see Check.advisory; the torch/
     torchaudio warning is printed but not counted either, since nothing is missing).
@@ -167,6 +230,11 @@ def report(checks: list[Check], *, out=None) -> int:
     mismatch = torch_pair_mismatch()
     if mismatch:
         print(mismatch, file=out)
+
+    # Informational, never counted: nothing here is broken, it's what she's wired
+    # to talk to. `network=None` (a caller that only wants the seams) prints nothing.
+    for line in network or []:
+        print(line, file=out)
 
     missing = [c for c in checks if not c.ok and not c.advisory]
     skipped = [c for c in checks if not c.ok and c.advisory]
@@ -207,7 +275,8 @@ def report(checks: list[Check], *, out=None) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     from yurios.world.config import Config      # the same config the server reads
-    missing = report(collect(Config()))
+    cfg = Config()
+    missing = report(collect(cfg), network=network_lines(cfg))
     return 1 if missing else 0
 
 

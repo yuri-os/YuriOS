@@ -1,6 +1,8 @@
 """Config (SPEC §11 + §25) — Build #5's knobs on top of B4's on top of B2's."""
 from __future__ import annotations
 
+import os
+
 from yurios.world.config import Config
 
 
@@ -37,3 +39,20 @@ def test_env_overrides(monkeypatch):
     assert cfg.mind_interrupt_threshold == 0.9
     assert not cfg.mind_enabled
     assert cfg.rain_intensity == 0.1
+
+
+def test_importing_yurios_quiets_the_libraries_that_phone_out():
+    """§3: `import litellm` otherwise GETs a 1.67 MB price map from GitHub at every
+    start, and Hugging Face downloads report your torch build and AI harness. The
+    package sets both off switches before the libraries can read them."""
+    assert os.environ["LITELLM_LOCAL_MODEL_COST_MAP"] == "True"
+    assert os.environ["HF_HUB_DISABLE_TELEMETRY"] == "1"
+
+
+def test_litellm_really_took_the_local_price_map():
+    """The end of that: not that the variable is set, but that litellm obeyed it —
+    the one assertion that fails if the import order ever slips."""
+    from litellm.litellm_core_utils.get_model_cost_map import get_model_cost_map_source_info
+
+    info = get_model_cost_map_source_info()
+    assert info["source"] == "local" and info["is_env_forced"]

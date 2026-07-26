@@ -18,6 +18,9 @@ as another backend without touching callers.
 - `modalities` handling is general: it asks `["image"]` first and retries once with
   `["image","text"]` on a 404, so any OpenRouter image route works without a
   per-prefix registry (the default here is `bytedance-seed/seedream-4.5`).
+- Requests carry YuriOS's OpenRouter app-attribution headers (`yurios/attribution.py`,
+  SPEC §3) under the `image-gen` category, so the selfie spend lands on the same app
+  page as the chat path instead of nowhere.
 - `characters/yuri.yaml` carries no `trigger`/`lora` block — those drive a diffusion
   backend that isn't wired in, and a stray trigger token would pollute the hosted
   prompt.

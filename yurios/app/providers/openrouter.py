@@ -19,6 +19,7 @@ from typing import AsyncIterator
 
 import litellm
 
+from yurios import attribution
 from yurios.app.providers.usage import chunk_prompt_tokens, chunk_text
 
 
@@ -31,19 +32,19 @@ def _route(model: str) -> str:
     return f"openrouter/{model}"
 
 
-# OpenRouter attributes each request to an app by two headers: X-Title (the name
-# shown in your dashboard and on the model's ranking) and HTTP-Referer (the
-# clickable link, and the favicon beside it). Left unset, LiteLLM sends its own
-# defaults and usage shows up as "liteLLM"; set ours so it reads as YuriOS.
-_APP_TITLE = "YuriOS"
-_APP_URL = "https://yurios.org"
+# OpenRouter attributes each request to an app by its headers: HTTP-Referer (the
+# identity, and the clickable link) plus the title shown beside it. Left unset,
+# LiteLLM sends its own defaults and the usage shows up as "liteLLM" on *its* app
+# page, not ours — attribution.py holds the identity both OpenRouter callers share.
+# The library actually holding the socket, for the composite user-agent.
+_CLIENT = attribution.client_token("litellm")
 
 
 def _attribution(model: str) -> dict:
     """`extra_headers` naming this app to OpenRouter — only for openrouter/… ids;
     local routes (ollama / lm_studio) don't want them, so send nothing there."""
     if model.startswith("openrouter/"):
-        return {"extra_headers": {"HTTP-Referer": _APP_URL, "X-Title": _APP_TITLE}}
+        return {"extra_headers": attribution.headers(client=_CLIENT)}
     return {}
 
 

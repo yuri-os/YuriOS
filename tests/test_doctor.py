@@ -235,6 +235,61 @@ def test_env_example_embeddings_need_no_extra():
     assert embed.ok, "the shipped .env.example selects an uninstallable embedder"
 
 
+# ---- what leaves the machine -----------------------------------------------
+
+def test_the_doctor_agrees_with_the_real_router_about_what_is_hosted():
+    """`_hosted_on_openrouter` is a copy of providers/openrouter._route's rule,
+    kept separate so the doctor doesn't import litellm. Copies drift; this is the
+    only thing stopping it — the doctor would otherwise cheerfully tell someone
+    their local model is being billed to OpenRouter, or say nothing while it is."""
+    from yurios.app.providers.openrouter import _route
+    from yurios.doctor import _hosted_on_openrouter
+
+    for model in ("gemma-4", "openrouter/z-ai/glm-5", "lm_studio/gemma-4",
+                  "ollama/qwen3", "openai/gpt-5.2", "anthropic/claude-opus-4"):
+        assert _hosted_on_openrouter(model) == _route(model).startswith("openrouter/"), \
+            f"the doctor and the router disagree about {model!r}"
+
+
+def test_the_hosted_lines_name_the_app_and_the_client(cfg):
+    from yurios.doctor import network_lines
+
+    cfg = cfg.model_copy(update={"chat_model": "openrouter/z-ai/glm-5",
+                                 "selfie_backend": "openrouter"})
+    body = "\n".join(network_lines(cfg))
+    assert "chat, selfies" in body
+    assert "https://yurios.org" in body
+    assert "YuriOS/" in body and "litellm/" in body     # the composite user-agent
+
+
+def test_an_all_local_config_says_so(cfg):
+    """The default stack bills nobody — the doctor must not imply otherwise."""
+    from yurios.doctor import network_lines
+
+    cfg = cfg.model_copy(update={"chat_model": "lm_studio/gemma-4",
+                                 "utility_model": "ollama/qwen3",
+                                 "selfie_backend": "mock"})
+    body = "\n".join(network_lines(cfg))
+    assert "nothing hosted selected" in body
+
+
+def test_the_phone_out_switches_are_reported_as_they_are(cfg, monkeypatch):
+    """Both directions: the doctor reads the environment, so it tells the truth
+    even when someone has turned the quiet defaults back off."""
+    from yurios.doctor import network_lines
+
+    monkeypatch.setenv("LITELLM_LOCAL_MODEL_COST_MAP", "True")
+    monkeypatch.setenv("HF_HUB_DISABLE_TELEMETRY", "1")
+    quiet = "\n".join(network_lines(cfg))
+    assert "no fetch at start" in quiet and "telemetry off" in quiet
+
+    monkeypatch.setenv("LITELLM_LOCAL_MODEL_COST_MAP", "False")
+    monkeypatch.setenv("HF_HUB_DISABLE_TELEMETRY", "0")
+    loud = "\n".join(network_lines(cfg))
+    assert "raw.githubusercontent.com at EVERY start" in loud
+    assert "report your torch build" in loud
+
+
 def test_probing_does_not_import_the_module():
     """`_have` uses find_spec, so running the doctor on a machine with torch
     installed must not pay torch's import cost (or its side effects)."""

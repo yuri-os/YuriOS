@@ -23,10 +23,20 @@ import urllib.request
 from pathlib import Path
 from typing import Optional
 
+from yurios import attribution
+
 from ..types import Capabilities, EditRequest, GenRequest, ImageResult
 from .base import ImageBackend
 
 API = "https://openrouter.ai/api/v1/chat/completions"
+
+# Her selfies are billed OpenRouter calls like any other, so they carry the same
+# app identity as the chat path (yurios/attribution.py) — otherwise the image
+# spend is invisible on the app page. `image-gen` is the accurate category for
+# requests coming out of *this* backend; OpenRouter merges it with the ones the
+# chat path sends, so the app ends up filed under all of them.
+_HEADERS = attribution.headers(client=attribution.URLLIB_CLIENT,
+                               categories=("image-gen", "roleplay"))
 
 
 def _env_key() -> str:
@@ -87,6 +97,7 @@ class OpenRouterBackend(ImageBackend):
         req = urllib.request.Request(API, data=body, headers={
             "Authorization": f"Bearer {self._key()}",
             "Content-Type": "application/json",
+            **_HEADERS,
         })
         r = json.load(urllib.request.urlopen(req, timeout=self.timeout))
         msg = r["choices"][0]["message"]

@@ -127,7 +127,7 @@ class MindLoop:
         self.activity = ActivityController(state_dir, clock, cfg)
         self.budget = BudgetGovernor(state_dir, clock,
                                      daily_tokens=cfg.mind_daily_tokens)
-        self.trace = TickTrace(cfg.trace_dir, clock)
+        self.trace = TickTrace(cfg.trace_dir, clock, max_bytes=cfg.mind_trace_max_bytes)
 
         # rehydration snapshot (SPEC §15.4): a restart resumes, not forgets
         self.state_path = state_dir / "engine.json"
@@ -179,9 +179,10 @@ class MindLoop:
 
     # ---- notifications from the voice route (same surface the idle machine had)
 
-    def turn_started(self) -> None:
-        self._turns_in_flight += 1
-        self.activity.preempt_engaged()        # the preempt wins, from ANY state
+    def turn_started(self, proactive: bool = False) -> None:
+        self._turns_in_flight += 1              # bookkeeping: always, both kinds
+        if not proactive:
+            self.activity.preempt_engaged()     # only a real user turn forces ENGAGED
         self.bus.wake.set()
 
     def turn_ended(self) -> None:

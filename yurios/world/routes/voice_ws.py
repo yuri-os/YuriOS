@@ -133,7 +133,7 @@ async def voice(ws: WebSocket):
         FORK(B5 §16): a committed real turn is teed onto the SignalBus as a
         `turn_committed` signal — the mind's REFLECT share of the conversation
         (world model, promise extraction). A barged-in turn posts nothing."""
-        rt.turn_started()                          # FORK(B2 §10): the mind (§15.3)
+        rt.turn_started(proactive=proactive)       # FORK(B2 §10): the mind (§15.3)
         spoken: list[str] = []                     # FORK(B2 §10): the draft
         try:
             async for ev in agen:

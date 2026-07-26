@@ -17,9 +17,10 @@ from .util import iso_of, jsonl_append, jsonl_tail, new_id
 
 
 class TickTrace:
-    def __init__(self, trace_dir: Path, clock: Clock):
+    def __init__(self, trace_dir: Path, clock: Clock, *, max_bytes: int | None = 2_000_000):
         self.path = trace_dir / "ticks.jsonl"
         self.clock = clock
+        self.max_bytes = max_bytes
 
     def record(self, *, tick_id: str | None = None, activity_state: str,
                sensed: list[dict], appraised: list[dict], decided: dict,
@@ -29,7 +30,7 @@ class TickTrace:
             "tick_id": tick_id, "ts": iso_of(self.clock.now()),
             "activity_state": activity_state, "sensed": sensed,
             "appraised": appraised, "decided": decided, "acted": acted,
-            "interrupt": interrupt or {}})
+            "interrupt": interrupt or {}}, max_bytes=self.max_bytes)
         return tick_id
 
     def tail(self, n: int = 50) -> list[dict]:

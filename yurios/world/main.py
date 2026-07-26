@@ -363,9 +363,9 @@ class Runtime:
 
     # ---- engagement notifications from the voice route (SPEC §15.3) ----
 
-    def turn_started(self) -> None:
+    def turn_started(self, proactive: bool = False) -> None:
         if self.mind:
-            self.mind.turn_started()           # the ENGAGED preempt, from any state
+            self.mind.turn_started(proactive=proactive)
 
     def turn_ended(self) -> None:
         if self.mind:

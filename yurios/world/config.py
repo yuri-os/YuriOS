@@ -52,6 +52,7 @@ class Config(VoiceConfig):
     mind_consider_cooldown_s: float = 3600.0    # min gap between re-chewing one goal
     mind_daily_tokens: int = 200_000            # the budget governor's cap (§17.3)
     mind_dream_tick_tokens: int = 4000          # per-DREAM-tick consolidation budget (§21)
+    mind_trace_max_bytes: int = 2_000_000       # ticks.jsonl rotates to .1 past this size
 
     # activity-state cadences + drift timeouts (§17.1)
     mind_engaged_cadence_s: float = 2.0

@@ -32,6 +32,9 @@ def clock() -> VirtualClock:
 @pytest.fixture
 def cfg(tmp_path) -> Config:
     return Config(
+        # the developer's own `.env` (real API keys, tuned mind_* knobs) must
+        # never leak into a test's idea of the code's defaults (SPEC §13)
+        _env_file=None,
         tts_backend="fake", stt_backend="fake", vad_backend="fake",
         mask_latency=False, tools_backend="fake",
         selfie_backend="mock", selfie_dir=tmp_path / "selfies",

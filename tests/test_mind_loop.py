@@ -31,6 +31,21 @@ async def test_user_message_preempts_to_engaged(cfg, seeded_vault):
     assert any(s["type"] == "user_message" for s in trace["sensed"])
 
 
+async def test_proactive_turn_does_not_preempt_to_engaged(cfg, seeded_vault):
+    rig = make_mind(cfg, seeded_vault)
+    rig.mind.activity.state = "IDLE"
+    rig.mind.turn_started(proactive=True)
+    assert rig.mind.activity.state == "IDLE"        # her own murmur doesn't force ENGAGED
+    assert rig.mind._turns_in_flight == 1            # bookkeeping still happens
+
+
+async def test_real_turn_still_preempts_to_engaged(cfg, seeded_vault):
+    rig = make_mind(cfg, seeded_vault)
+    rig.mind.activity.state = "IDLE"
+    rig.mind.turn_started()
+    assert rig.mind.activity.state == "ENGAGED"
+
+
 async def test_new_document_gets_read_and_journaled(cfg, seeded_vault):
     rig = make_mind(cfg, seeded_vault)
     ref = seeded_vault / "knowledge" / "reference"

@@ -98,10 +98,14 @@ body{
   font-size:.92em; line-height:1.45; white-space:pre-wrap; word-break:break-word;
 }
 .msg .who{
-  display:block; font-size:.75em; color:var(--dim); margin-bottom:.25em;
+  display:flex; align-items:baseline; gap:.5em;
+  font-size:.75em; color:var(--dim); margin-bottom:.25em;
   letter-spacing:.06em;
 }
 .msg .who em{ font-style:normal; color:var(--amber); }
+/* the stamp sits at the far edge of the header row, never wrapping */
+.msg .who .when{ margin-left:auto; white-space:nowrap; opacity:.7;
+                 font-variant-numeric:tabular-nums; }
 .msg.you{ align-self:flex-end; background:var(--bg-3); border:1px solid var(--rule); }
 .msg.her{ align-self:flex-start; background:var(--bg-2); border:1px solid var(--rule); }
 .msg.her.proactive{ border-color:#3a3050; }

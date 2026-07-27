@@ -28,6 +28,20 @@
     return d.innerHTML;
   }
 
+  // Every committed entry carries `ts` — local ISO seconds, stamped by the host
+  // clock when the line was posted (main.py post_message). Render it beside the
+  // name: short date + wall time, with the full stamp on hover. A line without
+  // a ts (or with one the browser can't parse) simply doesn't get one.
+  function stamp(ts) {
+    if (!ts) return '';
+    const d = new Date(ts);
+    if (isNaN(d.getTime())) return '';
+    const when = d.toLocaleDateString([], { month: 'short', day: 'numeric' }) +
+                 ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    return `<time class="when" datetime="${esc(ts)}" title="${esc(d.toLocaleString())}">` +
+           `${esc(when)}</time>`;
+  }
+
   function scroll() {
     if (messages) messages.scrollTop = messages.scrollHeight;
   }
@@ -49,7 +63,8 @@
     const div = document.createElement('div');
     div.className = 'msg ' + (her ? 'her' : 'you') + (m.proactive ? ' proactive' : '');
     let body = `<span class="who">${her ? esc(charName || 'her') : 'you'}` +
-               (m.proactive ? ' <em>· she spoke first</em>' : '') + '</span>';
+               (m.proactive ? '<em>· she spoke first</em>' : '') +
+               stamp(m.ts) + '</span>';
     if (m.image_url) {
       body += `<a href="${esc(m.image_url)}" target="_blank" rel="noopener">` +
               `<img class="msg-img" src="${esc(m.image_url)}" alt="a selfie from her"></a>`;

@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/img/hero.jpg" alt="YuriOS — an always-on companion who lives on your own machine" width="440" />
+<img src="docs/img/banner.jpg" alt="YuriOS — an always-on companion who lives on your own machine" width="100%" />
 
 # YuriOS
 

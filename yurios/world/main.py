@@ -471,16 +471,24 @@ class Runtime:
 SHUTDOWN_GRACE_SECONDS = 5
 
 
-class _ModelsNoCache:
-    """Pure-ASGI header shim: mark /models/ responses no-cache (revalidate every
-    load) without buffering the body the way BaseHTTPMiddleware would. See the
-    note at its registration in create_app for why this isn't @app.middleware."""
+class _RawAssetNoCache:
+    """Pure-ASGI header shim: mark the unhashed, served-raw paths no-cache
+    (revalidate every load) without buffering the body the way BaseHTTPMiddleware
+    would. See the note at its registration in create_app for why this isn't
+    @app.middleware.
+
+    Not the Vite bundle: dist/assets/* filenames carry a content hash, so a
+    changed file is a changed URL and the old body can be cached forever. These
+    paths keep their names across edits, which is exactly when a browser's
+    heuristic freshness serves yesterday's script."""
+
+    PREFIXES = ("/models/", "/js/", "/shared/", "/live2d/")
 
     def __init__(self, app):
         self.app = app
 
     async def __call__(self, scope, receive, send):
-        if scope["type"] != "http" or not scope.get("path", "").startswith("/models/"):
+        if scope["type"] != "http" or not scope.get("path", "").startswith(self.PREFIXES):
             await self.app(scope, receive, send)
             return
 
@@ -537,7 +545,9 @@ def create_app(cfg: Config | None = None, *, brain=None, chat_model=None,
 
     # StaticFiles sends ETag/Last-Modified but no Cache-Control, so browsers —
     # and the desktop window's persistent cache (§6.5) — apply heuristic
-    # freshness and can keep serving a stale body after web/models/ changes.
+    # freshness and can keep serving a stale body after the file on disk changes
+    # — a body under web/models/, or an edited script under web/js/ or
+    # web/shared/ that the Live2D page loads by its unhashed name.
     # no-cache = still cached, but revalidated every load: a 304 normally, the
     # new bytes the moment the file on disk differs.
     #
@@ -547,7 +557,7 @@ def create_app(cfg: Config | None = None, *, brain=None, chat_model=None,
     # memory stream, and on shutdown-cancel that surfaces as a noisy
     # "Exception in ASGI application". Rewriting one header on http.response.start
     # leaves streaming bodies untouched.
-    app.add_middleware(_ModelsNoCache)
+    app.add_middleware(_RawAssetNoCache)
 
     from yurios.desktop.routes import settings as b2_settings
 
@@ -573,13 +583,21 @@ def create_app(cfg: Config | None = None, *, brain=None, chat_model=None,
               name="live2d")
     # Her body + animations are large binaries kept out of the Vite bundle
     # (web/vite.config.js publicDir:false); serve them straight from web/models.
-    # The _ModelsNoCache shim above keeps /models/ revalidated.
+    # The _RawAssetNoCache shim above keeps /models/ revalidated.
     app.mount("/models", StaticFiles(directory=WEB_DIR / "models", html=True),
               name="models")
     # The settings panel's one shared source (SPEC §11): web/shared/settings.{js,css},
     # served raw so BOTH the bundled VRM app and the raw Live2D client load the
     # exact same file — one codepath for the .env editor, no per-frontend copy.
     app.mount("/shared", StaticFiles(directory=WEB_DIR / "shared"), name="shared")
+    # …and the same deal one directory over, for the two frontend scripts that
+    # aren't the settings panel: web/js/chat.js and web/js/boot.js are classic,
+    # dependency-free IIFEs precisely so BOTH pages can run them (see their file
+    # headers). The VRM page gets them bundled by Vite; the raw Live2D client
+    # asks for /js/chat.js by path — which, without this mount, falls through to
+    # the dist mount below and 404s, since the build emits only hashed assets/.
+    # Serving web/js raw is what makes that path real in a built deploy.
+    app.mount("/js", StaticFiles(directory=WEB_DIR / "js"), name="js")
     # The sanctuary app itself is the Vite build (web/dist, → §3). check_dir=False
     # so a fresh checkout that hasn't run `npm run build` still boots — / just
     # 404s until then, and the warning tells them what to run — instead of raising

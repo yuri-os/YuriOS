@@ -10,6 +10,7 @@ discipline.
 """
 from __future__ import annotations
 
+import re
 import socket
 import subprocess
 from pathlib import Path
@@ -240,6 +241,27 @@ def test_shared_settings_panel_is_served(client):
     assert r.status_code == 200 and "/api/settings" in r.text
     # both frontends load the shared file
     assert "/shared/settings.js" in client.get("/live2d/").text
+
+
+def test_shared_frontend_scripts_are_served_raw(client):
+    """The Live2D page loads /js/chat.js and /js/boot.js by path. The VRM page
+    gets them bundled, so nothing under dist/ answers those URLs — without the
+    /js mount they fall through to the dist mount and 404, and the second body
+    silently loses its chat panel and boot log in every built deploy."""
+    for name in ("chat.js", "boot.js"):
+        assert f"/js/{name}" in (WEB / "live2d" / "index.html").read_text()
+        r = client.get(f"/js/{name}")
+        assert r.status_code == 200, f"/js/{name} not served"
+        # classic IIFEs on purpose — a bare `import` would not run as a raw
+        # <script> on the un-bundled page (see the file headers)
+        assert not re.search(r"^\s*(import|export)\s", r.text, re.M)
+    assert "/api/events" in client.get("/js/chat.js").text
+
+
+def test_raw_frontend_assets_are_revalidated(client):
+    """Unhashed names + heuristic freshness = an edit the browser never sees."""
+    for path in ("/js/chat.js", "/shared/settings.js"):
+        assert client.get(path).headers.get("Cache-Control") == "no-cache", path
 
 
 def test_live2d_config_falls_back_to_the_default_rig(client):

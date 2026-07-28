@@ -19,6 +19,7 @@ from __future__ import annotations
 import importlib.util
 import os
 import sys
+from pathlib import Path
 
 from yurios import attribution
 
@@ -99,6 +100,43 @@ def collect(cfg) -> list[Check]:
         checks.append(Check("desktop window", "--window", "pywebview", "webview",
                             "desktop", "only needed for `--window`", advisory=True))
     return checks
+
+
+def _site_packages(venv: Path) -> list[Path]:
+    return [*venv.glob("lib/python*/site-packages"), venv / "Lib" / "site-packages"]
+
+
+def venv_gap(missing: list[Check]) -> str:
+    """The "missing" seams that aren't missing at all — they're in the venv you
+    didn't activate.
+
+    `install.sh` builds `.venv` beside the source and puts every extra in there,
+    but an editable install is importable from any interpreter that can see the
+    checkout: run `python -m yurios.world` from a conda base and the package
+    starts fine while faster-whisper, silero-vad and friends stay behind in the
+    venv. The seams then report MISSING and the honest-looking fix — pip install
+    the extras — installs a second copy into the wrong environment. So when the
+    project venv holds what this interpreter lacks, say that instead. Empty
+    string when there's nothing to say, which is every normal run."""
+    venv = Path(__file__).resolve().parents[1] / ".venv"
+    if not (venv / "pyvenv.cfg").is_file():
+        return ""                           # installed, not a source checkout
+    try:
+        if Path(sys.prefix).resolve() == venv.resolve():
+            return ""                       # already running in it
+    except OSError:
+        return ""
+    roots = _site_packages(venv)
+    there = [c for c in missing if c.module and any(
+        (root / c.module).is_dir() or (root / f"{c.module}.py").is_file()
+        for root in roots)]
+    if not there:
+        return ""
+    activate = (venv / "Scripts" / "activate" if os.name == "nt"
+                else venv / "bin" / "activate")
+    return (f"{', '.join(c.seam for c in there)} are installed in {venv}, but this "
+            f"is {sys.executable} — activate the project venv rather than "
+            f"installing again: source {activate}")
 
 
 def _collapse(extras: list[str]) -> list[str]:
@@ -255,7 +293,12 @@ def report(checks: list[Check], *, network: list[str] | None = None, out=None) -
     extras = _collapse(sorted({c.extra for c in missing if c.extra}))
     for c in missing:
         print(f"  - {c.seam}: {c.knob}={c.want} needs `{c.module}`", file=out)
-    if extras:
+    # …unless they're only missing from *this* interpreter, in which case
+    # installing anything is the wrong move (see venv_gap).
+    gap = venv_gap(missing)
+    if gap:
+        print(f"\n{gap}\n", file=out)
+    if extras and not gap:
         torchy = {"tts", "vad", "local-embed", "tts-qwen", "voice", "all"} & set(extras)
         print(f"\nInstall them:\n\n  pip install -e \".[{','.join(extras)}]\"\n", file=out)
         if torchy and sys.platform.startswith("linux"):

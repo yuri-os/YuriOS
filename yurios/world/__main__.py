@@ -25,16 +25,24 @@ def _warn_missing(cfg) -> None:
     with the command that fixes all of them. The per-seam warnings still fire from
     desktop.main._graceful as each backend fails to build, but those land minutes
     into a cold voice warmup — this arrives before anything else does."""
-    from yurios.doctor import collect
+    from yurios.doctor import collect, venv_gap
     missing = [c for c in collect(cfg) if not c.ok and not c.advisory]
     if not missing:
+        return
+    seams = ", ".join(c.seam for c in missing)
+    knobs = ", ".join(f"{c.knob}={c.want}" for c in missing)
+    # The commonest cause of a "missing" seam on a machine that installed one is
+    # a different interpreter, not a missing package — name the venv instead of
+    # sending them to pip a second time (yurios.doctor.venv_gap).
+    gap = venv_gap(missing)
+    if gap:
+        log.warning("%s not importable here (%s) — those seams fall back to the "
+                    "fakes. %s", seams, knobs, gap)
         return
     extras = sorted({c.extra for c in missing if c.extra})
     log.warning("%s not installed (%s) — those seams fall back to the fakes. "
                 "Fix: pip install -e \".[%s]\"  ·  details: python -m yurios.doctor",
-                ", ".join(c.seam for c in missing),
-                ", ".join(f"{c.knob}={c.want}" for c in missing),
-                ",".join(extras))
+                seams, knobs, ",".join(extras))
 
 
 def main() -> None:

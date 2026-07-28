@@ -35,6 +35,7 @@ const els = {
   mic: document.getElementById('mic'),
   micLabel: document.getElementById('mic-label'),
   text: document.getElementById('text'),
+  send: document.getElementById('send'),
   rainMute: document.getElementById('rain-mute'),
   enter: document.getElementById('enter'),
   enterBtn: document.getElementById('enter-btn'),
@@ -110,6 +111,11 @@ async function boot() {
     els.rainMute.title = muted ? 'unmute the rain' : 'mute the rain';
   });
 
+  // The gate's button only becomes real once her body is in the room (the click
+  // handler is attached below, after the load): disable it until then so a slow
+  // wake *reads* as one instead of silently swallowing the click — the boot log
+  // beside it already says what's still loading (SPEC §6.4).
+  if (els.enterBtn) els.enterBtn.disabled = true;
   try {
     // The ?v tag busts caches that predate the Cache-Control fix (world/main.py):
     // a different URL is a guaranteed cache miss. Bump it when the bundled body
@@ -120,6 +126,9 @@ async function boot() {
     console.error('model load failed:', e);
     els.caption.textContent = 'her body failed to load — check web/models/';
   }
+  // …and enabled either way: a body that failed to load must not lock her out
+  // of her own room — the voice loop is the part that matters.
+  if (els.enterBtn) els.enterBtn.disabled = false;
 
   const enter = () => {
     viseme.context().resume();                 // she can speak now
@@ -134,9 +143,9 @@ async function boot() {
     window.WorldChat.connect({
       onStatus: (up) => {
         els.avatarStatus.classList.toggle('live', up);
-        // × (U+00D7), not ✕ (U+2715): the Latin-1 one is in every font stack,
-        // the dingbat one is tofu wherever the gear was (Chromium/Linux)
-        els.avatarStatus.textContent = up ? 'bus ·' : 'bus ×';
+        // words, not symbols: the masthead reads as a row of switchboard
+        // micro-labels now, and no glyph can go tofu in one (Chromium/Linux)
+        els.avatarStatus.textContent = up ? 'bus live' : 'bus down';
       },
     });
 

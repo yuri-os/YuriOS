@@ -7,9 +7,10 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>yuri</title>
+  <!-- boot.js replaces this with her name the moment /api/boot answers -->
+  <title>YuriOS / Sanctuary</title>
   <!-- her ◇ as an inline SVG favicon: nothing to 404 on, no font to depend on -->
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M8 1.5 14.5 8 8 14.5 1.5 8Z' fill='none' stroke='%23ff2bd6' stroke-width='1.6'/></svg>">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M8 1.5 14.5 8 8 14.5 1.5 8Z' fill='none' stroke='%23d7ff58' stroke-width='1.6'/></svg>">
   <link rel="stylesheet" href="sanctuary.css">
   <!-- the settings panel's shared stylesheet, served raw at /shared/ (SPEC §11) -->
   <link rel="stylesheet" href="/shared/settings.css">
@@ -31,10 +32,22 @@
 <body>
   <main class="stage">
     <header class="masthead">
-      <span class="glyph" aria-hidden="true">◇</span>
-      <span class="name">yuri</span>
-      <span class="status" id="status">· offline</span>
-      <span class="latency" id="latency" title="end-of-speech → first audio"></span>
+      <!-- back to the switchboard (host.py serves the dashboard at /) -->
+      <a class="button leave" href="/" aria-label="Back to the switchboard">
+        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m15 5-7 7 7 7"/></svg>
+        <span>Switchboard</span>
+      </a>
+      <span class="mast-id">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <!-- [data-char-name]: boot.js and chat.js write her name into every one
+             of these, so a second character's room is never labelled with the
+             first's -->
+        <span class="mast-copy"><b data-char-name>your companion</b><small>sanctuary</small></span>
+      </span>
+      <div class="mast-state">
+        <span class="status" id="status">offline</span>
+        <span class="latency" id="latency" title="end-of-speech → first audio"></span>
+      </div>
       <!-- empty on purpose: the gear is an SVG mask in /shared/settings.css -->
       <button id="settings-open" class="gear" title="settings" aria-label="settings"></button>
     </header>
@@ -65,7 +78,7 @@
     </section>
 
     <footer class="controls">
-      <button id="mic" class="mic" title="hold to talk / click to toggle listening">
+      <button id="mic" class="button mic" title="hold to talk / click to toggle listening">
         <span class="dot" aria-hidden="true"></span>
         <span id="mic-label">start listening</span>
       </button>
@@ -77,12 +90,18 @@
        (voice.js owns #text) exactly as before. -->
   <aside id="chat-col">
     <header class="chat-head">
-      <span class="glyph" aria-hidden="true">◇</span>
-      <span id="chat-name">yuri</span>
+      <span class="brand-mark" aria-hidden="true"></span>
+      <span class="chat-copy">
+        <b id="chat-name" data-char-name>your companion</b><small>transcript</small>
+      </span>
     </header>
     <div id="messages" aria-live="polite"></div>
     <div class="composer">
       <input id="text" type="text" placeholder="…or type to her" autocomplete="off">
+      <!-- Enter still sends (voice.js); this is the visible half of the same path -->
+      <button id="send" class="icon-button" type="button" title="send" aria-label="send">
+        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 12h14M13 6l6 6-6 6"/></svg>
+      </button>
     </div>
   </aside>
 

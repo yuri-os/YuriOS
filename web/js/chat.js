@@ -131,8 +131,13 @@
       window.dispatchEvent(new CustomEvent('world-ev', { detail: m }));
       if (m.type === 'hello') {
         charName = m.character || '';
-        const el = document.getElementById('chat-name');
-        if (el && charName) el.textContent = charName;
+        // every label that names her at once — the chat head, the masthead, the
+        // gate. One attribute, so a page can add a fourth without touching this.
+        if (charName) {
+          for (const el of document.querySelectorAll('[data-char-name]'))
+            el.textContent = charName;
+          document.title = `${charName} / Sanctuary`;
+        }
       } else if (m.type === 'message') {
         if (backfilled) addMsg(m); else queued.push(m);
       } else if (m.type === 'draft') addDraft(m.text);

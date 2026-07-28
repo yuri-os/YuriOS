@@ -70,10 +70,10 @@ export function initVoice({ viseme, els }) {
     ws.binaryType = 'arraybuffer';
     ws.onopen = () => {
       stopPlayback();                   // a fresh connection may greet; no overlap
-      setStatus('live', '· online');
+      setStatus('live', 'online');
       ws.send(JSON.stringify({ type: 'hello', session_id: sessionId }));
     };
-    ws.onclose = () => { setStatus('', '· offline'); setTimeout(connect, 1500); };
+    ws.onclose = () => { setStatus('', 'offline'); setTimeout(connect, 1500); };
     ws.onmessage = (e) => onMessage(JSON.parse(e.data));
   }
 
@@ -95,7 +95,7 @@ export function initVoice({ viseme, els }) {
         els.caption.textContent = '';   // she yielded — the floor is yours
         break;
       case 'error':
-        setStatus('', '· error');
+        setStatus('error', 'error');
         console.warn('server:', m.message);
         break;
     }
@@ -135,14 +135,14 @@ export function initVoice({ viseme, els }) {
       const need = playing ? BARGEIN_FRAMES : ONSET_FRAMES;
       if (speechRun >= need) {
         if (playing) { stopPlayback(); ws.send(JSON.stringify({ type: 'bargein' })); }
-        speaking = true; silenceMs = 0; speechRun = 0; setStatus('listening', '· listening');
+        speaking = true; silenceMs = 0; speechRun = 0; setStatus('listening', 'listening');
         for (const f of ring) ws.send(f.buffer); ring = [];   // flush pre-roll
       }
     } else {
       ws.send(copy.buffer);
       silenceMs = isSpeech ? 0 : silenceMs + (FRAME / 16000) * 1000;
       if (silenceMs >= HANGOVER_MS) {   // endpoint (B2 §4.2)
-        speaking = false; speechRun = 0; setStatus('live', '· online');
+        speaking = false; speechRun = 0; setStatus('live', 'online');
         ws.send(JSON.stringify({ type: 'endpoint' }));
       }
     }
@@ -155,8 +155,8 @@ export function initVoice({ viseme, els }) {
   }
   function setSpeaking(v) {
     playing = v;
-    if (v) setStatus('speaking', '· speaking');
-    else if (listening) setStatus('live', '· online');
+    if (v) setStatus('speaking', 'speaking');
+    else if (listening) setStatus('live', 'online');
   }
   function showLatency(lat) {
     if (!lat || lat.first_audio_ms == null) { els.latency.textContent = ''; return; }
@@ -174,13 +174,19 @@ export function initVoice({ viseme, els }) {
     if (listening) viseme.context().resume();
   });
 
-  els.text.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && els.text.value.trim() && ws?.readyState === 1) {
-      if (playing) { stopPlayback(); ws.send(JSON.stringify({ type: 'bargein' })); }
-      ws.send(JSON.stringify({ type: 'text', text: els.text.value.trim() }));
-      els.text.value = '';
-    }
-  });
+  // One send path for the two ways of asking: Enter, and the composer's button
+  // (an affordance the switchboard's language wants visible — and the only one
+  // a touch keyboard without a newline key can offer).
+  function sendText() {
+    const text = els.text.value.trim();
+    if (!text || ws?.readyState !== 1) return;
+    if (playing) { stopPlayback(); ws.send(JSON.stringify({ type: 'bargein' })); }
+    ws.send(JSON.stringify({ type: 'text', text }));
+    els.text.value = '';
+  }
+
+  els.text.addEventListener('keydown', (e) => { if (e.key === 'Enter') sendText(); });
+  els.send?.addEventListener('click', sendText);
 
   connect();
 }

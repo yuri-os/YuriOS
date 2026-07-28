@@ -57,7 +57,19 @@
     return { panel, head, list };
   }
 
+  // The gate paints before any bus is open (the stream connects on the enter
+  // click), so /api/boot carries her name: with several characters registered,
+  // a room labelled with the first one's name is worse than a slow one.
+  function name(who) {
+    if (!who || document.documentElement.dataset.charNamed === who) return;
+    document.documentElement.dataset.charNamed = who;
+    for (const el of document.querySelectorAll('[data-char-name]'))
+      el.textContent = who;
+    document.title = `${who} / Sanctuary`;
+  }
+
   function render(ui, snap) {
+    name(snap.character);
     ui.list.replaceChildren(...snap.services.map(row));
     const secs = `${snap.elapsed.toFixed(1)}s`;
     if (snap.done) {

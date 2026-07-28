@@ -51,5 +51,10 @@ async def boot(request: Request) -> dict:
     """The startup board (SPEC §6.4) the enter gate polls while she wakes — each
     service's pending → loading → ready|failed|skipped state, with timings. Not
     on the /api/events bus on purpose: that stream only opens after the enter
-    gesture, and this is what fills the wait *before* it (world/boot.py)."""
-    return request.app.state.rt.boot.snapshot()
+    gesture, and this is what fills the wait *before* it (world/boot.py).
+
+    Her name rides along for the same reason: with a registry of characters
+    (world/host.py) the gate has to say whose room this is, and it paints long
+    before the `hello` event that would otherwise tell it."""
+    rt = request.app.state.rt
+    return {**rt.boot.snapshot(), "character": rt.cfg.companion_name}

@@ -36,6 +36,7 @@
     mic: document.getElementById("mic"),
     micLabel: document.getElementById("mic-label"),
     text: document.getElementById("text"),
+    send: document.getElementById("send"),
   };
 
   // `window.localStorage?.` (never a bare `localStorage`): engines without web
@@ -106,10 +107,10 @@
       // A fresh connection is about to greet; drop any audio still queued from a
       // previous connection so the new greeting can't overlap the old one.
       stopPlayback();
-      setStatus("live", "· online");
+      setStatus("live", "online");
       ws.send(JSON.stringify({ type: "hello", session_id: sessionId }));
     };
-    ws.onclose = () => { setStatus("", "· offline"); setTimeout(connect, 1500); };
+    ws.onclose = () => { setStatus("", "offline"); setTimeout(connect, 1500); };
     ws.onmessage = (e) => onMessage(JSON.parse(e.data));
   }
 
@@ -128,7 +129,7 @@
       case "cancelled":
         els.caption.textContent = ""; break;    // she yielded — the floor is yours
       case "error":
-        setStatus("", "· error"); console.warn("server:", m.message); break;
+        setStatus("error", "error"); console.warn("server:", m.message); break;
     }
   }
 
@@ -166,14 +167,14 @@
       const need = playing ? BARGEIN_FRAMES : ONSET_FRAMES;
       if (speechRun >= need) {                  // sustained speech, not a transient
         if (playing) { stopPlayback(); ws.send(JSON.stringify({ type: "bargein" })); }
-        speaking = true; silenceMs = 0; speechRun = 0; setStatus("listening", "· listening");
+        speaking = true; silenceMs = 0; speechRun = 0; setStatus("listening", "listening");
         for (const f of ring) ws.send(f.buffer); ring = [];   // flush pre-roll
       }
     } else {
       ws.send(copy.buffer);                     // stream speech frames to STT
       silenceMs = isSpeech ? 0 : silenceMs + (FRAME / 16000) * 1000;
       if (silenceMs >= HANGOVER_MS) {           // endpoint (§4.2)
-        speaking = false; speechRun = 0; setStatus("live", "· online");
+        speaking = false; speechRun = 0; setStatus("live", "online");
         ws.send(JSON.stringify({ type: "endpoint" }));
       }
     }
@@ -183,8 +184,8 @@
   function setStatus(cls, text) { els.status.className = "status " + cls; els.status.textContent = text; }
   function setSpeaking(v) {
     playing = v;
-    if (v) setStatus("speaking", "· speaking");
-    else if (listening) setStatus("live", "· online");
+    if (v) setStatus("speaking", "speaking");
+    else if (listening) setStatus("live", "online");
   }
   function showLatency(lat) {
     if (!lat || lat.first_audio_ms == null) { els.latency.textContent = ""; return; }
@@ -202,13 +203,17 @@
     if (listening && outCtx) outCtx.resume();
   });
 
-  els.text.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && els.text.value.trim() && ws?.readyState === 1) {
-      if (playing) { stopPlayback(); ws.send(JSON.stringify({ type: "bargein" })); }
-      ws.send(JSON.stringify({ type: "text", text: els.text.value.trim() }));
-      els.text.value = "";
-    }
-  });
+  // one send path, two ways of asking it (FORK(B2): the composer grew a button)
+  function sendText() {
+    const text = els.text.value.trim();
+    if (!text || ws?.readyState !== 1) return;
+    if (playing) { stopPlayback(); ws.send(JSON.stringify({ type: "bargein" })); }
+    ws.send(JSON.stringify({ type: "text", text }));
+    els.text.value = "";
+  }
+
+  els.text.addEventListener("keydown", (e) => { if (e.key === "Enter") sendText(); });
+  els.send?.addEventListener("click", sendText);
 
   Avatar.init?.().finally(connect);   // load the body if present, then dial in
 })();

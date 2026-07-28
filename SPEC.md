@@ -432,8 +432,13 @@ to every new subscriber before its first live event. Malformed JSON is logged an
   her model (§3), so the room **MUST** carry a reduced tier (`?fx=low`, and automatically on
   small or coarse-pointer displays) that drops the planar floor reflection, the shadow map, the
   area lights and the post-AA.
-- §6.3 The page chrome carries the dark-sanctuary brand (JetBrains Mono; magenta/cyan/amber
-  accents on near-black). The camera is fixed and cinematic — framing her in the room with
+- §6.3 The page chrome carries **the switchboard's design system** — one look across the
+  character board (`web/dashboard/`), both bodies (§6.6) and the shared `.env` panel (§11):
+  Inter for prose, IBM Plex Mono for the small uppercase labels, 1px rules and 2px corners on
+  green-black, an acid-lime accent, and mint/amber/red for live/near/failed wherever a state is
+  shown. Entering a character **MUST NOT** feel like leaving the app. The chrome floats over the
+  room and recedes — a topbar and a column at the edges, translucent, never a frame around her.
+  The camera is fixed and cinematic — framing her in the room with
   subtle mouse parallax — not an orbit-controls model viewer: a place, not an asset inspector.
 - §6.4 **The enter gesture.** The page **MUST** gate on one click ("enter the sanctuary")
   before connecting the sockets, so the `AudioContext` is user-activated and the greeting (§9)

@@ -2,8 +2,11 @@
  *
  * ONE stylesheet, served raw at /shared/settings.css and linked by both
  * frontends. It leans entirely on the CSS custom properties both sanctuaries
- * define (--bg, --ink, --magenta, --cyan, --rule, …), so it inherits whichever
- * page's palette it lands in without hardcoding a colour. */
+ * define (--panel, --ink, --acid, --rule, the two font stacks…), so it inherits
+ * whichever page's palette it lands in without hardcoding a colour — and both
+ * pages now hand it the switchboard's, so the .env editor, the character board
+ * and the room are one interface. Shapes follow the dashboard's dialogs:
+ * 1px rules, 2px corners, mono micro-labels over the fields. */
 
 /* settings: gear + modal */
 
@@ -16,11 +19,11 @@
  * palette, and keeps the hover transitions. Each button supplies its own
  * --icon; the shared rule does the rest. */
 .gear, .settings-x{
-  width:1.05em; height:1.05em; align-self:center; flex:none;
-  padding:0; border:none; cursor:pointer; background:var(--dim);
+  width:16px; height:16px; align-self:center; flex:none;
+  padding:0; border:none; cursor:pointer; background:var(--soft);
   -webkit-mask:var(--icon) center/contain no-repeat;
           mask:var(--icon) center/contain no-repeat;
-  transition:background-color .15s, transform .3s;
+  transition:background-color .18s, transform .3s;
 }
 
 /* six teeth, so the 45° turn on hover actually reads */
@@ -32,97 +35,108 @@ stroke-linecap="round">\
 <circle cx="12" cy="12" r="2.4" stroke-width="1.6"/>\
 <path stroke-width="2.4" d="M18.2 12h3.2M15.1 17.37l1.6 2.77M8.9 17.37l-1.6 2.77\
 M5.8 12H2.6M8.9 6.63 7.3 3.86M15.1 6.63l1.6-2.77"/></svg>');
-  width:1.15em; height:1.15em;
+  width:17px; height:17px;
 }
-.gear:hover{ background:var(--cyan); transform:rotate(45deg); }
+.gear:hover{ background:var(--acid); transform:rotate(45deg); }
 
 .settings{
-  width:min(560px, 94vw); max-height:86dvh; padding:0; color:var(--ink);
-  background:var(--bg-2); border:1px solid var(--rule); border-radius:.7em;
-  box-shadow:0 20px 60px #000c; font-family:var(--font); overflow:hidden;
+  width:min(620px, calc(100vw - 30px)); max-height:calc(100dvh - 30px);
+  /* both pages reset every margin to 0, which also disables the centring a
+     modal <dialog> gets for free — put it back explicitly */
+  margin:auto;
+  padding:0; color:var(--ink); background:var(--panel);
+  border:1px solid var(--rule); border-radius:3px;
+  box-shadow:var(--shadow, 0 24px 80px rgb(0 0 0 / .42));
+  font-family:var(--font-sans); overflow:hidden;
 }
-.settings::backdrop{ background:#000a; backdrop-filter:blur(2px); }
-.settings-form{ display:flex; flex-direction:column; max-height:86dvh; }
+.settings::backdrop{ background:rgb(0 0 0 / .72); backdrop-filter:blur(4px); }
+.settings-form{ display:flex; flex-direction:column; max-height:calc(100dvh - 30px); }
 
 .settings-head{
-  display:flex; align-items:baseline; gap:.6em;
-  padding:.9em 1.1em; border-bottom:1px solid var(--rule); background:var(--bg-3);
+  display:flex; align-items:baseline; gap:12px;
+  padding:22px clamp(20px, 4vw, 28px); border-bottom:1px solid var(--rule);
 }
-.settings-title{ color:var(--magenta); letter-spacing:.08em; }
-.settings-path{ color:var(--dim); font-size:.72em; margin-left:.2em; overflow:hidden;
-  text-overflow:ellipsis; white-space:nowrap; }
+.settings-title{ color:var(--ink); font-size:22px; font-weight:520; letter-spacing:-.03em; }
+.settings-path{
+  min-width:0; flex:1; color:var(--dim); font:9px var(--font-mono);
+  letter-spacing:.04em; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
 .settings-x{
   --icon:url('data:image/svg+xml;utf8,\
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" stroke="%23000" \
 stroke-width="2.4" stroke-linecap="round"><path d="M5.5 5.5 18.5 18.5M18.5 5.5 5.5 18.5"/>\
 </svg>');
-  margin-left:auto;
+  align-self:center;
 }
-.settings-x:hover{ background:var(--magenta); }
+.settings-x:hover{ background:var(--ink); }
 
-.settings-body{ overflow-y:auto; padding:.4em 1.1em 1em; }
-.settings-loading{ color:var(--dim); padding:1.4em 0; text-align:center; }
+.settings-body{
+  overflow-y:auto; padding:4px clamp(20px, 4vw, 28px) 24px;
+  scrollbar-width:thin; scrollbar-color:var(--rule) transparent;
+}
+.settings-loading{ color:var(--dim); padding:26px 0; text-align:center; font:10px var(--font-mono); }
 
-.set-group{ margin-top:1.1em; }
+.set-group{ margin-top:26px; }
 .set-group-title{
-  color:var(--cyan); font-size:.8em; font-weight:normal; letter-spacing:.1em;
-  text-transform:uppercase; padding-bottom:.4em; margin-bottom:.5em;
-  border-bottom:1px solid var(--rule);
+  color:var(--acid); font:9px var(--font-mono); font-weight:400;
+  letter-spacing:.2em; text-transform:uppercase;
+  padding-bottom:10px; margin-bottom:14px; border-bottom:1px solid var(--rule);
 }
-.set-row{ display:block; margin:.7em 0; }
-.set-key{ color:var(--ink-2); font-size:.82em; margin-bottom:.3em; }
-.set-ctl{ display:flex; align-items:center; gap:.5em; }
+.set-row{ display:block; margin:16px 0; }
+.set-key{
+  margin-bottom:8px; color:var(--soft); font:9px var(--font-mono);
+  letter-spacing:.08em; text-transform:uppercase;
+}
+.set-ctl{ display:flex; align-items:center; gap:8px; }
 .set-input{
-  flex:1; min-width:0; background:var(--bg); color:var(--ink);
-  border:1px solid var(--rule); border-radius:.4em; padding:.5em .6em;
-  font-family:var(--font); font-size:.9em;
+  flex:1; min-width:0; background:var(--ground); color:var(--ink);
+  border:1px solid var(--rule); border-radius:2px; outline:none;
+  padding:11px 12px; font:11px/1.5 var(--font-mono);
 }
-.set-input:focus{ outline:none; border-color:var(--cyan); }
+.set-input:focus{ border-color:var(--acid-dark); box-shadow:0 0 0 3px rgb(215 255 88 / .06); }
 select.set-input{ cursor:pointer; }
-.set-check{ width:1.15em; height:1.15em; accent-color:var(--magenta); cursor:pointer; }
-.set-reveal{
-  background:var(--bg-3); color:var(--dim); border:1px solid var(--rule);
-  border-radius:.4em; padding:.45em .6em; cursor:pointer; font-family:var(--font);
-  font-size:.75em;
+.set-check{ width:16px; height:16px; accent-color:var(--acid); cursor:pointer; }
+.set-reveal, .set-browse{
+  flex:0 0 auto; min-height:38px; display:inline-flex; align-items:center;
+  padding:0 13px; background:transparent; color:var(--soft);
+  border:1px solid var(--rule); border-radius:2px; cursor:pointer;
+  font:9px var(--font-mono); letter-spacing:.08em; text-transform:uppercase;
+  white-space:nowrap; transition:.18s ease;
 }
-.set-reveal:hover{ color:var(--ink); }
-.set-help{ color:var(--dim); font-size:.72em; margin-top:.3em; line-height:1.4; }
+.set-reveal:hover, .set-browse:hover{ border-color:var(--soft); color:var(--ink); }
+.set-help{ color:var(--dim); font:9px/1.6 var(--font-mono); margin-top:7px; }
 
 /* the model field: provider dropdown + browsable model combobox */
 .set-model{ width:100%; }
-.set-model-row{ display:flex; align-items:center; gap:.5em; width:100%; }
+.set-model-row{ display:flex; align-items:center; gap:8px; width:100%; }
 .set-model-provider{ flex:0 0 auto; width:auto; min-width:9.5em; }
 .set-model-name{ flex:1 1 auto; }
-.set-browse{
-  flex:0 0 auto; background:var(--bg-3); color:var(--cyan);
-  border:1px solid var(--rule); border-radius:.4em; padding:.5em .7em;
-  cursor:pointer; font-family:var(--font); font-size:.75em; white-space:nowrap;
-}
-.set-browse:hover{ border-color:var(--cyan); }
-.set-model-status{ color:var(--dim); font-size:.72em; margin-top:.3em; display:block; }
+.set-model-status{ display:block; margin-top:7px; color:var(--dim); font:9px var(--font-mono); }
 
 /* the browse dropdown — our own list, so it shows every model, not a datalist */
 .set-model-list{
-  margin-top:.4em; max-height:12em; overflow-y:auto;
-  background:var(--bg); border:1px solid var(--rule); border-radius:.4em;
+  margin-top:6px; max-height:13em; overflow-y:auto;
+  background:var(--ground); border:1px solid var(--rule); border-radius:2px;
+  scrollbar-width:thin; scrollbar-color:var(--rule) transparent;
 }
 .set-model-opt{
   display:block; width:100%; text-align:left; background:none; border:none;
-  color:var(--ink); font-family:var(--font); font-size:.82em;
-  padding:.4em .6em; cursor:pointer;
+  color:var(--soft); font:11px var(--font-mono); padding:8px 12px; cursor:pointer;
 }
-.set-model-opt:hover{ background:var(--bg-3); color:var(--cyan); }
-.set-model-empty{ color:var(--dim); font-size:.78em; padding:.5em .6em; }
+.set-model-opt:hover{ background:var(--panel-2); color:var(--acid); }
+.set-model-empty{ color:var(--dim); font:10px var(--font-mono); padding:9px 12px; }
 
 .settings-foot{
-  display:flex; align-items:center; gap:.8em;
-  padding:.8em 1.1em; border-top:1px solid var(--rule); background:var(--bg-3);
+  display:flex; align-items:center; gap:14px;
+  padding:16px clamp(20px, 4vw, 28px); border-top:1px solid var(--rule);
 }
-.settings-note{ color:var(--dim); font-size:.8em; flex:1; }
+.settings-note{ flex:1; color:var(--dim); font:9px/1.5 var(--font-mono); }
 .settings-note.restart{ color:var(--amber); }
 .settings-save{
-  background:var(--bg); color:var(--cyan); border:1px solid var(--cyan);
-  border-radius:.4em; padding:.55em 1.4em; cursor:pointer; font-family:var(--font);
-  transition:background .15s, color .15s;
+  min-height:38px; padding:0 20px; cursor:pointer;
+  border:1px solid var(--acid); border-radius:2px;
+  background:var(--acid); color:#10140a;
+  font:700 10px var(--font-mono); letter-spacing:.06em; text-transform:uppercase;
+  transition:.18s ease;
 }
-.settings-save:hover{ background:var(--cyan); color:var(--void); }
+.settings-save:hover{ background:#e1ff7b; box-shadow:0 0 24px rgb(215 255 88 / .13); }

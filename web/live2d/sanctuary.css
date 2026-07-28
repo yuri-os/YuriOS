@@ -1,22 +1,61 @@
-/* The desktop sanctuary — YuriOS Lab tokens (shared with Build #1, SPEC §8.1).
-   Dark everywhere; the avatar is the subject, chrome recedes. */
+/* The Live2D sanctuary (SPEC §6.6, §8.1) — the second body, on the switchboard's
+   design system.
+
+   Build #2's client keeps its own layout (a centred stage with the avatar
+   framed, the chat column beside it) but not its own look: the tokens, type
+   scale and shapes here are the dashboard's (web/dashboard/dashboard.css), the
+   same ones web/sanctuary.css hands the VRM room, so which body a character
+   wears never changes what the app feels like. /shared/settings.css reads the
+   same custom properties from either page. */
 
 :root{
-  --void:#050507; --bg:#0a0a10; --bg-2:#11111a; --bg-3:#181822;
-  --rule:#1d1d28; --ink:#e8e6f0; --ink-2:#b8b3cc; --dim:#6a6783;
-  --magenta:#ff2bd6; --cyan:#2bfff0; --amber:#f5b462;
-  --font:"JetBrains Mono", ui-monospace, monospace;
+  /* switchboard tokens — keep in step with dashboard.css and ../sanctuary.css */
+  --void:#070a09; --ground:#0c1110; --panel:#111816; --panel-2:#17201d;
+  --ink:#edf2e8; --soft:#a5afa6; --dim:#69736d; --rule:#27312c;
+  --acid:#d7ff58; --acid-dark:#a7ca32; --mint:#76e8bd; --amber:#f4bd62; --red:#ef786f;
+  --font-sans:Inter,"Segoe UI",Helvetica,Arial,sans-serif;
+  --font-mono:"IBM Plex Mono","SFMono-Regular",Consolas,monospace;
+  --shadow:0 24px 80px rgb(0 0 0 / .42);
+  --bar-h:64px;
+
+  /* the names /shared/settings.css speaks (SPEC §11) */
+  --bg:var(--ground); --bg-2:var(--panel); --bg-3:var(--panel-2);
+  --ink-2:var(--soft); --font:var(--font-mono);
 }
 
 *{ box-sizing:border-box; margin:0; padding:0; }
-::selection{ background:var(--magenta); color:var(--void); }
+::selection{ background:var(--acid); color:var(--void); }
 
 html,body{ height:100%; }
 body{
-  background:radial-gradient(1200px 800px at 50% 20%, #0d0d16 0%, var(--void) 70%);
-  color:var(--ink); font-family:var(--font); font-size:14px;
+  background:
+    radial-gradient(circle at 50% -6%, rgb(106 141 78 / .12), transparent 30rem),
+    var(--void);
+  color:var(--ink); font-family:var(--font-sans); font-size:14px;
+  -webkit-font-smoothing:antialiased;
   display:flex; justify-content:center;
 }
+button,input{ font:inherit; }
+button{ color:inherit; }
+a{ color:inherit; text-decoration:none; }
+svg{ width:1.1em; height:1.1em; fill:none; stroke:currentColor; stroke-width:1.7;
+     stroke-linecap:round; stroke-linejoin:round; }
+
+/* her ◇, drawn rather than typed (see ../sanctuary.css) */
+.brand-mark{
+  width:16px; height:16px; flex:none; transform:rotate(45deg);
+  border:1px solid var(--acid);
+  box-shadow:inset 0 0 0 3px var(--void), inset 0 0 0 5px var(--acid);
+}
+
+.button{
+  min-height:38px; display:inline-flex; align-items:center; justify-content:center;
+  gap:8px; padding:0 15px; border:1px solid var(--rule); border-radius:2px;
+  cursor:pointer; background:transparent; color:var(--soft);
+  font:10px var(--font-mono); letter-spacing:.06em; text-transform:uppercase;
+  transition:.18s ease;
+}
+.button:hover,.button:focus-visible{ border-color:var(--soft); color:var(--ink); }
 
 .stage{
   /* height:100% (not 100dvh): dvh is for mobile URL-bar collapse, and embedded
@@ -25,22 +64,43 @@ body{
      The html/body 100% chain above makes 100% identical on desktop browsers. */
   width:min(560px, 100%); height:100%;
   display:flex; flex-direction:column;
-  background:linear-gradient(180deg, var(--bg) 0%, var(--void) 100%);
+  background:linear-gradient(180deg, var(--ground) 0%, var(--void) 100%);
   border-left:1px solid var(--rule); border-right:1px solid var(--rule);
 }
 
+/* ---- the masthead: the switchboard's topbar ---- */
 .masthead{
-  display:flex; align-items:baseline; gap:.6em;
-  padding:.8em 1.2em; border-bottom:1px solid var(--rule); background:var(--bg-2);
+  height:var(--bar-h); flex:none; display:flex; align-items:center; gap:16px;
+  padding:0 20px; border-bottom:1px solid var(--rule); background:var(--void);
 }
-.glyph{ color:var(--magenta); }
-.name{ color:var(--ink); letter-spacing:.08em; }
-.status{ margin-left:auto; color:var(--dim); font-size:.85em; }
-.status.live{ color:var(--cyan); }
-.status.speaking{ color:var(--amber); }
-.status.listening{ color:var(--magenta); }
-.latency{ color:var(--dim); font-size:.75em; }
-.latency.over{ color:var(--magenta); }   /* first-audio blew the §4.2 budget */
+.leave{ margin-right:2px; }
+.leave svg{ width:14px; height:14px; }
+.mast-id{ display:inline-flex; align-items:center; gap:11px; min-width:0; }
+.mast-copy{ display:grid; gap:2px; min-width:0; }
+.mast-copy b{
+  font-size:14px; font-weight:520; overflow:hidden;
+  text-overflow:ellipsis; white-space:nowrap;
+}
+.mast-copy small{
+  color:var(--dim); font:9px/1.2 var(--font-mono);
+  letter-spacing:.12em; text-transform:uppercase;
+}
+.mast-state{ display:flex; align-items:center; gap:16px; margin-left:auto; }
+.status{
+  display:inline-flex; align-items:center; gap:8px; color:var(--soft);
+  font:9px var(--font-mono); letter-spacing:.1em; text-transform:uppercase;
+}
+.status::before{
+  content:""; width:6px; height:6px; border-radius:50%; background:var(--dim);
+  box-shadow:0 0 0 4px rgb(105 115 109 / .1);
+}
+.status.live::before{ background:var(--mint); box-shadow:0 0 0 4px rgb(118 232 189 / .12), 0 0 12px var(--mint); }
+.status.speaking::before{ background:var(--amber); box-shadow:0 0 0 4px rgb(244 189 98 / .12), 0 0 12px var(--amber); }
+.status.listening::before{ background:var(--acid); box-shadow:0 0 0 4px rgb(215 255 88 / .12), 0 0 12px var(--acid); }
+.status.error{ color:var(--red); }
+.status.error::before{ background:var(--red); box-shadow:0 0 0 4px rgb(239 120 111 / .12); }
+.latency{ color:var(--dim); font:10px var(--font-mono); font-variant-numeric:tabular-nums; }
+.latency.over{ color:var(--red); }       /* first audio blew the §4.2 budget */
 
 /* the body */
 .scene{
@@ -50,78 +110,95 @@ body{
 #live2d{ width:100%; height:100%; display:block; }
 
 .caption{
-  position:absolute; bottom:1.4em; left:1.2em; right:1.2em;
-  text-align:center; color:var(--ink); text-shadow:0 2px 10px #000a;
-  min-height:1.6em; white-space:pre-wrap;
+  position:absolute; bottom:22px; left:20px; right:20px;
+  text-align:center; color:var(--ink); font-size:15px; line-height:1.5;
+  text-shadow:0 2px 12px #000d; min-height:1.6em; white-space:pre-wrap;
 }
 
 /* controls */
 .controls{
-  display:flex; align-items:center; gap:.8em;
-  padding:1em 1.2em; border-top:1px solid var(--rule); background:var(--bg-2);
+  flex:none; display:flex; align-items:center; gap:8px;
+  padding:14px 20px; border-top:1px solid var(--rule); background:var(--ground);
 }
-.mic{
-  display:flex; align-items:center; gap:.6em;
-  background:var(--bg-3); color:var(--ink); border:1px solid var(--rule);
-  padding:.6em 1em; border-radius:2em; cursor:pointer; font-family:var(--font);
-  transition:border-color .15s, color .15s;
-}
-.mic:hover{ border-color:var(--dim); }
-.mic.on{ border-color:var(--magenta); color:var(--magenta); }
-.mic .dot{ width:.6em; height:.6em; border-radius:50%; background:var(--dim); }
-.mic.on .dot{ background:var(--magenta); box-shadow:0 0 8px var(--magenta); animation:pulse 1.4s infinite; }
-@keyframes pulse{ 50%{ opacity:.4; } }
+.mic{ background:var(--panel); }
+.mic.on{ border-color:var(--acid); color:var(--acid); }
+.mic .dot{ width:6px; height:6px; border-radius:50%; background:var(--dim); }
+.mic.on .dot{ background:var(--acid); box-shadow:0 0 10px var(--acid); animation:pulse 1.4s infinite; }
+@keyframes pulse{ 50%{ opacity:.35; } }
 
 #text{
-  flex:1; background:var(--bg); color:var(--ink); border:1px solid var(--rule);
-  padding:.6em .9em; border-radius:.5em; font-family:var(--font); width:100%;
+  flex:1; width:100%; height:38px; padding:0 13px;
+  border:1px solid var(--rule); border-radius:2px; outline:none;
+  background:var(--void); color:var(--ink); font:11px var(--font-mono);
 }
-#text:focus{ outline:none; border-color:var(--cyan); }
+#text::placeholder{ color:var(--dim); }
+#text:focus{ border-color:var(--acid-dark); box-shadow:0 0 0 3px rgb(215 255 88 / .06); }
 
 /* ---- FORK(B2): the chat column (Build #4 SPEC §2.6), beside the body ---- */
 #chat-col{
-  width:340px; height:100%;
+  width:352px; height:100%;
   display:flex; flex-direction:column;
-  background:var(--bg); border-right:1px solid var(--rule);
+  background:var(--ground); border-right:1px solid var(--rule);
 }
 .chat-head{
-  display:flex; align-items:baseline; gap:.6em;
-  padding:.9em 1.1em; border-bottom:1px solid var(--rule); background:var(--bg-2);
-  letter-spacing:.08em;
+  height:var(--bar-h); flex:none; display:flex; align-items:center; gap:11px;
+  padding:0 16px; border-bottom:1px solid var(--rule); background:var(--void);
+}
+.chat-copy{ display:grid; gap:2px; min-width:0; }
+.chat-copy b{
+  font-size:14px; font-weight:520; overflow:hidden;
+  text-overflow:ellipsis; white-space:nowrap;
+}
+.chat-copy small{
+  color:var(--dim); font:9px/1.2 var(--font-mono);
+  letter-spacing:.12em; text-transform:uppercase;
 }
 #messages{
-  flex:1; overflow-y:auto; padding:1em; display:flex; flex-direction:column;
-  gap:.7em; scrollbar-width:thin; scrollbar-color:var(--rule) transparent;
+  flex:1; min-height:0; overflow-y:auto; padding:18px 16px;
+  display:flex; flex-direction:column; gap:12px;
+  scrollbar-width:thin; scrollbar-color:var(--rule) transparent;
 }
 .msg{
-  max-width:92%; padding:.55em .8em; border-radius:.6em;
-  font-size:.92em; line-height:1.45; white-space:pre-wrap; word-break:break-word;
+  max-width:90%; padding:11px 13px; border:1px solid var(--rule); border-radius:2px;
+  background:var(--panel); font-size:13px; line-height:1.62;
+  white-space:pre-wrap; word-break:break-word;
 }
+.msg.her{ align-self:flex-start; }
+.msg.you{ align-self:flex-end; background:transparent; color:var(--soft); }
+.msg.her.proactive{ border-left:2px solid var(--amber); }
+.msg.her.draft{ opacity:.6; }
 .msg .who{
-  display:flex; align-items:baseline; gap:.5em;
-  font-size:.75em; color:var(--dim); margin-bottom:.25em;
-  letter-spacing:.06em;
+  display:flex; align-items:baseline; gap:8px; margin-bottom:6px;
+  color:var(--dim); font:9px var(--font-mono);
+  letter-spacing:.1em; text-transform:uppercase;
 }
+.msg.her .who{ color:var(--soft); }
 .msg .who em{ font-style:normal; color:var(--amber); }
 /* the stamp sits at the far edge of the header row, never wrapping */
-.msg .who .when{ margin-left:auto; white-space:nowrap; opacity:.7;
+.msg .who .when{ margin-left:auto; white-space:nowrap; color:var(--dim);
                  font-variant-numeric:tabular-nums; }
-.msg.you{ align-self:flex-end; background:var(--bg-3); border:1px solid var(--rule); }
-.msg.her{ align-self:flex-start; background:var(--bg-2); border:1px solid var(--rule); }
-.msg.her.proactive{ border-color:#3a3050; }
-.msg.her.draft{ opacity:.65; }
 .msg-img{
-  display:block; max-width:100%; border-radius:.4em; margin:.2em 0 .35em;
+  display:block; max-width:100%; border-radius:2px; margin:2px 0 6px;
   border:1px solid var(--rule);
 }
-.composer{ padding:.8em; border-top:1px solid var(--rule); display:flex; }
+.composer{ flex:none; display:flex; gap:8px; padding:12px; border-top:1px solid var(--rule); }
+.icon-button{
+  width:38px; height:38px; display:grid; place-items:center; flex:none;
+  border:1px solid var(--rule); border-radius:2px; background:transparent;
+  color:var(--soft); cursor:pointer; transition:.18s ease;
+}
+.icon-button:hover,.icon-button:focus-visible{ border-color:var(--soft); color:var(--ink); }
 
 /* narrow window: the body above, the chat below */
 @media (max-width: 720px){
+  :root{ --bar-h:56px; }
   body{ flex-direction:column; align-items:center; }
   .stage{ height:55%; }
   #chat-col{ width:min(560px, 100%); height:45%; border-right:none;
              border-top:1px solid var(--rule); }
+  .leave span{ display:none; }
+  .leave{ width:38px; padding:0; }
+  .mast-copy small,.latency{ display:none; }
 }
 
 /* settings: gear + modal — styled by the shared /shared/settings.css, linked in
@@ -133,8 +210,8 @@ body{
    frameless transparent window (desktop/window.py) shows only her. Chrome fades
    back in when you hover. */
 :root.desktop, :root.desktop body{ background:transparent !important; }
-/* `framed=1` — a Windows browser window can't be transparent (WSL), and
-   transparent there just means white; give her the night back instead. */
+/* `framed=1`: a Windows browser window can't be transparent (WSL — world/window.py),
+   and transparent there just means white; give her the night back instead. */
 :root.desktop.framed, :root.desktop.framed body{ background:var(--void) !important; }
 :root.desktop body{ display:block; }
 :root.desktop #chat-col{ display:none; }   /* a pet floats chromeless; events.js
@@ -150,33 +227,46 @@ body{
 /* controls (mic + text) hide until you hover her, then float over the bottom */
 :root.desktop .controls{
   position:absolute; left:0; right:0; bottom:0; z-index:5;
-  background:linear-gradient(0deg, #0009 0%, #0000 100%);
+  background:linear-gradient(0deg, rgb(7 10 9 / .72) 0%, rgb(7 10 9 / 0) 100%);
   border-top:none; opacity:0; transition:opacity .18s;
   pointer-events:none;
 }
+:root.desktop .controls .mic,
+:root.desktop .controls #text{ background:rgb(7 10 9 / .82); backdrop-filter:blur(14px); }
 :root.desktop .stage:hover .controls{ opacity:1; pointer-events:auto; }
-:root.desktop .caption{ bottom:3.4em; }               /* clear the hover bar */
+:root.desktop .caption{ bottom:64px; }               /* clear the hover bar */
 
 /* ---- the boot log (SPEC §6.4): shared /js/boot.js, overlay mode here ---- */
-.boot-panel{ font-size:.8em; line-height:1.7; text-align:left; }
-.bt-head{ color:var(--ink-2); margin-bottom:.5em; letter-spacing:.03em; }
-.boot-panel.bt-ready .bt-head{ color:var(--cyan); }
+.boot-panel{
+  width:min(520px, 100%); padding:15px 17px; text-align:left;
+  font:11px/1.75 var(--font-mono);
+}
+.bt-head{
+  color:var(--soft); margin-bottom:9px; padding-bottom:9px;
+  border-bottom:1px solid var(--rule); font-size:10px; letter-spacing:.08em;
+}
+.boot-panel.bt-ready .bt-head{ color:var(--mint); }
 .boot-panel.bt-degraded .bt-head{ color:var(--amber); }
 .bt-row{ display:grid; grid-template-columns:auto 1fr auto auto; gap:.7em;
   align-items:baseline; white-space:nowrap; }
 .bt-tag{ color:var(--dim); }
-.bt-ok{ color:var(--cyan); }
+.bt-ok{ color:var(--mint); }
 .bt-load{ color:var(--amber); animation:bt-blink 1s steps(2, start) infinite; }
-.bt-fail{ color:var(--magenta); }
+.bt-fail{ color:var(--red); }
 .bt-pend, .bt-skip{ color:var(--dim); }
-.bt-label{ color:var(--ink-2); overflow:hidden; text-overflow:ellipsis; }
+.bt-label{ color:var(--soft); overflow:hidden; text-overflow:ellipsis; }
 .bt-detail{ color:var(--dim); overflow:hidden; text-overflow:ellipsis; min-width:0; }
 .bt-secs{ color:var(--dim); font-size:.9em; }
 @keyframes bt-blink{ 50%{ opacity:.35; } }
 #boot-overlay{
-  position:fixed; left:1em; bottom:1em; z-index:30;
-  background:#0a0a10e0; border:1px solid var(--rule); border-radius:.5em;
-  padding:.8em 1em; backdrop-filter:blur(4px);
+  position:fixed; left:16px; bottom:16px; z-index:30;
+  border:1px solid var(--rule); background:rgb(7 10 9 / .82);
+  backdrop-filter:blur(10px); box-shadow:var(--shadow);
   transition:opacity .8s; color:var(--ink);
 }
 #boot-overlay.leaving{ opacity:0; pointer-events:none; }
+
+@media (prefers-reduced-motion: reduce){
+  *, *::before, *::after{ animation-duration:.01ms !important; animation-iteration-count:1 !important;
+                          transition-duration:.01ms !important; }
+}

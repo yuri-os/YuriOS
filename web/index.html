@@ -10,10 +10,12 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>yuri</title>
+  <!-- boot.js replaces this with her name the moment /api/boot answers -->
+  <title>YuriOS / Sanctuary</title>
   <!-- her ◇ as an inline SVG favicon — drawn, not typed, for the same reason the
-       gear is: no /favicon.ico to 404 on, no font to depend on, no extra file -->
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M8 1.5 14.5 8 8 14.5 1.5 8Z' fill='none' stroke='%23ff2bd6' stroke-width='1.6'/></svg>">
+       gear is: no /favicon.ico to 404 on, no font to depend on, no extra file.
+       The same mark and the same acid the switchboard's tab carries. -->
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M8 1.5 14.5 8 8 14.5 1.5 8Z' fill='none' stroke='%23d7ff58' stroke-width='1.6'/></svg>">
   <link rel="stylesheet" href="sanctuary.css">
   <!-- the settings panel's shared stylesheet, served raw at /shared/ (SPEC §11) -->
   <link rel="stylesheet" href="/shared/settings.css">
@@ -35,34 +37,49 @@
   </script>
 </head>
 <body>
-  <a class="sanctuary-exit" href="/" aria-label="Leave sanctuary">leave sanctuary</a>
   <!-- the 3D room fills the window; everything else floats over it -->
   <div id="scene"></div>
 
-  <!-- the enter gesture (SPEC §6.4) -->
+  <!-- the enter gesture (SPEC §6.4), wearing the switchboard's card language -->
   <div id="enter" class="enter">
     <div class="enter-card">
-      <span class="glyph" aria-hidden="true">◇</span>
-      <span class="enter-name">yuri</span>
-      <p class="enter-sub">rain on the window · she's waiting</p>
+      <span class="brand-mark" aria-hidden="true"></span>
+      <p class="eyebrow">Character sanctuary</p>
+      <!-- [data-char-name]: boot.js and chat.js write her name into every one of
+           these, so a second character's room is never labelled with the first's -->
+      <h1 class="enter-name" data-char-name>your companion</h1>
+      <p class="enter-sub">Rain on the window · she's waiting</p>
       <!-- the boot log (SPEC §6.4): js/boot.js polls /api/boot and fills this
            while her local voice models load — a slow wake shows progress, not a
            blank gate. -->
       <div id="boot-list"></div>
-      <button id="enter-btn" class="enter-btn">enter the sanctuary</button>
+      <button id="enter-btn" class="button button-primary enter-btn">
+        Enter the sanctuary
+        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></svg>
+      </button>
     </div>
   </div>
 
   <header class="masthead hud">
-    <span class="glyph" aria-hidden="true">◇</span>
-    <span class="name">yuri</span>
-    <span class="status" id="status">· offline</span>
-    <span class="avatar-status" id="avatar-status" title="/api/events">bus ·</span>
-    <!-- how full her context window is (SPEC §11): prompt tokens / CONTEXT_LENGTH.
-         Goes amber near the ceiling, magenta once the reply no longer fits — the
-         warning that used to arrive as "Context size has been exceeded". -->
-    <span class="context" id="context" title="context window"></span>
-    <span class="latency" id="latency" title="end-of-speech → first audio"></span>
+    <!-- back to the switchboard (host.py serves the dashboard at /): the same
+         quiet button the board uses, not a floating pill over her head -->
+    <a class="button leave" href="/" aria-label="Back to the switchboard">
+      <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m15 5-7 7 7 7"/></svg>
+      <span>Switchboard</span>
+    </a>
+    <span class="mast-id">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <span class="mast-copy"><b data-char-name>your companion</b><small>sanctuary</small></span>
+    </span>
+    <div class="mast-state">
+      <span class="status" id="status">offline</span>
+      <span class="avatar-status" id="avatar-status" title="/api/events">bus down</span>
+      <!-- how full her context window is (SPEC §11): prompt tokens / CONTEXT_LENGTH.
+           Goes amber near the ceiling, red once the reply no longer fits — the
+           warning that used to arrive as "Context size has been exceeded". -->
+      <span class="context" id="context" title="context window"></span>
+      <span class="latency" id="latency" title="end-of-speech → first audio"></span>
+    </div>
     <!-- empty on purpose: the gear is an SVG mask in /shared/settings.css, not a
          glyph — U+2699 is tofu wherever the font stack lacks it (Chromium/Linux) -->
     <button id="settings-open" class="gear" title="settings" aria-label="settings"></button>
@@ -99,8 +116,10 @@
        journal, activity state, goals, and queued self-edits awaiting you. -->
   <aside id="chat-col">
     <header class="chat-head">
-      <span class="glyph" aria-hidden="true">◇</span>
-      <span id="chat-name">yuri</span>
+      <span class="brand-mark" aria-hidden="true"></span>
+      <span class="chat-copy">
+        <b id="chat-name" data-char-name>your companion</b><small>transcript</small>
+      </span>
       <nav class="chat-tabs">
         <button id="tab-chat" class="tab on">chat</button>
         <button id="tab-mind" class="tab">inner life</button>
@@ -110,16 +129,21 @@
     <div id="innerlife" hidden></div>
     <div class="composer">
       <input id="text" type="text" placeholder="…or type to her" autocomplete="off">
+      <!-- Enter still sends (voice.js); this is the visible half of the same
+           one path, and the only one a touch keyboard can offer -->
+      <button id="send" class="icon-button" type="button" title="send" aria-label="send">
+        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 12h14M13 6l6 6-6 6"/></svg>
+      </button>
     </div>
   </aside>
 
   <footer class="controls hud">
-    <button id="mic" class="mic" title="click to toggle listening">
+    <button id="mic" class="button mic" title="click to toggle listening">
       <span class="dot" aria-hidden="true"></span>
       <span id="mic-label">start listening</span>
     </button>
     <!-- mute just the rain bed (js/music.js); the window keeps raining -->
-    <button id="rain-mute" class="rain-mute" title="mute the rain"
+    <button id="rain-mute" class="icon-button rain-mute" title="mute the rain"
             aria-label="mute the rain" aria-pressed="false">
       <span class="rain-glyph" aria-hidden="true">🌧</span>
     </button>

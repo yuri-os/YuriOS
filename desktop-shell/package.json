@@ -1,7 +1,7 @@
 {
   "name": "yurios-desktop-shell",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "The Windows-native frame for her desktop mode: a transparent, frameless, always-on-top window over the same ?desktop=1 page the browser serves.",
   "main": "main.js",
   "scripts": {

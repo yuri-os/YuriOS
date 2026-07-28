@@ -14,6 +14,8 @@
  * the server tears down TTS + generation.
  */
 
+import '../shared/runtime.js';
+
 const FRAME = 512;              // samples per mic frame @16k ≈ 32 ms
 const SPEECH_RMS = 0.02;        // energy gate (tune to your mic)
 const HANGOVER_MS = 250;        // silence after speech before we endpoint (B2 §4.2)
@@ -24,10 +26,12 @@ const BARGEIN_FRAMES = 5;       // consecutive frames to interrupt her (stricter
 const PREROLL = 8;              // frames kept before onset so the first word isn't clipped
 
 export function initVoice({ viseme, els }) {
-  const WS_URL = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws/voice';
+  const runtime = window.YuriOSRuntime;
+  const WS_URL = runtime.wsUrl('/ws/voice');
+  const sessionKey = runtime.sessionKey();
 
   let ws = null;
-  let sessionId = window.localStorage?.getItem('yuri.session') || null;
+  let sessionId = window.localStorage?.getItem(sessionKey) || null;
   let listening = false;
 
   // ---- playback (her voice) through the viseme graph (SPEC §5) -------------
@@ -77,7 +81,7 @@ export function initVoice({ viseme, els }) {
     switch (m.type) {
       case 'session':
         sessionId = m.session_id;
-        window.localStorage?.setItem('yuri.session', sessionId);
+        window.localStorage?.setItem(sessionKey, sessionId);
         break;
       case 'filler':
       case 'audio':

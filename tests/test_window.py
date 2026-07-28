@@ -48,6 +48,21 @@ def test_module_imports_without_pywebview():
     assert callable(window.run) and callable(window.desktop_url)
 
 
+def test_window_builds_the_migrated_character_host(tmp_path, monkeypatch):
+    cfg = Config(data_dir=tmp_path)
+    calls = []
+    registry = object()
+    app = object()
+    monkeypatch.setattr(window, "migrate_legacy_data",
+                        lambda config, root: calls.append((config, root)))
+    monkeypatch.setattr(window, "CharacterRegistry", lambda root: registry)
+    monkeypatch.setattr(window, "create_host_app",
+                        lambda config, loaded: app if loaded is registry else None)
+
+    assert window._host_app(cfg) is app
+    assert calls == [(cfg, tmp_path)]
+
+
 def test_desktop_url_carries_flag_and_is_local():
     assert window.desktop_url(Config(port=8767)) == "http://127.0.0.1:8767/?desktop=1"
 

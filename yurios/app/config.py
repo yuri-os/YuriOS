@@ -90,3 +90,9 @@ class Config(BaseSettings):
 
     # the corpus (§8) — outside the Vault, append-only, gitignored
     corpus_dir: Path = Path("./corpus")
+
+    # Host-managed character registry.  The legacy roots above remain valid
+    # inputs to the 0.1 -> 0.2 migration.
+    data_dir: Path = Path("./data")
+    utility_enabled: bool = True
+    dream_enabled: bool = True

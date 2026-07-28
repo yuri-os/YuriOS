@@ -9,6 +9,9 @@ __pycache__/
 # her mind — seeded locally, its own git repo, never nested in this one
 vault/
 
+# multi-character runtime data (registries, Vaults, traces, cards, and media)
+data/
+
 # personal debug data, like Build #1's corpus
 traces/
 corpus/

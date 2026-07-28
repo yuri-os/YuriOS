@@ -1,6 +1,6 @@
 {
   "name": "yurios-web",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "YuriOS sanctuary frontend — the three.js + three-vrm room, bundled by Vite so its libraries are npm-managed (security updates via `npm audit`) instead of vendored.",

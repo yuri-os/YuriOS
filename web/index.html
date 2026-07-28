@@ -35,6 +35,7 @@
   </script>
 </head>
 <body>
+  <a class="sanctuary-exit" href="/" aria-label="Leave sanctuary">leave sanctuary</a>
   <!-- the 3D room fills the window; everything else floats over it -->
   <div id="scene"></div>
 
@@ -128,6 +129,7 @@
        classic scripts; each is a self-contained IIFE that only shares state via
        window.WorldChat, and boot.js already guards document.readyState, so
        deferred module execution is behaviour-preserving. -->
+  <script src="/shared/runtime.js"></script>
   <script type="module" src="js/boot.js"></script>
   <script type="module" src="js/chat.js"></script>
   <script type="module" src="js/mind.js"></script>

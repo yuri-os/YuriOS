@@ -38,7 +38,7 @@ async def post_turn(state, record: Record, session_id: str, turn_count: int) -> 
     async with state.vault_lock:
         try:
             await state.store.remember(record)
-            if turn_count % state.cfg.summary_every_n == 0:
+            if state.utility is not None and turn_count % state.cfg.summary_every_n == 0:
                 window = state.sessions.window(
                     session_id, state.cfg.summary_every_n * 2)
                 exchanges = "\n".join(

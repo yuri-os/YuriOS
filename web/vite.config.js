@@ -1,4 +1,5 @@
 import { defineConfig } from 'vite';
+import { resolve } from 'node:path';
 
 // The sanctuary frontend (web/index.html + web/js/**). Vite resolves the bare
 // `three` / `@pixiv/three-vrm` imports from node_modules and bundles them into
@@ -21,5 +22,11 @@ export default defineConfig({
     target: 'es2022',
     // keep the bundle debuggable in the wild; drop if you want it opaque
     sourcemap: true,
+    rollupOptions: {
+      input: {
+        sanctuary: resolve(import.meta.dirname, 'index.html'),
+        dashboard: resolve(import.meta.dirname, 'dashboard/index.html'),
+      },
+    },
   },
 });

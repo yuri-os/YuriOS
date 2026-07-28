@@ -115,8 +115,9 @@ class MindLoop:
         if hasattr(brain, "set_world"):
             brain.set_world(self.world)        # the §19.2 seam swap: every prompt
                                                # now carries the store's stage
-        self.knowledge = KnowledgeStore(self.vault, state.embedder, clock,
-                                        utility=self._utility)
+        self.knowledge = KnowledgeStore(
+            self.vault, state.embedder, clock,
+            utility=self._utility if cfg.utility_enabled and state.utility else None)
         self.goals = GoalStore(self.vault, clock)
         self.selfedit = SelfEdit(self.vault, clock)
         self.journal = Journal(self.vault, clock, hub, store=state.store)
@@ -274,7 +275,8 @@ class MindLoop:
         if self.knowledge.pending_docs():
             appraisals.append(Appraisal("ingest", "impulse", 0.55,
                                         "new document on the shelf"))
-        if self.activity.state == DREAM and self.dream.backlog():
+        if (self.cfg.dream_enabled and self.cfg.utility_enabled
+                and self.activity.state == DREAM and self.dream.backlog()):
             appraisals.append(Appraisal("dream", "dream", 0.6, "DREAM backlog"))
         if (self.activity.state == IDLE and not self._engaged_now()
                 and self.world.snapshot().get("user_present")
@@ -319,7 +321,9 @@ class MindLoop:
         self.trace.record(tick_id=self._tick_id, **trace_rec)
 
         # ---- REGULATE -----------------------------------------------------------
-        self.activity.update(dream_backlog=bool(self.dream.backlog()),
+        self.activity.update(dream_backlog=(self.cfg.dream_enabled
+                                            and self.cfg.utility_enabled
+                                            and bool(self.dream.backlog())),
                              budget_pressure=self.budget.pressure())
         self._body_reflexes(now)
         self.vault.commit_if_dirty(
@@ -401,6 +405,8 @@ class MindLoop:
                  "result": f"ingested {len(results)} doc(s)"}, {}, notes)
 
     async def _act_dream(self) -> tuple[dict, dict, list[str]]:
+        if not self.cfg.dream_enabled or not self.cfg.utility_enabled:
+            return ({"what": "dream", "result": "DREAM disabled"}, {}, [])
         report = await self.dream.consolidate(
             token_budget=self.cfg.mind_dream_tick_tokens)
         msg = (f"DREAM: consolidated {len(report.days_processed)} day(s), "

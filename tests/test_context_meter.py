@@ -9,6 +9,7 @@ breaks.
 """
 from __future__ import annotations
 
+import json
 import pytest
 
 from yurios.app.providers.usage import chunk_prompt_tokens, chunk_text
@@ -124,6 +125,16 @@ def test_percentage_is_of_the_window():
     m = ContextMeter(limit=10000)
     m.note_usage(2500)
     assert m.snapshot()["pct"] == 25.0
+
+
+def test_measurements_append_character_local_history(tmp_path):
+    m = ContextMeter(limit=1000, trace_dir=tmp_path)
+    m.note_prompt([{"role": "user", "content": "x" * 400}])
+    m.note_usage(125)
+    rows = [json.loads(line) for line in
+            (tmp_path / "context.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert [row["source"] for row in rows] == ["estimate", "usage"]
+    assert rows[-1]["used"] == 125 and rows[-1]["pct"] == 12.5
 
 
 def test_the_reply_is_part_of_what_must_fit():

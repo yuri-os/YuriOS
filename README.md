@@ -51,6 +51,27 @@ source .venv/bin/activate
 python -m yurios.world             # → http://localhost:8768
 ```
 
+YuriOS 0.2 opens the **character switchboard** at that address. Select a card to
+enter its sanctuary; leaving the room returns to the switchboard without stopping
+that character's background life. Each enabled character has an independent Vault,
+sessions, corpus, traces, tool audit and selfie directory under `data/characters/`.
+
+On the first 0.2 start, the existing `vault/`, `corpus/`, `traces/`, `tool-logs/`
+and `selfies/` roots are copied into a registered `yuri` character before any mind
+wakes. The old roots stay untouched as a backup. Inspect or run this explicitly:
+
+```bash
+python -m yurios.migrate --check
+python -m yurios.migrate
+```
+
+The switchboard imports SillyTavern V2/V3 PNG cards. Generic cards enter a review
+state with capabilities disabled; saving their profile accepts the review and starts
+them. Card edits write the authoritative SOUL files and a Vault Git commit. Exported
+PNGs contain identity and lore, never `USER.md`, relationship memory, credentials,
+corpus or traces. Provider keys remain in the host `.env`; characters bind to named
+profiles stored in `data/connections.json`.
+
 No flags, no follow-up step: the script installs exactly what the `.env` it writes
 selects — her body, brain, memory, hands, text chat **and her real voice** (faster-whisper
 ears, the kokoro voice, silero turn-taking, all CPU-only). It ends by running the doctor,
@@ -85,7 +106,8 @@ adds the real ones later. Everything is additive and re-runnable:
 Wondering what's actually wired? `python -m yurios.doctor` reads your `.env` and says.
 No script — or want to know what it's doing? See [Manual setup](#manual-setup) below.
 
-Open it, click **enter the sanctuary**, then click **start listening** (the mic button,
+Choose a character, click **Enter**, click **enter the sanctuary**, then click
+**start listening** (the mic button,
 bottom-left) to give the page your microphone — voice won't work until you do. Now talk,
 or type to her in the chat column. The whole reactive body works as it always has
 (voice, chat, tools, selfies, both bodies, the desktop window — the full reactive tour,

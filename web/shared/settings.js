@@ -19,6 +19,10 @@
  * (GET /api/models?provider=…). The stored .env value is the LiteLLM id — the
  * provider prefix + the model — which we split apart on load and re-join on save. */
 (() => {
+  const runtimeReady = window.YuriOSRuntime
+    ? Promise.resolve()
+    : import('/shared/runtime.js').catch(() => {});
+  const apiPath = (path) => window.YuriOSRuntime?.apiPath(path) || path;
   const dlg = document.getElementById("settings");
   if (!dlg) return;
   const body = document.getElementById("settings-body");
@@ -98,6 +102,7 @@
     const hide = () => { list.hidden = true; };
 
     async function browseModels() {
+      await runtimeReady;
       const p = getProviderId();
       if (hints && hints[p] != null) { status.textContent = hints[p]; hide(); return; }
       if (fetchedFor === p && all.length) {   // already have them — just reopen, full list
@@ -105,7 +110,7 @@
       }
       status.textContent = "loading…";
       try {
-        const r = await fetch("/api/models?provider=" + encodeURIComponent(p));
+        const r = await fetch(apiPath("/api/models?provider=" + encodeURIComponent(p)));
         const data = await r.json();
         if (data.error) { status.textContent = data.error; return; }
         all = data.models || []; fetchedFor = p;
@@ -238,8 +243,9 @@
   }
 
   async function load() {
+    await runtimeReady;
     try {
-      const r = await fetch("/api/settings");
+      const r = await fetch(apiPath("/api/settings"));
       const data = await r.json();
       pathEl.textContent = data.env_path || "";
       body.textContent = "";
@@ -258,6 +264,7 @@
   }
 
   async function save() {
+    await runtimeReady;
     const diff = {};
     for (const row of rows) {
       const now = row.read();
@@ -266,7 +273,7 @@
     if (!Object.keys(diff).length) { note.textContent = "no changes"; return; }
     note.textContent = "saving…";
     try {
-      const r = await fetch("/api/settings", {
+      const r = await fetch(apiPath("/api/settings"), {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify(diff),
       });

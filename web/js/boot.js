@@ -8,6 +8,10 @@
  * desktop-pet mode, where there's no gate — floats a small overlay that fades
  * itself out once she's ready. */
 (() => {
+  const runtimeReady = window.YuriOSRuntime
+    ? Promise.resolve()
+    : import('/shared/runtime.js').catch(() => {});
+  const apiPath = (path) => window.YuriOSRuntime?.apiPath(path) || path;
   const DESKTOP = document.documentElement.classList.contains('desktop');
   const POLL_MS = 500;
 
@@ -83,7 +87,7 @@
     async function tick() {
       if (stopped) return;
       try {
-        const r = await fetch('/api/boot', { cache: 'no-store' });
+        const r = await fetch(apiPath('/api/boot'), { cache: 'no-store' });
         if (r.status === 404) { stopped = true; ui.panel.remove(); return; }
         const snap = await r.json();
         render(ui, snap);
@@ -106,9 +110,10 @@
     tick();
   }
 
+  const startWhenReady = () => runtimeReady.then(start);
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', start);
+    document.addEventListener('DOMContentLoaded', startWhenReady);
   } else {
-    start();
+    startWhenReady();
   }
 })();

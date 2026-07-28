@@ -30,9 +30,12 @@ from yurios.desktop.window import (
     _is_wsl, _pick_gui, _require_webview, _run_wsl_window, _wait_for_server,
     _wsl_bind_host, _wsl_window_url,
 )
+from yurios.characters import CharacterRegistry
+from yurios.migrate import migrate_legacy_data
 
 from .config import Config
-from .main import build_server, create_app
+from .host import create_host_app
+from .main import build_server
 
 
 def desktop_url(cfg: Config) -> str:
@@ -50,6 +53,11 @@ def desktop_url(cfg: Config) -> str:
     return f"http://{host}:{cfg.port}{path}?desktop=1"
 
 
+def _host_app(cfg: Config):
+    migrate_legacy_data(cfg, cfg.data_dir)
+    return create_host_app(cfg, CharacterRegistry(cfg.data_dir))
+
+
 def _serve(cfg: Config) -> tuple[threading.Thread, list[BaseException]]:
     """B2's pattern, re-aimed: create_app() must run INSIDE the daemon thread
     (the brain opens SQLite connections at construction, and sqlite3 objects
@@ -59,7 +67,7 @@ def _serve(cfg: Config) -> tuple[threading.Thread, list[BaseException]]:
 
     def serve() -> None:
         try:
-            build_server(create_app(cfg), cfg).run()
+            build_server(_host_app(cfg), cfg).run()
         except BaseException as e:                      # surfaced by run()
             errors.append(e)
 

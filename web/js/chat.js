@@ -18,6 +18,11 @@
  * TTS, barge-in, the works. The user bubble arrives back over the bus.
  */
 (() => {
+  const runtimeReady = window.YuriOSRuntime
+    ? Promise.resolve()
+    : import('/shared/runtime.js').catch(() => {});
+  const apiPath = (path) => window.YuriOSRuntime?.apiPath(path) || path;
+  const httpPath = (path) => window.YuriOSRuntime?.httpPath(path) || path;
   const messages = document.getElementById('messages');
   let draftEl = null;
   let charName = '';
@@ -66,8 +71,9 @@
                (m.proactive ? '<em>· she spoke first</em>' : '') +
                stamp(m.ts) + '</span>';
     if (m.image_url) {
-      body += `<a href="${esc(m.image_url)}" target="_blank" rel="noopener">` +
-              `<img class="msg-img" src="${esc(m.image_url)}" alt="a selfie from her"></a>`;
+      const imageUrl = httpPath(m.image_url);
+      body += `<a href="${esc(imageUrl)}" target="_blank" rel="noopener">` +
+              `<img class="msg-img" src="${esc(imageUrl)}" alt="a selfie from her"></a>`;
     }
     if (m.text) body += esc(m.text);
     div.innerHTML = body;
@@ -112,9 +118,10 @@
     queued = [];
   }
 
-  function connect({ onStatus } = {}) {
+  async function connect({ onStatus } = {}) {
+    await runtimeReady;
     if (es) return;                       // one stream per page
-    es = new EventSource('/api/events');
+    es = new EventSource(apiPath('/api/events'));
     es.onopen = () => onStatus?.(true);
     es.onerror = () => onStatus?.(false); // EventSource auto-reconnects
     es.onmessage = (e) => {
@@ -132,7 +139,7 @@
       else if (m.type === 'draft_cancel') dropDraft();
     };
     // backfill what was said before this page opened (SPEC §2.6)
-    fetch('/api/history').then((r) => r.json())
+    fetch(apiPath('/api/history')).then((r) => r.json())
       .then((d) => flushBackfill(d.messages || []))
       .catch(() => flushBackfill([]));   // no history is still "history is done"
     // …and a hung fetch must never cost her a live word: give up waiting and

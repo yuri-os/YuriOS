@@ -12,7 +12,9 @@
  * robustness; the loop around it does not change.
  */
 (() => {
-  const WS_URL = (location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws/voice";
+  const runtime = window.YuriOSRuntime;
+  const WS_URL = runtime.wsUrl("/ws/voice");
+  const sessionKey = runtime.sessionKey();
   const FRAME = 512;              // samples per mic frame @16k ≈ 32 ms
   const SPEECH_RMS = 0.02;        // energy gate (tune to your mic)
   const HANGOVER_MS = 250;        // silence after speech before we endpoint (§4.2)
@@ -41,7 +43,7 @@
   // global at all, so a bare reference is a ReferenceError that kills this whole
   // script (and with it her body and the voice loop). Without storage she still
   // runs; the session just doesn't survive a reload.
-  let ws = null, sessionId = window.localStorage?.getItem("yuri.session") || null;
+  let ws = null, sessionId = window.localStorage?.getItem(sessionKey) || null;
   let listening = false;
 
   // ---- playback (her voice) + lipsync analyser -----------------------------
@@ -114,7 +116,7 @@
   function onMessage(m) {
     switch (m.type) {
       case "session":
-        sessionId = m.session_id; window.localStorage?.setItem("yuri.session", sessionId); break;
+        sessionId = m.session_id; window.localStorage?.setItem(sessionKey, sessionId); break;
       case "expression":
         Avatar.setExpression?.(m.expression); break;
       case "filler":

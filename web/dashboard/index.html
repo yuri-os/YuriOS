@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0c1110">
+  <meta name="description" content="YuriOS multi-character switchboard">
+  <title>YuriOS / Switchboard</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M8 1.5 14.5 8 8 14.5 1.5 8Z' fill='none' stroke='%23d7ff58' stroke-width='1.6'/></svg>">
+  <link rel="stylesheet" href="./dashboard.css">
+</head>
+<body>
+  <svg class="icon-bank" aria-hidden="true">
+    <symbol id="i-grid" viewBox="0 0 24 24"><path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z"/></symbol>
+    <symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-arrow" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+    <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 16V4m0 0L7 9m5-5 5 5M5 15v4h14v-4"/></symbol>
+    <symbol id="i-tune" viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h2M10 17h10M14 4v6M6 14v6"/></symbol>
+    <symbol id="i-archive" viewBox="0 0 24 24"><path d="M4 8h16v12H4zM3 4h18v4H3zM9 12h6"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M19 8a8 8 0 1 0 1 6M19 3v5h-5"/></symbol>
+  </svg>
+
+  <div class="page-noise" aria-hidden="true"></div>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="YuriOS switchboard home">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <span class="brand-copy"><b>YuriOS</b><small>switchboard / characters</small></span>
+    </a>
+    <div class="topbar-state">
+      <span class="pulse" id="fleet-pulse" aria-hidden="true"></span>
+      <span id="fleet-summary">connecting</span>
+    </div>
+    <button class="button button-primary import-open" type="button">
+      <svg><use href="#i-plus"></use></svg>
+      <span>Import character</span>
+    </button>
+  </header>
+
+  <main class="workspace">
+    <aside class="index-rail" aria-label="Dashboard index">
+      <div class="rail-code">YS / 02</div>
+      <div class="rail-line"></div>
+      <span>character registry</span>
+      <span>local operator surface</span>
+    </aside>
+
+    <section class="board" aria-labelledby="page-title">
+      <header class="board-head">
+        <div>
+          <p class="eyebrow">Local constellation</p>
+          <h1 id="page-title">Your characters</h1>
+          <p class="intro">Independent minds, one quiet control surface. Open a room or inspect what has been happening between visits.</p>
+        </div>
+        <div class="board-tools">
+          <label class="search-wrap">
+            <span class="sr-only">Filter characters</span>
+            <input id="character-search" type="search" placeholder="filter by name or state" autocomplete="off">
+            <kbd>/</kbd>
+          </label>
+          <div class="view-toggle" role="group" aria-label="Character layout">
+            <button id="view-grid" type="button" aria-label="Grid view" aria-pressed="true">
+              <svg><use href="#i-grid"></use></svg>
+            </button>
+            <button id="view-list" type="button" aria-label="List view" aria-pressed="false">
+              <svg><use href="#i-list"></use></svg>
+            </button>
+          </div>
+          <button id="refresh" class="icon-button" type="button" aria-label="Refresh characters" title="Refresh characters">
+            <svg><use href="#i-refresh"></use></svg>
+          </button>
+        </div>
+      </header>
+
+      <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
+      <div id="character-grid" class="character-grid" aria-live="polite" aria-busy="true"></div>
+
+      <section id="empty-state" class="empty-state" hidden>
+        <span class="empty-orbit" aria-hidden="true"><i></i></span>
+        <p class="eyebrow">No signal yet</p>
+        <h2>No characters on this node</h2>
+        <p>Import a YuriOS character PNG to bring its identity and portable memory into the registry.</p>
+        <button class="button button-primary import-open" type="button">
+          <svg><use href="#i-upload"></use></svg>
+          Choose a PNG
+        </button>
+      </section>
+    </section>
+  </main>
+
+  <div id="drawer-shade" class="drawer-shade" hidden></div>
+  <aside id="detail-drawer" class="detail-drawer" aria-labelledby="drawer-name" aria-hidden="true">
+    <header class="drawer-head">
+      <div>
+        <p class="eyebrow">Character record</p>
+        <h2 id="drawer-name">Character</h2>
+      </div>
+      <button id="drawer-close" class="icon-button" type="button" aria-label="Close details">
+        <svg><use href="#i-close"></use></svg>
+      </button>
+    </header>
+    <div id="drawer-identity" class="drawer-identity"></div>
+    <div class="drawer-actions">
+      <a id="drawer-enter" class="button button-primary" href="#">Enter sanctuary <svg><use href="#i-arrow"></use></svg></a>
+      <a id="drawer-export" class="button button-quiet" href="#" download>Export PNG</a>
+      <button id="settings-open" class="button button-quiet" type="button"><svg><use href="#i-tune"></use></svg>Settings</button>
+    </div>
+    <nav id="detail-tabs" class="detail-tabs" aria-label="Character details">
+      <button type="button" role="tab" aria-selected="true" data-tab="journal">Journal</button>
+      <button type="button" role="tab" aria-selected="false" data-tab="log">Log</button>
+      <button type="button" role="tab" aria-selected="false" data-tab="context">Context</button>
+    </nav>
+    <div id="detail-content" class="detail-content" role="tabpanel" aria-live="polite"></div>
+    <footer class="drawer-foot">
+      <span>Character-scoped operations</span>
+      <button id="archive-open" class="danger-link" type="button"><svg><use href="#i-archive"></use></svg>Archive</button>
+    </footer>
+  </aside>
+
+  <dialog id="import-dialog" class="modal">
+    <form id="import-form" class="modal-card">
+      <header class="modal-head">
+        <div><p class="eyebrow">Portable identity</p><h2>Import character</h2></div>
+        <button class="icon-button modal-close" type="button" aria-label="Close import dialog"><svg><use href="#i-close"></use></svg></button>
+      </header>
+      <label id="drop-zone" class="drop-zone">
+        <input id="png-file" type="file" name="file" accept="image/png,.png" required>
+        <span class="drop-symbol"><svg><use href="#i-upload"></use></svg></span>
+        <strong>Drop a character PNG</strong>
+        <span>or browse this device / max 25 MB</span>
+        <output id="file-name"></output>
+      </label>
+      <p class="form-note">The PNG is sent intact. YuriOS reads embedded character metadata on the server.</p>
+      <div id="import-error" class="form-error" role="alert"></div>
+      <footer class="modal-actions">
+        <button class="button button-quiet modal-close" type="button">Cancel</button>
+        <button id="import-submit" class="button button-primary" type="submit">Import to node</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <dialog id="settings-dialog" class="modal">
+    <form id="settings-form" class="modal-card">
+      <header class="modal-head">
+        <div><p class="eyebrow">Runtime profile</p><h2>Edit settings</h2></div>
+        <button class="icon-button modal-close" type="button" aria-label="Close settings dialog"><svg><use href="#i-close"></use></svg></button>
+      </header>
+      <div class="field-grid">
+        <label><span>Display name</span><input name="name" type="text" maxlength="80" required></label>
+        <label><span>Voice</span><input name="voice" type="text" maxlength="120" placeholder="default"></label>
+        <label><span>Connection profile</span><input name="connection_profile" type="text" maxlength="80" placeholder="default"></label>
+        <label class="field-wide"><span>Model route</span><input name="model" type="text" maxlength="240" placeholder="inherit node default"></label>
+        <label class="field-wide"><span>Utility model route</span><input name="utility_model" type="text" maxlength="240" placeholder="inherit node default"></label>
+        <label><span>Body backend</span><select name="body_backend"><option value="">default</option><option value="vrm">VRM</option><option value="live2d">Live2D</option></select></label>
+        <label><span>Body model / asset</span><input name="body_model" type="text" maxlength="240" placeholder="character asset id"></label>
+        <label class="field-wide"><span>Short description</span><textarea name="description" rows="3" maxlength="400"></textarea></label>
+        <label class="field-wide"><span>Personality</span><textarea name="personality" rows="3"></textarea></label>
+        <label class="field-wide"><span>Scenario</span><textarea name="scenario" rows="3"></textarea></label>
+        <label class="field-wide"><span>First message</span><textarea name="first_mes" rows="3"></textarea></label>
+        <fieldset class="field-wide loop-settings"><legend>Background work</legend>
+          <label><input name="mind" type="checkbox"><span>Mind loop</span></label>
+          <label><input name="utility" type="checkbox"><span>Utility work</span></label>
+          <label><input name="dream" type="checkbox"><span>DREAM consolidation</span></label>
+        </fieldset>
+      </div>
+      <p class="form-note">Connection profiles are host-owned; cards never receive API keys.</p>
+      <div id="settings-error" class="form-error" role="alert"></div>
+      <footer class="modal-actions">
+        <button class="button button-quiet modal-close" type="button">Cancel</button>
+        <button id="settings-submit" class="button button-primary" type="submit">Save profile</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <dialog id="archive-dialog" class="modal modal-danger">
+    <form id="archive-form" class="modal-card">
+      <header class="modal-head">
+        <div><p class="eyebrow">Remove from switchboard</p><h2>Archive <span id="archive-name">character</span>?</h2></div>
+        <button class="icon-button modal-close" type="button" aria-label="Close archive dialog"><svg><use href="#i-close"></use></svg></button>
+      </header>
+      <p class="archive-copy">This stops the character loop and moves the character out of the active registry. It does not permanently delete the character data.</p>
+      <div id="archive-error" class="form-error" role="alert"></div>
+      <footer class="modal-actions">
+        <button class="button button-quiet modal-close" type="button">Keep active</button>
+        <button id="archive-submit" class="button button-danger" type="submit">Archive character</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <div id="toast-region" class="toast-region" aria-live="polite" aria-atomic="true"></div>
+  <script type="module" src="./dashboard.js"></script>
+</body>
+</html>

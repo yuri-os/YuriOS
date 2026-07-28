@@ -27,7 +27,10 @@ the failure.
 """
 from __future__ import annotations
 
+import datetime
+import json
 import logging
+from pathlib import Path
 
 from yurios.app.core.assemble import est_tokens
 
@@ -43,7 +46,8 @@ class ContextMeter:
     """Prompt size vs the context window, published for the UI (SPEC §11)."""
 
     def __init__(self, hub=None, *, limit: int = 0, limit_source: str = "",
-                 reserve: int = 0):
+                 reserve: int = 0, trace_dir: Path | None = None,
+                 max_trace_bytes: int = 2_000_000):
         self.hub = hub
         self.limit = int(limit or 0)               # 0 = unknown, and say so
         self.limit_source = limit_source or ("env" if limit else "")
@@ -51,6 +55,8 @@ class ContextMeter:
         self.used = 0
         self.exact = False                         # True once a server said so
         self._over = 0
+        self.trace_path = Path(trace_dir) / "context.jsonl" if trace_dir else None
+        self.max_trace_bytes = max_trace_bytes
         if self.limit:
             # a window known before the first turn is worth showing at once: the
             # gauge reads 0 / 32k on an empty conversation, not a blank space
@@ -81,6 +87,7 @@ class ContextMeter:
         self.exact = False
         self._warn()
         self._publish()
+        self._record("estimate")
 
     def note_usage(self, prompt_tokens: int) -> None:
         """The server's own count, from the usage the stream volunteered."""
@@ -90,6 +97,7 @@ class ContextMeter:
         self.exact = True
         self._warn()
         self._publish()
+        self._record("usage")
 
     # ---- what the UI and /api/context read -----------------------------------
 
@@ -105,6 +113,23 @@ class ContextMeter:
     def _publish(self) -> None:
         if self.hub is not None:
             self.hub.publish("context", self.snapshot(), sticky="context")
+
+    def _record(self, source: str) -> None:
+        if self.trace_path is None:
+            return
+        try:
+            self.trace_path.parent.mkdir(parents=True, exist_ok=True)
+            if (self.trace_path.exists()
+                    and self.trace_path.stat().st_size >= self.max_trace_bytes):
+                rotated = self.trace_path.with_suffix(self.trace_path.suffix + ".1")
+                rotated.unlink(missing_ok=True)
+                self.trace_path.replace(rotated)
+            row = {"timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                   "source": source, **self.snapshot()}
+            with self.trace_path.open("a", encoding="utf-8") as stream:
+                stream.write(json.dumps(row, ensure_ascii=False) + "\n")
+        except OSError:
+            log.exception("could not append context history")
 
     def _warn(self) -> None:
         """The prompt plus the reply she still has to write is what must fit."""

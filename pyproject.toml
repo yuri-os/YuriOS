@@ -1,6 +1,6 @@
 [project]
 name = "yurios"
-version = "0.1.0"
+version = "0.2.0"
 description = "YuriOS — an always-on, local-first agentic companion runtime: a VRM body and room with an autonomy engine behind it (book ch. 19/35, SPEC.md)"
 # UPPER bound on purpose. litellm caps the Python it supports (1.92.x is
 # ">=3.10,<3.14"), and this project declares the floor for everything else. With no
@@ -30,6 +30,7 @@ dependencies = [
     "httpx",                  # ollama embeddings, GPT-SoVITS client, Open-Meteo (§7.5)
     "mcp",                    # the hands (§7): real MCP server + client, in-repo
     "Pillow",                 # her camera (§7.6): the vendored forge's mock backend + provenance
+    "python-multipart",       # bounded character-card uploads in the local dashboard
 ]
 
 [project.optional-dependencies]

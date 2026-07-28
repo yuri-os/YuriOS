@@ -17,6 +17,7 @@
  * from pixi-live2d-display's built-in motion manager.
  */
 (() => {
+  const apiPath = (path) => window.YuriOSRuntime?.apiPath(path) || path;
   // Which rig she wears is set in .env (AVATAR_MODEL) and resolved by the server
   // (/api/config, → desktop/routes/avatar.py). We fetch that at init; if the call
   // fails (server not up, offline) we fall back to Hiyori so the body still loads.
@@ -24,7 +25,7 @@
 
   async function resolveModelUrl() {
     try {
-      const r = await fetch("/api/config");
+      const r = await fetch(apiPath("/api/config"));
       if (r.ok) {
         const j = await r.json();
         if (j && j.avatar_model_url) return j.avatar_model_url;

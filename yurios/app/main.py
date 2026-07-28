@@ -98,7 +98,8 @@ def _lmstudio_ids(cfg: Config, *, chat: bool, embed: bool) -> list[str]:
     if embed and cfg.embed_backend == "lm_studio":
         ids.append(cfg.embed_model)
     if chat:
-        ids += [m.split("/", 1)[1] for m in (cfg.chat_model, cfg.utility_model)
+        models = (cfg.chat_model, cfg.utility_model) if cfg.utility_enabled else (cfg.chat_model,)
+        ids += [m.split("/", 1)[1] for m in models
                 if m.startswith("lm_studio/")]
     return ids
 
@@ -135,7 +136,7 @@ def create_app(cfg: Config | None = None, *, chat_model=None, utility_model=None
             "the Vault).")
 
     embedder = embedder or _default_embedder(cfg)
-    if chat_model is None or utility_model is None:
+    if chat_model is None or (cfg.utility_enabled and utility_model is None):
         from yurios.app.providers.openrouter import LiteLLMChatModel, LiteLLMUtilityModel
         # Local ids carry no key; they need their server's base url instead — the
         # LM Studio /v1 endpoint, or the Ollama root (so a non-default OLLAMA_BASE_URL
@@ -149,10 +150,11 @@ def create_app(cfg: Config | None = None, *, chat_model=None, utility_model=None
         chat_model = chat_model or LiteLLMChatModel(
             cfg.chat_model, cfg.openrouter_api_key, cfg.temperature,
             api_base=_base(cfg.chat_model), thinking=cfg.chat_thinking)
-        utility_model = utility_model or LiteLLMUtilityModel(
-            cfg.utility_model, cfg.openrouter_api_key,
-            max_tokens=cfg.utility_max_tokens, thinking=cfg.utility_thinking,
-            api_base=_base(cfg.utility_model))
+        if cfg.utility_enabled and utility_model is None:
+            utility_model = LiteLLMUtilityModel(
+                cfg.utility_model, cfg.openrouter_api_key,
+                max_tokens=cfg.utility_max_tokens, thinking=cfg.utility_thinking,
+                api_base=_base(cfg.utility_model))
 
     loader = SoulLoader(soul_dir, user_name=cfg.user_name)
     soul_name = loader.load().name

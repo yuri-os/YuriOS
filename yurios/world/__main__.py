@@ -14,7 +14,7 @@ import argparse
 import logging
 
 from .config import Config
-from .main import build_server, create_app
+from .main import build_server
 
 
 log = logging.getLogger("world")
@@ -65,8 +65,14 @@ def main() -> None:
         from .window import run
         run(cfg)
         return
-    app = create_app(cfg)
-    print(f"\n  world-companion → http://{cfg.host}:{cfg.port}\n")
+    from yurios.characters import CharacterRegistry
+    from yurios.migrate import migrate_legacy_data
+    from .host import create_host_app
+
+    result = migrate_legacy_data(cfg, cfg.data_dir)
+    log.info("data layout 0.2: %s", result.status)
+    app = create_host_app(cfg, CharacterRegistry(cfg.data_dir))
+    print(f"\n  YuriOS dashboard → http://{cfg.host}:{cfg.port}\n")
     # uvicorn shuts down gracefully on SIGINT, then re-raises it (its
     # capture_signals contract) — swallow that final KeyboardInterrupt so a
     # single Ctrl+C exits clean, no traceback (§10).

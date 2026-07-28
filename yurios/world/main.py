@@ -76,7 +76,9 @@ class Runtime:
         # `context` event. CONTEXT_LENGTH names the ceiling; unset, the LM Studio
         # probe below fills it in, and a hosted route leaves it unknown.
         self.context = ContextMeter(self.hub, limit=cfg.context_length,
-                                    reserve=cfg.max_reply_tokens)
+                                    reserve=cfg.max_reply_tokens,
+                                    trace_dir=cfg.trace_dir,
+                                    max_trace_bytes=cfg.mind_trace_max_bytes)
         self.stopping = asyncio.Event()        # ends open SSE streams on shutdown
         # the boot log the UI shows while she wakes (SPEC §6.4). Voice services
         # are declared here and resolved on the warm-up thread; tools/mind on
@@ -177,6 +179,7 @@ class Runtime:
         # OutEvent stream work exactly as they do for a real turn.
         self._ambient: dict[str, object] = {}
         self._tasks: list[asyncio.Task] = []
+        self._mind_task: asyncio.Task | None = None
         self.loop: asyncio.AbstractEventLoop | None = None   # set at startup
 
         # B2's voice warm-up, verbatim in shape (see desktop/main.py for why)
@@ -427,8 +430,8 @@ class Runtime:
                                      post_message=self.post_message)
                 self.mind_status = "running"
                 self.boot.done("mind", detail=f"running · {self.mind.activity.state}")
-                self._tasks.append(asyncio.create_task(self.mind.run(),
-                                                       name="mind"))
+                self._mind_task = asyncio.create_task(self.mind.run(), name="mind")
+                self._tasks.append(self._mind_task)
             except Exception as e:  # noqa: BLE001 — she talks even mindless
                 log.exception("mind failed to start")
                 self.mind_status = f"failed: {e}"
@@ -461,6 +464,34 @@ class Runtime:
                 await self._tool_runner.close()
             except Exception:
                 log.exception("tool runner close failed")
+        store = getattr(getattr(self.brain, "state", None), "store", None)
+        index = getattr(store, "index", None)
+        if index is not None:
+            try:
+                index.close()
+            except Exception:
+                log.exception("memory index close failed")
+
+    async def set_mind_enabled(self, enabled: bool) -> None:
+        """Pause/resume autonomy without taking conversation offline."""
+        if enabled:
+            if self.mind is None:
+                if not hasattr(self.brain, "state"):
+                    raise RuntimeError("this brain has no autonomy state")
+                self.mind = MindLoop(
+                    self.cfg, self.clock, bus=self.signals, brain=self.brain,
+                    controller=self.controller, timers=self.timers, hub=self.hub,
+                    speak=self.speak_ambient, post_message=self.post_message)
+            if self._mind_task is None or self._mind_task.done():
+                self._mind_task = asyncio.create_task(self.mind.run(), name="mind")
+                self._tasks.append(self._mind_task)
+            self.mind_status = "running"
+            return
+        if self._mind_task is not None and not self._mind_task.done():
+            self._mind_task.cancel()
+            await asyncio.gather(self._mind_task, return_exceptions=True)
+        self._mind_task = None
+        self.mind_status = "paused"
 
 
 # uvicorn waits this long for open connections to drain on Ctrl+C before it
@@ -527,7 +558,9 @@ def build_server(app: FastAPI, cfg: Config):
 def create_app(cfg: Config | None = None, *, brain=None, chat_model=None,
                utility_model=None, embedder=None, tool_runner=None,
                clock: Clock | None = None,
-               controller: VrmController | None = None) -> FastAPI:
+               controller: VrmController | None = None,
+               manage_lifespan: bool = True,
+               mount_frontend: bool = True) -> FastAPI:
     cfg = cfg or Config()
     rt = Runtime(cfg, brain=brain, chat_model=chat_model,
                  utility_model=utility_model, embedder=embedder,
@@ -535,9 +568,11 @@ def create_app(cfg: Config | None = None, *, brain=None, chat_model=None,
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
-        await rt.start_async()
+        if manage_lifespan:
+            await rt.start_async()
         yield
-        await rt.stop_async()
+        if manage_lifespan:
+            await rt.stop_async()
 
     app = FastAPI(title="YuriOS", docs_url=None, redoc_url=None,
                   lifespan=lifespan)
@@ -602,11 +637,12 @@ def create_app(cfg: Config | None = None, *, brain=None, chat_model=None,
     # so a fresh checkout that hasn't run `npm run build` still boots — / just
     # 404s until then, and the warning tells them what to run — instead of raising
     # at mount time and taking the whole server (and the test suite) down with it.
-    if not (DIST_DIR / "index.html").exists():
+    if mount_frontend and not (DIST_DIR / "index.html").exists():
         log.warning("frontend not built — run `cd web && npm install && npm run build`; "
                     "serving %s (/ will 404 until then)", DIST_DIR)
-    app.mount("/", StaticFiles(directory=DIST_DIR, html=True, check_dir=False),
-              name="web")
+    if mount_frontend:
+        app.mount("/", StaticFiles(directory=DIST_DIR, html=True, check_dir=False),
+                  name="web")
     return app
 
 

@@ -11,6 +11,10 @@
  * else that happens to her.
  */
 (() => {
+  const runtimeReady = window.YuriOSRuntime
+    ? Promise.resolve()
+    : import('/shared/runtime.js').catch(() => {});
+  const apiPath = (path) => window.YuriOSRuntime?.apiPath(path) || path;
   const panel = document.getElementById('innerlife');
   const messagesEl = document.getElementById('messages');
   const tabChat = document.getElementById('tab-chat');
@@ -31,10 +35,11 @@
   }
 
   async function render() {
+    await runtimeReady;
     let state, journal;
     try {
       const [a, b] = await Promise.all([
-        fetch('/api/mind'), fetch('/api/mind/journal?days=3')]);
+        fetch(apiPath('/api/mind')), fetch(apiPath('/api/mind/journal?days=3'))]);
       if (!a.ok) throw new Error(await a.text());
       state = await a.json();
       journal = b.ok ? await b.json() : { days: [] };
@@ -99,7 +104,8 @@
                  ev.target.classList.contains('il-no'))) return;
     ev.target.disabled = true;
     try {
-      await fetch(`/api/mind/edits/${encodeURIComponent(id)}`, {
+      await runtimeReady;
+      await fetch(apiPath(`/api/mind/edits/${encodeURIComponent(id)}`), {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ approve: ev.target.classList.contains('il-ok') }),
       });

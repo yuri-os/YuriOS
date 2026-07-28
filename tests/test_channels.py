@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+from types import SimpleNamespace
 
 import pytest
 
@@ -14,7 +15,9 @@ import httpx                                                  # noqa: E402
 from starlette.testclient import TestClient                   # noqa: E402
 
 from yurios.desktop.voice.backends.fakes import FakeBrain     # noqa: E402
+from yurios.world.channels.base import Channel                # noqa: E402
 from yurios.world.channels.manager import ChannelManager      # noqa: E402
+from yurios.world.channels.manager import _claims as claims   # noqa: E402
 from yurios.world.channels.telegram import TelegramChannel    # noqa: E402
 from yurios.world.hub import EventHub                         # noqa: E402
 from yurios.world.main import create_app                      # noqa: E402
@@ -211,6 +214,81 @@ async def test_telegram_sends_the_selfie_file_itself(tmp_path):
     assert tr.sent("sendMessage") == []          # the photo carried the caption
     assert len(tr.sent("sendPhoto")) == 1
     await ch._client.aclose()
+
+
+# ---- one account, one character (SPEC §10.5) --------------------------------
+
+class CountingChannel(Channel):
+    """A channel with nothing to poll — just a claim and a start counter."""
+    name = "counting"
+
+    def __init__(self, token: str | None):
+        self.token = token
+        self.started = self.stopped = 0
+
+    @property
+    def claim(self):
+        return None if self.token is None else (self.name, self.token)
+
+    async def start(self, rt):
+        self.started += 1
+        return "up"
+
+    async def stop(self):
+        self.stopped += 1
+
+
+def character(name: str):
+    return SimpleNamespace(cfg=SimpleNamespace(companion_name=name))
+
+
+async def test_a_shared_account_is_held_by_the_first_character_only():
+    claims.clear()
+    first, second = CountingChannel("tok"), CountingChannel("tok")
+    yuri, mia = ChannelManager([first]), ChannelManager([second])
+
+    detail, ok = await yuri.start_all(character("yuri"))
+    assert (first.started, ok, detail) == (1, True, "counting · up")
+
+    # the second character does NOT open the same bot — that's the fight that
+    # showed up as "Conflict: terminated by other getUpdates request"
+    detail, ok = await mia.start_all(character("mia"))
+    assert second.started == 0
+    assert ok and detail == "counting · held by yuri"   # held is healthy, not failed
+
+    await yuri.stop_all()                               # …and it goes back on the table
+    detail, ok = await mia.start_all(character("mia"))
+    assert (second.started, detail) == (1, "counting · up")
+    await mia.stop_all()
+    assert claims == {}
+
+
+async def test_own_credentials_and_unclaimed_transports_both_run():
+    claims.clear()
+    hers, his = CountingChannel("tok-a"), CountingChannel("tok-b")
+    await ChannelManager([hers]).start_all(character("yuri"))
+    await ChannelManager([his]).start_all(character("mia"))
+    assert (hers.started, his.started) == (1, 1)        # different bots, no contention
+
+    # a transport with nothing to contend over (claim None) never blocks a peer
+    open_a, open_b = CountingChannel(None), CountingChannel(None)
+    await ChannelManager([open_a]).start_all(character("yuri"))
+    await ChannelManager([open_b]).start_all(character("mia"))
+    assert (open_a.started, open_b.started) == (1, 1)
+
+
+async def test_a_channel_that_fails_to_start_releases_its_claim():
+    claims.clear()
+
+    class Broken(CountingChannel):
+        async def start(self, rt):
+            raise RuntimeError("bad token")
+
+    await ChannelManager([Broken("tok")]).start_all(character("yuri"))
+    assert claims == {}                                # nothing is holding it
+    working = CountingChannel("tok")
+    await ChannelManager([working]).start_all(character("mia"))
+    assert working.started == 1
 
 
 # ---- the whole wire: server ↔ Telegram, through the real Runtime ------------

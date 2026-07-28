@@ -40,6 +40,19 @@ class Channel:
 
     name: str = "channel"
 
+    @property
+    def claim(self) -> tuple[str, str] | None:
+        """The outside account this channel would occupy, if it can only be held
+        once. A host process runs one runtime per character (world/host.py) and
+        every one of them builds its channels from the same config, so a shared
+        credential would be opened N times — and an inbox is single-tenant:
+        Telegram answers all but the last long-poller with "Conflict: terminated
+        by other getUpdates request", leaving her reachable nowhere. Returning a
+        key here means "exactly one character may hold this"; the manager gives
+        it to the first to start and reports the medium as held for the rest.
+        None (the default) is for transports with nothing to contend over."""
+        return None
+
     async def start(self, rt) -> str:
         """Bring the channel up on the server's event loop. Returns a short
         human detail for the boot panel (e.g. "@yuri_bot"). Raise to mark the

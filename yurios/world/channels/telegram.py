@@ -62,6 +62,13 @@ class TelegramChannel(Channel):
 
     # ---- lifecycle ----
 
+    @property
+    def claim(self) -> tuple[str, str]:
+        """One bot, one character. Telegram's getUpdates is exclusive per token,
+        so the chat belongs to whichever character starts first; give a second
+        character its own TELEGRAM_BOT_TOKEN to reach her there too."""
+        return (self.name, self.token)
+
     async def start(self, rt) -> str:
         self.rt = rt
         self._client = httpx.AsyncClient(

@@ -449,7 +449,13 @@ def create_host_app(base: Config, registry: CharacterRegistry | None = None) -> 
         path = require(character_id).paths.portrait
         if not path.is_file():
             raise HTTPException(404, "portrait unavailable")
-        return FileResponse(path, media_type="image/png")
+        # One stable URL whose bytes genuinely change — a fresh install on the port
+        # a previous one used, a forge re-render, a portrait the user replaced. With
+        # only the ETag and Last-Modified FileResponse sends, a browser is free to
+        # invent its own freshness window and show yesterday's face for hours;
+        # no-cache makes it ask, and the ETag still answers 304 when nothing moved.
+        return FileResponse(path, media_type="image/png",
+                            headers={"Cache-Control": "no-cache"})
 
     @app.get("/api/characters/{character_id}/selfies/{name}")
     async def selfie(character_id: str, name: str):

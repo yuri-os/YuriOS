@@ -117,6 +117,20 @@ def test_primary_prefers_running_autostart_character(tmp_path, monkeypatch):
         assert client.get("/api/health").json() == {"character": "Yuri"}
 
 
+def test_portrait_is_revalidated_not_cached_blind(tmp_path):
+    """Her face changes behind one stable URL, so the browser has to ask."""
+    registry = CharacterRegistry(tmp_path)
+    registry.add(record(tmp_path, enabled=False))
+    app = create_host_app(Config(data_dir=tmp_path), registry)
+
+    with TestClient(app) as client:
+        response = client.get("/api/characters/yuri/portrait")
+        assert response.status_code == 200
+        assert response.content == b"portrait"
+        assert response.headers["cache-control"] == "no-cache"
+        assert response.headers["etag"]           # 304 still saves the bytes
+
+
 def test_character_selfies_are_registry_scoped(tmp_path):
     registry = CharacterRegistry(tmp_path)
     item = record(tmp_path, enabled=False)

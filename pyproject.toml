@@ -146,3 +146,5 @@ packages = { find = { include = ["yurios*"] } }
 "yurios.desktop" = ["voice/assets/*.wav"]
 # her look + the selfie template library (§7.6) travel with the forge
 "yurios.forge" = ["characters/*.yaml", "templates/*.yaml"]
+# the portrait a migrated/first-run Yuri starts with, until the forge renders her one
+"yurios.characters" = ["assets/*.png"]

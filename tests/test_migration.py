@@ -10,7 +10,7 @@ from types import SimpleNamespace
 import pytest
 import yaml
 
-from yurios.characters import CharacterRegistry
+from yurios.characters import CharacterRegistry, default_portrait_bytes
 from yurios.migrate import MigrationError, check_migration, migrate_legacy_data
 
 
@@ -110,6 +110,46 @@ def test_migrates_all_roots_atomically_and_is_idempotent(tmp_path):
     assert len(CharacterRegistry(data)) == 1
     for name, digest in before.items():
         assert _tree_digest(getattr(config, name)) == digest
+
+
+def test_migration_gives_yuri_the_packaged_portrait(tmp_path):
+    config = _config(tmp_path)
+    data = tmp_path / "data"
+
+    result = migrate_legacy_data(config, data)
+
+    portrait = CharacterRegistry(data).require("yuri").paths.portrait
+    assert portrait.read_bytes() == default_portrait_bytes()
+
+    # hers once it is there: a replaced portrait survives every later start-up
+    portrait.write_bytes(b"\x89PNG\r\n\x1a\nmine")
+    assert migrate_legacy_data(config, data).status == "already-migrated"
+    assert portrait.read_bytes() == b"\x89PNG\r\n\x1a\nmine"
+
+
+def test_already_migrated_data_backfills_the_missing_portrait(tmp_path):
+    config = _config(tmp_path)
+    data = tmp_path / "data"
+    result = migrate_legacy_data(config, data)
+    portrait = CharacterRegistry(data).require("yuri").paths.portrait
+    portrait.unlink()                       # migrated before the portrait shipped
+
+    assert check_migration(config, data).status == "already-migrated"
+    assert not portrait.exists()            # --check still writes nothing
+
+    assert migrate_legacy_data(config, data).status == "already-migrated"
+    assert portrait.read_bytes() == default_portrait_bytes()
+    assert result.character_root == portrait.parent
+
+
+def test_someone_elses_character_gets_no_default_portrait(tmp_path):
+    config = _config(tmp_path, name="Mia")
+    data = tmp_path / "data"
+
+    result = migrate_legacy_data(config, data)
+
+    assert result.display_name == "Mia"
+    assert not CharacterRegistry(data).require("yuri").paths.portrait.exists()
 
 
 def test_check_and_dry_run_validate_without_writing(tmp_path):

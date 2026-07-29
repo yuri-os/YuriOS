@@ -14,6 +14,11 @@ from .importer import (
     import_character_card,
 )
 from .connections import ConnectionProfile, ConnectionProfiles
+from .defaults import (
+    DEFAULT_PORTRAIT_NAME,
+    default_portrait_bytes,
+    install_default_portrait,
+)
 from .models import (
     BodyBinding,
     CharacterPaths,
@@ -45,6 +50,7 @@ __all__ = [
     "ConnectionBinding",
     "ConnectionProfile",
     "ConnectionProfiles",
+    "DEFAULT_PORTRAIT_NAME",
     "DisplayMetadata",
     "LifecycleFlags",
     "LoopSwitches",
@@ -56,7 +62,9 @@ __all__ = [
     "atomic_write_bytes",
     "atomic_write_json",
     "card_fields",
+    "default_portrait_bytes",
     "import_character_card",
+    "install_default_portrait",
     "new_character_id",
     "parse_png_card",
 ]

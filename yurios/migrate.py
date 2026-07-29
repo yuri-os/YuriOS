@@ -36,6 +36,7 @@ from yurios.characters import (
     VoiceBinding,
     atomic_write_bytes,
     atomic_write_json,
+    install_default_portrait,
 )
 
 
@@ -288,6 +289,22 @@ def _existing_migration(
     return None
 
 
+def _backfill_default_portrait(
+    registry: CharacterRegistry, character_id: str | None
+) -> None:
+    """Hand her face to an install that migrated before the portrait shipped.
+
+    Every start-up runs the migration, so this is where an already-migrated 0.2
+    data directory picks up the packaged portrait: one ``exists()`` on the fast
+    path, and a no-op the moment there is any portrait to keep.
+    """
+    if character_id is None:
+        return
+    record = registry.get(character_id)
+    if record is not None:
+        install_default_portrait(record.paths, record.display.name)
+
+
 def _next_character_id(registry: CharacterRegistry, characters_dir: Path) -> str:
     for number in range(1, 10_001):
         candidate = "yuri" if number == 1 else f"yuri-{number}"
@@ -508,7 +525,10 @@ def migrate_legacy_data(
     marker_path = target / LAYOUT_MARKER_NAME
     marker = _read_layout_marker(marker_path)
     if marker is not None:
-        return _current_result(marker, target_registry, target)
+        result = _current_result(marker, target_registry, target)
+        if not (check or dry_run):
+            _backfill_default_portrait(target_registry, result.character_id)
+        return result
 
     sources = _sources(config)
     characters_dir = target / "characters"
@@ -527,6 +547,7 @@ def migrate_legacy_data(
                 "needed", target, recovered.id, recovered.paths.root, recovered.display.name
             )
         completed_at = datetime.now(timezone.utc).isoformat()
+        install_default_portrait(recovered.paths, recovered.display.name)
         atomic_write_json(
             marker_path, _layout_payload(recovered, sources, completed_at)
         )
@@ -556,6 +577,10 @@ def migrate_legacy_data(
     try:
         staged = CharacterPaths.under(temporary)
         _copy_sources(sources, staged)
+        # 0.1 had no portrait to carry over, so she arrives faceless unless the
+        # packaged one is laid down here — inside the staging directory, so it
+        # becomes visible with the same single rename as everything else.
+        install_default_portrait(staged, display_name)
         _add_vault_format(staged.vault / "soul" / "soul.yaml")
         _commit_vault_migration(staged.vault)
 

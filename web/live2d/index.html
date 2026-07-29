@@ -48,8 +48,12 @@
         <span class="status" id="status">offline</span>
         <span class="latency" id="latency" title="end-of-speech → first audio"></span>
       </div>
-      <!-- empty on purpose: the gear is an SVG mask in /shared/settings.css -->
-      <button id="settings-open" class="gear" title="settings" aria-label="settings"></button>
+      <!-- the span is empty on purpose: the gear is an SVG mask in
+           /shared/settings.css, and the mask paints its own box — so the button
+           carries the frame that makes it read as a control -->
+      <button id="settings-open" class="gear" title="settings" aria-label="settings">
+        <span class="icon" aria-hidden="true"></span>
+      </button>
     </header>
 
     <!-- settings panel (/shared/settings.js): edits .env; takes effect on restart -->

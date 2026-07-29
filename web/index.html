@@ -80,9 +80,13 @@
       <span class="context" id="context" title="context window"></span>
       <span class="latency" id="latency" title="end-of-speech → first audio"></span>
     </div>
-    <!-- empty on purpose: the gear is an SVG mask in /shared/settings.css, not a
-         glyph — U+2699 is tofu wherever the font stack lacks it (Chromium/Linux) -->
-    <button id="settings-open" class="gear" title="settings" aria-label="settings"></button>
+    <!-- the span is empty on purpose: the gear is an SVG mask in
+         /shared/settings.css, not a glyph — U+2699 is tofu wherever the font
+         stack lacks it (Chromium/Linux). The mask paints its own box, so the
+         button carries the frame and the span carries the icon. -->
+    <button id="settings-open" class="gear" title="settings" aria-label="settings">
+      <span class="icon" aria-hidden="true"></span>
+    </button>
   </header>
 
   <!-- the settings panel (SPEC §11, → /shared/settings.js): the gear opens it; it

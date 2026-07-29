@@ -17,8 +17,17 @@
  * as tofu — or as nothing at all. An SVG mask painted with background-color
  * depends on no font whatsoever, still takes its colour from the page's
  * palette, and keeps the hover transitions. Each button supplies its own
- * --icon; the shared rule does the rest. */
-.gear, .settings-x{
+ * --icon; the shared rule does the rest.
+ *
+ * A mask paints the element's OWN background, so a frame can't share the box —
+ * which is why the gear used to be a bare 17px glyph floating in the masthead
+ * beside real buttons, reading as decoration rather than a control. The button
+ * is now the frame (the switchboard's .icon-button, verbatim, so it lines up
+ * with the Switchboard button beside it) and an inner <span class="icon"> is
+ * the painted mask. --icon inherits from the button, so each still declares
+ * its own. The dialog's ✕ keeps the bare form: inside a modal header, a close
+ * glyph needs no frame to be read as one. */
+.gear .icon, .settings-x{
   width:16px; height:16px; align-self:center; flex:none;
   padding:0; border:none; cursor:pointer; background:var(--soft);
   -webkit-mask:var(--icon) center/contain no-repeat;
@@ -35,9 +44,14 @@ stroke-linecap="round">\
 <circle cx="12" cy="12" r="2.4" stroke-width="1.6"/>\
 <path stroke-width="2.4" d="M18.2 12h3.2M15.1 17.37l1.6 2.77M8.9 17.37l-1.6 2.77\
 M5.8 12H2.6M8.9 6.63 7.3 3.86M15.1 6.63l1.6-2.77"/></svg>');
-  width:17px; height:17px;
+  width:38px; height:38px; flex:none; align-self:center;
+  display:grid; place-items:center; padding:0;
+  border:1px solid var(--rule); border-radius:2px;
+  background:transparent; cursor:pointer; transition:.18s ease;
 }
-.gear:hover{ background:var(--acid); transform:rotate(45deg); }
+.gear .icon{ width:17px; height:17px; }
+.gear:hover, .gear:focus-visible{ border-color:var(--soft); background:rgb(255 255 255 / .04); }
+.gear:hover .icon, .gear:focus-visible .icon{ background:var(--acid); transform:rotate(45deg); }
 
 .settings{
   width:min(620px, calc(100vw - 30px)); max-height:calc(100dvh - 30px);

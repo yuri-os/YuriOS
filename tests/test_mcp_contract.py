@@ -115,3 +115,22 @@ async def test_get_weather_uses_the_default_city():
         r = await s.call_tool("get_weather", {})
         data = json.loads(result_text(r))
         assert data["city"] == "Tokyo" and data["condition"] == "raining"
+
+
+def test_a_server_that_never_came_up_is_reported_by_its_leaf():
+    """The other half of a spawn failure: what the boot log gets to say about it.
+
+    A server that dies at import — the shape of an SDK that renamed the module out
+    from under it — surfaces through two nested anyio task groups, and the group's own
+    message is "unhandled errors in a TaskGroup (1 sub-exception)": a real exception
+    carrying no name of the real failure. Peel to the leaves, keep all of them."""
+    from yurios.world.tools.client import start_failure
+
+    dead = ExceptionGroup("unhandled errors in a TaskGroup",
+                          [ExceptionGroup("unhandled errors in a TaskGroup",
+                                          [RuntimeError("Connection closed")])])
+    assert start_failure(dead) == "RuntimeError: Connection closed"
+    # a plain exception is already its own leaf, and still gets its type named
+    assert start_failure(FileNotFoundError("no python")) == "FileNotFoundError: no python"
+    assert start_failure(ExceptionGroup("boom", [ValueError("a"), TypeError("b")])) == (
+        "ValueError: a; TypeError: b")

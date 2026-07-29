@@ -29,7 +29,17 @@ dependencies = [
     "pyyaml",                 # soul.yaml + .md frontmatter
     "numpy",                  # the flat vector index + audio frames
     "httpx",                  # ollama embeddings, GPT-SoVITS client, Open-Meteo (§7.5)
-    "mcp",                    # the hands (§7): real MCP server + client, in-repo
+    # The hands (§7): real MCP server + client, in-repo. CAPPED, like litellm above,
+    # and for a harder reason: mcp 2.0.0 renamed the module her server is built on.
+    # `mcp.server.fastmcp` → `mcp.server.mcpserver`, `FastMCP` → `MCPServer`, and
+    # `mcp.shared.memory.create_connected_server_and_client_session` — the in-memory
+    # session the contract test connects through (§13) — is gone, with no alias left
+    # behind for any of it. Uncapped, a fresh install resolved 2.0.0, `import mcp`
+    # kept working (so the doctor's tools row still said ok), and the only symptom was
+    # the spawned server dying on its import line: "No module named
+    # 'mcp.server.fastmcp'", then "she has no hands this run". Raise this when
+    # world/tools/{server,client}.py speak 2.x.
+    "mcp>=1.2,<2",            # >=1.2 is where FastMCP landed in the official SDK
     "Pillow",                 # her camera (§7.6): the vendored forge's mock backend + provenance
     "python-multipart",       # bounded character-card uploads in the local dashboard
 ]

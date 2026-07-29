@@ -406,10 +406,14 @@ class Runtime:
                                      else "mcp")
                 self.boot.done("tools", detail=f"{self.tools_status} · {len(specs)} tools")
             except Exception as e:
-                log.warning("tool backend failed — she has no hands this run: %s", e)
-                self.tools_status = f"failed: {e}"
+                # peeled out of its task groups — the wrapper's own message is
+                # "unhandled errors in a TaskGroup", which names nothing (§7.2)
+                from .tools.client import start_failure
+                why = start_failure(e)
+                log.warning("tool backend failed — she has no hands this run: %s", why)
+                self.tools_status = f"failed: {why}"
                 self._tool_runner = None
-                self.boot.done("tools", state="failed", detail=str(e)[:80])
+                self.boot.done("tools", state="failed", detail=why[:80])
         elif self.cfg.tools_backend != "off":
             # declared pending but no runner (e.g. a test brain) — settle it
             self.boot.done("tools", state="skipped", detail="no hands")

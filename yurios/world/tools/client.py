@@ -31,6 +31,25 @@ class ToolSpec:
     schema: dict          # JSON schema of the arguments
 
 
+def start_failure(err: BaseException) -> str:
+    """The one-line "why" for a spawn that didn't come up, with the TaskGroups peeled off.
+
+    A server that dies on startup — a bad import, a missing interpreter — reaches us
+    through two nested anyio task groups, and `str(ExceptionGroup)` is "unhandled errors
+    in a TaskGroup (1 sub-exception)": true, useless, and the only thing the boot log
+    would otherwise carry. The leaves are the sentence worth printing. Keep every leaf
+    (a group can hold more than one) and name its type, since the leaf message alone is
+    often just "Connection closed" — the *server's* traceback goes to stderr above,
+    which is the other half of the story."""
+    def leaves(e: BaseException):
+        if isinstance(e, BaseExceptionGroup):
+            for sub in e.exceptions:
+                yield from leaves(sub)
+        else:
+            yield e
+    return "; ".join(f"{type(leaf).__name__}: {leaf}" for leaf in leaves(err))
+
+
 class ToolRunner(Protocol):
     async def start(self) -> list[ToolSpec]:
         """Connect/spawn and return the discovered tools."""

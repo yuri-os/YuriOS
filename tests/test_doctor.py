@@ -181,6 +181,42 @@ def test_the_cpu_torch_recipe_takes_torchaudio_from_the_same_index(monkeypatch, 
     assert doctor.torch_pair_mismatch() == ""
 
 
+def test_the_mcp_cap_matches_the_module_the_tool_server_imports(monkeypatch, capsys):
+    """The same shape of trap, one seam over: mcp 2.0 renamed `mcp.server.fastmcp` to
+    `mcp.server.mcpserver` with no alias, so an uncapped fresh install resolved 2.0.0,
+    `import mcp` still worked (the tools row said "ok"), and the only symptom was the
+    spawned server dying on its import line — "she has no hands this run".
+
+    Two things are pinned, both against the real files: the cap in pyproject, and that
+    the doctor probes the module `server.py` actually imports. Move the import and the
+    warning has to move with it, or it goes quiet on exactly the install it's for."""
+    import inspect
+
+    from yurios import doctor
+
+    root = Path(__file__).resolve().parent.parent
+    deps = tomllib.loads(PYPROJECT.read_text())["project"]["dependencies"]
+    mcp_dep = next(d for d in deps if re.match(r"mcp\b", d))
+    assert "<2" in mcp_dep, (
+        f"pyproject asks for `{mcp_dep}` — a fresh install resolves mcp 2.x, which "
+        f"has no `mcp.server.fastmcp`, and she boots hand-less")
+
+    src = (root / "yurios" / "world" / "tools" / "server.py").read_text()
+    module = re.search(r"from (mcp\.[\w.]+) import", src).group(1)
+    assert module in inspect.getsource(doctor.mcp_api_mismatch), (
+        f"server.py imports {module}; the doctor probes something else")
+
+    assert doctor.mcp_api_mismatch() == ""          # this venv obeys the cap
+    monkeypatch.setattr(doctor, "_have", lambda m: False)
+    monkeypatch.setattr("importlib.metadata.version", lambda pkg: "2.0.0")
+    assert "mcp 2.0.0" in doctor.mcp_api_mismatch()
+
+    # …and, like the torch pair, it is printed even when every row checks out.
+    report([Check("embeddings", "EMBED_BACKEND", "lm_studio", "", "local-embed")])
+    out = capsys.readouterr().out
+    assert "mcp 2.0.0" in out and "Fix what's flagged above" in out
+
+
 def test_install_sh_default_installs_what_env_example_selects():
     """`./install.sh` with no flags must cover every backend the .env it writes selects.
 

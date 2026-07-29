@@ -181,6 +181,32 @@ def torch_pair_mismatch() -> str:
             "https://download.pytorch.org/whl/cpu\n")
 
 
+def mcp_api_mismatch() -> str:
+    """The other broken install the table calls "ok" — her hands, on an SDK that moved.
+
+    `mcp` is a core dep, so the tools row above only ever asks "is it importable", and
+    on mcp 2.0 it is: what 2.0 removed is the module the server is *built* on
+    (`mcp.server.fastmcp` → `mcp.server.mcpserver`, `FastMCP` → `MCPServer`), with no
+    alias. So the package imports, the row says ok, and the failure lands three layers
+    away — in the child process the client spawns, as "she has no hands this run".
+    pyproject caps it now; this is for the venv that resolved 2.x before the cap, where
+    the fix is a downgrade and nothing in the table would ever say so.
+
+    Probes the module rather than the version, so the day 2.x is supported (or 3.0
+    brings it back) this goes quiet on its own instead of lying the other way."""
+    if _have("mcp.server.fastmcp"):
+        return ""
+    try:
+        from importlib.metadata import version
+        found = version("mcp")
+    except Exception:           # no mcp at all — the tools row already says MISSING
+        return ""
+    return (f"\nmcp {found} is installed, but her hands are built on the 1.x SDK: 2.0 "
+            f"renamed\n`mcp.server.fastmcp` and kept no alias, so the tool server dies "
+            f"on its import\nline and she runs hand-less. Take the capped version:\n\n"
+            "  pip install -e .\n")
+
+
 # Mirrors providers/openrouter._route: a bare model id means OpenRouter, and only
 # ollama/… and lm_studio/… are somebody's own machine. Reimplemented rather than
 # imported because that module imports litellm, and running the doctor has to stay
@@ -248,8 +274,9 @@ def _optional_line(skipped: list[Check]) -> str:
 
 def report(checks: list[Check], *, network: list[str] | None = None, out=None) -> int:
     """Print the table + the fix. Returns the number of missing *required* seams
-    (advisory ones are listed but never counted — see Check.advisory; the torch/
-    torchaudio warning is printed but not counted either, since nothing is missing).
+    (advisory ones are listed but never counted — see Check.advisory; the torch pair
+    and mcp API warnings are printed but not counted either: in both, everything the
+    table asks about IS installed).
 
     `out` resolves at call time, not as a default argument: binding sys.stdout at
     import would ignore any later redirection (pytest's capsys, a caller's
@@ -264,10 +291,11 @@ def report(checks: list[Check], *, network: list[str] | None = None, out=None) -
         print(f"{mark} {c.seam:<{seam_w}}  {f'{c.knob}={c.want}':<{knob_w}}  "
               f"{c.state:<{state_w}}" + (f"  ({c.note})" if c.note else ""), file=out)
 
-    # Printed either way: this one is invisible in the table above by construction.
-    mismatch = torch_pair_mismatch()
-    if mismatch:
-        print(mismatch, file=out)
+    # Printed either way: these are invisible in the table above by construction —
+    # every module they need IS installed, just not in a combination that runs.
+    broken = [w for w in (torch_pair_mismatch(), mcp_api_mismatch()) if w]
+    for warning in broken:
+        print(warning, file=out)
 
     # Informational, never counted: nothing here is broken, it's what she's wired
     # to talk to. `network=None` (a caller that only wants the seams) prints nothing.
@@ -278,8 +306,8 @@ def report(checks: list[Check], *, network: list[str] | None = None, out=None) -
     skipped = [c for c in checks if not c.ok and c.advisory]
     if not missing:
         print("\nEverything your .env selects is installed."
-              + (" Fix the torch pair above and she'll speak."
-                 if mismatch else " Nothing to do."), file=out)
+              + (" Fix what's flagged above and she'll be whole."
+                 if broken else " Nothing to do."), file=out)
         if skipped:
             print(_optional_line(skipped), file=out)
         print(file=out)

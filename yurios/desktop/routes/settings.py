@@ -13,6 +13,13 @@ live Config(), so the form always shows the effective setting (default or the
 and _update_env() upserts them line-by-line so the carefully-written comments in
 .env survive.
 
+A few keys are not the same variable for every companion: the host runs one
+runtime per character and each has her own Telegram bot (SPEC §10.5), so a field
+may carry `key_env` — the Config attribute naming the variable *this* runtime
+reads it from. _groups_for() resolves that per request, which is why the panel
+opened from Mia's room writes TELEGRAM_BOT_TOKEN_MIA and the one opened from
+Yuri's writes hers. It also drops fields the running build has no knob for.
+
 Localhost-only by default (HOST=127.0.0.1), which is why it's fine to hand the
 browser the OPENROUTER_API_KEY for editing; the panel renders it masked.
 """
@@ -153,6 +160,21 @@ SCHEMA: list[dict] = [
          "options": list(MODELS.keys()),
          "help": "miara/kei/ren are the modern female rigs; unknown → hiyori"},
     ]},
+    {"group": "Channels", "fields": [
+        # One bot, one character (SPEC §10.5): `key_env` names the Config
+        # attribute holding the variable this character's bot is actually
+        # written in, so the panel in Mia's room edits TELEGRAM_BOT_TOKEN_MIA
+        # and the one in Yuri's edits hers — pasting a token here can never
+        # take over another companion's chat.
+        {"key": "TELEGRAM_BOT_TOKEN", "attr": "telegram_bot_token",
+         "key_env": "telegram_bot_token_env", "type": "password",
+         "help": "her own @BotFather bot — one bot per companion, never shared "
+                 "(Telegram hands a token's updates to a single poller)"},
+        {"key": "TELEGRAM_CHAT_ID", "attr": "telegram_chat_id",
+         "key_env": "telegram_chat_id_env", "type": "text",
+         "help": "the one chat she answers in. Leave empty, save, restart, and "
+                 "message the bot once — it replies with the id to paste here"},
+    ]},
     {"group": "Desktop window", "fields": [
         {"key": "WINDOW_WIDTH", "attr": "window_width", "type": "number",
          "help": "size of the `--window` desktop-pet window (px)"},
@@ -165,8 +187,27 @@ SCHEMA: list[dict] = [
     ]},
 ]
 
-# key → field spec, for fast validation on POST
-_BY_KEY = {f["key"]: f for g in SCHEMA for f in g["fields"]}
+def _groups_for(cfg) -> list[dict]:
+    """SCHEMA as one running build sees it — the single source of truth for both
+    directions, so the form and the POST validator can never disagree.
+
+    Two rewrites happen here. A field with `key_env` writes whichever variable
+    this runtime actually reads it from (`world/host.py` resolves those per
+    character, SPEC §10.5), so the panel in Mia's room edits her bot and the one
+    in Yuri's edits hers. And a field this build has no knob for is dropped
+    rather than shown dead: the channels live in the world server's config, and
+    the Build #2 desktop app doesn't have them."""
+    groups: list[dict] = []
+    for group in SCHEMA:
+        fields = []
+        for field in group["fields"]:
+            if not hasattr(cfg, field["attr"]):
+                continue
+            key = getattr(cfg, field["key_env"], "") if field.get("key_env") else ""
+            fields.append({**field, "key": key} if key else field)
+        if fields:
+            groups.append({"group": group["group"], "fields": fields})
+    return groups
 
 
 def _display(field: dict, cfg) -> object:
@@ -264,9 +305,9 @@ async def get_settings(request: Request):
         "env_path": str(ENV_PATH),
         "groups": [
             {"group": g["group"],
-             "fields": [{**{k: v for k, v in f.items() if k != "attr"},
+             "fields": [{**{k: v for k, v in f.items() if k not in ("attr", "key_env")},
                          "value": _display(f, cfg)} for f in g["fields"]]}
-            for g in SCHEMA
+            for g in _groups_for(cfg)
         ],
     }
 
@@ -275,10 +316,12 @@ async def get_settings(request: Request):
 async def post_settings(request: Request):
     _require_local(request)
     payload = await request.json()
+    by_key = {f["key"]: f for g in _groups_for(request.app.state.rt.cfg)
+              for f in g["fields"]}
     updates: dict[str, str] = {}
     unknown: list[str] = []
     for key, raw in (payload or {}).items():
-        field = _BY_KEY.get(key)
+        field = by_key.get(key)
         if field is None:
             unknown.append(key)
             continue

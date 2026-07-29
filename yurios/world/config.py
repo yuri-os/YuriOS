@@ -78,6 +78,17 @@ class Config(VoiceConfig):
     telegram_bot_token: str = ""                # @BotFather token; empty = channel off
     telegram_chat_id: str = ""                  # the ONE chat she talks in; unset =
                                                 #   pairing mode (the bot tells you the id)
+    # An outside account belongs to exactly one character, so with more than one
+    # of them in the house each gets her own bot: TELEGRAM_BOT_TOKEN_<ID> and
+    # TELEGRAM_CHAT_ID_<ID> are hers alone (host.telegram_for_character). The
+    # unsuffixed pair above is the single-companion install's; this names who
+    # keeps it once there are others. Unset, it is offered to every character
+    # and the first runtime to start holds it (channels/manager.py).
+    telegram_character: str = ""                # registry id, or "" = whoever starts first
+    # Set by the host, not by you: which two variables this character's bot is
+    # written in. Pairing mode names hers, and the settings panel edits hers.
+    telegram_bot_token_env: str = "TELEGRAM_BOT_TOKEN"
+    telegram_chat_id_env: str = "TELEGRAM_CHAT_ID"
 
     # --- the room (SPEC §6) ---
     rain_intensity: float = 0.6                 # 0..1, pushed to the scene at connect

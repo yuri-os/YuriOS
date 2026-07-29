@@ -21,6 +21,11 @@ any chat but `TELEGRAM_CHAT_ID` are dropped. With the id unset the channel
 starts in **pairing mode**: it replies to the first message with the chat id
 to put in `.env` and processes nothing — binding her to a stranger's DM by
 accident is the failure this refuses.
+
+One bot, one character: `getUpdates` is exclusive per token, so each character
+gets her own credentials — `TELEGRAM_BOT_TOKEN_<ID>` / `TELEGRAM_CHAT_ID_<ID>`,
+resolved per runtime in `world/host.py` — and the adapter carries the name of
+its own chat-id variable so pairing mode asks for hers.
 """
 from __future__ import annotations
 
@@ -45,11 +50,16 @@ class TelegramChannel(Channel):
 
     def __init__(self, token: str, chat_id: str = "", *,
                  selfie_dir: Path | None = None,
+                 chat_id_env: str = "TELEGRAM_CHAT_ID",
                  api_base: str = API_BASE,
                  transport: httpx.AsyncBaseTransport | None = None):
         self.token = token
         self.chat_id = str(chat_id or "")
         self.selfie_dir = selfie_dir
+        # which variable pairing mode should name. With more than one character
+        # in the house each has her own bot, so the answer is hers —
+        # TELEGRAM_CHAT_ID_MIA, not the shared TELEGRAM_CHAT_ID (SPEC §10.5).
+        self.chat_id_env = chat_id_env or "TELEGRAM_CHAT_ID"
         self.api_base = api_base
         self._transport = transport          # tests inject a MockTransport
         self.rt = None
@@ -82,7 +92,7 @@ class TelegramChannel(Channel):
             asyncio.create_task(self._deliver(), name="telegram-deliver"),
         ]
         who = "@" + me.get("username", "?")
-        return who if self.chat_id else f"{who} · pairing (TELEGRAM_CHAT_ID unset)"
+        return who if self.chat_id else f"{who} · pairing ({self.chat_id_env} unset)"
 
     async def stop(self) -> None:
         for t in self._tasks:
@@ -137,11 +147,12 @@ class TelegramChannel(Channel):
         if not chat_id:
             return
         if not self.chat_id:                 # pairing mode: introduce, bind nothing
-            log.warning("telegram: message from chat %s but TELEGRAM_CHAT_ID is "
-                        "unset — set TELEGRAM_CHAT_ID=%s to pair", chat_id, chat_id)
+            log.warning("telegram: message from chat %s but %s is unset — set "
+                        "%s=%s to pair", chat_id, self.chat_id_env,
+                        self.chat_id_env, chat_id)
             await self._api("sendMessage", chat_id=chat_id, text=(
                 "This companion isn't paired yet. If this is your bot, set "
-                f"TELEGRAM_CHAT_ID={chat_id} in its .env and restart."))
+                f"{self.chat_id_env}={chat_id} in its .env and restart."))
             return
         if chat_id != self.chat_id:          # one person, one chat (SPEC §1)
             log.warning("telegram: ignoring message from unconfigured chat %s",

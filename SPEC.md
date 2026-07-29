@@ -646,6 +646,21 @@ down host — `/api/health` and the boot board say which):
   are sent as the file itself. A channel is on when its credentials are set — no separate enable
   flag.
 
+**One outside account, one character.** The host runs a runtime per character (§25), so a shared
+credential would be opened once per character — and an inbox is single-tenant: Telegram answers all
+but the last `getUpdates` poller with "Conflict: terminated by other getUpdates request", leaving
+her reachable nowhere. Each character therefore **MUST** have her own credentials, named with her
+registry id: `TELEGRAM_BOT_TOKEN_<ID>` / `TELEGRAM_CHAT_ID_<ID>`, resolved per runtime by
+`world/host.py`'s `telegram_for_character`, and pairing mode names *her* variable. Because the ids
+exist only at runtime these keys cannot be `Config` fields, so the resolver **MUST** read the
+`.env` file as well as the environment. The settings panel (§11) offers the pair the *open room's*
+character reads her bot from, so an edit there can never take over another character's chat. The
+unsuffixed pair remains the single-companion install's; `TELEGRAM_CHARACTER` names who keeps it,
+and with that unset it is offered to every character without her own bot. A `Channel` **MAY** declare a `claim`
+on credentials that can only be held once as the backstop: `ChannelManager` gives the claim to the
+first runtime to start and reports the medium as `held by <her>` for the rest — a healthy state,
+not a fault. A character with no credentials of her own is simply not on that medium.
+
 Planned on the same contract, not yet implemented: **WhatsApp** (webhook transport) and a
 **game-engine NPC API** (a WebSocket the engine connects to: player utterances in as text turns
 with scene context, `message` events out as dialogue, the same `avatar`/expression events as
@@ -664,6 +679,14 @@ tool caps/timeouts/log dir and per-tool rate limits, `TIMER_MAX_MINUTES`,
 `WEATHER_BACKEND`/`WEATHER_CITY`, `SELFIE_BACKEND`/`SELFIE_MODEL`/`SELFIE_DIR`, `RAIN_INTENSITY`,
 `DESKTOP_BODY`, the channel credentials (§10.5), and the reflex windows (`IDLE_SETTLE_S`,
 `IDLE_ACT_MIN/MAX_S`, `IDLE_TALK_MIN/MAX_S`). The mind's knobs are §25.
+
+The local settings panel (`desktop/routes/settings.py`, the gear in every room) edits that file
+directly and **MUST** stay loopback-only, since it hands the browser the keys it renders. Its one
+SCHEMA drives the form *and* validates the POST, so the two can never disagree; a field's `.env`
+key **MAY** be resolved per runtime (the per-character channel credentials, §10.5), and a field the
+running build has no knob for **MUST** be dropped rather than shown dead. Values are read from the
+live `Config`, writes are surgical (only changed fields, upserted line-by-line so the comments in
+`.env` survive), and a save asks for a restart rather than pretending to hot-apply.
 
 ## §12 — Omissions → superseded by §26
 

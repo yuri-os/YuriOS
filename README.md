@@ -174,8 +174,19 @@ restart, and message the bot once — it replies with the `TELEGRAM_CHAT_ID` to 
 (pairing mode: she binds to exactly one chat; strangers are ignored). After that
 she's in your pocket: your messages are ordinary turns, her replies — and her
 *proactive* lines, the reach-outs the mind decides on while no page is open — land
-in the chat, selfies included. `/api/health` says which channels are up. WhatsApp and
-a game-engine NPC API are planned on the same seam (`yurios/world/channels/base.py`).
+in the chat, selfies included. `/api/health` says which channels are up.
+
+One bot, one character: Telegram's `getUpdates` is exclusive per token, so companions
+can't share a bot — they'd fight over its updates and neither would be reachable. Give
+each her own @BotFather bot. The short way is the **gear in her own room** (the settings
+panel, which edits `.env`): it shows her pair and nobody else's, so pasting a token
+there can never take over another companion's chat. By hand, the pair is named with her
+registry id upper-cased — `TELEGRAM_BOT_TOKEN_MIA`, `TELEGRAM_CHAT_ID_MIA`. The
+unsuffixed pair stays the first companion's, and `TELEGRAM_CHARACTER=yuri` says who
+keeps it. A companion with no bot of her own is simply not on Telegram — she's still in
+the room and the terminal.
+WhatsApp and a game-engine NPC API are planned on the same seam
+(`yurios/world/channels/base.py`).
 
 ## Manual setup
 

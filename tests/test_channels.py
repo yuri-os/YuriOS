@@ -181,6 +181,21 @@ async def test_telegram_strangers_are_ignored_and_unset_id_pairs():
     await ch2._client.aclose()
 
 
+async def test_pairing_names_this_characters_own_variable():
+    """Each character has her own bot, so the id to configure is hers too —
+    telling the second companion's owner to set TELEGRAM_CHAT_ID would hand her
+    chat to the first one."""
+    tr = ScriptedTelegram()
+    ch = tg(tr, chat_id="", chat_id_env="TELEGRAM_CHAT_ID_MIA")
+    await ch._handle_update(update(chat_id=99))
+    (pairing,) = tr.sent("sendMessage")
+    assert "TELEGRAM_CHAT_ID_MIA=99" in pairing["text"]
+    await ch._client.aclose()
+    # …and the boot panel asks for the same one
+    assert await ch.start(ch.rt) == "@yuri_bot · pairing (TELEGRAM_CHAT_ID_MIA unset)"
+    await ch.stop()
+
+
 async def test_telegram_non_text_gets_the_stock_line():
     tr = ScriptedTelegram()
     ch = tg(tr)

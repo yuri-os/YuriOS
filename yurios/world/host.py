@@ -13,11 +13,13 @@ import re
 import shutil
 import struct
 import zlib
+from collections.abc import Mapping
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 import yaml
+from dotenv import dotenv_values
 from PIL import Image
 
 from fastapi import FastAPI, HTTPException, Request, UploadFile
@@ -138,8 +140,77 @@ def _tail_jsonl(path: Path, limit: int = 100) -> list[dict[str, Any]]:
     return rows
 
 
+class TelegramCredentials(NamedTuple):
+    """What one character answers on, and the two variables it is written in —
+    the names travel with the values so pairing mode and the settings panel both
+    name the pair that actually feeds this runtime."""
+    token: str
+    chat_id: str
+    token_env: str
+    chat_id_env: str
+
+
+def telegram_env_suffix(character_id: str) -> str:
+    """The env-var tail that names one character's own bot: `mia` → `MIA`,
+    `yuri-2` → `YURI_2`."""
+    return re.sub(r"[^A-Z0-9]+", "_", character_id.upper()).strip("_")
+
+
+def _env_values(base: Config, environ: Mapping[str, str] | None) -> Mapping[str, str]:
+    """Every variable in play, `.env` under the real environment.
+
+    The per-character names are not Config fields — they can't be, the ids are
+    only known at runtime — so pydantic-settings never reads them, and it does
+    not export the `.env` it parsed into `os.environ` either. Left to
+    `os.environ` alone, a `TELEGRAM_BOT_TOKEN_MIA` line in `.env` would be
+    silently ignored: read the file ourselves, with the real environment winning
+    the same way pydantic-settings resolves it.
+    """
+    if environ is not None:
+        return environ
+    env_file = base.model_config.get("env_file") or ".env"
+    values = {k: v for k, v in dotenv_values(env_file).items() if v is not None}
+    values.update(os.environ)
+    return values
+
+
+def telegram_for_character(base: Config, character_id: str,
+                           environ: Mapping[str, str] | None = None,
+                           ) -> TelegramCredentials:
+    """Her Telegram credentials, and where they are configured.
+
+    An outside account belongs to exactly one character (SPEC §10.5) — Telegram
+    answers all but the last long-poller with "Conflict: terminated by other
+    getUpdates request" — so sharing one bot between characters leaves her
+    reachable nowhere. Every character therefore has her own pair,
+    `TELEGRAM_BOT_TOKEN_<ID>` / `TELEGRAM_CHAT_ID_<ID>`, and nothing is shared.
+
+    The unsuffixed pair is the single-companion install's, kept working:
+    `TELEGRAM_CHARACTER` names who keeps it once there are others, and with that
+    unset it is offered to everyone and the first runtime to start holds it
+    (channels/manager.py's claim). A character the shared bot isn't offered to
+    is simply not on Telegram — one medium she doesn't have, not a fault — and
+    the names come back pointing at her own pair, so the settings panel offers
+    her a bot of her own rather than an edit to somebody else's.
+    """
+    env = _env_values(base, environ)
+    suffix = telegram_env_suffix(character_id)
+    token_env = f"TELEGRAM_BOT_TOKEN_{suffix}" if suffix else "TELEGRAM_BOT_TOKEN"
+    chat_env = f"TELEGRAM_CHAT_ID_{suffix}" if suffix else "TELEGRAM_CHAT_ID"
+    token = env.get(token_env, "").strip()
+    if token:
+        return TelegramCredentials(token, env.get(chat_env, "").strip(),
+                                   token_env, chat_env)
+    owner = base.telegram_character.strip().casefold()
+    if owner and owner != character_id.casefold():
+        return TelegramCredentials("", "", token_env, chat_env)
+    return TelegramCredentials(base.telegram_bot_token, base.telegram_chat_id,
+                               "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID")
+
+
 def config_for_character(base: Config, record: CharacterRecord,
-                         profile: ConnectionProfile | None = None) -> Config:
+                         profile: ConnectionProfile | None = None,
+                         *, environ: Mapping[str, str] | None = None) -> Config:
     update: dict[str, Any] = {
         "companion_name": record.display.name,
         "vault_dir": record.paths.vault,
@@ -151,6 +222,9 @@ def config_for_character(base: Config, record: CharacterRecord,
         "utility_enabled": record.loops.utility,
         "dream_enabled": record.loops.dream,
     }
+    (update["telegram_bot_token"], update["telegram_chat_id"],
+     update["telegram_bot_token_env"], update["telegram_chat_id_env"]) = (
+        telegram_for_character(base, record.id, environ))
     if record.models.chat:
         update["chat_model"] = record.models.chat
     if record.models.utility:

@@ -25,6 +25,7 @@ dependencies = [
     "uvicorn[standard]",      # [standard] pulls the websockets impl for /ws/voice
     "litellm",                # the model-router seam (B1 §3.1) — local or hosted
     "pydantic-settings",      # typed config (§11)
+    "python-dotenv",          # …and the per-character keys it can't declare (§10.5)
     "pyyaml",                 # soul.yaml + .md frontmatter
     "numpy",                  # the flat vector index + audio frames
     "httpx",                  # ollama embeddings, GPT-SoVITS client, Open-Meteo (§7.5)

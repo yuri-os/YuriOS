@@ -10,11 +10,13 @@ from .base import Channel
 
 log = logging.getLogger("world.channels")
 
-# Who holds which outside account, process-wide (see Channel.claim). One host now
-# runs a runtime per character and they all read the same base config, so without
-# this every character opens the same Telegram bot and they fight over its
-# updates forever. Keyed by the channel's claim, valued with the character
-# holding it, so a second character's boot panel can say whose it is.
+# Who holds which outside account, process-wide (see Channel.claim). One host
+# runs a runtime per character, so two of them on one Telegram bot would fight
+# over its updates forever. Each character normally has her own credentials
+# (world/host.py's telegram_for_character); this is the backstop for the pair
+# they can still fall back to — and for any medium a future adapter can only
+# hold once. Keyed by the channel's claim, valued with the character holding it,
+# so a second character's boot panel can say whose it is.
 _claims: dict[tuple[str, str], str] = {}
 
 
@@ -27,13 +29,17 @@ class ChannelManager:
     @classmethod
     def from_config(cls, cfg) -> "ChannelManager":
         """The one place config becomes adapters. A channel is on when its
-        credentials are set — no separate enable flag to forget."""
+        credentials are set — no separate enable flag to forget. Under the host
+        those credentials are already this character's own (world/host.py's
+        `telegram_for_character`), so a second character with her own bot builds
+        a second, uncontended adapter here."""
         channels: list[Channel] = []
         if cfg.telegram_bot_token:
             from .telegram import TelegramChannel
             channels.append(TelegramChannel(
                 cfg.telegram_bot_token, cfg.telegram_chat_id,
-                selfie_dir=cfg.selfie_dir))
+                selfie_dir=cfg.selfie_dir,
+                chat_id_env=cfg.telegram_chat_id_env))
         return cls(channels)
 
     @property

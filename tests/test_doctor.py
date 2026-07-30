@@ -147,7 +147,8 @@ def test_the_cpu_torch_recipe_takes_torchaudio_from_the_same_index(monkeypatch, 
     from yurios import doctor
 
     root = Path(__file__).resolve().parent.parent
-    recipes = [root / n for n in ("install.sh", "README.md", "pyproject.toml")]
+    recipes = [root / n for n in ("install.sh", "README.md", "pyproject.toml",
+                                  "docs/installation.md")]
     # …plus the install hints the seams print. Only the torchaudio-shaped ones: the
     # sentence_tf embedder needs torch and nothing else, so its hint is right to
     # name only torch.

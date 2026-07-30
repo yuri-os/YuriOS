@@ -10,16 +10,21 @@ loop you can speak into, four tools she can reach for, one outbound event bus, a
 is this project's own code, run as **one process, one origin** (`python -m yurios.world`,
 port **8768**). The Python packages are `yurios/app` (the brain), `yurios/desktop` (the
 voice loop), `yurios/forge` (the image service), `yurios/world` (the body, the tools, the
-bus, the server), and `yurios/mind` (the autonomy engine); the SOUL she is seeded from
+bus, the server), `yurios/mind` (the autonomy engine) and `yurios/characters` (the
+registry, the card reader, the connection profiles — Part III); the SOUL she is seeded from
 lives in `soul-src/`, the browser frontend in `web/`. Where a subsystem has a history
 worth recording, that history is documented in `PROVENANCE.md` — provenance, not a
 dependency.
 
-This document is organised in two parts. **Part I — the body (§1–§14)** specifies the
+This document is organised in three parts. **Part I — the body (§1–§14)** specifies the
 reactive companion: the brain and its file-Vault, the voice loop, the 3D body, the hands,
 and the one bus. **Part II — the mind (§15–§25)** specifies the always-on autonomy engine
-built on top of it, with omissions, tests, and the growth path at §26–§28. Section
-numbers are stable: in-source `SPEC §n` comments cite them.
+built on top of it. **Part III — the house (§29–§33)** specifies the 0.2 layer that runs
+more than one of her: the host, the character registry, cards, connection profiles, the
+switchboard, and the 0.1 → 0.2 migration. The cross-cutting omissions, tests, and growth
+path are §26–§28, which sit between Parts II and III in the text because they were
+written first — section numbers are stable, and in-source `SPEC §n` comments cite them,
+so nothing is ever renumbered.
 
 ---
 
@@ -429,9 +434,15 @@ to every new subscriber before its first live event. Malformed JSON is logged an
   synthesized rain-noise bed (client-side) whose gain follows intensity. The room renders
   through a post chain (bloom → tone-map → grade) — without it the neon does not leave the
   surface it is painted on. Cost is a first-class constraint: this GPU is usually also holding
-  her model (§3), so the room **MUST** carry a reduced tier (`?fx=low`, and automatically on
-  small or coarse-pointer displays) that drops the planar floor reflection, the shadow map, the
-  area lights and the post-AA.
+  her model (§3), and on a handset it is also holding the browser. The room therefore **MUST**
+  carry reduced tiers, decided in one place (`web/js/stage/quality.js`) and forceable with
+  `?fx=full|low|phone`: `low` — a narrow window or a large touch display — drops the planar
+  floor reflection, the shadow map, the area lights and the post-AA; `phone` — a coarse pointer
+  on a small screen — additionally caps the drawn pixels, halves the resolution the bloom is
+  built at, folds the tone-map into the grade so one full-screen pass comes off, cuts the room's
+  nine lights to four, and thins everything that moves, is redrawn or is uploaded per frame. A
+  tier is a guess about a device, so the client **MUST** also measure: it watches the frame
+  clock and gives render resolution back until the frame fits.
 - §6.3 The page chrome carries **the switchboard's design system** — one look across the
   character board (`web/dashboard/`), both bodies (§6.6) and the shared `.env` panel (§11):
   Inter for prose, IBM Plex Mono for the small uppercase labels, 1px rules and 2px corners on
@@ -461,6 +472,19 @@ to every new subscriber before its first live event. Malformed JSON is logged an
   unchanged; `/api/config` (`yurios/world/routes/live2d.py`) answers its rig-registry needs.
   `DESKTOP_BODY=vrm|live2d` (or `--window --body …`) picks which body the §6.5 window floats.
   The Live2D body realises only the `expression` op — it remains a guest, not a second puppet.
+- §6.7 **No body at all.** A **text client** **MUST** be served at `/text/` (`web/text/`, and
+  `/characters/<id>/text/` on a multi-character node), because a room she cannot be reached
+  in is not a feature: an integrated GPU, a phone on a train, a screen reader and a remote
+  session are all normal ways to want her. It is a **separate page**, not a mode on §6.1's:
+  it builds no WebGL context, loads no VRM and imports none of the room, so the ~1 MB of
+  three.js never reaches a client that will not draw. What it carries is everything that is
+  not a body — the §2.6 transcript, the §24.3 inner-life panel, the §11 `.env` panel and
+  gauge, the two footer switches (§9.10, §10.5, with Telegram sending **off** by default in
+  here), and the §9 voice loop with its mic and barge-in intact — over the same `/api/events`
+  bus and the same `/ws/voice` socket, byte for byte (§10). `avatar` events still arrive and
+  are simply not realised. The §6.4 enter gesture still applies: autoplay policy does not
+  care that there is no body, and her greeting still has to be audible. The switchboard
+  (§6.3) **MUST** offer all three ways in for every character.
 
 ## §7 — Tools via MCP: the hands
 
@@ -605,6 +629,12 @@ STT/TTS/VAD SDK, and fakes implement each seam so the whole loop runs offline (�
   barge-in path kills everything she says, scripted or replied. Ambient speech is a real turn
   *minus the memory* — it appears in the chat flagged `proactive` but never persists (no corpus
   line, no commit); announcements queue until deliverable, missed self-talk is simply dropped.
+- §9.10 **Mute is not deaf.** Every client (§6.6, §6.7) **MUST** carry a switch that silences her
+  *output* — the speakers, never the microphone and never the ambience, which has its own. It
+  **MUST** act on the playback graph after the lip-sync tap, so a muted page still moves her
+  mouth, still shows her captions and still fills the transcript: she is talking, you simply
+  cannot hear her. It is remembered per character (`web/js/controls.js`) and re-applied before
+  her first syllable, because a mute you must re-press on every load is a chore, not a setting.
 
 ## §10 — Topology: one event bus + one audio socket
 
@@ -656,11 +686,17 @@ down host — `/api/health` and the boot board say which):
   chat only (`TELEGRAM_CHAT_ID`; unset = pairing mode: the bot answers with the id to configure and
   processes nothing). Telegram is *reachable, not present*: it posts no presence signals; selfies
   are sent as the file itself. A channel is on when its credentials are set — no separate enable
-  flag. The one runtime knob is the sanctuary's sending switch (`POST /api/channels/telegram/
-  sending`, a footer button): it gates her *outbound* lines on the live adapter — she keeps
-  reading the chat — and it is session-scoped, so a restart sends again.
+  flag. The one runtime knob is the sending switch (`POST /api/channels/telegram/sending`, a
+  footer button on **every** client — §6.6, §6.7): it gates her *outbound* lines on the live
+  adapter — she keeps reading the chat — and it is session-scoped on the server, so a restart
+  sends again. The client therefore **MUST** remember the last choice per character and
+  re-assert it on load (`web/js/controls.js`), or "off" would quietly become "on" behind a
+  restart. With nothing yet remembered the rooms adopt whatever the runtime currently says; the
+  **text room (§6.7) defaults to off**, because it is the client you open on the device already
+  holding the Telegram chat, and hearing her twice is not hearing her twice as well. An explicit
+  press outranks both.
 
-**One outside account, one character.** The host runs a runtime per character (§25), so a shared
+**One outside account, one character.** The host runs a runtime per character (§29), so a shared
 credential would be opened once per character — and an inbox is single-tenant: Telegram answers all
 but the last `getUpdates` poller with "Conflict: terminated by other getUpdates request", leaving
 her reachable nowhere. Each character therefore **MUST** have her own credentials, named with her
@@ -692,7 +728,12 @@ Vault dir) are inherited; the body knobs are `COMPANION_NAME`, `TOOLS_BACKEND=mc
 tool caps/timeouts/log dir and per-tool rate limits, `TIMER_MAX_MINUTES`,
 `WEATHER_BACKEND`/`WEATHER_CITY`, `SELFIE_BACKEND`/`SELFIE_MODEL`/`SELFIE_DIR`, `RAIN_INTENSITY`,
 `DESKTOP_BODY`, the channel credentials (§10.5), and the reflex windows (`IDLE_SETTLE_S`,
-`IDLE_ACT_MIN/MAX_S`, `IDLE_TALK_MIN/MAX_S`). The mind's knobs are §25.
+`IDLE_ACT_MIN/MAX_S`, `IDLE_TALK_MIN/MAX_S`). The mind's knobs are §25; `DATA_DIR` — the root
+of the character tree — is Part III's (§29.1).
+
+A knob in `.env` is the **host default**: every character inherits it unless her registry record
+overrides that field (§31.2). The knobs a character may override are hers alone; the rest —
+the port, the room, the reflex windows, what leaves the machine — are the house's.
 
 The local settings panel (`desktop/routes/settings.py`, the gear in every room) edits that file
 directly and **MUST** stay loopback-only, since it hands the browser the keys it renders. Its one
@@ -1014,6 +1055,15 @@ brain with fake models.
   catch-up, journaled, not re-sensed); **her own promise** ("I'll sleep on cat names" → a `reach_out`
   goal with promise provenance and a due time, journaled as made); **a timer is a promise** (announce
   queues while nobody can hear, delivers when a page attaches).
+- §27.3 **The house (Part III).** The card parser against malformed, oversized and hostile PNGs
+  (`test_characters_card.py`); registry round-trips, schema refusal, path escapes, and rollback on a
+  failed write (`test_characters_registry.py`); import as a transaction — a failure leaves no
+  partial character, a generic card lands under review, a name collision takes the next id
+  (`test_characters_importer.py`); the host — overlapping storage refused at construction, per-character
+  config resolution and Telegram pair resolution, routing to the right runtime, the profile save that
+  accepts a review, portrait cache headers (`test_host.py`); and the migration — check/dry-run/run,
+  the refusals of §33.3, legacy roots left untouched, the marker written last, and the default
+  portrait installed exactly once (`test_migration.py`).
 
 ## §28 — Extends to
 
@@ -1028,3 +1078,148 @@ work-product to self. The **temporal knowledge graph** behind `WorldModelStore`'
 when "what was true when" starts to bite. And **distribution**: this Vault's SOUL exports as a `.PNG`
 character card and boots on someone else's machine, which is the point of the whole ladder — the
 companion you own, that you can move by copying a folder.
+
+---
+
+# Part III — the house (§29–§33)
+
+Parts I and II specify **one** companion. YuriOS 0.2 runs a house of them: the process that
+starts is a **host** which owns the registry, the storage tree and the ports, and starts one
+isolated **runtime** — the whole of Parts I and II — per character. Nothing in Parts I or II
+changes; a runtime does not know it has neighbours.
+
+## §29 — The host and the character registry
+
+- §29.1 **The storage tree.** `DATA_DIR` (default `./data`) is the root the host owns. Under it:
+  `characters.json` (the registry), `connections.json` (§31.1), `archives/` (§29.6), and
+  `characters/<id>/` — one self-contained root per character holding `source-card.png`,
+  `card.json`, `portrait.png`, `vault/`, `corpus/`, `traces/`, `tool-logs/` and `selfies/`
+  (`characters/models.py`'s `CharacterPaths`). A character is a directory: moving her is copying
+  it, which is the Part I promise held at house scale.
+- §29.2 **The registry is one atomic JSON file.** `characters.json` carries
+  `{schema_version: 1, characters: […]}`; an unknown `schema_version` **MUST** be refused, not
+  guessed at. Every write is a whole-file atomic replace (temp file → `fsync` → `os.replace` →
+  directory `fsync`, `characters/registry.py`), and an in-memory mutation that fails to persist
+  **MUST** be rolled back, so the file on disk and the process never disagree. Persisted paths
+  **MUST** be relative to `DATA_DIR` and **MUST NOT** escape it on load — a registry is portable,
+  and a path that climbs out of the tree is a rejected registry, not a warning.
+- §29.3 **Ids.** A character id is 1–64 characters of lowercase ASCII, digits, `.`, `_` or `-`,
+  derived from her display name, with `_v2`, `_v3`… appended when the name is taken. The id is
+  the URL segment, the env-var suffix (§10.5) and the directory name — one identifier, everywhere.
+- §29.4 **Isolation is checked at construction.** `CharacterHost.__init__` **MUST** refuse to
+  build when any two characters' writable roots overlap — equal, or one inside the other. Two
+  minds sharing a Vault would interleave commits and consolidate each other's memories; the host
+  fails loudly at start rather than discovering it at 3 a.m. in DREAM. Process-level isolation is
+  explicitly *not* provided (§26): runtimes share one event loop and one address space.
+- §29.5 **Lifecycle.** `start(id)` builds a runtime app for exactly one character and starts it;
+  a character that is disabled or still under review (§30.3) **MUST NOT** start. Start/stop/restart
+  serialise on one lock. A runtime that fails to start leaves the host up with that character in
+  `failed` and its error kept for the board — one broken companion is never a down house. At boot
+  the host starts every character that is `enabled` **and** `autostart` **and** not under review,
+  and a failure there is skipped, not fatal. Shutdown stops runtimes in reverse start order.
+- §29.6 **Archive and purge are different acts.** `archive` stops the runtime and *renames* her
+  root under `archives/<id>-<timestamp>` — her files survive, she leaves the board. `purge`
+  deletes the root and **MUST** require a confirmation string matching her id or display name.
+  Nothing else may delete a character root.
+- §29.7 **Routing.** The host serves the switchboard at `/`, a character's page at
+  `/characters/<id>/sanctuary/`, and dispatches `/api/characters/<id>/…` and `/ws/characters/<id>/…`
+  into that character's runtime by rewriting the path to the runtime's own `/api/…` or `/ws/…`
+  — so every Part I route exists per character, unchanged, and the runtime is unaware of the
+  prefix. A request for a character that is not running **MUST** answer 404 with a plain reason.
+  One **primary** character (the first enabled autostart one, else the first to start) additionally
+  answers the unprefixed Part I routes, which is what keeps the single-companion install, the
+  terminal channel and the desktop window working with no character in the URL. With no character
+  running, those routes answer 503.
+
+## §30 — Character cards: import, review, edit, export
+
+- §30.1 **The card reader is a strict parser, not a loader.** `characters/card.py` reads
+  SillyTavern V2/V3 cards out of PNG `tEXt` chunks (`ccv3` preferred, `chara` accepted), and
+  **MUST** bound everything before decoding it: file bytes, chunk bytes, chunk count, decoded
+  metadata bytes, image width/height/pixels (`CardLimits`). A card is a file from the internet;
+  an invalid V3 chunk **MUST NOT** silently fall back to a V2 one.
+- §30.2 **Import is transactional.** The whole character — source card, `card.json`, a
+  re-encoded portrait, a seeded Vault with her SOUL files written from the card's fields, the
+  empty corpus/traces/tool-logs/selfies roots, and a `git init` of the Vault — is assembled in a
+  staging directory on the same filesystem and made visible with **one rename**; the registry
+  entry is added last. A failure at any point **MUST** leave no partial character behind. The
+  portrait is re-encoded from the PNG's pixels rather than copied, so no chunk of the uploaded
+  file survives into the served image.
+- §30.3 **Generic cards arrive under review.** A card that does not declare itself a YuriOS card
+  (a `yurios` key on the card, its fields, or its `extensions`) is imported **disabled**, with
+  `review_required` set: her capabilities do not run and no mind wakes. Saving her profile once
+  (§30.4) is the human act that accepts the review and starts her. A YuriOS-native card may
+  import enabled. The switchboard **MUST** show a character under review as needing attention.
+- §30.4 **The SOUL files are authoritative; the card is the interchange format.** Editing a
+  character's profile writes `card.json` *and* rewrites the corresponding SOUL sections in her
+  Vault (`description`/`system_prompt`/`post_history_instructions` → `CONSTITUTION.md`,
+  `scenario` → `SCENARIO.md`, `first_mes` → the cold open, `personality` → `PERSONA.md`
+  frontmatter, `creator_notes` → `NOTES.md`, `name` → `soul.yaml`), and **MUST** commit the
+  Vault. Prompts are assembled from the SOUL (§2.1), never from `card.json` — so an edit that
+  did not reach the files would be an edit that did not happen.
+- §30.5 **Export is identity, never intimacy.** An exported PNG carries her portrait with both a
+  `chara` (V2) and a `ccv3` (V3) chunk built from `card.json` — identity, persona, scenario, lore.
+  It **MUST NOT** carry `USER.md`, relationship memory, the corpus, traces, tool audit, selfies
+  or any credential. Sharing her is sharing who she is, not who you are.
+
+## §31 — Connections and per-character bindings
+
+- §31.1 **Named connection profiles.** `connections.json` (`{schema_version: 1, profiles: […]}`)
+  holds `{name, backend, endpoint, api_key_env}` — a profile names *where* a model is reached and
+  *which environment variable* holds the key. It **MUST NOT** contain a secret; keys live in the
+  host `.env` and are read from the environment by name. On a first run with no file, the host
+  seeds `default` and `legacy-default` from the host's own `.env` route, so an upgraded
+  single-companion install already has the profile its characters point at.
+- §31.2 **A character's record overrides the host default, field by field.** `config_for_character`
+  builds a runtime `Config` from the host's, always replacing the character-scoped identity and
+  paths (name, vault, corpus, traces, tool logs, selfies, the loop switches, her Telegram pair),
+  and replacing a field only when her record names one: chat and utility model, TTS/STT backend
+  and voice register, body backend and avatar model. A blank binding therefore means *inherit*,
+  which is what makes one `.env` still configure a house. The connection profile's endpoint (else
+  her record's) re-points the LM Studio or Ollama base url according to her chat model's prefix.
+- §31.3 **Loop switches are per character.** `mind`, `utility` and `dream` are registry fields, not
+  just `.env` knobs: one companion may be a fully autonomous mind while another is reactive-only.
+  Toggling `mind` **MUST** take effect on the live runtime without a restart; toggling `utility`
+  or `dream` **MAY** restart her runtime, because they are wired at construction.
+
+## §32 — The switchboard
+
+- §32.1 **The board is the front door.** `/` serves the character board (`web/dashboard/`): one
+  tile per registered character with her portrait, name, state, model and voice, an import
+  control, and a drawer with her journal, log and context history. Entering a character is a
+  navigation to `/characters/<id>/sanctuary/`; **leaving her room returns to the board without
+  stopping her runtime** — a companion's life does not depend on being looked at.
+- §32.2 **State is the truth, not a guess.** A character's reported state is `attention` when she
+  is under review, else her mind's activity state when a runtime is up, else the host's own
+  `offline` / `starting` / `ready` / `failed`. A failed character reports her error. The board
+  **MUST** display an unrecognised state as unknown rather than inventing one.
+- §32.3 **One design system.** The board, both bodies (§6.6) and the shared `.env` panel (§11)
+  carry the same chrome (§6.3): entering a character must not feel like leaving the app.
+- §32.4 **The API is same-origin JSON** (`web/dashboard/API.md`): `GET /api/characters`,
+  `GET /api/connections`, `POST /api/characters/import`, `GET|PATCH /api/characters/<id>/profile`,
+  `PATCH /api/characters/<id>/loop`, `PATCH /api/characters/<id>/controls`,
+  `GET /api/characters/<id>/{portrait,export,journal,log,context-history}`,
+  `POST /api/characters/<id>/archive`, `DELETE /api/characters/<id>/purge?confirm=…`. The portrait
+  route **MUST** send `Cache-Control: no-cache`: one stable URL whose bytes genuinely change
+  (a re-render, a replaced file, a fresh install on the same port) must not show yesterday's face.
+
+## §33 — The 0.1 → 0.2 migration
+
+- §33.1 **It runs itself, once, before any mind wakes.** On the first 0.2 start, the legacy roots
+  (`VAULT_DIR`, `corpus/`, `traces/`, `tool-logs/`, `selfies/`) are assembled into a registered
+  character under `DATA_DIR` (`yurios/migrate.py`). `python -m yurios.migrate --check` reports
+  without touching anything; `--dry-run` shows the plan; `--data-dir` targets another root.
+- §33.2 **Copy, never move.** The legacy directories **MUST** survive untouched as the backup.
+  The character is assembled in a staging directory on the same filesystem and made visible with
+  one rename, and `layout.json` is written **last** — its presence is the durable record that
+  migration completed, so an interrupted run is a no-op that can simply be run again.
+- §33.3 **It refuses rather than risks.** Symlinked or unreadable legacy trees, a Vault whose
+  `soul.yaml` is invalid or declares an unsupported `vault_format`, a registry rooted at a
+  different `DATA_DIR`, a colliding destination, or a Vault git repository that cannot be
+  committed **MUST** abort the migration with an explanatory error and no partial character.
+  A legacy Vault that is a git repository keeps its history and gains one migration commit.
+- §33.4 **She arrives with a face.** A migrated character whose display name is the shipped
+  companion's and who has no `portrait.png` gets the packaged default portrait, once, and only
+  when the file is absent — a portrait the user replaced or the forge rendered is hers and is
+  never overwritten. A missing packaged portrait is a cosmetic loss and **MUST NOT** fail a
+  migration.

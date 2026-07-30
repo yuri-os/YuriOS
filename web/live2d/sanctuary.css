@@ -189,6 +189,17 @@ svg{ width:1.1em; height:1.1em; fill:none; stroke:currentColor; stroke-width:1.7
 }
 .icon-button:hover,.icon-button:focus-visible{ border-color:var(--soft); color:var(--ink); }
 
+/* FORK(B4): the footer switches (/js/controls.js, SPEC §10.5) — one vocabulary
+   for both: lit while the thing is happening, dimmed and slashed while it isn't */
+.voice-mute,.tg-mute{ position:relative; background:var(--panel); }
+.voice-mute .voice-glyph{ width:15px; height:15px; }
+.tg-mute .tg-glyph{ width:14px; height:14px; fill:currentColor; }
+.voice-mute.muted,.tg-mute.muted{ color:var(--dim); opacity:.62; }
+.voice-mute.muted::after,.tg-mute.muted::after{
+  content:""; position:absolute; left:12%; top:50%; width:76%; height:1px;
+  background:currentColor; transform:rotate(-45deg);
+}
+
 /* narrow window: the body above, the chat below */
 @media (max-width: 720px){
   :root{ --bar-h:56px; }
@@ -232,6 +243,7 @@ svg{ width:1.1em; height:1.1em; fill:none; stroke:currentColor; stroke-width:1.7
   pointer-events:none;
 }
 :root.desktop .controls .mic,
+:root.desktop .controls .icon-button,
 :root.desktop .controls #text{ background:rgb(7 10 9 / .82); backdrop-filter:blur(14px); }
 :root.desktop .stage:hover .controls{ opacity:1; pointer-events:auto; }
 :root.desktop .caption{ bottom:64px; }               /* clear the hover bar */

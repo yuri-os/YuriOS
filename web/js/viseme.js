@@ -22,6 +22,8 @@ export class VisemeDriver {
   constructor() {
     this.ctx = undefined;
     this.analyser = undefined;
+    this.gain = undefined;       // the mute switch (js/controls.js)
+    this.muted = false;
     this.buf = undefined;
     this.value = 0;              // the smoothed weight the stage reads
     this.lastT = performance.now();
@@ -34,10 +36,27 @@ export class VisemeDriver {
       this.ctx = new AudioContext();
       this.analyser = this.ctx.createAnalyser();
       this.analyser.fftSize = 512;
-      this.analyser.connect(this.ctx.destination);
+      // …and the tap comes BEFORE the volume, so muting her silences the speakers
+      // without stopping the mouth: the analyser still sees the samples, step 9
+      // still opens `aa`, and she goes on talking where you can read her (§10.5).
+      this.gain = this.ctx.createGain();
+      this.gain.gain.value = this.muted ? 0 : 1;
+      this.analyser.connect(this.gain);
+      this.gain.connect(this.ctx.destination);
       this.buf = new Float32Array(this.analyser.fftSize);
     }
     return this.ctx;
+  }
+
+  /** Mute her output. Remembered across loads by js/controls.js, which may call
+   *  this before the context exists — hence the stored flag. */
+  setMuted(muted) {
+    this.muted = Boolean(muted);
+    if (!this.gain) return;
+    // a short ramp, not a step: a gain cliff mid-syllable is an audible click
+    const t = this.ctx.currentTime;
+    this.gain.gain.cancelScheduledValues(t);
+    this.gain.gain.setTargetAtTime(this.muted ? 0 : 1, t, 0.015);
   }
 
   /** The stage's viseme source: () => 0..1, sampled once per render frame. */

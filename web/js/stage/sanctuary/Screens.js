@@ -6,6 +6,7 @@
  * The canvas is small and redrawn a few times a second on wall-clock time, so
  * the texture upload stays negligible next to the room itself.
  */
+import { QUALITY } from '../quality.js';
 import { mkCanvas, toTex } from './textures.js';
 
 const W = 448;
@@ -30,12 +31,12 @@ const FEED = [
 ];
 
 export class Terminal {
-  constructor({ low = false } = {}) {
+  constructor() {
     this.canvas = mkCanvas(W, H);
     this.ctx = this.canvas.getContext('2d');
     this.texture = toTex(this.canvas, { clamp: true });
     this.lines = [];
-    this.period = low ? 0.5 : 0.28;
+    this.period = 1 / QUALITY.terminalHz;          // → quality.js
     this._due = this.period;
     this._t = 0;
     for (let i = 0; i < 6; i++) this._push();      // boot with some history
@@ -58,7 +59,9 @@ export class Terminal {
       c.fillStyle = ln.includes('WARNING') || ln.includes('trace') ? '#ff2bd6'
         : ln.includes('REFUSED') || ln.includes('lost') ? '#f5b462'
           : '#2bfff0';
-      c.shadowColor = c.fillStyle; c.shadowBlur = 6;
+      // the phosphor halo, where a CPU blur per line is affordable; on the phone
+      // tier the room's bloom is what makes this screen glow anyway (Post.js)
+      if (!QUALITY.phone) { c.shadowColor = c.fillStyle; c.shadowBlur = 6; }
       c.fillText(ln, 12, 26 + i * ROW);
     });
     c.shadowBlur = 0;

@@ -17,6 +17,7 @@
 import { DirectionalLight, HemisphereLight } from 'three';
 
 import { ControlBridge } from './bridge.js';
+import { renderContext } from './context.js';
 import { Music } from './music.js';
 import { SanctuaryScene } from './stage/SanctuaryScene.js';
 import { VrmStage } from './stage/VrmStage.js';
@@ -37,48 +38,9 @@ const els = {
   text: document.getElementById('text'),
   send: document.getElementById('send'),
   rainMute: document.getElementById('rain-mute'),
-  telegramMute: document.getElementById('telegram-mute'),
   enter: document.getElementById('enter'),
   enterBtn: document.getElementById('enter-btn'),
 };
-
-/* the context gauge (SPEC §11) — `context` events off the one bus (world/context.py).
- * The event is sticky, so a page opened mid-conversation gets the last reading
- * on connect rather than a blank. Shown as used / window, because "you are near
- * the ceiling" is only readable if the ceiling is on screen next to it; with no
- * window known (a hosted route never says) the used side stands alone.
- *
- * What must fit is the prompt PLUS the reply she hasn't written yet, so the
- * thresholds count `reserve` (MAX_REPLY_TOKENS) in: amber at 75% of the window,
- * magenta once prompt + reply no longer fit — the state that used to surface as
- * the server refusing the turn ("Context size has been exceeded"). */
-// 8192 → "8.2k", 128000 → "128k" (world/context.short_tokens, kept in step)
-const short = (n) => {
-  if (n < 1000) return `${n}`;
-  const k = n / 1000;
-  return `${k.toFixed(Math.abs(k - Math.round(k)) < 0.05 ? 0 : 1)}k`;
-};
-
-function renderContext(c) {
-  if (!els.context || !c) return;
-  const { used = 0, limit, reserve = 0, exact, pct, limit_source: src } = c;
-  const approx = exact ? '' : '~';
-  els.context.textContent = limit
-    ? `ctx ${approx}${short(used)}/${short(limit)}`
-    : `ctx ${approx}${short(used)}`;
-  const near = limit ? used >= 0.75 * limit : false;
-  const over = limit ? used + reserve > limit : false;
-  els.context.classList.toggle('near', near && !over);
-  els.context.classList.toggle('over', over);
-  els.context.title = [
-    `${exact ? 'prompt' : 'estimated prompt'}: ${used.toLocaleString()} tokens`,
-    limit ? `window: ${limit.toLocaleString()} tokens${src ? ` (${src})` : ''}`
-          : 'window: unknown — set CONTEXT_LENGTH in .env to show it',
-    reserve ? `reserved for her reply: ${reserve.toLocaleString()}` : '',
-    pct != null ? `${pct}% used` : '',
-    over ? 'over the window — raise CONTEXT_LENGTH in .env and restart' : '',
-  ].filter(Boolean).join('\n');
-}
 
 async function boot() {
   const stage = new VrmStage(document.getElementById('scene'),
@@ -112,39 +74,12 @@ async function boot() {
     els.rainMute.title = muted ? 'unmute the rain' : 'mute the rain';
   });
 
-  // the telegram switch (footer): gates her OUTBOUND lines only — she still
-  // reads the chat. The flag lives on the live adapter (routes/channels.py),
-  // so the click applies now and a restart puts sending back on. The button
-  // only exists when this character has a channel; the server answers that.
-  const tgSwitch = (() => {
-    const btn = els.telegramMute;
-    if (!btn) return;
-    const api = window.YuriOSRuntime?.apiPath ?? ((p) => p);
-    const render = (sending) => {
-      btn.classList.toggle('muted', !sending);
-      btn.setAttribute('aria-pressed', String(!sending));
-      btn.title = sending
-        ? 'stop sending her messages to telegram'
-        : 'resume sending her messages to telegram';
-    };
-    fetch(api('/api/channels/telegram/sending'))
-      .then((r) => r.json())
-      .then(({ configured, sending_enabled: on }) => {
-        if (!configured) return;               // no channel: no switch
-        btn.hidden = false;
-        render(on);
-        btn.addEventListener('click', async () => {
-          const off = btn.classList.contains('muted');
-          const r = await fetch(api('/api/channels/telegram/sending'), {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ enabled: off }),
-          });
-          if (r.ok) render((await r.json()).sending_enabled);
-        });
-      })
-      .catch(() => {});                        // no server, no switch — stay hidden
-  })();
+  // The two switches this page shares with the Live2D body and the text room
+  // (js/controls.js, SPEC §10.5): how loud she is here, and whether her lines
+  // also leave for Telegram. Both remembered per character across loads; the
+  // rooms adopt the runtime's current sending state when there is nothing
+  // remembered yet, which is what the sanctuary has always done.
+  window.WorldControls.init({ setMuted: (m) => viseme.setMuted(m) });
 
   // The gate's button only becomes real once her body is in the room (the click
   // handler is attached below, after the load): disable it until then so a slow
@@ -173,7 +108,7 @@ async function boot() {
     const bridge = new ControlBridge(stage, { room, music });
     bridge.listen();
     addEventListener('world-ev', (e) => {
-      if (e.detail?.type === 'context') renderContext(e.detail);
+      if (e.detail?.type === 'context') renderContext(els.context, e.detail);
     });
     window.WorldChat.connect({
       onStatus: (up) => {

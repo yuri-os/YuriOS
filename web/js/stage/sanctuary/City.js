@@ -18,6 +18,7 @@ import {
   MeshStandardMaterial, PlaneGeometry, ShaderMaterial,
 } from 'three';
 
+import { QUALITY } from '../quality.js';
 import { mkCanvas, toTex } from './textures.js';
 
 const R = Math.random;
@@ -98,20 +99,32 @@ const BULLETINS = [
 export class City {
   /**
    * @param scene   the three.js scene (the city hangs outside the room's group)
-   * @param opts    { low }  low-cost tier: half-res overlay, fewer movers
+   *
+   * The tier (→ quality.js) buys down the *live* half only: the bake is a
+   * one-time cost and the district is the whole point of the window. What comes
+   * off is overlay resolution, how often it is redrawn and uploaded, how many
+   * movers are in it, and — on a phone — Canvas2D's `shadowBlur`, which is a
+   * real blur of a real region on the CPU and by far the most expensive thing
+   * that used to happen twelve times a second in here.
    */
-  constructor(scene, { low = false } = {}) {
-    this.low = low;
+  constructor(scene) {
+    const Q = (this.q = QUALITY);
+    const low = Q.low;
     this.t = 0;
     this.rain = 0.6;
     this._overlayDue = 0;
 
     // ---- the baked city ----
-    const stat = mkCanvas(CITY_W, CITY_H);
+    // Drawn in city space whatever size it is baked at: the phone tier bakes it
+    // half-size, which is still twice the screen the district lands on there, and
+    // saves a 1536-wide raster of gradients and blurred signs at boot.
+    const stat = mkCanvas(Math.round(CITY_W * Q.city), Math.round(CITY_H * Q.city));
+    const statCtx = stat.getContext('2d');
+    statCtx.scale(Q.city, Q.city);
     this.blinkers = [];
     this.cars = [];
     this.hoardingRect = null;
-    this._bake(stat.getContext('2d'));
+    this._bake(statCtx);
     const statTex = toTex(stat, { clamp: true });
 
     const backdrop = new Mesh(new PlaneGeometry(14, 6.5), new MeshBasicMaterial({
@@ -124,7 +137,7 @@ export class City {
     scene.add(backdrop);
 
     // ---- the live overlay ----
-    const scale = low ? 0.35 : 0.5;
+    const scale = Q.phone ? 0.3 : low ? 0.35 : 0.5;
     this.liveW = Math.round(CITY_W * scale);
     this.liveH = Math.round(CITY_H * scale);
     this.live = mkCanvas(this.liveW, this.liveH);
@@ -200,7 +213,7 @@ export class City {
 
     // hover traffic between the towers — the only thing out there that hurries
     this.flyers = [];
-    for (let i = 0; i < (low ? 4 : 8); i++) {
+    for (let i = 0; i < Q.flyers; i++) {
       const car = new Group();
       const body = new Mesh(new BoxGeometry(0.34, 0.05, 0.1), shell);
       const trail = new Mesh(new BoxGeometry(0.5 + R() * 0.5, 0.018, 0.018),
@@ -380,11 +393,22 @@ export class City {
     c.fillStyle = veil; c.fillRect(0, 0, CITY_W, CITY_H);
 
     this.drops = [];
-    for (let i = 0; i < (this.low ? 110 : 200); i++)
+    for (let i = 0; i < this.q.farRain; i++)
       this.drops.push({ x: R() * CITY_W, y: R() * CITY_H, l: 8 + R() * 20, v: 480 + R() * 340 });
   }
 
   // ----------------------------------------------------------- the live layer
+
+  /** A glow around whatever is drawn next. `shadowBlur` is a genuine blur of a
+   *  genuine region, done on the CPU, per call — fine in the bake, ruinous in a
+   *  layer that redraws while she is talking. The phone tier goes without and
+   *  leans on the room's bloom, which is already looking at this canvas and is
+   *  the reason any of it glows on screen at all (stage/Post.js). */
+  _glow(c, col, blur) {
+    if (this.q.phone) return;
+    c.shadowColor = col;
+    c.shadowBlur = blur;
+  }
 
   _drawOverlay(dt) {
     const c = this.liveCtx;
@@ -396,7 +420,7 @@ export class City {
       const a = 0.5 + 0.5 * Math.sin(t * b.speed * 2 + b.x);
       c.globalAlpha = a * a;
       if (b.rect) {
-        c.shadowColor = b.col; c.shadowBlur = 20;
+        this._glow(c, b.col, 20);
         c.fillStyle = b.col;
         c.fillRect(b.x, b.y, b.w, b.h);
         c.shadowBlur = 0;
@@ -462,7 +486,7 @@ export class City {
 
     const glitch = R() < 0.05 ? (R() - 0.5) * 16 : 0;
     c.textAlign = 'center';
-    c.shadowColor = ad.accent; c.shadowBlur = 16;
+    this._glow(c, ad.accent, 16);
     c.fillStyle = ad.accent;
     c.font = 'bold 22px monospace';
     c.fillText(ad.title, x + w / 2 + glitch, y + 80);
@@ -508,7 +532,7 @@ export class City {
     c.globalAlpha = 1;
 
     c.textAlign = 'left';
-    c.shadowColor = HACK; c.shadowBlur = 7;
+    this._glow(c, HACK, 7);
     c.font = 'bold 13px monospace';
     c.fillStyle = HACK;
     c.fillText('◇ SIGNAL INTRUSION · SOURCE UNRESOLVED', x + 14, y + 26);
@@ -558,9 +582,10 @@ export class City {
     // Redraw on wall-clock, not on frames: a 144 Hz display must not upload the
     // overlay twice as often as a 60 Hz one for the same picture.
     this._overlayDue += dt;
-    const period = 1 / (this.low ? 12 : 20);
-    if (this._overlayDue >= period) {
-      this._drawOverlay(this._overlayDue);
+    if (this._overlayDue >= 1 / this.q.overlayHz) {
+      // …and not at all for a tab nobody is looking at: this is a canvas snapshot
+      // and a texture upload, which is the same bargain her terminal makes.
+      if (!document.hidden) this._drawOverlay(this._overlayDue);
       this._overlayDue = 0;
     }
   }

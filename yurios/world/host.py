@@ -656,6 +656,15 @@ def create_host_app(base: Config, registry: CharacterRegistry | None = None) -> 
         require(character_id)
         return RedirectResponse(f"/live2d/?character={character_id}")
 
+    # The bodyless client (SPEC §6.7): the transcript, the composer and the voice
+    # loop with no renderer behind them. Same bundle root, so /assets/* below
+    # serves it; shared/runtime.js reads the character out of this path.
+    @app.get("/characters/{character_id}/text")
+    @app.get("/characters/{character_id}/text/")
+    async def character_text(character_id: str):
+        require(character_id)
+        return FileResponse(DIST_DIR / "text" / "index.html", media_type="text/html")
+
     # Both Vite entry points emit their hashed bundles into this shared root.
     # Keep it ahead of the primary-runtime fallback so /assets/* is not
     # dispatched to a character app that was created without its frontend.

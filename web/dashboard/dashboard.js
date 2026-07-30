@@ -96,6 +96,15 @@ function portrait(character, className = "portrait") {
   return node;
 }
 
+/* Where a character can be opened (world/host.py). Three clients, one runtime:
+ * the 3D sanctuary, the Live2D body (SPEC §6.6) and the bodyless text room
+ * (SPEC §6.7). Every one of them is character-scoped by its path, which is what
+ * shared/runtime.js reads to aim the API and socket calls. */
+function rooms(character) {
+  const base = `/characters/${encodeURIComponent(character.id)}`;
+  return { sanctuary: `${base}/sanctuary/`, live2d: `${base}/live2d`, text: `${base}/text/` };
+}
+
 function statusChip(character) {
   const chip = element("span", { className: "status-chip" },
     element("i", { className: "status-dot", attrs: { "aria-hidden": "true" } }),
@@ -131,12 +140,21 @@ function characterCard(character) {
   const enter = element("a", {
     className: "enter-character",
     text: "Enter",
-    attrs: { href: `/characters/${encodeURIComponent(character.id)}/sanctuary/`, "aria-label": `Enter ${character.name}'s sanctuary` },
+    attrs: { href: rooms(character).sanctuary, "aria-label": `Enter ${character.name}'s sanctuary` },
   });
   enter.append(icon("arrow"));
+  // …and the two other ways into the same runtime (SPEC §6.6, §6.7): the Live2D
+  // body, and the text room for when a GPU is not what you have.
+  const way = (name, label, href) => element("a", {
+    className: "card-way",
+    attrs: { href, title: label, "aria-label": `${label} — ${character.name}` },
+  }, icon(name));
+  const ways = element("div", { className: "card-ways" }, enter,
+    way("live2d", "Live2D body", rooms(character).live2d),
+    way("text", "Text only", rooms(character).text));
   const controls = element("div", { className: "loop-stack" },
     loopLabel("mind", "Mind"), loopLabel("utility", "Utility"), loopLabel("dream", "Dream"));
-  const footer = element("div", { className: "card-footer" }, controls, enter, details);
+  const footer = element("div", { className: "card-footer" }, controls, ways, details);
   card.append(top, body, footer);
   return card;
 }
@@ -235,7 +253,10 @@ function syncDrawer() {
     return;
   }
   elements.drawerName.textContent = character.name;
-  elements.drawerEnter.href = `/characters/${encodeURIComponent(character.id)}/sanctuary/`;
+  const where = rooms(character);
+  elements.drawerEnter.href = where.sanctuary;
+  $("#drawer-live2d").href = where.live2d;
+  $("#drawer-text").href = where.text;
   $("#drawer-export").href = `/api/characters/${encodeURIComponent(character.id)}/export`;
   elements.drawerIdentity.style.setProperty("--character-accent", character.accent);
   elements.drawerIdentity.replaceChildren(

@@ -16,6 +16,8 @@ import {
   PlaneGeometry, Points, PointsMaterial, ShaderMaterial, Vector2,
 } from 'three';
 
+import { QUALITY } from './quality.js';
+
 const PANE_VERT = /* glsl */ `
   varying vec2 vUv;
   void main() {
@@ -24,7 +26,12 @@ const PANE_VERT = /* glsl */ `
   }
 `;
 
-const PANE_FRAG = /* glsl */ `
+/* The pane, at `layers` drip layers. Two is the look: a slow set of drips with a
+ * faster, finer set running through it. One is the phone tier — the glass fills
+ * most of the frame, so its fragment count is nearly the frame's, and every hash
+ * in here is paid once per pixel of window. The beads stay either way; they are
+ * the part that reads as water rather than as noise. */
+const PANE_FRAG = (layers) => /* glsl */ `
   uniform float uTime;
   uniform float uIntensity;
   uniform vec3 uTint;
@@ -53,8 +60,8 @@ const PANE_FRAG = /* glsl */ `
     float d = clamp(uIntensity, 0.0, 1.0);
     // faint wet sheen so the glass reads as glass even between drips
     float sheen = 0.045 + 0.03 * d;
-    float drips = streaks(vUv, t, 58.0, 0.22 + 0.5 * d)
-                + streaks(vUv, t * 1.6, 91.0, 0.18 + 0.45 * d) * 0.7;
+    float drips = streaks(vUv, t, 58.0, 0.22 + 0.5 * d)${layers > 1 ? `
+                + streaks(vUv, t * 1.6, 91.0, 0.18 + 0.45 * d) * 0.7` : ''};
     // beads: a jittered grid of droplets that just sit there, catching the city
     vec2 id = floor(vUv * uCells);
     vec2 cell = fract(vUv * uCells) - 0.5;
@@ -83,7 +90,7 @@ export class Rain {
     for (const p of opening.panes) {
       const mat = new ShaderMaterial({
         vertexShader: PANE_VERT,
-        fragmentShader: PANE_FRAG,
+        fragmentShader: PANE_FRAG(QUALITY.glassLayers),
         uniforms: {
           uTime: { value: 0 },
           uIntensity: { value: this.intensity },
@@ -106,7 +113,10 @@ export class Rain {
     }
 
     // --- the drops outside ---
-    this.dropCount = 1100;
+    // Every one of these is moved on the CPU each frame and re-uploaded (→ update),
+    // so the count is the tier's (→ quality.js): a quarter of them on a phone,
+    // where the window is a hand's width and nobody counts raindrops in it.
+    this.dropCount = QUALITY.drops;
     const volumes = opening.volumes;
     const pos = new Float32Array(this.dropCount * 3);
     this.speeds = new Float32Array(this.dropCount);
@@ -145,8 +155,11 @@ export class Rain {
     for (const m of this.paneMats) m.uniforms.uIntensity.value = this.intensity;
     this.dropMat.opacity = 0.12 + 0.33 * this.intensity;
     // fewer drops in a drizzle: draw a prefix of the cloud. The volumes are
-    // interleaved (i % volumes.length), so a prefix thins them all evenly.
-    this.geo.setDrawRange(0, Math.floor(this.dropCount * (0.15 + 0.85 * this.intensity)));
+    // interleaved (i % volumes.length), so a prefix thins them all evenly — and
+    // the frame only moves the prefix, so a drizzle is cheaper than a downpour
+    // on the CPU as well as on screen.
+    this.live = Math.floor(this.dropCount * (0.15 + 0.85 * this.intensity));
+    this.geo.setDrawRange(0, this.live);
     this.drops.visible = this.intensity > 0.01;
     for (const p of this.panes) p.visible = true;   // the sheen stays at 0 — wet glass
   }
@@ -157,7 +170,7 @@ export class Rain {
     const pos = this.geo.attributes.position;
     const fall = 0.6 + 0.6 * this.intensity;        // heavier rain falls faster
     const arr = pos.array;
-    for (let i = 0; i < this.dropCount; i++) {
+    for (let i = 0; i < this.live; i++) {
       const box = this.homes[i];
       const y = arr[i * 3 + 1] - this.speeds[i] * fall * dt;
       if (y < box.y0) this._seed(arr, i, box, box.y1);

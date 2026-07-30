@@ -136,7 +136,10 @@
         if (charName) {
           for (const el of document.querySelectorAll('[data-char-name]'))
             el.textContent = charName;
-          document.title = `${charName} / Sanctuary`;
+          // …and the tab, which says which of her rooms this is: three pages run
+          // this file now (`data-room` on <html>, default the 3D one).
+          document.title =
+            `${charName} / ${document.documentElement.dataset.room || 'Sanctuary'}`;
         }
       } else if (m.type === 'message') {
         if (backfilled) addMsg(m); else queued.push(m);

@@ -7,6 +7,8 @@
  */
 import { CanvasTexture, ClampToEdgeWrapping, RepeatWrapping, SRGBColorSpace } from 'three';
 
+import { QUALITY } from '../quality.js';
+
 export const PALETTE = {
   magenta: '#ff2bd6',
   cyan: '#2bfff0',
@@ -16,13 +18,34 @@ export const PALETTE = {
 };
 
 // Anisotropy needs the renderer's capabilities, which the scene has and this
-// module does not — SanctuaryScene calls this before drawing anything.
+// module does not — SanctuaryScene calls this before drawing anything. The tier
+// caps it (→ quality.js): sixteen taps per fragment of floor is a desktop
+// luxury, and one tap is a floor that shimmers at grazing angles, so a phone
+// gets two.
 let ANISO = 1;
 export function configureTextures(renderer) {
-  ANISO = renderer.capabilities.getMaxAnisotropy();
+  ANISO = Math.min(renderer.capabilities.getMaxAnisotropy(), QUALITY.anisotropy);
 }
 
 const R = Math.random;
+
+/* The room's big repeating maps are drawn at the tier's size (→ quality.js) —
+ * 512 on a desk, 256 in a hand, where the whole room is fewer pixels than the
+ * texture was. `grain(n)` scales any per-pixel scatter (grit, scratches, weave)
+ * with the canvas, so a smaller map is the same surface and not a denser one. */
+const S_MAP = QUALITY.surface;
+const grain = (n) => Math.max(1, Math.round((n * S_MAP * S_MAP) / (512 * 512)));
+
+/** A canvas of the tier's size, with a context that still takes 512-space
+ *  coordinates. Every plate gap, rivet inset and worn patch below is authored
+ *  against 512, and a smaller map must be the same surface at lower resolution —
+ *  not the same numbers over a quarter of the area. */
+function mapCanvas(logical = 512, px = S_MAP) {
+  const cv = mkCanvas(px);
+  const c = cv.getContext('2d');
+  c.scale(px / logical, px / logical);
+  return [cv, c];
+}
 
 export function mkCanvas(w, h = w) {
   const c = document.createElement('canvas');
@@ -73,8 +96,7 @@ export function heightToNormal(srcCanvas, strength = 2.2) {
  *  before her. Wet-looking under the window (the reflector does the rest). */
 export function createFloorMaps() {
   const S = 512, plates = 4, ps = S / plates;
-  const col = mkCanvas(S), hgt = mkCanvas(S), rgh = mkCanvas(S);
-  const c = col.getContext('2d'), h = hgt.getContext('2d'), r = rgh.getContext('2d');
+  const [col, c] = mapCanvas(S), [hgt, h] = mapCanvas(S), [rgh, r] = mapCanvas(S);
   c.fillStyle = '#0b0b11'; c.fillRect(0, 0, S, S);
   h.fillStyle = '#202020'; h.fillRect(0, 0, S, S);
   r.fillStyle = '#b4b4b4'; r.fillRect(0, 0, S, S);
@@ -113,13 +135,13 @@ export function createFloorMaps() {
       r.fillStyle = rg; r.beginPath(); r.arc(sx, sy, sr, 0, 7); r.fill();
     }
   }
-  for (let i = 0; i < 60; i++) {                   // scratches
+  for (let i = 0; i < grain(60); i++) {            // scratches
     const x = R() * S, y = R() * S, a = R() * Math.PI, l = 10 + R() * 60;
     c.strokeStyle = `rgba(140,150,180,${0.04 + R() * 0.08})`;
     c.lineWidth = 0.8;
     c.beginPath(); c.moveTo(x, y); c.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l); c.stroke();
   }
-  for (let i = 0; i < 4200; i++) {                 // grit
+  for (let i = 0; i < grain(4200); i++) {          // grit
     const v = R() * 24;
     c.fillStyle = `rgba(${v + 8},${v + 8},${v + 15},0.12)`;
     c.fillRect(R() * S, R() * S, 1.4, 1.4);
@@ -135,8 +157,7 @@ export function createFloorMaps() {
  *  a unit in a stacked block, not a designed interior. */
 export function createWallMaps() {
   const S = 512;
-  const col = mkCanvas(S), hgt = mkCanvas(S), rgh = mkCanvas(S);
-  const c = col.getContext('2d'), h = hgt.getContext('2d'), r = rgh.getContext('2d');
+  const [col, c] = mapCanvas(S), [hgt, h] = mapCanvas(S), [rgh, r] = mapCanvas(S);
   c.fillStyle = '#13131b'; c.fillRect(0, 0, S, S);
   h.fillStyle = '#7a7a7a'; h.fillRect(0, 0, S, S);
   r.fillStyle = '#b0b0b0'; r.fillRect(0, 0, S, S);
@@ -175,7 +196,7 @@ export function createWallMaps() {
       }
     }
   }
-  for (let i = 0; i < 26; i++) {                   // water running down, for years
+  for (let i = 0; i < grain(26); i++) {            // water running down, for years
     const x = R() * S, y0 = R() * S * 0.4, len = 40 + R() * 140;
     const g = c.createLinearGradient(0, y0, 0, y0 + len);
     g.addColorStop(0, 'rgba(0,0,0,0.28)'); g.addColorStop(1, 'rgba(0,0,0,0)');
@@ -184,11 +205,12 @@ export function createWallMaps() {
     r.fillStyle = 'rgba(30,30,30,0.28)';
     r.fillRect(x, y0, 2 + R() * 5, len);
   }
-  for (let i = 0; i < 3600; i++) {
+  const speck = grain(3600);
+  for (let i = 0; i < speck; i++) {
     const v = R() * 18;
     c.fillStyle = `rgba(${v + 9},${v + 9},${v + 16},0.12)`;
     c.fillRect(R() * S, R() * S, 1.2, 1.2);
-    if (i < 1500) {
+    if (i < speck * 0.42) {
       const rv = 100 + R() * 110;
       r.fillStyle = `rgba(${rv},${rv},${rv},0.14)`;
       r.fillRect(R() * S, R() * S, 1.5, 1.5);
@@ -217,9 +239,9 @@ export function createMetalTex() {
 /** The woven cloth of the window-seat cushion and the rug — the one soft thing
  *  in a room made of panels. Threadbare on purpose: it has been used. */
 export function createWeaveTex() {
-  const S = 512, cv = mkCanvas(S), c = cv.getContext('2d');
+  const S = 512, [cv, c] = mapCanvas(S);
   c.fillStyle = '#1a1522'; c.fillRect(0, 0, S, S);
-  for (let i = 0; i < 9000; i++) {
+  for (let i = 0; i < grain(9000); i++) {
     const v = R() * 24;
     c.fillStyle = `rgba(${34 + v},${24 + v},${44 + v},0.35)`;
     c.fillRect(R() * S, R() * S, 2, 1.2);
@@ -247,7 +269,8 @@ export function createWeaveTex() {
  *  this one is pale enough to hold an edge against the floor, with the stripes
  *  running around the body the way the sphere UVs already run. */
 export function createFurTex() {
-  const S = 256, cv = mkCanvas(S), c = cv.getContext('2d');
+  // half the room's map size: the animal is 30 cm of screen from where you sit
+  const S = 256, [cv, c] = mapCanvas(S, S_MAP / 2);
   c.fillStyle = '#4a4552'; c.fillRect(0, 0, S, S);
   // No banding: sphere UVs run in rings, and anything with contrast in them
   // turns the animal into an armadillo. What is left is soft mottling and the
@@ -259,7 +282,7 @@ export function createFurTex() {
     g.addColorStop(1, 'rgba(0,0,0,0)');
     c.fillStyle = g; c.beginPath(); c.arc(x, y, rr, 0, 7); c.fill();
   }
-  for (let i = 0; i < 9000; i++) {                 // the fur itself
+  for (let i = 0; i < grain(9000); i++) {          // the fur itself
     const v = R() * 44;
     c.fillStyle = `rgba(${84 + v},${78 + v},${94 + v},${0.04 + R() * 0.16})`;
     c.fillRect(R() * S, R() * S, 1.3, 2.4);

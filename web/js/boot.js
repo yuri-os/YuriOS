@@ -65,7 +65,8 @@
     document.documentElement.dataset.charNamed = who;
     for (const el of document.querySelectorAll('[data-char-name]'))
       el.textContent = who;
-    document.title = `${who} / Sanctuary`;
+    // `data-room` on <html> names the page (chat.js titles it the same way)
+    document.title = `${who} / ${document.documentElement.dataset.room || 'Sanctuary'}`;
   }
 
   function render(ui, snap) {

@@ -48,17 +48,33 @@
   let listening = false;
 
   // ---- playback (her voice) + lipsync analyser -----------------------------
-  let outCtx = null, analyser = null, sinks = [], playing = false, playT = 0;
+  let outCtx = null, analyser = null, outGain = null, muted = false;
+  let sinks = [], playing = false, playT = 0;
 
   function outputContext() {
     if (!outCtx) {
       outCtx = new AudioContext();
       analyser = outCtx.createAnalyser();
       analyser.fftSize = 512;
-      analyser.connect(outCtx.destination);
+      // FORK(B4): the mute switch (/js/controls.js, SPEC §10.5) sits AFTER the
+      // lipsync tap, so silencing her speakers leaves her mouth moving and her
+      // captions arriving — muted, not gone.
+      outGain = outCtx.createGain();
+      outGain.gain.value = muted ? 0 : 1;
+      analyser.connect(outGain);
+      outGain.connect(outCtx.destination);
       requestAnimationFrame(lipsyncLoop);
     }
     return outCtx;
+  }
+
+  /** Called by /js/controls.js, possibly before the context exists. */
+  function setMuted(v) {
+    muted = Boolean(v);
+    if (!outGain) return;
+    const t = outCtx.currentTime;            // ramp: a gain cliff mid-word clicks
+    outGain.gain.cancelScheduledValues(t);
+    outGain.gain.setTargetAtTime(muted ? 0 : 1, t, 0.015);
   }
 
   function enqueueAudio(pcm, sr) {
@@ -214,6 +230,10 @@
 
   els.text.addEventListener("keydown", (e) => { if (e.key === "Enter") sendText(); });
   els.send?.addEventListener("click", sendText);
+
+  // FORK(B4): the switches this page shares with the other two (SPEC §10.5) —
+  // her volume here, and whether she also leaves for Telegram. Both remembered.
+  window.WorldControls?.init({ setMuted });
 
   Avatar.init?.().finally(connect);   // load the body if present, then dial in
 })();

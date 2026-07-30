@@ -36,6 +36,7 @@ import { RectAreaLightUniformsLib } from 'three/addons/lights/RectAreaLightUnifo
 import { Reflector } from 'three/addons/objects/Reflector.js';
 
 import { Post } from './Post.js';
+import { QUALITY } from './quality.js';
 import { Rain } from './Rain.js';
 import { Cat } from './sanctuary/Cat.js';
 import { City } from './sanctuary/City.js';
@@ -61,11 +62,12 @@ export class SanctuaryScene {
    *  (Post), because the room is the only thing that needs it: desktop mode
    *  (SPEC §6.5) builds none of this and renders straight to the framebuffer. */
   constructor(scene, renderer, camera) {
-    // One quality switch for the whole room. This GPU usually also holds her
-    // model (→ SPEC §3), so `?fx=low` is a real escape hatch, not just a phone path.
-    this.low = new URLSearchParams(location.search).get('fx') === 'low'
-      || window.matchMedia('(pointer: coarse)').matches
-      || window.innerWidth < 900;
+    // One quality switch for the whole room, decided in quality.js and read here:
+    // `low` is the reduced tier (no wet floor, no shadow map, no area lights),
+    // `phone` is the tier under that. This GPU usually also holds her model
+    // (→ SPEC §3), so `?fx=low` is a real escape hatch, not just a handset path.
+    const Q = (this.q = QUALITY);
+    this.low = Q.low;
     const low = this.low;
 
     configureTextures(renderer);
@@ -254,7 +256,7 @@ export class SanctuaryScene {
         { rx: -0.7, shadow: false });
 
     // ---- outside: the Sprawl, the rain ----
-    this.city = new City(scene, { low });
+    this.city = new City(scene);
     this.rain = new Rain(scene, {
       panes: [
         { x: winCx, y: (W.y0 + W.y1) / 2, z: fz - 0.03, width: winW, height: winH, axis: 'z' },
@@ -391,7 +393,7 @@ export class SanctuaryScene {
     //
     // The group sits at the desk's middle, so the whole 0.76-wide monitor and
     // the keyboard in front of it stay inside that rectangle once rotated.
-    this.terminal = new Terminal({ low });
+    this.terminal = new Terminal();
     const console_ = new Group();
     console_.position.set(1.55, 0, 1.55);
     console_.rotation.y = -Math.PI / 2 - 0.72;
@@ -522,9 +524,14 @@ export class SanctuaryScene {
     tube.rotation.z = Math.PI / 2;
     tube.position.set(0.55, CEIL_Y - 0.09, 0.9);
     room.add(tube);
-    this.tubeLight = new PointLight(0xbfe8ff, 0.15, 4, 2);
-    this.tubeLight.position.set(0.55, CEIL_Y - 0.3, 0.9);
-    scene.add(this.tubeLight);
+    // Its sputter is the mesh, which is emissive and blooms; the light it throws
+    // on the ceiling is a whole extra lamp in every shader in the room, so on the
+    // phone tier the fixture keeps flickering and stops lighting anything.
+    if (Q.fixtureLights) {
+      this.tubeLight = new PointLight(0xbfe8ff, 0.15, 4, 2);
+      this.tubeLight.position.set(0.55, CEIL_Y - 0.3, 0.9);
+      scene.add(this.tubeLight);
+    }
     this._tubeState = 0.15;
     this._tubeTimer = 0;
 
@@ -548,7 +555,7 @@ export class SanctuaryScene {
     // ---- the cat: the one thing in here that decides where to be ----
     // It knows the room's perches by their world coordinates (Cat.js SPOTS), so
     // moving the seat, the sill, the stool or the desk moves them there too.
-    this.cat = new Cat(room, { low, camera });
+    this.cat = new Cat(room, { camera });
 
     // ---- light (SPEC §6.1: LOW and WARM — the lamp carries the room) ----
     scene.add(new HemisphereLight(0x28304a, 0x0a0a12, 0.28));
@@ -598,9 +605,13 @@ export class SanctuaryScene {
     }
     this.cityLightBase = this.cityLight.intensity;
 
-    // the accents: small, coloured, close to what emits them
+    // The accents: small, coloured, close to what emits them. Each one is another
+    // light every fragment of the room has to integrate, and what they add is a
+    // wash around three signs that already glow on their own — so the phone tier
+    // keeps the signs and drops the wash (→ quality.js).
     this.accents = [];
     const accent = (color, intensity, dist, x, y, z, flicker = 0.06) => {
+      if (!Q.accents) return;
       const l = new PointLight(color, intensity, dist, 2);
       l.position.set(x, y, z);
       scene.add(l);
@@ -614,10 +625,28 @@ export class SanctuaryScene {
     this._buildShaft(room, winCx);
     this._buildDust(scene);
 
+    // The room is furniture: it is built once and then it holds still. Only the
+    // fan, the holo and the cat ever move, so freeze every other matrix in here
+    // and let three stop recomposing a few hundred of them every frame — on a
+    // phone that traversal is main-thread time the rest of the app wants.
+    this._freeze(room, [this.fan, this.holo, this.cat.root]);
+
     // ---- the look (SPEC §6.2) ----
-    this.post = new Post(renderer, scene, camera, { low });
+    this.post = new Post(renderer, scene, camera);
 
     this.setRain(0.6);
+  }
+
+  /** Turn off automatic matrix updates for everything under `root` except the
+   *  branches listed in `moving`, which are left alone from their root down. */
+  _freeze(root, moving) {
+    const still = (o) => {
+      if (moving.includes(o)) return;
+      o.matrixAutoUpdate = false;
+      o.updateMatrix();
+      o.children.forEach(still);
+    };
+    still(root);
   }
 
   // ------------------------------------------------------------------ pieces
@@ -720,9 +749,11 @@ export class SanctuaryScene {
     beam.position.set(hx, 0.79, hz);
     room.add(beam);
 
-    this.holoLight = new PointLight(0x2bfff0, 0.3, 2.2, 2);
-    this.holoLight.position.set(hx, 0.95, hz);
-    scene.add(this.holoLight);
+    if (this.q.fixtureLights) {                    // see the tube, above
+      this.holoLight = new PointLight(0x2bfff0, 0.3, 2.2, 2);
+      this.holoLight.position.set(hx, 0.95, hz);
+      scene.add(this.holoLight);
+    }
   }
 
   /** The window's light, made visible by the air it crosses. */
@@ -753,7 +784,7 @@ export class SanctuaryScene {
 
   /** Dust, drifting. Half of it seeded into the shaft, where it can be seen. */
   _buildDust(scene) {
-    const count = this.low ? 200 : 380;
+    const count = this.q.dust;
     const geo = new BufferGeometry();
     const pos = new Float32Array(count * 3);
     const size = new Float32Array(count);
@@ -839,7 +870,7 @@ export class SanctuaryScene {
       this._tubeTimer = 0.08 + R() * 0.6;
     }
     this.tubeMat.color.setHex(0xbfe8ff).multiplyScalar(1.1 * this._tubeState);
-    this.tubeLight.intensity = 0.35 * this._tubeState;
+    if (this.tubeLight) this.tubeLight.intensity = 0.35 * this._tubeState;
 
     for (const a of this.accents)
       a.light.intensity = a.base * (1 - a.flicker + a.flicker * Math.sin(t * 5 + a.phase));
@@ -851,7 +882,7 @@ export class SanctuaryScene {
     this.holoRingB.rotation.z -= dt * 0.6;
     this.holo.position.y = 0.92 + Math.sin(t * 1.4) * 0.025;
     this.holoMat.opacity = 0.16 + 0.03 * Math.sin(t * 23) + (R() < 0.015 ? -0.07 : 0);
-    this.holoLight.intensity = 0.3 * (0.85 + 0.15 * Math.sin(t * 17));
+    if (this.holoLight) this.holoLight.intensity = 0.3 * (0.85 + 0.15 * Math.sin(t * 17));
 
     this.dustMat.uniforms.time.value = t;
   }

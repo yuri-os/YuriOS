@@ -104,6 +104,32 @@ def test_host_preserves_dashboard_and_sanctuary_routes(tmp_path, monkeypatch):
         assert client.get("/api/health").json() == {"character": "Yuri"}
 
 
+def test_every_body_of_a_character_is_reachable_by_her_own_id(tmp_path, monkeypatch):
+    """Three clients, one runtime (SPEC §6.6, §6.7): the 3D sanctuary, the Live2D
+    body and the bodyless text room. Each is addressed per character, because the
+    path is what shared/runtime.js reads to aim the API and socket calls — a page
+    served off an unscoped URL talks to whoever the node calls primary."""
+    dist = tmp_path / "dist"
+    (dist / "text").mkdir(parents=True)
+    (dist / "index.html").write_text("sanctuary", encoding="utf-8")
+    (dist / "text" / "index.html").write_text("text room", encoding="utf-8")
+    registry = CharacterRegistry(tmp_path)
+    registry.add(record(tmp_path))
+    monkeypatch.setattr("yurios.world.host.create_app", fake_character_app)
+    monkeypatch.setattr("yurios.world.host.DIST_DIR", dist)
+    app = create_host_app(Config(data_dir=tmp_path), registry)
+
+    with TestClient(app) as client:
+        text = client.get("/characters/yuri/text/")
+        assert text.status_code == 200
+        assert text.text == "text room"
+        assert client.get("/characters/yuri/text").status_code == 200
+        assert client.get("/characters/unknown/text/").status_code == 404
+        live2d = client.get("/characters/yuri/live2d", follow_redirects=False)
+        assert live2d.status_code == 307
+        assert live2d.headers["location"] == "/live2d/?character=yuri"
+
+
 def test_primary_prefers_running_autostart_character(tmp_path, monkeypatch):
     registry = CharacterRegistry(tmp_path)
     registry.add(record(tmp_path, "mia", autostart=False))

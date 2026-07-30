@@ -26,6 +26,10 @@ export default defineConfig({
       input: {
         sanctuary: resolve(import.meta.dirname, 'index.html'),
         dashboard: resolve(import.meta.dirname, 'dashboard/index.html'),
+        // the bodyless client (SPEC §6.7): served at /text/ — same bus, same
+        // voice socket, no WebGL. Its own entry so the room's bundle (three.js,
+        // three-vrm — about a megabyte) is not on a page that never draws.
+        text: resolve(import.meta.dirname, 'text/index.html'),
       },
     },
   },

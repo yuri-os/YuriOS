@@ -1,0 +1,168 @@
+<!doctype html>
+<!-- The text room (SPEC §6.7) — her, with the room taken out: no WebGL context,
+     no VRM download, no post chain, no cat. One column of transcript, a composer
+     and the mic, on the same one bus (/api/events) and the same voice socket
+     (/ws/voice) as the 3D sanctuary — everything on the wire is identical, which
+     is the whole point of §10 being a bus and not a renderer.
+
+     A separate page rather than a mode on the sanctuary: that page's job is a
+     room, and the cheapest way to not render a room is to not be the page that
+     renders one. Served at /text/ (single character) or
+     /characters/<id>/text/ (host — world/host.py).
+
+     `data-room` names the tab: chat.js and boot.js write "<her name> / Text"
+     here and "<her name> / Sanctuary" on the pages that have one. -->
+<html lang="en" data-room="Text">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0c1110">
+  <title>YuriOS / Text</title>
+  <!-- her ◇ as an inline SVG favicon, the same mark and acid the room's tab wears -->
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M8 1.5 14.5 8 8 14.5 1.5 8Z' fill='none' stroke='%23d7ff58' stroke-width='1.6'/></svg>">
+  <link rel="stylesheet" href="./text.css">
+  <!-- the .env panel's shared stylesheet, served raw at /shared/ (SPEC §11) -->
+  <link rel="stylesheet" href="/shared/settings.css">
+</head>
+<body>
+  <header class="masthead">
+    <a class="button leave" href="/" aria-label="Back to the switchboard">
+      <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m15 5-7 7 7 7"/></svg>
+      <span>Switchboard</span>
+    </a>
+    <span class="mast-id">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <!-- [data-char-name]: boot.js and chat.js write her name into every one of
+           these, so a second character's page is never labelled with the first's -->
+      <span class="mast-copy"><b data-char-name>your companion</b><small>text room</small></span>
+    </span>
+    <div class="mast-state">
+      <span class="status" id="status">offline</span>
+      <span class="avatar-status" id="avatar-status" title="/api/events">bus down</span>
+      <!-- how full her context window is (SPEC §11) — js/context.js, the same
+           gauge and the same thresholds the sanctuary's masthead shows -->
+      <span class="context" id="context" title="context window"></span>
+      <span class="latency" id="latency" title="end-of-speech → first audio"></span>
+    </div>
+    <!-- the span is empty on purpose: the gear is an SVG mask in
+         /shared/settings.css, not a glyph — U+2699 is tofu wherever the font
+         stack lacks it (Chromium/Linux). -->
+    <button id="settings-open" class="gear" title="settings" aria-label="settings">
+      <span class="icon" aria-hidden="true"></span>
+    </button>
+  </header>
+
+  <nav class="subbar">
+    <!-- the same two panels the sanctuary's column carries: the transcript and
+         the inner-life panel (SPEC §24.3, js/mind.js) -->
+    <div class="tabs">
+      <button id="tab-chat" class="tab on">chat</button>
+      <button id="tab-mind" class="tab">inner life</button>
+    </div>
+    <!-- the ways into her other rooms. text.js re-points these at
+         /characters/<id>/… when this page is a per-character route. -->
+    <div class="ways">
+      <a id="way-room" class="way" href="/">3D room</a>
+      <a id="way-live2d" class="way" href="/live2d/">Live2D</a>
+    </div>
+  </nav>
+
+  <main class="reader">
+    <!-- js/chat.js owns this list: history backfill, you/her bubbles, the
+         accumulating draft while she speaks, selfies (SPEC §7.6) -->
+    <div id="messages" aria-live="polite"></div>
+    <div id="innerlife" hidden></div>
+  </main>
+
+  <!-- voice.js writes the sentence currently being spoken here. Hidden, like the
+       sanctuary's: the transcript is what you read, and the same words arrive on
+       the bus a moment later. Kept in the DOM because that is where voice.js
+       puts them, and a page that drops it silently drops her captions. -->
+  <p class="caption" id="caption" aria-live="polite"></p>
+
+  <footer class="composer">
+    <button id="mic" class="button mic" title="click to toggle listening">
+      <span class="dot" aria-hidden="true"></span>
+      <span id="mic-label">start listening</span>
+    </button>
+    <!-- mute her voice (js/controls.js): the speakers only. Reading her is the
+         whole point of this page, so a muted room still fills with her words. -->
+    <button id="voice-mute" class="icon-button voice-mute" title="mute her voice"
+            aria-label="mute her voice" aria-pressed="false">
+      <svg class="voice-glyph" aria-hidden="true" viewBox="0 0 24 24">
+        <path d="M4 10v4h3l4 3V7l-4 3H4zM15.4 9.3a4 4 0 0 1 0 5.4"/>
+      </svg>
+    </button>
+    <!-- …and whether she also leaves for Telegram (SPEC §10.5). Off by default
+         *here* (§6.7): the text room is the one you open on the phone that is
+         already holding the Telegram chat, and she should not say it twice.
+         Press it and that choice is remembered instead. Hidden when this
+         character has no channel — the server answers that. -->
+    <button id="telegram-mute" class="icon-button tg-mute" hidden
+            title="stop sending her messages to telegram"
+            aria-label="toggle sending her messages to telegram" aria-pressed="false">
+      <svg class="tg-glyph" aria-hidden="true" viewBox="0 0 24 24">
+        <path d="M3 11.2 21 3l-8.2 18-2.4-7.6L3 11.2z"/>
+      </svg>
+    </button>
+    <input id="text" type="text" placeholder="…type to her" autocomplete="off">
+    <!-- Enter still sends (voice.js); this is the visible half of the same one
+         path, and the only one a touch keyboard can offer -->
+    <button id="send" class="icon-button" type="button" title="send" aria-label="send">
+      <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 12h14M13 6l6 6-6 6"/></svg>
+    </button>
+  </footer>
+
+  <!-- the enter gesture (SPEC §6.4): one click, then the sockets — the reason is
+       autoplay policy, which does not care that this page has no body: her
+       greeting still has to be audible. Nothing heavy loads behind it here, so
+       the gate is a card and a boot log, not a loading screen. -->
+  <div id="enter" class="enter">
+    <div class="enter-card">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <p class="eyebrow">Text room</p>
+      <h1 class="enter-name" data-char-name>your companion</h1>
+      <p class="enter-sub">No room, no body — her words and her voice</p>
+      <div id="boot-list"></div>
+      <button id="enter-btn" class="button button-primary enter-btn">
+        Start talking
+        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- the settings panel (SPEC §11, → /shared/settings.js): the gear opens it; it
+       edits .env and the change lands on the next restart. Same markup and the
+       same script every other page uses — one codepath. -->
+  <dialog id="settings" class="settings">
+    <form method="dialog" class="settings-form" id="settings-form">
+      <header class="settings-head">
+        <span class="settings-title">settings</span>
+        <span class="settings-path" id="settings-path" title="the file being edited"></span>
+        <button type="button" id="settings-close" class="settings-x" aria-label="close"></button>
+      </header>
+      <div class="settings-body" id="settings-body">
+        <p class="settings-loading">loading…</p>
+      </div>
+      <footer class="settings-foot">
+        <span class="settings-note" id="settings-note"></span>
+        <button type="button" id="settings-save" class="settings-save">save</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <script src="/shared/runtime.js"></script>
+  <!-- The shared clients, in the order the sanctuary loads them: the footer
+       switches, the boot log, the bus + transcript, the inner-life panel. All
+       classic IIFEs (see their headers) so this page and the raw Live2D client
+       can both run them; Vite bundles them here. -->
+  <script type="module" src="../js/controls.js"></script>
+  <script type="module" src="../js/boot.js"></script>
+  <script type="module" src="../js/chat.js"></script>
+  <script type="module" src="../js/mind.js"></script>
+  <script type="module" src="./text.js"></script>
+  <!-- the .env panel, from the raw /shared/ mount (not bundled): the exact same
+       file the other two pages load. Absolute src so Vite leaves it alone. -->
+  <script src="/shared/settings.js"></script>
+</body>
+</html>

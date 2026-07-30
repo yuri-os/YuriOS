@@ -23,6 +23,7 @@ import {
 import { Blink } from './Blink.js';
 import { EmoteController } from './EmoteController.js';
 import { GazeController } from './GazeController.js';
+import { QUALITY } from './quality.js';
 import { getLoader, loadVrm } from './VrmLoader.js';
 
 export class VrmStage {
@@ -33,11 +34,28 @@ export class VrmStage {
     this.scene = new Scene();
     this.container = container;
     this.frameBody = frameBody;
+    this.q = QUALITY;
 
-    this.renderer = new WebGLRenderer({ antialias: true, alpha: transparent });
+    // MSAA is antialiasing nothing when the room's post chain owns the
+    // framebuffer — only a full-screen quad ever reaches it, and the AA happens
+    // inside the chain (stage/Post.js). It costs a multisampled backbuffer all
+    // the same, which on a phone is bandwidth spent on a lie. Desktop mode is
+    // the one path that renders straight to the framebuffer, and it is the same
+    // branch as `transparent`, so that is the one that keeps it.
+    this.renderer = new WebGLRenderer({
+      antialias: transparent, alpha: transparent, powerPreference: 'high-performance',
+    });
     if (transparent) this.renderer.setClearColor(0x000000, 0);
-    // pixelRatio capped: the LLM and this renderer share one GPU (→ ch. 24 VRAM math)
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+    // How many pixels she is worth (→ quality.js): the LLM and this renderer
+    // share one GPU (→ ch. 24 VRAM math), and a handset's is also drawing the
+    // browser. `_scale` is the adaptive give (→ _adapt), 1 until the frame slips.
+    this._scale = 1;
+    this._ceiling = this.q.maxScale;   // …and how far above the tier it may climb
+    this._ema = 1000 / 60;      // frame interval, smoothed
+    this._frames = 0;
+    this._settle = 1.5;         // seconds of grace: boot, shader compiles, loads
+    this._good = 0;             // consecutive comfortable windows
+    this.renderer.setPixelRatio(this._pixelRatio());
     this.renderer.setSize(container.clientWidth, container.clientHeight);
     this.renderer.toneMapping = ACESFilmicToneMapping;
     container.appendChild(this.renderer.domElement);
@@ -78,13 +96,67 @@ export class VrmStage {
     });
   }
 
+  /** The tier's ratio cap, a ceiling on total drawn pixels, and the adaptive
+   *  scale on top of both — then clamped to what the display actually has. The
+   *  pixel budget is what keeps a 6" screen at devicePixelRatio 3 from asking for
+   *  3 megapixels of neon; the clamp is what stops a device with headroom from
+   *  being handed more resolution than its own panel can show. */
+  _pixelRatio() {
+    const w = this.container.clientWidth || 1, h = this.container.clientHeight || 1;
+    const fit = Math.sqrt(this.q.pixelBudget / (w * h));
+    const want = Math.min(this.q.pixelRatio, fit) * this._scale;
+    return Math.max(0.5, Math.min(window.devicePixelRatio, want));
+  }
+
   onResize() {
     const { clientWidth: w, clientHeight: h } = this.container;
     if (!w || !h) return;
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
+    this.renderer.setPixelRatio(this._pixelRatio());
     this.renderer.setSize(w, h);
     this.post?.setSize(w, h);
+  }
+
+  /** Give resolution back until the frame fits, and take it back when the device
+   *  turns out to have room. A tier is a guess about a device; this is the
+   *  measurement. Everything else in the room is a fixed cost decided at boot —
+   *  the render scale is the one dial that can still move once we know what this
+   *  phone actually is, and phones vary by an order of magnitude.
+   *
+   *  Thresholds are frame *intervals*, so vsync is in them: > 24 ms is under
+   *  ~42 fps and hurts, < 18 ms is a healthy 60 Hz, and the deadband between them
+   *  is where a device that is just keeping up gets left alone. It starts at the
+   *  tier's cap and climbs from there in small steps, so a slow phone never pays
+   *  for the guess; a level that fails becomes the ceiling, so the climb settles
+   *  instead of hunting; and the ceiling itself creeps back up while frames stay
+   *  healthy, because most of what stalls this page is a passing turn of hers —
+   *  a model load, a generation, a synth — and not the device. */
+  _adapt(ms) {
+    if (this._settle > 0) { this._settle -= ms / 1000; return; }
+    if (ms > 200) { this._settle = 1; return; }   // a hitch or a hidden tab, not a verdict
+    this._ema += (ms - this._ema) * 0.06;
+    if (++this._frames < 45) return;
+    this._frames = 0;
+
+    let s = this._scale;
+    if (this._ema > 24) {
+      s = Math.max(this.q.minScale, s * 0.86);
+      this._ceiling = s;                          // this level did not hold; don't retry it
+      this._good = 0;
+    } else if (this._ema < 18 && ++this._good >= 3) {
+      this._ceiling = Math.min(this.q.maxScale, this._ceiling * 1.04);
+      s = Math.min(this._ceiling, s * 1.07);
+      this._good = 0;
+    }
+    if (Math.abs(s - this._scale) < 0.005) return;
+    const was = this._pixelRatio();
+    this._scale = s;
+    // A step the display can't show (the clamp above, or a scale still under the
+    // pixel budget) is bookkeeping only: resizing to the same numbers still
+    // reallocates the drawing buffer, and that is a visible blink for nothing.
+    if (Math.abs(this._pixelRatio() - was) > 0.001) this.onResize();
+    this._settle = 0.6;                           // let the new size prove itself
   }
 
   async loadModel(url, onProgress) {
@@ -257,8 +329,10 @@ export class VrmStage {
     const tick = () => {
       if (!this.running) return;
       const now = performance.now();
-      const delta = Math.min((now - this.lastTime) / 1000, 0.05);
+      const interval = now - this.lastTime;
+      const delta = Math.min(interval / 1000, 0.05);
       this.lastTime = now;
+      this._adapt(interval);
       this.update(delta);
       if (this.post) this.post.render(delta);     // bloom + grade (SPEC §6.2)
       else this.renderer.render(this.scene, this.camera);

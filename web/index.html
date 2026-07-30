@@ -146,12 +146,20 @@
       <span class="dot" aria-hidden="true"></span>
       <span id="mic-label">start listening</span>
     </button>
+    <!-- mute her voice (js/controls.js): the speakers, not the mic — she keeps
+         talking, the chat keeps filling, her mouth keeps moving. Remembered. -->
+    <button id="voice-mute" class="icon-button voice-mute" title="mute her voice"
+            aria-label="mute her voice" aria-pressed="false">
+      <svg class="voice-glyph" aria-hidden="true" viewBox="0 0 24 24">
+        <path d="M4 10v4h3l4 3V7l-4 3H4zM15.4 9.3a4 4 0 0 1 0 5.4"/>
+      </svg>
+    </button>
     <!-- mute just the rain bed (js/music.js); the window keeps raining -->
     <button id="rain-mute" class="icon-button rain-mute" title="mute the rain"
             aria-label="mute the rain" aria-pressed="false">
       <span class="rain-glyph" aria-hidden="true">🌧</span>
     </button>
-    <!-- silence her side of the telegram chat (js/main.js); hidden when no
+    <!-- silence her side of the telegram chat (js/controls.js); hidden when no
          channel is configured — the server says so over /api/channels -->
     <button id="telegram-mute" class="icon-button tg-mute" hidden
             title="stop sending her messages to telegram"
@@ -167,6 +175,9 @@
        window.WorldChat, and boot.js already guards document.readyState, so
        deferred module execution is behaviour-preserving. -->
   <script src="/shared/runtime.js"></script>
+  <!-- the footer switches every page shares (SPEC §10.5) — main.js hands it the
+       audio graph; it owns the buttons and what they remember -->
+  <script type="module" src="js/controls.js"></script>
   <script type="module" src="js/boot.js"></script>
   <script type="module" src="js/chat.js"></script>
   <script type="module" src="js/mind.js"></script>

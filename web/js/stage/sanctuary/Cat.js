@@ -25,6 +25,7 @@ import {
   ConeGeometry, CylinderGeometry, Group, Mesh, MeshBasicMaterial,
   MeshStandardMaterial, SphereGeometry, Vector3,
 } from 'three';
+import { QUALITY } from '../quality.js';
 import { PALETTE, createFurTex } from './textures.js';
 
 const R = Math.random;
@@ -106,8 +107,8 @@ const WINDOW = new Vector3(0, 1.45, 2.4);          // what "watching the rain" m
 export class Cat {
   /** @param room  the sanctuary's group — the cat is furniture, it moves with it
    *  @param camera  so it can find you, occasionally, and hold it a second */
-  constructor(room, { low = false, camera = null } = {}) {
-    this.low = low;
+  constructor(room, { camera = null } = {}) {
+    this.low = QUALITY.low;                        // shadow casting, and that is all
     this.camera = camera;
     this.rain = 0.6;
     this._t = 0;

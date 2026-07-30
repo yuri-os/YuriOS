@@ -1,0 +1,344 @@
+/* The text room (SPEC §6.7) — the switchboard's design system with nothing
+   behind it but the words.
+
+   The tokens, the type scale, the 1px rules, the 2px corners and the acid accent
+   are the dashboard's and the sanctuary's, verbatim: three surfaces, one product
+   (SPEC §6.3). What is deliberately *not* shared is the geometry. The sanctuary's
+   transcript is a 352px column pinned beside a room and styled to stay out of its
+   way; this is the whole page, so the same class names — chat.js and mind.js own
+   that markup and neither knows which page it is on — get a reading measure,
+   larger type and more air.
+
+   One column, four rows, all of them centred on the same measure so the masthead,
+   the tabs, the transcript and the composer line up down the page. */
+
+:root{
+  /* switchboard tokens — keep in step with dashboard.css and sanctuary.css */
+  --void:#070a09; --ground:#0c1110; --panel:#111816; --panel-2:#17201d;
+  --ink:#edf2e8; --soft:#a5afa6; --dim:#69736d; --rule:#27312c;
+  --acid:#d7ff58; --acid-dark:#a7ca32; --mint:#76e8bd; --amber:#f4bd62; --red:#ef786f;
+  --font-sans:Inter,"Segoe UI",Helvetica,Arial,sans-serif;
+  --font-mono:"IBM Plex Mono","SFMono-Regular",Consolas,monospace;
+  --shadow:0 24px 80px rgb(0 0 0 / .42);
+
+  --bar-h:64px;
+  --measure:860px;             /* the reading column every row is centred on */
+  --gutter:max(20px, calc((100% - var(--measure)) / 2));
+
+  /* the names /shared/settings.css speaks (SPEC §11) — one stylesheet serves the
+     panel on every page, and takes its palette from whichever one it lands in */
+  --bg:var(--ground); --bg-2:var(--panel); --bg-3:var(--panel-2);
+  --ink-2:var(--soft); --font:var(--font-mono);
+}
+
+*{ box-sizing:border-box; margin:0; padding:0; }
+::selection{ background:var(--acid); color:var(--void); }
+
+html,body{ height:100%; overscroll-behavior:none; }
+body{
+  display:flex; flex-direction:column;
+  background:var(--void); color:var(--ink);
+  font-family:var(--font-sans); font-size:14px;
+  -webkit-font-smoothing:antialiased;
+}
+button,input{ font:inherit; }
+button{ color:inherit; }
+a{ color:inherit; text-decoration:none; }
+button,a{ -webkit-tap-highlight-color:transparent; }
+svg{ width:1.1em; height:1.1em; fill:none; stroke:currentColor; stroke-width:1.7;
+     stroke-linecap:round; stroke-linejoin:round; }
+
+/* her ◇, drawn rather than typed — U+25C7 is tofu wherever the font stack is thin */
+.brand-mark{
+  width:16px; height:16px; flex:none; transform:rotate(45deg);
+  border:1px solid var(--acid);
+  box-shadow:inset 0 0 0 3px var(--void), inset 0 0 0 5px var(--acid);
+}
+
+.button{
+  min-height:38px; display:inline-flex; align-items:center; justify-content:center;
+  gap:8px; padding:0 15px; border:1px solid var(--rule); border-radius:2px;
+  cursor:pointer; background:transparent; color:var(--soft);
+  font:10px var(--font-mono); letter-spacing:.06em; text-transform:uppercase;
+  transition:.18s ease;
+}
+.button:hover,.button:focus-visible{ border-color:var(--soft); color:var(--ink); }
+.button-primary{ border-color:var(--acid); background:var(--acid); color:#10140a; font-weight:700; }
+.button-primary:hover{ background:#e1ff7b; box-shadow:0 0 24px rgb(215 255 88 / .13); }
+.icon-button{
+  width:40px; height:40px; display:grid; place-items:center; flex:none;
+  border:1px solid var(--rule); border-radius:2px; background:transparent;
+  color:var(--soft); cursor:pointer; transition:.18s ease;
+}
+.icon-button:hover,.icon-button:focus-visible{ border-color:var(--soft); color:var(--ink); }
+
+/* ---- the masthead: the sanctuary's bar, over nothing ---- */
+.masthead{
+  flex:none; height:var(--bar-h); display:flex; align-items:center; gap:16px;
+  padding:0 var(--gutter);
+  border-bottom:1px solid var(--rule); background:var(--ground);
+}
+.leave{ margin-right:2px; }
+.leave svg{ width:14px; height:14px; }
+.mast-id{ display:inline-flex; align-items:center; gap:11px; min-width:0; }
+.mast-copy{ display:grid; gap:2px; min-width:0; }
+.mast-copy b{
+  font-size:14px; font-weight:520; letter-spacing:.01em;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.mast-copy small{
+  color:var(--dim); font:9px/1.2 var(--font-mono);
+  letter-spacing:.12em; text-transform:uppercase;
+}
+
+/* the readouts: a state word with a coloured dot, then the numbers that only
+   matter when they're bad */
+.mast-state{ display:flex; align-items:center; gap:16px; margin-left:auto; }
+.status{
+  display:inline-flex; align-items:center; gap:8px; color:var(--soft);
+  font:9px var(--font-mono); letter-spacing:.1em; text-transform:uppercase;
+}
+.status::before{
+  content:""; width:6px; height:6px; border-radius:50%; background:var(--dim);
+  box-shadow:0 0 0 4px rgb(105 115 109 / .1);
+}
+.status.live::before{ background:var(--mint); box-shadow:0 0 0 4px rgb(118 232 189 / .12), 0 0 12px var(--mint); }
+.status.speaking::before{ background:var(--amber); box-shadow:0 0 0 4px rgb(244 189 98 / .12), 0 0 12px var(--amber); }
+.status.listening::before{ background:var(--acid); box-shadow:0 0 0 4px rgb(215 255 88 / .12), 0 0 12px var(--acid); }
+.status.error{ color:var(--red); }
+.status.error::before{ background:var(--red); box-shadow:0 0 0 4px rgb(239 120 111 / .12); }
+.avatar-status{
+  color:var(--dim); font:9px var(--font-mono);
+  letter-spacing:.1em; text-transform:uppercase;
+}
+.avatar-status.live{ color:var(--soft); }
+.context,.latency{ color:var(--dim); font:10px var(--font-mono); font-variant-numeric:tabular-nums; }
+.context.near{ color:var(--amber); }     /* ≥75% of the window is spoken for */
+.context.over{ color:var(--red); }       /* the next reply no longer fits */
+.latency.over{ color:var(--red); }       /* first audio blew the B2 §4.2 budget */
+.gear{ align-self:center; }
+
+/* ---- the sub-bar: the two panels on the left, her other rooms on the right ---- */
+.subbar{
+  flex:none; display:flex; align-items:stretch; gap:18px;
+  padding:0 var(--gutter);
+  border-bottom:1px solid var(--rule); background:var(--ground);
+}
+.tabs{ display:flex; align-items:flex-end; gap:18px; }
+.tab{
+  padding:11px 0; border:0; border-bottom:2px solid transparent; background:none;
+  color:var(--dim); cursor:pointer; font:9px var(--font-mono);
+  letter-spacing:.12em; text-transform:uppercase; transition:color .15s;
+}
+.tab:hover{ color:var(--soft); }
+.tab.on{ border-color:var(--acid); color:var(--ink); }
+.ways{ display:flex; align-items:center; gap:14px; margin-left:auto; }
+.way{
+  color:var(--dim); font:9px var(--font-mono);
+  letter-spacing:.1em; text-transform:uppercase; transition:color .15s;
+}
+.way:hover,.way:focus-visible{ color:var(--acid); }
+.way::before{ content:"↗ "; }
+
+/* ---- the transcript ---- */
+.reader{
+  flex:1; min-height:0; overflow-y:auto; padding:26px var(--gutter) 30px;
+  background:var(--void);
+  scrollbar-width:thin; scrollbar-color:var(--rule) transparent;
+}
+#messages{ display:flex; flex-direction:column; gap:14px; }
+.msg{
+  max-width:min(72%, 62ch); padding:13px 16px;
+  border:1px solid var(--rule); border-radius:2px;
+  background:var(--panel); font-size:14px; line-height:1.72;
+  white-space:pre-wrap; word-break:break-word;
+}
+.msg.her{ align-self:flex-start; }
+.msg.you{ align-self:flex-end; background:transparent; color:var(--soft); }
+/* she spoke first (SPEC §15.5) — the switchboard's notice marking, so an
+   unprompted line is legible as one at a glance */
+.msg.her.proactive{ border-left:2px solid var(--amber); }
+.msg.her.draft{ opacity:.6; }
+.msg .who{
+  display:flex; align-items:baseline; gap:8px; margin-bottom:7px;
+  color:var(--dim); font:9px var(--font-mono);
+  letter-spacing:.1em; text-transform:uppercase;
+}
+.msg.her .who{ color:var(--soft); }
+.msg .who em{ font-style:normal; color:var(--amber); }
+.msg .who .when{ margin-left:auto; white-space:nowrap; color:var(--dim);
+                 font-variant-numeric:tabular-nums; }
+.msg-img{
+  display:block; max-width:100%; border-radius:2px; margin:2px 0 7px;
+  border:1px solid var(--rule);
+}
+
+/* voice.js writes her spoken sentence here; the transcript already carries it */
+.caption{ display:none; }
+
+/* ---- the composer ---- */
+.composer{
+  flex:none; display:flex; align-items:center; gap:9px;
+  padding:14px var(--gutter);
+  border-top:1px solid var(--rule); background:var(--ground);
+}
+#text{
+  flex:1; min-width:0; height:44px; padding:0 14px;
+  border:1px solid var(--rule); border-radius:2px; outline:none;
+  background:var(--void); color:var(--ink); font:12px var(--font-mono);
+}
+#text::placeholder{ color:var(--dim); }
+#text:focus{ border-color:var(--acid-dark); box-shadow:0 0 0 3px rgb(215 255 88 / .06); }
+/* the two shared switches (js/controls.js, SPEC §10.5) — one vocabulary: lit
+   while the thing is happening, dimmed and slashed while it isn't */
+.voice-mute,.tg-mute{ position:relative; }
+.voice-mute .voice-glyph{ width:15px; height:15px; }
+.tg-mute .tg-glyph{ width:14px; height:14px; fill:currentColor; }
+.voice-mute.muted,.tg-mute.muted{ color:var(--dim); opacity:.62; }
+.voice-mute.muted::after,.tg-mute.muted::after{
+  content:""; position:absolute; left:12%; top:50%; width:76%; height:1px;
+  background:currentColor; transform:rotate(-45deg);
+}
+
+.mic{ flex:none; }
+.mic.on{ border-color:var(--acid); color:var(--acid); }
+.mic .dot{ width:6px; height:6px; border-radius:50%; background:var(--dim); }
+.mic.on .dot{ background:var(--acid); box-shadow:0 0 10px var(--acid); animation:pulse 1.4s infinite; }
+@keyframes pulse{ 50%{ opacity:.35; } }
+
+/* ---- the enter gesture (SPEC §6.4) ---- */
+.enter{
+  position:fixed; inset:0; z-index:20;
+  display:flex; align-items:center; justify-content:center; padding:24px;
+  background:
+    radial-gradient(circle at 50% 12%, rgb(106 141 78 / .1), transparent 34rem),
+    radial-gradient(1200px 800px at 50% 30%, #0c1211f2 0%, var(--void) 76%);
+  transition:opacity .4s;
+}
+.enter.leaving{ opacity:0; pointer-events:none; }
+.enter-card{
+  display:flex; flex-direction:column; align-items:center; text-align:center;
+  max-width:min(560px, 100%);
+}
+.enter-card .brand-mark{ width:20px; height:20px; margin-bottom:26px; }
+.eyebrow{
+  margin-bottom:12px; color:var(--acid); font:9px/1.3 var(--font-mono);
+  letter-spacing:.2em; text-transform:uppercase;
+}
+.enter-name{
+  margin-bottom:12px; font-size:clamp(32px, 5vw, 52px); line-height:.98;
+  letter-spacing:-.05em; font-weight:520;
+}
+.enter-sub{ color:var(--soft); font-size:13px; line-height:1.65; }
+.enter-btn{ margin-top:30px; min-height:42px; padding:0 22px; }
+.enter-btn svg{ width:13px; height:13px; }
+
+/* ---- the boot log (SPEC §6.4): js/boot.js, a kernel-style wake-up panel ---- */
+#boot-list{ width:100%; margin-top:28px; }
+.boot-panel{
+  width:min(560px, 100%); margin:0 auto; padding:15px 17px; text-align:left;
+  border:1px solid var(--rule); background:rgb(12 17 16 / .62);
+  font:11px/1.75 var(--font-mono);
+}
+.bt-head{
+  color:var(--soft); margin-bottom:9px; padding-bottom:9px;
+  border-bottom:1px solid var(--rule);
+  font-size:10px; letter-spacing:.08em;
+}
+.boot-panel.bt-ready .bt-head{ color:var(--mint); }
+.boot-panel.bt-degraded .bt-head{ color:var(--amber); }
+.bt-row{
+  display:grid; grid-template-columns:auto 1fr auto auto; gap:.7em;
+  align-items:baseline; white-space:nowrap;
+}
+.bt-tag{ color:var(--dim); }
+.bt-ok{ color:var(--mint); }
+.bt-load{ color:var(--amber); animation:bt-blink 1s steps(2, start) infinite; }
+.bt-fail{ color:var(--red); }
+.bt-pend, .bt-skip{ color:var(--dim); }
+.bt-label{ color:var(--soft); overflow:hidden; text-overflow:ellipsis; }
+.bt-detail{ color:var(--dim); overflow:hidden; text-overflow:ellipsis; min-width:0; }
+.bt-secs{ color:var(--dim); font-size:.9em; }
+@keyframes bt-blink{ 50%{ opacity:.35; } }
+
+/* ---- the inner-life panel (SPEC §24.3): js/mind.js, the second tab ---- */
+#innerlife{
+  font-size:13px; line-height:1.65; max-width:74ch;
+}
+.il-sec{ margin-bottom:30px; }
+.il-sec h3{
+  margin-bottom:12px; padding-bottom:9px; border-bottom:1px solid var(--rule);
+  color:var(--dim); font:8px var(--font-mono); font-weight:400;
+  letter-spacing:.18em; text-transform:uppercase;
+}
+.il-sec h4{
+  margin:18px 0 8px; color:var(--soft); font:8px var(--font-mono); font-weight:400;
+  letter-spacing:.14em; text-transform:uppercase;
+}
+.il-state{ color:var(--soft); }
+.il-state b{ color:var(--acid); font-weight:400; letter-spacing:.06em; text-transform:uppercase; }
+.il-budget,.il-prov,.il-off{ color:var(--dim); }
+.il-budget{ margin-top:6px; font:10px var(--font-mono); font-variant-numeric:tabular-nums; }
+.il-off{ font-size:12px; line-height:1.7; }
+
+.il-journal,.il-goals,.il-shelf{ list-style:none; padding:0; margin:0; }
+.il-journal li{
+  position:relative; margin-left:3px; padding:0 0 16px 20px;
+  border-left:1px solid var(--rule); color:var(--soft); font-size:12px; line-height:1.7;
+}
+.il-journal li::before{
+  content:""; position:absolute; left:-4px; top:5px; width:7px; height:7px;
+  border-radius:50%; background:var(--rule); box-shadow:0 0 0 4px var(--void);
+}
+.il-journal li:last-child{ border-color:transparent; }
+.il-t{
+  display:block; margin-bottom:5px; color:var(--dim); font:8px var(--font-mono);
+  letter-spacing:.1em; font-variant-numeric:tabular-nums;
+}
+.il-goals li{ margin:0 0 10px; color:var(--soft); }
+.il-goals .g-abandoned{ color:var(--dim); text-decoration:line-through; }
+.il-prov{ font:9px var(--font-mono); letter-spacing:.04em; }
+.il-shelf li{ margin:0 0 7px; color:var(--soft); font:10px var(--font-mono); }
+
+/* a queued self-edit: hers to ask, yours to allow (SPEC §24.3) */
+.il-edit{
+  margin:0 0 12px; padding:14px; border:1px solid var(--rule);
+  border-left:2px solid var(--acid-dark); background:var(--panel);
+}
+.il-surface{ color:var(--acid); font:9px var(--font-mono); letter-spacing:.1em; text-transform:uppercase; }
+.il-reason{ margin:8px 0 10px; color:var(--soft); font-size:12px; line-height:1.6; }
+.il-content{
+  max-height:14em; overflow:auto; margin-bottom:12px; padding:11px;
+  background:var(--void); border:1px solid var(--rule);
+  font:10px/1.6 var(--font-mono); white-space:pre-wrap;
+  scrollbar-width:thin; scrollbar-color:var(--rule) transparent;
+}
+.il-ok,.il-no{
+  min-height:30px; display:inline-flex; align-items:center; padding:0 13px;
+  border:1px solid var(--rule); border-radius:2px; background:transparent;
+  cursor:pointer; font:9px var(--font-mono); letter-spacing:.08em; text-transform:uppercase;
+  transition:.18s ease;
+}
+.il-ok{ border-color:var(--acid); background:var(--acid); color:#10140a; font-weight:700; }
+.il-ok:hover{ background:#e1ff7b; }
+.il-no{ color:var(--soft); }
+.il-no:hover{ border-color:var(--soft); color:var(--ink); }
+.il-ok:disabled,.il-no:disabled{ opacity:.45; cursor:wait; }
+
+/* ---- narrow: the page is already one column, so only the chrome gives ---- */
+@media (max-width: 720px){
+  :root{ --bar-h:56px; }
+  .masthead{ gap:12px; }
+  .leave span{ display:none; }
+  .leave{ width:38px; padding:0; }
+  .mast-copy small,.avatar-status,.latency{ display:none; }
+  .msg{ max-width:88%; font-size:14px; }
+  /* 16px or a mobile browser zooms the whole page when the composer takes focus */
+  #text{ font-size:16px; }
+  .way::before{ content:none; }
+}
+
+@media (prefers-reduced-motion: reduce){
+  *, *::before, *::after{ animation-duration:.01ms !important; animation-iteration-count:1 !important;
+                          transition-duration:.01ms !important; }
+}

@@ -20,6 +20,11 @@
     <symbol id="i-tune" viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h2M10 17h10M14 4v6M6 14v6"/></symbol>
     <symbol id="i-archive" viewBox="0 0 24 24"><path d="M4 8h16v12H4zM3 4h18v4H3zM9 12h6"/></symbol>
     <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M19 8a8 8 0 1 0 1 6M19 3v5h-5"/></symbol>
+    <!-- her other two rooms: the Live2D body (SPEC §6.6) — a face, because that
+         is all a Live2D rig is — and the bodyless text room (SPEC §6.7), a
+         transcript in a speech bubble -->
+    <symbol id="i-live2d" viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18M9 10h.01M15 10h.01M8.8 15c1.9 1.3 4.5 1.3 6.4 0"/></symbol>
+    <symbol id="i-text" viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4zM8 9h8M8 12.5h5"/></symbol>
   </svg>
 
   <div class="page-noise" aria-hidden="true"></div>
@@ -101,8 +106,13 @@
       </button>
     </header>
     <div id="drawer-identity" class="drawer-identity"></div>
+    <!-- the three ways into the same character: the 3D room, the Live2D body
+         (SPEC §6.6) and the bodyless text room (SPEC §6.7). One runtime behind
+         all three — the bus and the voice socket do not care which one is open. -->
     <div class="drawer-actions">
       <a id="drawer-enter" class="button button-primary" href="#">Enter sanctuary <svg><use href="#i-arrow"></use></svg></a>
+      <a id="drawer-live2d" class="button button-quiet" href="#"><svg><use href="#i-live2d"></use></svg>Live2D body</a>
+      <a id="drawer-text" class="button button-quiet" href="#"><svg><use href="#i-text"></use></svg>Text only</a>
       <a id="drawer-export" class="button button-quiet" href="#" download>Export PNG</a>
       <button id="settings-open" class="button button-quiet" type="button"><svg><use href="#i-tune"></use></svg>Settings</button>
     </div>

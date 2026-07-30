@@ -338,6 +338,11 @@ svg{ width:1.1em; height:1.1em; fill:none; stroke:currentColor; stroke-width:1.7
   .way::before{ content:none; }
 }
 
+@media (max-width: 560px){
+  .composer{ flex-wrap:wrap; }
+  .composer #text{ flex:0 0 100%; order:-1; }
+}
+
 @media (prefers-reduced-motion: reduce){
   *, *::before, *::after{ animation-duration:.01ms !important; animation-iteration-count:1 !important;
                           transition-duration:.01ms !important; }

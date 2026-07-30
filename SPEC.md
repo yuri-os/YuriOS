@@ -472,7 +472,7 @@ to every new subscriber before its first live event. Malformed JSON is logged an
   | `set_timer` | `minutes` (0 < m ≤ `TIMER_MAX_MINUTES`), `label?` | `{id, label, seconds, due}` | host schedules the announcement (§7.5) |
   | `play_music` | `action`, `track?`, `volume?` | `{playing, track}` | `music` event to the stage (§4) |
   | `get_weather` | `city?` (default `WEATHER_CITY`) | `{city, temp_c, condition, wind_kmh}` | none |
-  | `take_selfie` | `scene?`, `mood?` (template keys; empty = her choice) | `{id, scene, mood, status:"started"}` | host renders off-turn, posts the photo (§7.6) |
+  | `take_selfie` | `scene?`, `mood?`, `wardrobe?` (template keys or free-form — carried verbatim, never refused; empty = her choice) | `{id, scene, mood, wardrobe, status:"started"}` | host renders off-turn, posts the photo (§7.6) |
 
   The surface **MUST NOT** grow a shell — the heavy, sandboxed hands are a named later rung
   (§26). With `SELFIE_BACKEND=off` the fourth tool **MUST NOT** be advertised: no hand, not a
@@ -507,19 +507,31 @@ to every new subscriber before its first live event. Malformed JSON is logged an
 - §7.6 **Her camera: `take_selfie`, start-don't-await.** The fourth hand teaches the one lesson
   the others can't: **a slow tool must not sit inside the turn.** A hosted render takes 10–30 s;
   dead air after her lead-in would read as a hang. So the tool follows the *start work, never
-  await it* rule: the MCP server validates `scene`/`mood` against the template library (its tool
-  description **MUST** be built *from* the library so the model's choices can't drift from the
-  yaml) and returns `{status:"started"}` immediately; the turn ends on budget. The **host**
+  await it* rule: the MCP server carries `scene`/`mood`/`wardrobe` through — a named template key
+  renders from the library, anything else passes through verbatim, the contract refuses nothing
+  (its tool description **MUST** be built *from* the library — the same merged book the host
+  renders from, overlay and its optional `tool_hint` line included — so the model's choices
+  can't drift from the yaml) — and returns `{status:"started"}` immediately; the turn ends on
+  budget. The
+  shipped library stays in the everyday register; personal registers layer on from an optional
+  user-supplied overlay file outside the repo (`SELFIE_TEMPLATES_EXTRA`, merged key-by-key —
+  forge/templates.py). The **host**
   realises the shot: `yurios/world/selfies.py`'s `SelfieLab` renders off-turn through the forge
   (`yurios/forge` — the locked art register, the selfie template library, provenance stripping),
   saves the PNG + a provenance sidecar under `SELFIE_DIR` (served at `/selfies/`), posts an
   `image_url` `message` to the chat (`proactive`), and offers one spoken line through the ambient
-  seam — dropped if she's busy, because the photo itself already landed. Backends are GPU-free by
-  construction: `openrouter` (default `bytedance-seed/seedream-4.5`; point `SELFIE_MODEL` at
+  seam — dropped if she's busy, because the photo itself already landed. The default backends are
+  GPU-free: `openrouter` (default `bytedance-seed/seedream-4.5`; point `SELFIE_MODEL` at
   `sourceful/riverflow-v2.5-pro` for the brand-art register) or `mock` (deterministic
-  placeholders; the tests). A configured `openrouter` with no key **MUST** degrade to `mock`
-  with one loud WARNING; a failed render **MUST** become a quiet chat message, never a crash and
-  never silence.
+  placeholders; the tests). Two opt-in backends render locally instead, each on a user-supplied
+  single-file checkpoint that is never shipped: `diffusers` (an SDXL UNet) and `krea2` (a Krea 2
+  diffusion transformer, kept in INT4 and never dequantized — at bf16 it fits no consumer card).
+  Which of the two a given checkpoint needs **MUST** be read off the file itself
+  (`forge/backends/sniff.py`), so `SELFIE_BACKEND=diffusers` names *the local camera*, not one
+  architecture. Any backend that cannot run — `openrouter` with no key, a local one missing deps,
+  its checkpoint, or (krea2) access to the gated companion repo its text encoder and VAE come
+  from — **MUST** degrade to `mock` with one loud WARNING; a failed render **MUST** become a
+  quiet chat message, never a crash and never silence.
 
 ## §8 — Ambient life is the mind's, not a scripted machine
 
@@ -644,7 +656,9 @@ down host — `/api/health` and the boot board say which):
   chat only (`TELEGRAM_CHAT_ID`; unset = pairing mode: the bot answers with the id to configure and
   processes nothing). Telegram is *reachable, not present*: it posts no presence signals; selfies
   are sent as the file itself. A channel is on when its credentials are set — no separate enable
-  flag.
+  flag. The one runtime knob is the sanctuary's sending switch (`POST /api/channels/telegram/
+  sending`, a footer button): it gates her *outbound* lines on the live adapter — she keeps
+  reading the chat — and it is session-scoped, so a restart sends again.
 
 **One outside account, one character.** The host runs a runtime per character (§25), so a shared
 credential would be opened once per character — and an inbox is single-tenant: Telegram answers all
@@ -960,7 +974,8 @@ brain with fake models.
   (guard consulted, result reaches the continuation, call cap enforced, tool error still completes
   the turn); **barge-in mid-continuation cancels and persists nothing**; guard allowlist/rate-limit/
   audit; the real MCP server's contract (`list_tools` = exactly four, three with selfies off; schema,
-  bounds, template-key validation); the selfie lab (a started contract becomes a PNG + provenance
+  bounds, the `take_selfie` slot contract — named template keys render from the
+  library, anything else passes through verbatim, the contract refuses nothing); the selfie lab (a started contract becomes a PNG + provenance
   sidecar and an `image_url` message in sim time; the announce cue offered and dropped when busy; a
   broken forge becomes a quiet message; no key degrades openrouter → mock loudly); timer scheduling
   and queued announcements; every §4 op's event shape including `rain`/`music`; the hub (typed

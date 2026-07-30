@@ -99,9 +99,18 @@ class Runtime:
         self.selfies_status = "off"
         if cfg.selfie_backend != "off":
             forge, self.selfies_status = build_forge(cfg)
+            from .vram import LLMParker
+            # The floor comes off the backend that was actually built, not off
+            # the config: SELFIE_BACKEND=diffusers resolves to either local
+            # camera depending on the checkpoint, and a degrade-to-mock says
+            # None — nothing resident, nothing to park for.
             self.selfies = SelfieLab(forge, clock=self.clock,
                                      post=self.post_message,
-                                     speak=self.speak_ambient)
+                                     speak=self.speak_ambient,
+                                     parker=LLMParker(
+                                         cfg,
+                                         resident_free_gib=forge.backend.RESIDENT_FREE_GIB),
+                                     quiet=self.wait_turns_idle)
         # `brain` is injectable for the same reason as B2's: the route tests run
         # against a FakeBrain (no Vault, no SQLite). The real one is a ToolBrain —
         # the BrainAdapter with the §7 tool loop wrapped around it. Building it
@@ -178,6 +187,11 @@ class Runtime:
         # The mind speaks *through a live voice connection* so barge-in and the
         # OutEvent stream work exactly as they do for a real turn.
         self._ambient: dict[str, object] = {}
+        # in-flight turn count + its idle gate (§7.6): the selfie lab's parker
+        # must never evict her LM Studio models while a turn streams from them.
+        self._turns_in_flight = 0
+        self.turns_idle = asyncio.Event()
+        self.turns_idle.set()
         self._tasks: list[asyncio.Task] = []
         self._mind_task: asyncio.Task | None = None
         self.loop: asyncio.AbstractEventLoop | None = None   # set at startup
@@ -367,12 +381,25 @@ class Runtime:
     # ---- engagement notifications from the voice route (SPEC §15.3) ----
 
     def turn_started(self, proactive: bool = False) -> None:
+        self._turns_in_flight += 1
+        self.turns_idle.clear()
         if self.mind:
             self.mind.turn_started(proactive=proactive)
 
     def turn_ended(self) -> None:
+        self._turns_in_flight = max(0, self._turns_in_flight - 1)
+        if self._turns_in_flight == 0:
+            self.turns_idle.set()
         if self.mind:
             self.mind.turn_ended()
+
+    async def wait_turns_idle(self) -> None:
+        """Block until no turn is in flight. The selfie lab's VRAM parker is
+        the one caller (§7.6): evicting her LM Studio models while a turn is
+        still streaming from them kills that stream mid-reply — the draft
+        vanishes from the chat as if the turn were cancelled. A parked render
+        always waits for a quiet moment first."""
+        await self.turns_idle.wait()
 
     # ---- async lifecycle (runs on the server's event loop) ----
 
@@ -390,6 +417,10 @@ class Runtime:
                 "WEATHER_BACKEND": self.cfg.weather_backend,
                 # off = the tool isn't even advertised: no hand, not a dead one
                 "SELFIE_ENABLED": "0" if self.cfg.selfie_backend == "off" else "1",
+                # the contract side builds its description from the SAME merged
+                # book the host renders from (world/selfies.py) — overlay and
+                # its tool_hint included — so the two can never disagree
+                "SELFIE_TEMPLATES_EXTRA": self.cfg.selfie_templates_extra,
             })
         elif runner is None and self.cfg.tools_backend == "fake":
             from .tools.fakes import FakeToolRunner
@@ -600,10 +631,13 @@ def create_app(cfg: Config | None = None, *, brain=None, chat_model=None,
 
     from yurios.desktop.routes import settings as b2_settings
 
-    from .routes import chat, events, health, live2d, mind, voice_ws
+    from .routes import channels, chat, events, health, live2d, mind, voice_ws
     app.include_router(health.router)
     app.include_router(events.router)
     app.include_router(voice_ws.router)
+    # the sanctuary's channel switches (SPEC §10.5): the telegram sending
+    # toggle lives beside the controls that reach the same runtime.
+    app.include_router(channels.router)
     # the text-turn seam over HTTP (SPEC §10.5): what the CLI chat — and any
     # future remote frontend — drives instead of the voice socket.
     app.include_router(chat.router)

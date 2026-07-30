@@ -38,10 +38,44 @@ class Config(VoiceConfig):
     # degrades openrouter → mock with one loud WARNING (the voice-fakes
     # philosophy). Default model: seedream — cheap enough for casual selfies;
     # sourceful/riverflow-v2.5-pro is the brand-art register (pricier, one knob).
-    selfie_backend: str = "openrouter"          # openrouter | mock | off
+    selfie_backend: str = "openrouter"          # openrouter | diffusers | mock | off
     selfie_model: str = "bytedance-seed/seedream-4.5"
     selfie_dir: Path = Path("./selfies")        # saved shots, served at /selfies/
+    # Optional overlay yaml merged over the shipped template library
+    # (forge/templates.py — sections merge key-by-key). The shipped library
+    # stays everyday; personal registers are user-supplied files outside the
+    # repo, exactly like the checkpoint below. Set but missing → one loud
+    # WARNING and the shipped library alone.
+    selfie_templates_extra: str = ""
     tool_rate_selfie: int = 2                   # calls/minute — images are expensive
+
+    # --- the local camera: SELFIE_BACKEND=diffusers (your GPU, no third party) ---
+    # An SDXL .safetensors checkpoint loaded in-process (Illustrious-lineage
+    # recommended; e.g. a Pie Model from Civitai). The file is user-supplied —
+    # never shipped. Defaults are the Pie author's own: DPM++ 2M / Karras /
+    # 30 steps / CFG 5 / hires fix on. ~7 GB fp16 resident; cpu_offload trades
+    # speed for headroom. Missing deps or checkpoint degrade to mock, loudly.
+    selfie_local_model: str = ""                # path to the .safetensors checkpoint
+    selfie_local_device: str = "cuda"           # cuda | cpu (cpu is for emergencies)
+    selfie_local_steps: int = 30
+    selfie_local_cfg: float = 5.0
+    selfie_local_hires: bool = True             # the A1111 "Hires fix" second pass
+    selfie_local_hires_scale: float = 1.5
+    selfie_local_hires_denoise: float = 0.35
+    selfie_local_cpu_offload: bool = False
+    # Krea 2 checkpoints (a diffusion transformer, not a UNet) are detected from
+    # the file and loaded by the krea2 backend instead — they share the knobs
+    # above but need their own sampling numbers, because SDXL's 30/5.0 burns a
+    # distilled Krea 2. 0 / -1 mean "read it off the checkpoint": 8 steps at
+    # guidance 0.0 for a turbo/TDM export, 28 at 4.5 for a base one.
+    selfie_krea2_steps: int = 0
+    selfie_krea2_cfg: float = -1.0
+    # When a local render is requested and free VRAM won't hold the resident
+    # pipeline, park her LM Studio models for the render's duration (evict →
+    # render resident → re-pin via the boot path's ensure_resident). Seconds of
+    # render instead of a minute of offload; her brain is always restored, even
+    # on a failed render. Only applies with an lm_studio/ chat route.
+    selfie_llm_park: bool = True
 
     # --- the mind: the always-on tick loop (SPEC §15–§18) ---
     mind_enabled: bool = True                   # off = Build #4 behaviour minus ambient life

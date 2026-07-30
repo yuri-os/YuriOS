@@ -37,15 +37,14 @@ moods:
   sleepy:     "She looks drowsy and soft, half-lidded eyes, relaxed and unguarded."
   tender:     "Her expression is tender and open, looking at the viewer with quiet love."
 
-# Wardrobe is a TIER, not a gate (→ ch. 11, user-initiated never gated). The
-# intimate tier is a normal, always-available option; whether it actually renders
-# is decided by the BACKEND you point at — a hosted frontier model refuses this
-# register, a local uncensored model does not (→ ch. 11, the model requirement).
-# This file refuses nothing.
+# Wardrobe fragments, composed like the rest. Entries may also be mappings —
+# {prompt, negative, pinned} — for tiers that need their own negation or that
+# should only ever be a named ask (forge/templates.py). The shipped library
+# stays in the everyday register; personal registers layer on from an overlay
+# file outside the repo (SELFIE_TEMPLATES_EXTRA, → world/config.py).
 wardrobe:
   signature:  "Wearing her signature sleek black minimalist techwear with the thin glowing accent stripe and luminous choker."
   everyday:   "Wearing a soft oversized sweater and comfortable casual clothes at home."
   cozy:       "Wearing an oversized hoodie and shorts, bare legs tucked up, hair a little messy, thoroughly at ease."
   dressy:     "Wearing an elegant fitted dark dress, a little dressed up, poised."
   swim:       "Wearing a stylish swimsuit, relaxed and confident."
-  intimate:   "Wearing delicate lace lingerie, soft and alluring, an intimate private moment shared only with you."

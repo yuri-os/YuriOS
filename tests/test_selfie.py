@@ -68,12 +68,12 @@ async def test_the_shot_lands_in_the_chat_and_on_disk(cfg, clock, forge):
 
 
 async def test_wardrobe_rides_the_contract_and_defaults_to_everyday(cfg, clock, forge):
-    """The asked-for tier reaches the forge (templates/selfie.yaml: a tier, not
-    a gate); a contract without one stays in the everyday default."""
+    """The asked-for wardrobe reaches the forge (a named tier, or free-form —
+    the contract refuses nothing); a contract without one stays everyday."""
     rec = Recorder()
     lab = SelfieLab(forge, clock=clock, post=rec.post, speak=rec.speak)
     lab.start({"id": "w1", "scene": "bed", "mood": "tender",
-               "wardrobe": "intimate", "status": "started"})
+               "wardrobe": "dressy", "status": "started"})
     lab.start({"id": "w2", "scene": "window", "status": "started"})
     await settle(lab)
 
@@ -82,7 +82,7 @@ async def test_wardrobe_rides_the_contract_and_defaults_to_everyday(cfg, clock, 
         png = cfg.selfie_dir / post["image_url"].removeprefix("/selfies/")
         meta = json.loads(png.with_suffix(".json").read_text())
         tiers[post["image_url"].split("-")[-1]] = meta["template"]["wardrobe"]
-    assert tiers == {"w1.png": "intimate", "w2.png": "everyday"}
+    assert tiers == {"w1.png": "dressy", "w2.png": "everyday"}
 
 
 async def test_announce_is_dropped_when_she_is_busy_but_the_photo_stays(cfg, clock, forge):
@@ -108,6 +108,178 @@ async def test_a_failed_render_is_a_quiet_message_never_a_crash(cfg, clock):
     (post,) = rec.posts
     assert post["image_url"] is None and "didn't come out" in post["text"]
     assert rec.cues == []
+
+
+class SpyParker:
+    """Records park/restore around the render (world/vram.LLMParker's shape)."""
+
+    def __init__(self):
+        self.events: list[str] = []
+
+    def parked(self):
+        from contextlib import contextmanager
+
+        @contextmanager
+        def _ctx():
+            self.events.append("park")
+            try:
+                yield
+            finally:
+                self.events.append("restore")
+        return _ctx()
+
+
+async def test_a_render_borrows_the_llms_vram_and_returns_it(cfg, clock, forge):
+    rec = Recorder()
+    parker = SpyParker()
+    lab = SelfieLab(forge, clock=clock, post=rec.post, speak=rec.speak,
+                    parker=parker)
+    lab.start({"id": "p1", "scene": "window", "status": "started"})
+    await settle(lab)
+    assert parker.events == ["park", "restore"]
+    assert rec.posts and rec.posts[0]["image_url"]      # the photo still landed
+
+
+async def test_a_failed_render_still_restores_the_llm(cfg, clock):
+    class BrokenForge:
+        out_dir = cfg.selfie_dir
+
+        def selfie(self, **kw):
+            raise RuntimeError("CUDA out of memory")
+
+    rec = Recorder()
+    parker = SpyParker()
+    lab = SelfieLab(BrokenForge(), clock=clock, post=rec.post, speak=rec.speak,
+                    parker=parker)
+    lab.start({"id": "p2", "status": "started"})
+    await settle(lab)
+    assert parker.events == ["park", "restore"]         # finally, always
+    assert "didn't come out" in rec.posts[0]["text"]
+
+
+async def test_a_borrowed_render_releases_the_pipeline_before_the_restore(cfg, clock):
+    """The cached pipeline and the re-pinning chat model are the two things that
+    don't fit the card at once — a render on borrowed VRAM must free its pipe
+    first, or the restore 500s with the card still full."""
+    from contextlib import contextmanager
+
+    class PipeForge:
+        out_dir = cfg.selfie_dir
+
+        class backend:                       # the diffusers backend's shape
+            torn: list[str] = []
+
+            @staticmethod
+            def _teardown():
+                PipeForge.backend.torn.append("teardown")
+
+        def selfie(self, **kw):
+            from yurios.forge.types import ImageResult
+            return ImageResult.new(b"\x89PNG fake", "mock", model="m", seed=1)
+
+    class BorrowParker:
+        def __init__(self):
+            self.events: list[str] = []
+
+        def parked(self):
+            @contextmanager
+            def _ctx():
+                self.events.append("park")
+                try:
+                    yield True               # this render borrowed the VRAM
+                finally:
+                    self.events.append("restore")
+            return _ctx()
+
+    rec = Recorder()
+    parker = BorrowParker()
+    lab = SelfieLab(PipeForge(), clock=clock, post=rec.post, speak=rec.speak,
+                    parker=parker)
+    lab.start({"id": "p3", "status": "started"})
+    await settle(lab)
+    assert PipeForge.backend.torn == ["teardown"]   # freed BEFORE the restore
+    assert parker.events == ["park", "restore"]
+
+
+async def test_a_parked_render_waits_for_a_quiet_moment(cfg, clock, forge):
+    """start-don't-await means the render spawns while the turn that asked is
+    still streaming — and that stream reads from the very LM Studio model the
+    parker would evict. An eviction mid-turn kills the stream and her reply
+    vanishes from the chat (draft_cancel). So a render that will park waits
+    for the world to go quiet first; one that fits alongside her brain (or a
+    backend with no parker) starts at once."""
+    events: list[str] = []
+    gate = asyncio.Event()                   # unset = a turn is in flight
+
+    class NeedyParker:
+        def applicable(self):
+            return True
+
+        def needs_park(self):
+            return True
+
+        def parked(self):
+            from contextlib import contextmanager
+
+            @contextmanager
+            def _ctx():
+                events.append("park")
+                try:
+                    yield True
+                finally:
+                    events.append("restore")
+            return _ctx()
+
+    async def quiet():
+        await gate.wait()
+        events.append("quiet")
+
+    rec = Recorder()
+    lab = SelfieLab(forge, clock=clock, post=rec.post, speak=rec.speak,
+                    parker=NeedyParker(), quiet=quiet)
+    lab.start({"id": "q1", "status": "started"})
+    for _ in range(100):                     # give the job every chance to run
+        await asyncio.sleep(0)
+        if "park" in events:
+            break
+    assert "park" not in events              # no eviction while she's talking
+    gate.set()                               # the turn ended
+    await settle(lab)
+    assert events == ["quiet", "park", "restore"]
+    assert rec.posts and rec.posts[0]["image_url"]      # the photo still landed
+
+
+async def test_an_unparked_render_does_not_wait(cfg, clock, forge):
+    """The quiet gate is the parker's price, not the camera's: a render with
+    free VRAM to spare starts immediately, turn or no turn."""
+    rendered: list[str] = []
+
+    class ComfortableParker:
+        def applicable(self):
+            return True
+
+        def needs_park(self):
+            return False                   # fits alongside her brain
+
+        def parked(self):
+            from contextlib import contextmanager
+
+            @contextmanager
+            def _ctx():
+                rendered.append("render")
+                yield False
+            return _ctx()
+
+    async def quiet():
+        raise AssertionError("an unparked render must never wait")
+
+    rec = Recorder()
+    lab = SelfieLab(forge, clock=clock, post=rec.post, speak=rec.speak,
+                    parker=ComfortableParker(), quiet=quiet)
+    lab.start({"id": "q2", "status": "started"})
+    await settle(lab)
+    assert rendered == ["render"]
+    assert rec.posts and rec.posts[0]["image_url"]
 
 
 def test_no_key_degrades_openrouter_to_mock_loudly(cfg, tmp_path, monkeypatch, caplog):

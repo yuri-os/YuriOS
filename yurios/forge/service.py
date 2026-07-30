@@ -8,9 +8,8 @@ provenance, and saves the result.
 
 The backend is held behind one attribute and swappable at any time with
 ``set_backend(...)``. That is the whole point: the companion's image capability
-is provider-agnostic, so you can move from a hosted API to your own GPU (or to an
-uncensored local model for the intimate register, → ch. 11) without the rest of
-the runtime noticing.
+is provider-agnostic, so you can move from a hosted API to your own GPU without
+the rest of the runtime noticing.
 """
 
 from __future__ import annotations
@@ -121,12 +120,12 @@ class ImageForge:
     ) -> ImageResult:
         """A selfie 'of her': compose a varied scene from the template library
         (→ ch. 26, the anti-collapse fix), then render on-register."""
-        scene_prompt, chosen = self.book.compose(
+        scene_prompt, chosen, negative_extra = self.book.compose(
             scene=scene, framing=framing, lighting=lighting, mood=mood,
             wardrobe=wardrobe, seed=seed)
         label = "selfie-" + "-".join(chosen.get(k, "") for k in ("scene", "wardrobe")).strip("-")
         result = self.generate(scene_prompt, include_character=True, label=label or "selfie",
-                               seed=seed, save=save, **over)
+                               negative_extra=negative_extra, seed=seed, save=save, **over)
         result.meta["template"] = chosen
         return result
 

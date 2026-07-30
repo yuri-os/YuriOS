@@ -231,6 +231,56 @@ async def test_telegram_sends_the_selfie_file_itself(tmp_path):
     await ch._client.aclose()
 
 
+async def test_telegram_sending_switch_gates_outbound_only(tmp_path):
+    """The sanctuary switch (routes/channels.py) flips `sending_enabled` on the
+    live adapter: while off, nothing leaves for the chat — but she still reads
+    it, and the flag is runtime-only (a fresh adapter defaults to sending)."""
+    tr = ScriptedTelegram()
+    ch = tg(tr, selfie_dir=tmp_path)
+    ch.sending_enabled = False
+    await ch._deliver_event({"type": "message", "role": "assistant",
+                             "text": "you won't see this"})
+    assert tr.sent("sendMessage") == []          # outbound gated
+    await ch._handle_update(update())            # …but inbound still lands
+    assert ch.rt.turns.calls == [("hello", "telegram", None)]
+    ch.sending_enabled = True
+    await ch._deliver_event({"type": "message", "role": "assistant",
+                             "text": "back on"})
+    assert [b["text"] for b in tr.sent("sendMessage")] == ["back on"]
+    await ch._client.aclose()
+    assert TelegramChannel("tok", "42").sending_enabled   # restart re-enables
+
+
+def test_telegram_sending_route_flips_the_live_adapter(cfg):
+    tr = ScriptedTelegram()
+    app = make_app(cfg)
+    rt = app.state.rt
+    channel = TelegramChannel("tok", "42", transport=tr,
+                              selfie_dir=cfg.selfie_dir)
+    rt.channels = ChannelManager([channel])
+    with TestClient(app) as c:
+        assert c.get("/api/channels/telegram/sending").json() == {
+            "configured": True, "sending_enabled": True}
+        r = c.post("/api/channels/telegram/sending", json={"enabled": False})
+        assert r.json()["sending_enabled"] is False
+        assert channel.sending_enabled is False
+        assert c.get("/api/channels/telegram/sending").json()[
+            "sending_enabled"] is False
+        r = c.post("/api/channels/telegram/sending", json={"enabled": True})
+        assert channel.sending_enabled is True
+
+
+def test_telegram_sending_route_404s_without_a_channel(cfg):
+    app = make_app(cfg)                          # no token → no adapter
+    with TestClient(app) as c:
+        assert c.get("/api/channels/telegram/sending").json() == {
+            "configured": False, "sending_enabled": True}
+        assert c.post("/api/channels/telegram/sending",
+                      json={"enabled": False}).status_code == 404
+
+
+
+
 # ---- one account, one character (SPEC §10.5) --------------------------------
 
 class CountingChannel(Channel):

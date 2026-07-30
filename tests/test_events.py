@@ -55,6 +55,23 @@ async def test_unsubscribe_stops_delivery_and_counts():
     assert q.empty()
 
 
+async def test_turns_idle_gates_on_the_turn_lifecycle(cfg):
+    """Runtime.wait_turns_idle — the selfie parker's quiet gate (§7.6): set
+    while no turn is in flight, cleared from turn_started until the matching
+    turn_ended, counting overlapping turns (a reply + her ambient line)."""
+    cfg = cfg.model_copy(update={"tools_backend": "off", "mind_enabled": False})
+    rt = create_app(cfg, brain=FakeBrain()).state.rt
+    assert rt.turns_idle.is_set()
+    rt.turn_started()
+    assert not rt.turns_idle.is_set()
+    rt.turn_started()
+    rt.turn_ended()
+    assert not rt.turns_idle.is_set()          # one turn still in flight
+    rt.turn_ended()
+    assert rt.turns_idle.is_set()
+    await asyncio.wait_for(rt.wait_turns_idle(), 1)   # returns at once when idle
+
+
 # ---- the SSE route over the real app ---------------------------------------
 # Neither starlette's TestClient nor httpx's ASGITransport can read a response
 # that never ends (both buffer to completion), so the route is exercised with

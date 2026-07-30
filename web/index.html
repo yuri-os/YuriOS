@@ -151,6 +151,15 @@
             aria-label="mute the rain" aria-pressed="false">
       <span class="rain-glyph" aria-hidden="true">🌧</span>
     </button>
+    <!-- silence her side of the telegram chat (js/main.js); hidden when no
+         channel is configured — the server says so over /api/channels -->
+    <button id="telegram-mute" class="icon-button tg-mute" hidden
+            title="stop sending her messages to telegram"
+            aria-label="toggle sending her messages to telegram" aria-pressed="false">
+      <svg class="tg-glyph" aria-hidden="true" viewBox="0 0 24 24">
+        <path d="M3 11.2 21 3l-8.2 18-2.4-7.6L3 11.2z"/>
+      </svg>
+    </button>
   </footer>
 
   <!-- All four are ES modules so Vite bundles them (§3). boot/chat/mind were

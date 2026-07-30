@@ -236,3 +236,56 @@ def ensure_resident(base_url: str, model_ids: list[str], *,
             log.warning("LM Studio would not load %s (%s) — it will be JIT-loaded "
                         "per request instead", key, detail.strip()[:200])
     return resident
+
+
+def evict(base_url: str, model_ids: list[str], *,
+          transport: httpx.BaseTransport | None = None) -> list[str]:
+    """Unload every loaded instance of `model_ids` — the mirror of
+    `ensure_resident()`, for lending the GPU to something else for a while
+    (the local selfie forge is the one caller: a resident SDXL render and a
+    resident chat model do not fit one 16 GB card at once).
+
+    Every instance goes — pinned and TTL'd alike — because the goal is free
+    VRAM, and a TTL'd instance holds exactly as much as a pinned one. Returns
+    the keys that were actually evicted (a model with nothing loaded is a
+    skip, not an error), so the caller can restore just those.
+
+    Best-effort like its mirror: an unreachable server, an old LM Studio
+    without the developer API, or a model id that resolves to nothing are all
+    log-and-carry-on — the render goes ahead either way (its own offload
+    fallback is the backstop)."""
+    root = _api_root(base_url)
+    wanted = list(dict.fromkeys(model_ids))
+    evicted: list[str] = []
+    try:
+        with httpx.Client(timeout=_QUERY_TIMEOUT_S, transport=transport) as client:
+            r = client.get(f"{root}/api/v1/models")
+            r.raise_for_status()
+            catalog = r.json()["models"]
+    except Exception as e:
+        log.warning("LM Studio model list unavailable at %s (%s) — nothing "
+                    "to evict; the render keeps its offload fallback", root, e)
+        return evicted
+
+    for model_id in wanted:
+        key = _resolve_key(catalog, model_id)
+        if key is None:
+            log.warning("LM Studio has no model matching %r to evict", model_id)
+            continue
+        entry = next(m for m in catalog if m.get("key") == key)
+        instances = entry.get("loaded_instances") or []
+        if not instances:
+            log.info("LM Studio: %s is not loaded — nothing to evict", key)
+            continue
+        try:
+            with httpx.Client(timeout=_QUERY_TIMEOUT_S, transport=transport) as client:
+                for inst in instances:
+                    client.post(f"{root}/api/v1/models/unload",
+                                json={"instance_id": inst["id"]}).raise_for_status()
+                    log.info("LM Studio: evicted %s (instance %s)", key, inst["id"])
+            evicted.append(key)
+        except Exception as e:
+            detail = getattr(getattr(e, "response", None), "text", "") or str(e)
+            log.warning("LM Studio would not unload %s (%s) — the render keeps "
+                        "its offload fallback", key, detail.strip()[:200])
+    return evicted

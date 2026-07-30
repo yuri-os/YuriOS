@@ -14,7 +14,9 @@ bot-framework dependency for two HTTP calls:
     the mind's proactive lines — is sent to the chat, so a reach-out decided
     at 3pm lands on your phone even though no page is open. A selfie entry
     sends the PNG itself (the file is local; a chat client can't reach
-    `/selfies/`).
+    `/selfies/`). The sanctuary's telegram switch flips `sending_enabled` at
+    runtime (routes/channels.py): inbound keeps working — she still reads you
+    there — but nothing leaves for the chat while it's off.
 
 Single-user discipline (the companion is one-on-one, SPEC §1): messages from
 any chat but `TELEGRAM_CHAT_ID` are dropped. With the id unset the channel
@@ -62,6 +64,10 @@ class TelegramChannel(Channel):
         self.chat_id_env = chat_id_env or "TELEGRAM_CHAT_ID"
         self.api_base = api_base
         self._transport = transport          # tests inject a MockTransport
+        # the sanctuary switch (routes/channels.py): False = she still reads
+        # the chat but sends nothing to it. Runtime-only — a restart re-enables,
+        # because "she went quiet" must never outlive the session that asked.
+        self.sending_enabled = True
         self.rt = None
         self._client: httpx.AsyncClient | None = None
         self._tasks: list[asyncio.Task] = []
@@ -183,8 +189,9 @@ class TelegramChannel(Channel):
 
     async def _deliver_event(self, event: dict) -> None:
         """Send one hub event to the chat, if it's hers to hear: committed
-        assistant lines only (drafts and puppet traffic stay in the room)."""
-        if not self.chat_id:
+        assistant lines only (drafts and puppet traffic stay in the room), and
+        only while the sanctuary's sending switch is on."""
+        if not self.chat_id or not self.sending_enabled:
             return
         if event.get("type") != "message" or event.get("role") != "assistant":
             return

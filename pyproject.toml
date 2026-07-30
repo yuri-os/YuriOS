@@ -93,6 +93,22 @@ tts-kokoro = ["kokoro", "soundfile"]         # alias of [tts], kept for older do
 # B2's Live2D did. WINDOW_GUI=gtk + pywebview[gtk] is the lighter fallback.
 desktop = ["pywebview", "qtpy", "PyQt6", "PyQt6-WebEngine"]
 test = ["pytest", "pytest-asyncio", "httpx", "numpy"]
+# Her own camera: a local SDXL checkpoint (SELFIE_BACKEND=diffusers) rendered
+# in-process — no A1111/ComfyUI server, no API key. Needs torch WITH CUDA for
+# real speed (the default PyPI wheel is the CUDA one — the opposite of the CPU
+# advice below); the checkpoint itself (~7 GB .safetensors) is user-supplied
+# from Civitai, never shipped. See .env.example's SELFIE_LOCAL_* block.
+forge-local = ["diffusers", "transformers", "accelerate", "safetensors"]
+# The other local camera: a Krea 2 checkpoint — a ~12.5 B diffusion transformer,
+# so it is shipped (and RUN) as INT4 "ConvRot" and never dequantized; at bf16 it
+# would be ~23 GB and fit nothing. comfy-kitchen provides that layout's
+# tensor-core GEMM, which is what makes ~6 GB resident and fast possible on a
+# 16 GB card. Two things this needs beyond the extra: the checkpoint itself
+# (user-supplied, ~7 GB, never shipped) and a one-time Hugging Face fetch of the
+# text encoder + VAE from the GATED krea/Krea-2-Raw repo — accept its licence,
+# then `huggingface-cli login`. See .env.example's SELFIE_LOCAL_* block.
+forge-krea2 = ["diffusers", "transformers", "accelerate", "safetensors",
+               "comfy-kitchen", "huggingface-hub"]
 # The default local voice stack, GPU-free: ears + the kokoro voice + turn-taking.
 # This is what "install the real voice" means; `pip install -e ".[voice,test]"`.
 voice = ["faster-whisper", "kokoro", "soundfile", "silero-vad"]

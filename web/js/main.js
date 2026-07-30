@@ -37,6 +37,7 @@ const els = {
   text: document.getElementById('text'),
   send: document.getElementById('send'),
   rainMute: document.getElementById('rain-mute'),
+  telegramMute: document.getElementById('telegram-mute'),
   enter: document.getElementById('enter'),
   enterBtn: document.getElementById('enter-btn'),
 };
@@ -110,6 +111,40 @@ async function boot() {
     els.rainMute.setAttribute('aria-pressed', String(muted));
     els.rainMute.title = muted ? 'unmute the rain' : 'mute the rain';
   });
+
+  // the telegram switch (footer): gates her OUTBOUND lines only — she still
+  // reads the chat. The flag lives on the live adapter (routes/channels.py),
+  // so the click applies now and a restart puts sending back on. The button
+  // only exists when this character has a channel; the server answers that.
+  const tgSwitch = (() => {
+    const btn = els.telegramMute;
+    if (!btn) return;
+    const api = window.YuriOSRuntime?.apiPath ?? ((p) => p);
+    const render = (sending) => {
+      btn.classList.toggle('muted', !sending);
+      btn.setAttribute('aria-pressed', String(!sending));
+      btn.title = sending
+        ? 'stop sending her messages to telegram'
+        : 'resume sending her messages to telegram';
+    };
+    fetch(api('/api/channels/telegram/sending'))
+      .then((r) => r.json())
+      .then(({ configured, sending_enabled: on }) => {
+        if (!configured) return;               // no channel: no switch
+        btn.hidden = false;
+        render(on);
+        btn.addEventListener('click', async () => {
+          const off = btn.classList.contains('muted');
+          const r = await fetch(api('/api/channels/telegram/sending'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ enabled: off }),
+          });
+          if (r.ok) render((await r.json()).sending_enabled);
+        });
+      })
+      .catch(() => {});                        // no server, no switch — stay hidden
+  })();
 
   // The gate's button only becomes real once her body is in the room (the click
   // handler is attached below, after the load): disable it until then so a slow

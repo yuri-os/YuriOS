@@ -248,6 +248,8 @@ not deltas):
 | `.[local-embed]` | `EMBED_BACKEND=sentence_tf` — no LM Studio/Ollama needed | — |
 | `.[all]` | `voice` + `local-embed` | 1.8 GB |
 | `.[tts-sovits]` | `TTS_BACKEND=gpt_sovits` — client for a server you run | +2 MB |
+| `.[forge-local]` | `SELFIE_BACKEND=diffusers` — her own camera: local SDXL in-process, **wants CUDA**; checkpoint (~7 GB) is user-supplied | +0.1 GB |
+| `.[forge-krea2]` | the same camera for a Krea 2 checkpoint (INT4, in-process, **wants CUDA**); also needs HF access to the gated `krea/Krea-2-Raw` for its text encoder + VAE | +40 MB |
 | `.[voice,tts-qwen]` | `TTS_BACKEND=qwen3_tts` — the designed voice, **wants CUDA** | 2.1 GB |
 | `.[desktop]` | `--window`: pywebview + Qt (QtWebEngine) | 798 MB |
 | `.[gpu]` | genuinely everything: GPU voice and Qt, on CUDA torch | 6.4 GB |

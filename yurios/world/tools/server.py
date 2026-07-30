@@ -71,32 +71,42 @@ def build_server(*, weather: WeatherProvider | None = None,
 
     if selfies:
         # Her camera (SPEC §7.6). The server is the contract point only: it
-        # validates the ask against the template library and answers
-        # "started" — the render, the file, and the chat message happen on the
-        # host (§7.5), because a 10–30 s generation must not sit inside the
-        # turn (start-don't-await). The description is BUILT from the library
-        # so the choices the model sees can never drift from the yaml.
+        # carries the ask and answers "started" — the render, the file, and the
+        # chat message happen on the host (§7.5), because a 10–30 s generation
+        # must not sit inside the turn (start-don't-await). The description is
+        # BUILT from the library so the choices the model sees can never drift
+        # from the yaml — and it names the pass-through explicitly: the library
+        # is a starting point, not a limit, and this tool refuses nothing
+        # (→ ch. 11: the engine takes no enforcement posture; what renders is
+        # the backend's call, never the contract's). The book is the SAME one
+        # the host renders from — overlay included (world/selfies.py) — so the
+        # choices she sees can never drift from what the forge would compose.
         from ..selfies import FORGE_DIR
         from yurios.forge import SelfieBook
-        book = SelfieBook.load(FORGE_DIR / "templates" / "selfie.yaml")
+        overlays = [os.environ["SELFIE_TEMPLATES_EXTRA"]] \
+            if os.environ.get("SELFIE_TEMPLATES_EXTRA") else []
+        book = SelfieBook.load(FORGE_DIR / "templates" / "selfie.yaml",
+                               overlays=overlays)
         desc = ("Take a selfie of yourself to share in the chat — it appears "
-                "there a few moments later. "
-                f"`scene` one of: {', '.join(sorted(book.scenes))} "
-                f"(empty = her choice); `mood` one of: {', '.join(sorted(book.moods))}; "
-                f"`wardrobe` one of: {', '.join(sorted(book.wardrobe))} "
-                "(empty = everyday) — match it to what was asked for.")
+                "there a few moments later. Each slot takes one of the named "
+                "options OR any free-form description of your own: the "
+                "library is a starting point, not a limit, so match the moment "
+                "exactly as asked — and off-menu, paint it in a vivid phrase "
+                "the camera can work from, not a single keyword. "
+                f"`scene` e.g.: {', '.join(sorted(book.scenes))} "
+                "(empty = your choice); "
+                f"`mood` e.g.: {', '.join(sorted(book.moods))}, or any "
+                "expression or pose you describe yourself; "
+                f"`wardrobe` e.g.: {', '.join(sorted(book.wardrobe))}, or any "
+                "outfit you care to describe (empty = everyday)."
+                # the library's own voice (tool_hint in the yaml — shipped
+                # empty, an overlay's register explained in its own words)
+                + (f" {book.tool_hint}" if book.tool_hint else ""))
 
         @mcp.tool(description=desc)
         def take_selfie(scene: str = "", mood: str = "", wardrobe: str = "") -> dict:
-            if scene and scene not in book.scenes:
-                raise ValueError(f"unknown scene {scene!r} "
-                                 f"(have: {', '.join(sorted(book.scenes))})")
-            if mood and mood not in book.moods:
-                raise ValueError(f"unknown mood {mood!r} "
-                                 f"(have: {', '.join(sorted(book.moods))})")
-            if wardrobe and wardrobe not in book.wardrobe:
-                raise ValueError(f"unknown wardrobe {wardrobe!r} "
-                                 f"(have: {', '.join(sorted(book.wardrobe))})")
+            # Named template keys render from the library; anything else passes
+            # through verbatim (forge/templates.py — no off-menu refusal).
             return {"id": uuid.uuid4().hex[:8],
                     "scene": scene or None, "mood": mood or None,
                     "wardrobe": wardrobe or None,

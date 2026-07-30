@@ -51,7 +51,16 @@ def build_forge(cfg) -> tuple[object, str]:
     from yurios.forge import Character, ImageForge, SelfieBook, make_backend
 
     character = Character.load(FORGE_DIR / "characters" / "yuri.yaml")
-    book = SelfieBook.load(FORGE_DIR / "templates" / "selfie.yaml")
+    overlays = []
+    if cfg.selfie_templates_extra:             # personal registers (user file)
+        extra = Path(cfg.selfie_templates_extra)
+        if extra.is_file():
+            overlays.append(extra)
+        else:
+            log.warning("selfies: SELFIE_TEMPLATES_EXTRA points at %s, which "
+                        "doesn't exist — using the shipped library alone", extra)
+    book = SelfieBook.load(FORGE_DIR / "templates" / "selfie.yaml",
+                           overlays=overlays)
 
     name, status = cfg.selfie_backend, cfg.selfie_backend
     if name == "openrouter":
@@ -63,6 +72,47 @@ def build_forge(cfg) -> tuple[object, str]:
                 "backend (placeholder cards). Set OPENROUTER_API_KEY in .env "
                 "to give her a real camera.")
             backend, status = make_backend("mock"), "mock (no key — placeholder)"
+    elif name in ("diffusers", "krea2"):
+        # One knob, two architectures: SELFIE_LOCAL_MODEL may be an SDXL UNet
+        # or a Krea 2 transformer, and they need entirely different loaders.
+        # The checkpoint says which it is (its safetensors header, read without
+        # torch), so the user doesn't have to — an explicit SELFIE_BACKEND=krea2
+        # still wins, for a file whose header is unhelpful.
+        from yurios.forge.backends.sniff import sniff_local_checkpoint_architecture
+        if name == "diffusers":
+            arch = sniff_local_checkpoint_architecture(cfg.selfie_local_model)
+            if arch == "krea2":
+                log.info("selfies: %s is a Krea 2 checkpoint — using the krea2 "
+                         "backend (SELFIE_BACKEND=diffusers picks the loader "
+                         "from the file).", Path(cfg.selfie_local_model).name)
+                name = status = "krea2"
+
+        if name == "krea2":
+            backend = make_backend(
+                "krea2", model_path=cfg.selfie_local_model,
+                device=cfg.selfie_local_device, steps=cfg.selfie_krea2_steps,
+                cfg=cfg.selfie_krea2_cfg,
+                cpu_offload=cfg.selfie_local_cpu_offload)
+            hint = ("Fix: pip install -e \".[forge-krea2]\" and point "
+                    "SELFIE_LOCAL_MODEL in .env at a Krea 2 .safetensors "
+                    "checkpoint (see .env.example).")
+        else:
+            backend = make_backend(
+                "diffusers", model_path=cfg.selfie_local_model,
+                device=cfg.selfie_local_device, steps=cfg.selfie_local_steps,
+                cfg=cfg.selfie_local_cfg, hires=cfg.selfie_local_hires,
+                hires_scale=cfg.selfie_local_hires_scale,
+                hires_denoise=cfg.selfie_local_hires_denoise,
+                cpu_offload=cfg.selfie_local_cpu_offload)
+            hint = ("Fix: pip install -e \".[forge-local]\" and point "
+                    "SELFIE_LOCAL_MODEL in .env at an SDXL .safetensors "
+                    "checkpoint (e.g. a Pie Model from Civitai — see "
+                    ".env.example).")
+
+        if not backend.health():               # no deps/checkpoint → degrade loudly
+            log.warning("selfies: the %s backend can't run — degrading to the "
+                        "mock backend (placeholder cards). %s", name, hint)
+            backend, status = make_backend("mock"), f"mock ({name} unavailable — placeholder)"
     else:
         backend = make_backend(name)
 
@@ -76,12 +126,37 @@ class SelfieLab:
 
     def __init__(self, forge, *, clock: Clock,
                  post: Callable[..., dict],
-                 speak: Callable[[str], Awaitable[bool]]):
+                 speak: Callable[[str], Awaitable[bool]],
+                 parker=None,
+                 quiet: Optional[Callable[[], Awaitable[None]]] = None):
         self.forge = forge
         self.clock = clock
         self.post = post                       # Runtime.post_message
         self.speak = speak                     # Runtime.speak_ambient (§8.4)
+        self.parker = parker                   # LLMParker | None (world/vram.py)
+        self.quiet = quiet                     # Runtime.wait_turns_idle | None
         self._tasks: set[asyncio.Task] = set()
+
+    def _render(self, **kw):
+        """One render, borrowing the LLM's VRAM when the card needs it: the
+        parker evicts her LM Studio models for the render's duration and
+        re-pins them after (finally — a failed render never strands her brain).
+        A no-op context when no parker is wired (tests, hosted backends).
+
+        When the loan happened, the render pipeline is released BEFORE the
+        restore: the cached pipeline and the re-pinning chat model are the two
+        things that don't fit on the card at once, so keeping the pipeline
+        warm would make the restore fail with the card still full."""
+        if self.parker is None:
+            return self.forge.selfie(**kw)
+        with self.parker.parked() as borrowed:
+            result = self.forge.selfie(**kw)
+            if borrowed:
+                teardown = getattr(getattr(self.forge, "backend", None),
+                                   "_teardown", None)
+                if callable(teardown):
+                    teardown()
+            return result
 
     def start(self, contract: dict) -> None:
         """Spawn one render from the tool's validated contract. Never blocks,
@@ -96,9 +171,20 @@ class SelfieLab:
         wardrobe = c.get("wardrobe") or "everyday"   # the tier she asked the
         # tool for; unprompted shots stay in the everyday default (→ ch. 11:
         # the yaml gates nothing — whether a tier renders is the backend's call)
+        # A parked render evicts her LM Studio brain — never while a turn is
+        # still streaming from it (the eviction kills that stream mid-reply
+        # and the draft vanishes from the chat). start-don't-await means the
+        # turn that asked is exactly the turn in flight right now, so wait
+        # for a quiet moment first. Only a park needs this: a render that
+        # fits alongside her brain starts at once.
+        if (self.parker is not None and self.quiet is not None
+                and self.parker.applicable() and self.parker.needs_park()):
+            log.info("selfie: parking needs the GPU — waiting for a quiet "
+                     "moment before the render")
+            await self.quiet()
         try:
             result = await asyncio.to_thread(
-                self.forge.selfie, scene=scene, mood=mood, wardrobe=wardrobe,
+                self._render, scene=scene, mood=mood, wardrobe=wardrobe,
                 save=False)
             stamp = int(self.clock.now())
             name = f"{stamp}-{c.get('id', 'x')}.png"

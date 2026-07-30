@@ -155,6 +155,16 @@ svg{ width:1.1em; height:1.1em; fill:none; stroke:currentColor; stroke-width:1.7
   background:currentColor; transform:rotate(-45deg);
 }
 
+/* the telegram switch: same vocabulary as the rain-mute — lit while her lines
+   leave for the chat, dimmed and slashed while she only reads */
+.tg-mute{ position:relative; background:rgb(12 17 16 / .82); backdrop-filter:blur(14px); }
+.tg-mute .tg-glyph{ width:14px; height:14px; fill:currentColor; }
+.tg-mute.muted{ color:var(--dim); opacity:.62; }
+.tg-mute.muted::after{
+  content:""; position:absolute; left:12%; top:50%; width:76%; height:1px;
+  background:currentColor; transform:rotate(-45deg);
+}
+
 /* ---- the chat column (SPEC §2.6): her words, next to her ---- */
 #chat-col{
   position:fixed; top:0; right:0; bottom:0; width:var(--chat-w); z-index:10;

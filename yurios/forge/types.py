@@ -26,9 +26,8 @@ class Capabilities:
     supports_reference_images: bool = False
     max_reference_images: int = 0
     supports_lora: bool = False
-    # Whether the backend will render the intimate register, or None if unknown.
-    # Hosted frontier models refuse it; a local uncensored model won't (→ ch. 11,
-    # the model requirement — this is just backend selection, not engine policy).
+    # Whether the backend moderates what it renders, or None if unknown. Purely
+    # backend selection information, not engine policy (→ ch. 26, no posture).
     uncensored: Optional[bool] = None
     notes: str = ""
 

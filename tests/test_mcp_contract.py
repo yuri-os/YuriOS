@@ -34,6 +34,24 @@ async def test_list_tools_is_exactly_the_four_hands():
         assert "minutes" in timer.inputSchema.get("required", [])
 
 
+async def test_description_carries_the_overlay_and_its_hint(tmp_path, monkeypatch):
+    """The tools server reads the SAME merged book the host renders from
+    (SELFIE_TEMPLATES_EXTRA): an overlay's tiers appear in the description,
+    and its `tool_hint` line is carried verbatim — an overlay's register is
+    explained in its own words, never implied by the shipped file."""
+    import yaml
+    overlay = tmp_path / "extra.yaml"
+    overlay.write_text(yaml.safe_dump({
+        "tool_hint": "hint: name the tier that matches the ask.",
+        "wardrobe": {"midnight": "WARDROBE-midnight"}}))
+    monkeypatch.setenv("SELFIE_TEMPLATES_EXTRA", str(overlay))
+    async with create_connected_server_and_client_session(server()._mcp_server) as s:
+        selfie = next(t for t in (await s.list_tools()).tools
+                      if t.name == "take_selfie")
+        assert "midnight" in selfie.description
+        assert "hint: name the tier that matches the ask." in selfie.description
+
+
 async def test_selfies_off_is_not_advertised():
     """SELFIE_BACKEND=off: the tool doesn't exist — no hand, not a dead one (§7.6)."""
     srv = build_server(weather=FakeWeather(), selfies=False)
@@ -43,9 +61,11 @@ async def test_selfies_off_is_not_advertised():
             "get_weather", "play_music", "set_timer"]
 
 
-async def test_take_selfie_contract_and_validation():
-    """The server is the contract point only (§7.5/§7.6): it validates against
-    the template library and answers `started` — pixels happen on the host."""
+async def test_take_selfie_contract_and_freeform_passthrough():
+    """The server is the contract point only (§7.5/§7.6): it carries the ask —
+    named template key or free-form — and answers `started`. Pixels happen on
+    the host; refusal happens nowhere (the engine takes no enforcement
+    posture — what renders is the backend's call, never the contract's)."""
     async with create_connected_server_and_client_session(server()._mcp_server) as s:
         r = await s.call_tool("take_selfie", {"scene": "window", "mood": "happy"})
         assert not r.isError
@@ -59,21 +79,30 @@ async def test_take_selfie_contract_and_validation():
         assert data["scene"] is None and data["mood"] is None
         assert data["wardrobe"] is None                # everyday default, host-side
 
-        # wardrobe is a tier, not a gate (templates/selfie.yaml): every tier in
-        # the library is nameable, and the contract carries the ask through
-        r = await s.call_tool("take_selfie", {"wardrobe": "intimate"})
+        # every tier in the shipped library is nameable, and the contract
+        # carries the ask through
+        r = await s.call_tool("take_selfie", {"wardrobe": "cozy"})
         assert not r.isError
-        assert json.loads(result_text(r))["wardrobe"] == "intimate"
+        assert json.loads(result_text(r))["wardrobe"] == "cozy"
 
-        assert (await s.call_tool("take_selfie", {"scene": "moon"})).isError
-        assert (await s.call_tool("take_selfie", {"mood": "furious"})).isError
-        assert (await s.call_tool("take_selfie", {"wardrobe": "armor"})).isError
+        # off-menu asks are NOT refused: free-form text passes through verbatim
+        # (forge/templates.py — the library is a starting point, not a limit)
+        r = await s.call_tool("take_selfie", {"scene": "on the moon",
+                                              "mood": "mid-laugh, head thrown back",
+                                              "wardrobe": "borrowed shirt, nothing else"})
+        assert not r.isError
+        data = json.loads(result_text(r))
+        assert data["scene"] == "on the moon"
+        assert data["mood"] == "mid-laugh, head thrown back"
+        assert data["wardrobe"] == "borrowed shirt, nothing else"
 
-        # the description the model reads is BUILT from the library (§7.6)
+        # the description the model reads is BUILT from the library (§7.6) and
+        # names the free-form pass-through, so she knows the menu isn't a wall
         listed = await s.list_tools()
         selfie = next(t for t in listed.tools if t.name == "take_selfie")
         assert "window" in selfie.description and "happy" in selfie.description
-        assert "cozy" in selfie.description and "intimate" in selfie.description
+        assert "cozy" in selfie.description and "dressy" in selfie.description
+        assert "free-form" in selfie.description
 
 
 async def test_set_timer_returns_the_contract():

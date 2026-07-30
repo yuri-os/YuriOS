@@ -9,16 +9,23 @@ INSTALL_DESKTOP=false
 SKIP_SYSTEM=false
 # The default install is exactly what .env.example selects, so a fresh checkout runs
 # as configured with no second step: base runtime + the local voice stack
-# (faster_whisper ears, kokoro voice, silero turn-taking) on the CPU-only torch
-# wheel. ~1.6 GB. The old "[all,test]" default cost 6.2 GB — that was PyPI's CUDA
-# torch, 3.8 GB of nvidia-* nothing here executes; the CPU wheel is where the saving
-# came from, not from shipping a config whose voice seams fall back to fakes.
-# --thin drops back to the ~280 MB base for anyone who wants text-only.
+# (faster_whisper ears, kokoro voice, silero turn-taking). torch's build is the one
+# choice the script asks about when it can: the CPU-only wheel (~750 MB) keeps the
+# install lean and the voice is CPU-only anyway; the CUDA pair (~4.5 GB) is what
+# makes local selfies (SELFIE_BACKEND=diffusers, --forge-local) and GPU voice fast.
+# Unattended runs keep the CPU default. --thin drops back to the ~280 MB base.
 INSTALL_VOICE=true
 INSTALL_THIN=false
 INSTALL_EMBED=false
 INSTALL_GPU_VOICE=false
-CPU_TORCH=true
+INSTALL_FORGE_LOCAL=false
+INSTALL_FORGE_KREA2=false
+# Which torch build to install: cpu (the historic default — cheap, and the
+# default voice is CPU-only) or cuda (fast local selfies via SELFIE_BACKEND=
+# diffusers, GPU voice). Empty = not chosen yet: the script asks when it can,
+# and falls back to cpu when nobody is there to answer (pipes, CI, dry runs).
+TORCH_CHOICE=""
+TORCH_EXPLICIT=false
 VOICE_EXPLICIT=false
 PRINT_EXTRAS=false
 
@@ -44,10 +51,18 @@ Options:
                  can name it explicitly
   --local-embed  Also install sentence-transformers, for EMBED_BACKEND=sentence_tf
                  (not needed for the default LM Studio / Ollama embeddings)
+  --forge-local  Also install the local camera (diffusers) for
+                 SELFIE_BACKEND=diffusers — an SDXL checkpoint rendered
+                 in-process. Wants the GPU torch build to be usable
+  --forge-krea2  The same camera for a Krea 2 checkpoint (INT4, via
+                 comfy-kitchen). Also needs Hugging Face access to the
+                 gated krea/Krea-2-Raw for its text encoder + VAE
   --gpu-voice    Also install qwen-tts, the designed voice — needs a CUDA GPU
-                 (skips the CPU-torch shortcut, since that one really uses it)
-  --cuda-torch   Do not pre-install the CPU torch wheel on Linux; let the
-                 extras pull PyPI's CUDA build (~3.8 GB more)
+                 (selects the GPU torch build, since that one really uses it)
+  --cpu-torch    Install the CPU-only torch + torchaudio wheels (~750 MB):
+                 voice and embeddings run fine on CPU, but local selfies crawl
+  --cuda-torch   Install PyPI's matched CUDA torch + torchaudio pair (~4.5 GB):
+                 fast local selfies and GPU voice. Needs an NVIDIA GPU
   --docker       Build the Docker Compose setup instead of a host environment
   --desktop      Also install the native transparent desktop-window dependencies
   --print-extras Print the extras the other flags resolve to and exit — a dry run
@@ -55,6 +70,11 @@ Options:
   --skip-system  Do not install system packages (git, curl, and — unless --thin
                  — espeak-ng and libsndfile, which the voice needs)
   -h, --help     Show this help
+
+On Linux/WSL with a terminal attached, the installer ASKS which torch build to
+install whenever a torch consumer is selected (voice, embeddings, the local
+camera) and no --cpu-torch/--cuda-torch flag settled it. Piped or unattended
+runs keep the CPU default.
 
 Everything is additive and re-runnable: install --thin now, rerun without it later.
 `python -m yurios.doctor` reports what your .env selects vs what's installed.
@@ -77,8 +97,12 @@ for arg in "$@"; do
         --voice) INSTALL_VOICE=true; VOICE_EXPLICIT=true ;;
         --thin|--no-voice) INSTALL_THIN=true ;;
         --local-embed) INSTALL_EMBED=true ;;
-        --gpu-voice) INSTALL_GPU_VOICE=true; INSTALL_VOICE=true; CPU_TORCH=false ;;
-        --cuda-torch) CPU_TORCH=false ;;
+        --forge-local) INSTALL_FORGE_LOCAL=true ;;
+        --forge-krea2) INSTALL_FORGE_KREA2=true ;;
+        --gpu-voice) INSTALL_GPU_VOICE=true; INSTALL_VOICE=true
+                     TORCH_CHOICE="cuda"; TORCH_EXPLICIT=true ;;
+        --cpu-torch) TORCH_CHOICE="cpu"; TORCH_EXPLICIT=true ;;
+        --cuda-torch) TORCH_CHOICE="cuda"; TORCH_EXPLICIT=true ;;
         --print-extras) PRINT_EXTRAS=true ;;
         --skip-system) SKIP_SYSTEM=true ;;
         -h|--help) usage; exit 0 ;;
@@ -91,10 +115,14 @@ if [ "$MODE" = "docker" ] && [ "$INSTALL_DESKTOP" = true ]; then
 fi
 
 # --thin is the opposite of the default, so asking for both is a contradiction worth
-# saying out loud rather than resolving by argument order.
+# saying out loud rather than resolving by argument order. --forge-local is out too:
+# diffusers depends on torch, and --thin's whole promise is "no torch".
 if [ "$INSTALL_THIN" = true ]; then
     if [ "$VOICE_EXPLICIT" = true ] || [ "$INSTALL_GPU_VOICE" = true ]; then
         fail "--thin cannot be combined with --voice or --gpu-voice; --thin is the no-voice install"
+    fi
+    if [ "$INSTALL_FORGE_LOCAL" = true ] || [ "$INSTALL_FORGE_KREA2" = true ]; then
+        fail "--thin cannot be combined with --forge-local/--forge-krea2; --thin is the no-torch install"
     fi
     INSTALL_VOICE=false
 fi
@@ -112,6 +140,12 @@ if [ "$INSTALL_GPU_VOICE" = true ]; then
 fi
 if [ "$INSTALL_EMBED" = true ]; then
     EXTRAS="$EXTRAS,local-embed"
+fi
+if [ "$INSTALL_FORGE_LOCAL" = true ]; then
+    EXTRAS="$EXTRAS,forge-local"
+fi
+if [ "$INSTALL_FORGE_KREA2" = true ]; then
+    EXTRAS="$EXTRAS,forge-krea2"
 fi
 if [ "$INSTALL_DESKTOP" = true ]; then
     EXTRAS="$EXTRAS,desktop"
@@ -241,6 +275,85 @@ configure_wsl_lmstudio() {
     log "Pointing WSL at LM Studio through $target_url"
     sed -i.bak "s|^LMSTUDIO_BASE_URL=.*|LMSTUDIO_BASE_URL=$target_url # managed by install.sh for WSL|" .env
     rm -f .env.bak
+}
+
+select_torch_build() {
+    # Ask which torch build to install — but only when all of these hold:
+    # a torch consumer was selected (voice, embeddings, the local camera), the
+    # platform has two real builds to choose between (macOS wheels are CPU-only),
+    # no flag settled it, and someone is actually there to answer. Anything less
+    # and the CPU default stands — unattended runs must never block on a prompt.
+    [ "$TORCH_EXPLICIT" = false ] || return 0
+    { [ "$PLATFORM" = "linux" ] || [ "$PLATFORM" = "wsl" ]; } || return 0
+    { [ "$INSTALL_VOICE" = true ] || [ "$INSTALL_EMBED" = true ] \
+        || [ "$INSTALL_FORGE_LOCAL" = true ] \
+        || [ "$INSTALL_FORGE_KREA2" = true ]; } || return 0
+    [ -t 0 ] || return 0
+
+    local gpu_note=""
+    if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi -L >/dev/null 2>&1; then
+        gpu_note=" (NVIDIA GPU detected: $(nvidia-smi -L | head -1 | cut -d: -f2- | sed 's/^ //'))"
+    fi
+    printf '\n==> Which torch build?%s\n' "$gpu_note" >&2
+    printf '    [1] CPU  (~750 MB)  — voice and embeddings run fine on CPU; local\n' >&2
+    printf '        selfies (SELFIE_BACKEND=diffusers) will crawl\n' >&2
+    printf '    [2] CUDA (~4.5 GB)  — fast local selfies and GPU voice, on your NVIDIA GPU\n' >&2
+    local answer=""
+    read -r -p "    Choose [1/2] (default 1): " answer || true
+    case "$answer" in
+        2|cuda|gpu|CUDA|GPU) TORCH_CHOICE="cuda" ;;
+        *) TORCH_CHOICE="cpu" ;;
+    esac
+    log "torch build: $TORCH_CHOICE"
+}
+
+install_torch() {
+    # torch + torchaudio, always as a PAIR from the same index. kokoro and
+    # silero-vad load torchaudio's C++ extension, and a mismatched pair dies
+    # with "libcudart.so.13: cannot open shared object file" while pip and the
+    # doctor's find_spec both report a fine install — both voice seams fall
+    # back to fakes and she is silent. The CPU pair comes from whl/cpu (747 MB
+    # vs 4.5 GB); the CUDA pair is PyPI's default Linux build, which is already
+    # matched to itself. Switching builds on a rerun needs --reinstall: an
+    # installed torch satisfies the requirement, so uv would keep the old build.
+    [ "$PLATFORM" != "macos" ] || return 0     # macOS wheels are CPU-only anyway
+    { [ "$INSTALL_VOICE" = true ] || [ "$INSTALL_EMBED" = true ] \
+        || [ "$INSTALL_FORGE_LOCAL" = true ] \
+        || [ "$INSTALL_FORGE_KREA2" = true ]; } || return 0
+
+    local current="none"
+    if [ -x "$PYTHON" ]; then
+        current="$("$PYTHON" -c 'import torch; print("cuda" if torch.version.cuda else "cpu")' \
+            2>/dev/null || printf 'none')"
+    fi
+    # No choice made (unattended run)? Keep whatever build is already there —
+    # a piped rerun must never downgrade a GPU user's torch to CPU. Fresh
+    # installs still land on the cheap CPU default.
+    if [ -z "$TORCH_CHOICE" ]; then
+        if [ "$current" != "none" ]; then
+            TORCH_CHOICE="$current"
+        else
+            TORCH_CHOICE="cpu"
+        fi
+    fi
+    if [ "$current" = "$TORCH_CHOICE" ]; then
+        log "torch ($TORCH_CHOICE build) is already installed"
+        return 0
+    fi
+
+    local reinstall=()
+    if [ "$current" != "none" ]; then
+        log "Switching torch from the $current build to $TORCH_CHOICE"
+        reinstall=(--reinstall-package torch --reinstall-package torchaudio)
+    fi
+    if [ "$TORCH_CHOICE" = "cuda" ]; then
+        log "Installing the CUDA torch + torchaudio pair (~4.5 GB; fast local selfies and GPU voice)"
+        uv pip install --python "$PYTHON" "${reinstall[@]}" torch torchaudio
+    else
+        log "Installing the CPU-only torch + torchaudio wheels (skips ~3.8 GB of unused CUDA; --cuda-torch to opt out)"
+        uv pip install --python "$PYTHON" "${reinstall[@]}" torch torchaudio \
+            --index-url https://download.pytorch.org/whl/cpu
+    fi
 }
 
 install_docker() {
@@ -459,24 +572,13 @@ if [ -d yurios.egg-info ]; then
 fi
 
 log "Installing YuriOS with Python $($PYTHON --version 2>&1)"
-# kokoro, silero-vad and sentence-transformers all depend on torch, and PyPI's LINUX
-# torch wheel bundles CUDA. Measured in an otherwise-empty venv: 4.5 GB on disk for
-# the default wheel against 747 MB for whl/cpu. The default voice (kokoro) is CPU-only
-# and the GPU belongs to the LLM, so that is ~3.8 GB nothing here executes. Installing
-# the CPU build first satisfies the requirement and the extras reuse it — which is what
-# makes shipping the voice by default affordable at all. Windows/macOS wheels are
-# CPU-only already, hence the guard.
-if [ "$CPU_TORCH" = true ] && [ "$PLATFORM" != "macos" ] \
-   && { [ "$INSTALL_VOICE" = true ] || [ "$INSTALL_EMBED" = true ]; }; then
-    # torchAUDIO has to come from the same index, not just torch. kokoro and silero-vad
-    # both load its C++ extension, and PyPI's torchaudio is built against CUDA torch:
-    # against a CPU-only torch it dies with "libcudart.so.13: cannot open shared object
-    # file", both seams fall back to their fakes, and she is silent — with `pip list`
-    # and the doctor's find_spec probe both reporting a perfectly good install.
-    log "Installing the CPU-only torch + torchaudio wheels (skips ~3.8 GB of unused CUDA; --cuda-torch to opt out)"
-    uv pip install --python "$PYTHON" torch torchaudio \
-        --index-url https://download.pytorch.org/whl/cpu
-fi
+# torch first, as a matched torch+torchaudio pair: kokoro, silero-vad and
+# sentence-transformers all depend on torch, and PyPI's LINUX torch wheel bundles
+# CUDA (4.5 GB vs 747 MB for whl/cpu). Which build is the user's call — asked
+# interactively when possible, CPU by default, --cuda-torch/--cpu-torch to skip
+# the question. See select_torch_build/install_torch above for the pairing rule.
+select_torch_build
+install_torch
 uv pip install --python "$PYTHON" -e ".[$EXTRAS]"
 
 prepare_local_state
@@ -537,6 +639,32 @@ Installed --thin, so .env selects the voice fakes: she is silent and doesn't
 transcribe. Add her real ears and voice whenever you like (and flip the three
 *_BACKEND knobs back) — this script is re-runnable:
   ./install.sh
+EOF
+fi
+
+if [ "$INSTALL_FORGE_LOCAL" = true ]; then
+    cat <<'EOF'
+
+Her local camera is installed. To use it, point .env at a checkpoint:
+  SELFIE_BACKEND=diffusers
+  SELFIE_LOCAL_MODEL=/path/to/your-model.safetensors
+Any Illustrious-lineage SDXL base works (e.g. a Pie Model from Civitai — the
+download instructions are in .env.example's SELFIE_LOCAL_* block). On the CUDA
+torch build a selfie takes seconds; on the CPU build, minutes.
+EOF
+fi
+
+if [ "$INSTALL_FORGE_KREA2" = true ]; then
+    cat <<'EOF'
+
+Her local camera is installed, Krea 2 flavour. Point .env at a checkpoint:
+  SELFIE_BACKEND=diffusers
+  SELFIE_LOCAL_MODEL=/path/to/your-krea2-model.safetensors
+(diffusers is right — a Krea 2 file is recognised and loaded as one.) These
+checkpoints carry no text encoder or VAE, so one more step, once:
+  1. accept the licence at https://huggingface.co/krea/Krea-2-Raw (signed in)
+  2. huggingface-cli login
+Until then she falls back to placeholder cards and says so in the log.
 EOF
 fi
 

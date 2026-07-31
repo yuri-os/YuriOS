@@ -77,6 +77,9 @@ svg { width: 1.1em; height: 1.1em; fill: none; stroke: currentColor; stroke-widt
 .pulse { width: 6px; height: 6px; background: var(--dim); border-radius: 50%; box-shadow: 0 0 0 4px rgb(105 115 109 / .1); }
 .pulse.live { background: var(--acid); box-shadow: 0 0 0 4px rgb(215 255 88 / .1), 0 0 15px var(--acid); }
 .topbar > .button { justify-self: end; }
+/* Two ways a character comes into existence — someone else's card, or one you
+   write (SPEC §28). Import stays where it was; Create sits beside it. */
+.topbar-actions { display: flex; gap: 10px; justify-self: end; }
 
 .workspace { display: grid; grid-template-columns: 92px 1fr; min-height: calc(100vh - 76px); }
 .index-rail {
@@ -179,11 +182,52 @@ h1 { margin-bottom: 13px; font-size: clamp(38px, 5vw, 68px); line-height: .96; l
 .open-detail { width: 38px; height: 38px; display: grid; place-items: center; border: 1px solid var(--rule); background: transparent; color: var(--soft); cursor: pointer; }
 .open-detail:hover { border-color: var(--acid-dark); color: var(--acid); }
 
+/* Grid view is a wall of card art: the portrait fills the tile whole — contained,
+   so nothing of the card is cropped away — and the record reads off a scrim at
+   its foot. The circle is a list-view idea, so every rule here stays off .list. */
+.character-grid:not(.list) .character-card { min-height: 0; aspect-ratio: 2 / 3; justify-content: flex-end; padding: 0; }
+.character-grid:not(.list) .character-card::before {
+  inset: auto 0 0; z-index: 1; height: 62%; opacity: 1;
+  background: linear-gradient(to top, rgb(5 8 7 / .95) 0 26%, rgb(5 8 7 / .72) 55%, transparent);
+}
+/* the art drops below the scrim (z-index 1) that the record reads off */
+.character-grid:not(.list) .card-top { position: absolute; z-index: 0; inset: 0; display: block; }
+.character-grid:not(.list) .portrait {
+  width: 100%; height: 100%; border: 0; border-radius: 0; font-size: 40px;
+  background: linear-gradient(160deg, color-mix(in srgb, var(--character-accent, var(--soft)) 22%, var(--panel)), var(--void));
+}
+.character-grid:not(.list) .portrait::after { content: none; }
+.character-grid:not(.list) .portrait.has-art::before {
+  content: ""; position: absolute; inset: -6%;
+  background: var(--portrait-art) center / cover no-repeat;
+  filter: blur(22px) saturate(.65) brightness(.45);
+}
+.character-grid:not(.list) .portrait img { position: relative; object-fit: contain; object-position: top center; transition: transform .3s ease; }
+.character-grid:not(.list) .character-card:hover .portrait img { transform: scale(1.02); }
+.character-grid:not(.list) .status-chip {
+  position: absolute; z-index: 2; top: 16px; left: 16px; padding: 6px 10px;
+  border: 1px solid rgb(255 255 255 / .1); background: rgb(5 8 7 / .62); backdrop-filter: blur(6px);
+}
+/* the record block is the same height on every tile — the description keeps its
+   two-line box even when a character has no profile note, and a long name takes
+   an ellipsis rather than a second line — so the names sit on one line across
+   the wall instead of floating up and down with the text under them */
+.character-grid:not(.list) .card-body { flex: none; z-index: 2; padding: 0 20px 2px; }
+.character-grid:not(.list) .card-body h2 { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.character-grid:not(.list) .card-description { margin-top: 11px; }
+.character-grid:not(.list) .card-footer { z-index: 2; padding: 16px 20px 18px; border-top-color: rgb(255 255 255 / .1); }
+.character-grid:not(.list) .skeleton { min-height: 0; aspect-ratio: 2 / 3; display: flex; flex-direction: column; padding: 0; }
+.character-grid:not(.list) .skeleton i:nth-child(1) { width: 100%; height: auto; flex: 1; border-radius: 0; }
+.character-grid:not(.list) .skeleton i:nth-child(2) { width: 52%; height: 20px; margin: 20px 0 0 20px; }
+.character-grid:not(.list) .skeleton i:nth-child(3) { width: 70%; margin: 14px 0 22px 20px; }
+
 .character-grid.list { display: grid; grid-template-columns: 1fr; }
 .character-grid.list .character-card { min-height: 128px; display: grid; grid-template-columns: 108px minmax(160px, .75fr) minmax(220px, 1.5fr) auto; align-items: center; gap: 22px; padding: 22px 25px; }
-.character-grid.list .card-top { display: block; }
+/* portrait with its state read underneath it, both inside the first column —
+   the chip used to be placed by hand and landed on top of the name and ID */
+.character-grid.list .card-top { display: grid; justify-items: center; gap: 9px; }
 .character-grid.list .portrait { width: 72px; height: 72px; }
-.character-grid.list .status-chip { position: absolute; left: 91px; top: 31px; white-space: nowrap; }
+.character-grid.list .status-chip { white-space: nowrap; }
 .character-grid.list .card-body { padding: 0; }
 .character-grid.list .card-description { min-height: 0; margin: 0; }
 .character-grid.list .card-footer { min-width: 296px; grid-template-columns: 1fr auto auto; padding: 0; border: 0; }
@@ -218,6 +262,14 @@ h1 { margin-bottom: 13px; font-size: clamp(38px, 5vw, 68px); line-height: .96; l
    settings sit under it in pairs */
 .drawer-actions { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
 .drawer-actions .button-primary { grid-column: 1 / -1; }
+/* The parked-card gate (SPEC §28). Amber, like the notice bar: this is not an
+   error, it is a character waiting on a decision only the user can make. */
+.review-gate { margin-bottom: 26px; padding: 16px 18px; border: 1px solid var(--rule); border-left: 2px solid var(--amber); background: rgb(244 189 98 / .05); }
+.review-gate .eyebrow { color: var(--amber); margin-bottom: 9px; }
+.review-gate p { margin: 0; color: var(--soft); font-size: 12px; line-height: 1.6; }
+.review-actions { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-top: 15px; }
+#approve-error { margin: -14px 0 20px; }
+#approve-error:empty { margin: 0; min-height: 0; }
 .detail-tabs { display: flex; gap: 24px; margin-top: 34px; border-bottom: 1px solid var(--rule); }
 .detail-tabs button { padding: 0 0 12px; border: 0; border-bottom: 2px solid transparent; background: none; color: var(--dim); cursor: pointer; font: 9px var(--font-mono); letter-spacing: .12em; text-transform: uppercase; }
 .detail-tabs button[aria-selected="true"] { border-color: var(--acid); color: var(--ink); }
@@ -293,8 +345,8 @@ h1 { margin-bottom: 13px; font-size: clamp(38px, 5vw, 68px); line-height: .96; l
 @media (max-width: 680px) {
   .topbar { height: 64px; padding: 0 16px; }
   .brand-copy small { display: none; }
-  .topbar > .button { width: 40px; padding: 0; }
-  .topbar > .button span { display: none; }
+  .topbar > .button, .topbar-actions .button { width: 40px; padding: 0; justify-content: center; }
+  .topbar > .button span, .topbar-actions .button span { display: none; }
   .board { padding: 39px 16px 60px; }
   .board-head { margin-bottom: 29px; }
   h1 { font-size: 42px; }
@@ -303,13 +355,15 @@ h1 { margin-bottom: 13px; font-size: clamp(38px, 5vw, 68px); line-height: .96; l
   .search-wrap { flex-basis: calc(100% - 98px); }
   .character-grid { grid-template-columns: 1fr; }
   .character-card { min-height: 316px; padding: 21px; }
+  /* one poster per row on a phone: a 2:3 tile at full width scrolls forever, and
+     the art is contained either way, so the tile can be squarer without losing any of it */
+  .character-grid:not(.list) .character-card, .character-grid:not(.list) .skeleton { aspect-ratio: 4 / 5; }
   .character-grid.list .character-card { min-height: 168px; grid-template-columns: 76px 1fr auto; gap: 14px; padding: 18px; }
   .character-grid.list .portrait { width: 64px; height: 64px; }
-  .character-grid.list .status-chip { position: static; margin-top: 9px; }
   .character-grid.list .card-description { display: none; }
   .character-grid.list .card-footer { min-width: 0; grid-column: 2 / 4; width: 100%; padding-top: 14px; border-top: 1px solid var(--rule); }
   .detail-drawer { padding: 25px 20px 0; }
-  .drawer-actions { grid-template-columns: 1fr; }
+  .drawer-actions, .review-actions { grid-template-columns: 1fr; }
   .detail-tabs { margin-top: 28px; }
   .modal { width: calc(100vw - 20px); }
   .modal-card { padding: 24px 19px; }

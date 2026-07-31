@@ -64,6 +64,9 @@ export function normalizeCharacter(raw, index = 0) {
       utility: boolean(loops.utility ?? true),
       dream: boolean(loops.dream ?? true),
     },
+    // A card this node did not write arrives parked until someone reads it
+    // through (SPEC §28) — no runtime behind any of her rooms until then.
+    reviewRequired: boolean(source.review_required),
     description: text(source.description ?? source.tagline ?? source.summary, "No profile note has been set."),
     avatarUrl: text(source.avatar_url ?? source.portrait_url ?? source.image_url),
     accent: text(source.accent, ACCENTS[index % ACCENTS.length]),

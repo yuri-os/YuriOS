@@ -28,11 +28,15 @@ A remote thin client over `POST /api/chat` and `/api/events`. Its SSE attach cou
 exactly like an open page — so she knows you're there. The conversation window survives across
 runs unless you pass `--new`.
 
+She speaks first here too: the terminal asks for the greeting on arrival (`POST /api/greeting`),
+so you get the same opener a headset would. Reattaching to a conversation already going stays
+quiet — the greeting is once per session per server run. The very first time you meet a character
+this is where her cold open plays.
+
 ## Telegram
 
-She's in your pocket: your messages are ordinary turns, and her replies — plus her *proactive*
-lines, the reach-outs the mind decides on while no page is open — land in the chat, selfies
-included.
+She's in your pocket: messages sent to the bot are ordinary turns, and their replies land back in
+that Telegram chat, selfies included.
 
 ### Setup
 
@@ -82,24 +86,17 @@ runtime to start holds it; the rest report the medium as `held by <her>`, which 
 rather than a fault. A companion with no bot of her own is simply not on Telegram — she's still in
 the room and the terminal.
 
-### The sending switch
+### Cross-chat forwarding
 
-A footer button on every page — the sanctuary, the Live2D body and the text room
-(`POST /api/channels/telegram/sending`) — gates her *outbound* lines on the live adapter. She
-keeps reading the chat, she just doesn't send.
+Replies stay in the chat where they originated by default. A web, voice, CLI or API conversation
+is not copied into Telegram, and the browser rooms do not show a Telegram button. To deliberately
+mirror those replies into Telegram, enable this in the settings panel and restart:
 
-The flag itself lives on the running adapter, so a restart sends again. Your *choice* is
-remembered in the browser, per character, and pushed back up the next time you open a page — so
-"off" stays off across a reload or a restart.
+```ini
+TELEGRAM_SEND_NON_TELEGRAM=true
+```
 
-Until you press it once, each page has its own idea of the default:
-
-| Page | With nothing remembered yet |
-|---|---|
-| Sanctuary / Live2D | adopts whatever the runtime is currently doing |
-| Text room | **off** — it's the page you open on the phone that's already holding the Telegram chat |
-
-One press outranks all of that, everywhere.
+Telegram-originated turns always receive their reply in Telegram regardless of this setting.
 
 ## Planned
 

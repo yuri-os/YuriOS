@@ -66,6 +66,21 @@ def show(state: dict, entry: dict) -> None:
         print(PROMPT, end="", flush=True)      # redraw the prompt input() holds
 
 
+async def deliver(state: dict, entry: dict | None) -> None:
+    """Show a line the server committed to us directly. The stream is the
+    display path, so give it a moment to print this one first; if it is down or
+    slow, print it ourselves. Either way it is shown exactly once."""
+    if not entry:
+        return
+    for _ in range(20):
+        if not state["sse"] or entry["id"] in state["printed"]:
+            break
+        await asyncio.sleep(0.1)
+    if entry["id"] not in state["printed"]:
+        state["printed"].add(entry["id"])
+        show(state, entry)
+
+
 async def listen(client: httpx.AsyncClient, state: dict) -> None:
     """Drain /api/events; print her committed lines. Sets state['sse'] so the
     POST path knows whether to print replies itself."""
@@ -122,7 +137,29 @@ async def main() -> int:
 
         listener = asyncio.create_task(listen(client, state))
         print(f"connected to {url} — she's listening. /quit to leave.")
+
         try:
+            # She speaks first (SPEC §7). The voice route greets on connect; a
+            # terminal has no connect, so it asks — and waits for the answer,
+            # which carries the session id this run's turns belong to.
+            # Idempotent on the server, so reattaching to a conversation
+            # already going stays quiet.
+            state["awaiting"] = True
+            try:
+                resp = await client.post(
+                    "/api/greeting",
+                    json={"session_id": session_id, "channel": "cli"},
+                    timeout=180)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    session_id = data["session_id"]
+                    save_session(session_id)
+                    await deliver(state, data.get("message"))
+            except httpx.HTTPError:
+                pass                # no opener is no reason to keep you outside
+            finally:
+                state["awaiting"] = False
+
             while True:
                 try:
                     text = await asyncio.to_thread(input, PROMPT)
@@ -151,18 +188,7 @@ async def main() -> int:
                     data = resp.json()
                     session_id = data["session_id"]
                     save_session(session_id)
-                    entry = data.get("message")
-                    if entry:
-                        # the stream is the display path; give it a moment to
-                        # show the commit, then print it ourselves (stream
-                        # down or slow)
-                        for _ in range(20):
-                            if not state["sse"] or entry["id"] in state["printed"]:
-                                break
-                            await asyncio.sleep(0.1)
-                        if entry["id"] not in state["printed"]:
-                            state["printed"].add(entry["id"])
-                            show(state, entry)
+                    await deliver(state, data.get("message"))
                 finally:
                     state["awaiting"] = False
         finally:

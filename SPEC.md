@@ -621,10 +621,27 @@ STT/TTS/VAD SDK, and fakes implement each seam so the whole loop runs offline (�
 - §9.8 **The greeting.** On connect she **SHOULD** greet from memory before the user speaks
   (continuity). The greeting **MUST NOT** be persisted and **MUST NOT** pollute the session
   window, and **MUST** fire at most once per session — a reconnect or a second socket **MUST NOT**
-  speak a second greeting over the first.
-- §9.9 **Warm in the background.** The voice stack (~20 s cold) **MAY** load off-thread so her
-  body appears immediately; a connection **MUST** wait for the stack to be ready before its first
-  turn rather than answering with a stand-in. The ambient seam: the world voice route (§2.2) registers
+  speak a second greeting over the first. On the **first-ever** arrival there is no memory to
+  open from: while `soul/BOOTSTRAP.md` is present and the journal is empty, the greeting **MUST**
+  be that file's authored cold open, spoken verbatim, with no model call and no corpus line (the
+  text is SOUL, not a completion); once the journal shows she has met someone, the bootstrap
+  **MUST** be retired (§5.4) so file-presence remains the "has she met you yet?" flag. This fork
+  belongs to the **brain's greeting seam**, not to any one route: every surface that greets — the
+  voice socket, the text channels (§10.5) — **MUST** get it from there, or a character imported
+  and spoken to through one surface never has her first meeting at all.
+- §9.9 **Loaded while she has company.** The voice stack (~20 s cold, ~a gigabyte of weights) is
+  wanted by exactly one surface — the audio socket — so it **MUST NOT** be a cost of *starting* a
+  character: a host running a registry (§28) starts every autostarted one at boot, and warming a
+  stack per character spends memory and boot time on rooms nobody is in. It **MUST** therefore
+  load when a client opens `/ws/voice` and be released when the last open socket closes, held up
+  meanwhile by a count of listeners so a second client joins the warm stack rather than a second
+  copy of it. An empty-room grace period (`VOICE_UNLOAD_AFTER_S`) **SHOULD** cover a page reload,
+  and `VOICE_PRELOAD` **MAY** restore warm-at-boot for a single-companion install. It **MUST**
+  load off-thread so her body appears immediately, the socket **SHOULD** say it is warming (a
+  `warming` frame) rather than look hung, and a connection **MUST** wait for the stack to be ready
+  before its first turn rather than answering with a stand-in. Boot services that only load on
+  demand **MUST NOT** leave the boot board (§6.4) unfinished — the enter gate waits on it. The
+  ambient seam: the world voice route (§2.2) registers
   a per-connection injector, so ambient turns run on that connection's `TurnController` and one
   barge-in path kills everything she says, scripted or replied. Ambient speech is a real turn
   *minus the memory* — it appears in the chat flagged `proactive` but never persists (no corpus
@@ -654,9 +671,10 @@ keeps a socket of its own is sound.
   The attach/detach of subscribers **MUST** post `user_present` / `user_absent` signals to the
   mind — presence is a signal, not a guess (§16.2). `GET /api/history` backfills the chat (§2.6).
 - **`/ws/voice`** — the audio-only socket: binary mic PCM up, `hello`/`endpoint`/`bargein`/`text`
-  control up; `session`, `filler`/`audio` (base64 PCM + the sentence text for §5), `done`,
-  `cancelled`, `error` down. Turn expressions are re-routed onto the bus (§4), so the face has one
-  lane. PCM keeps a websocket because audio is the one flow that is bidirectional, binary, and
+  control up; `session`, `warming` (her voice is loading for this connection — §9.9),
+  `filler`/`audio` (base64 PCM + the sentence text for §5), `done`, `cancelled`, `error` down.
+  Turn expressions are re-routed onto the bus (§4), so the face has one lane. An open socket is
+  also what keeps the voice stack resident (§9.9). PCM keeps a websocket because audio is the one flow that is bidirectional, binary, and
   latency-critical; everything else is a broadcastable fact, and facts ride the bus.
 
 ### §10.5 — Channels
@@ -670,12 +688,18 @@ a frontend:
   lane, stripped from the shown text, sentences as `draft`s) → verbatim persist → `message` commit
   + `turn_committed` signal. It **MUST** mirror the voice route's contract minus the audio,
   including the rule that a failed turn leaves no trace. Text turns from all channels serialise on
-  one lock. Exposed as `POST /api/chat` (`{text, session_id?, channel}` → `{session_id, message}`),
-  which **MUST NOT** wait on the voice warm-up.
+  one lock. Exposed as `POST /api/chat` (`{text, session_id?, channel, client_id?}` →
+  `{session_id, user_message, message, active_selfies}`). It has `POST /api/chat/cancel` for a
+  correlated browser Stop request and **MUST NOT** wait on the voice warm-up. A text channel has
+  no *connect*, so the greeting
+  (§9.8) is asked for rather than implied: `POST /api/greeting` (`{session_id?, channel}` →
+  `{session_id, message}`) runs the same opener through the same runner, commits it as a
+  `proactive` message, persists nothing, and is idempotent per session per run (`message: null`
+  on a second ask) — the once-per-session rule, shared with the voice route rather than duplicated.
 - **Outbound** — an `EventHub` subscription. Committed `message` events carry the originating
-  `channel`, so an adapter can filter its own echoes. Because the mind's SUGGEST lines and
-  undeliverable SPEAKs land as `proactive` messages on the same bus (§18.3), every channel receives
-  her initiative for free.
+  `channel`, so an adapter can filter cross-chat copies. The mind's SUGGEST lines and
+  undeliverable SPEAKs land as `proactive` messages on the same bus (§18.3); an outside channel's
+  forwarding policy decides whether those leave the host.
 
 Channels in this build (`yurios/world/channels/`; a failed channel is one degraded medium, never a
 down host — `/api/health` and the boot board say which):
@@ -686,15 +710,10 @@ down host — `/api/health` and the boot board say which):
   chat only (`TELEGRAM_CHAT_ID`; unset = pairing mode: the bot answers with the id to configure and
   processes nothing). Telegram is *reachable, not present*: it posts no presence signals; selfies
   are sent as the file itself. A channel is on when its credentials are set — no separate enable
-  flag. The one runtime knob is the sending switch (`POST /api/channels/telegram/sending`, a
-  footer button on **every** client — §6.6, §6.7): it gates her *outbound* lines on the live
-  adapter — she keeps reading the chat — and it is session-scoped on the server, so a restart
-  sends again. The client therefore **MUST** remember the last choice per character and
-  re-assert it on load (`web/js/controls.js`), or "off" would quietly become "on" behind a
-  restart. With nothing yet remembered the rooms adopt whatever the runtime currently says; the
-  **text room (§6.7) defaults to off**, because it is the client you open on the device already
-  holding the Telegram chat, and hearing her twice is not hearing her twice as well. An explicit
-  press outranks both.
+  flag. Telegram-originated turns always answer in Telegram. Every other origin is filtered by
+  `TELEGRAM_SEND_NON_TELEGRAM`, which **MUST default false** and is exposed in settings; browser
+  rooms **MUST NOT** show a Telegram forwarding button. This prevents a local web, voice, CLI or
+  API conversation from leaking into a separately open Telegram chat unless explicitly enabled.
 
 **One outside account, one character.** The host runs a runtime per character (§29), so a shared
 credential would be opened once per character — and an inbox is single-tenant: Telegram answers all
@@ -1075,9 +1094,48 @@ one-loop conversation (§15.3's named rung) with it. The **workshop**: a sandbox
 Vault where ACT dispatches real work — research, code, builds — to an embedded harness and never awaits
 it (the selfie lab's start-don't-await rule, generalised), with §23.2's gated flow as the one door from
 work-product to self. The **temporal knowledge graph** behind `WorldModelStore`'s unchanged contract
-when "what was true when" starts to bite. And **distribution**: this Vault's SOUL exports as a `.PNG`
-character card and boots on someone else's machine, which is the point of the whole ladder — the
-companion you own, that you can move by copying a folder.
+when "what was true when" starts to bite.
+
+And **distribution** — the last item on this list, and the one that is now **built** (§28.1):
+this Vault's SOUL exports as a `.PNG` character card and boots on someone else's machine, which
+is the point of the whole ladder — the companion you own, that you can move by copying a folder.
+
+### §28.1 — The card studio (built)
+
+`yurios/characters/exporter.py` is the importer's mirror: it resolves `soul.yaml` against the
+soul files the mind has been living in, flattens them into a Character Card V3 (`ccv3` + a `chara`
+fallback, `tEXt`, spliced after IHDR), and carries the soul files **verbatim** in a
+`data.extensions.yurios` block so a re-import reconstructs `vault/soul/` byte-for-byte rather
+than re-deriving flattened prose with holes in it. Published as `docs/card-format.md`, so the
+format is a contract other runtimes can read rather than a quirk. `generation` counts the hops;
+`growth` carries counts and never content.
+
+Three things the flattening gets wrong if you write it naively, all pinned by test: `{{user}}`
+and `{{char}}` **MUST NOT** be expanded (the loader expands them because it is building a prompt;
+an export that did would bake the exporting user's name into a stranger's card); `BOOTSTRAP.md`
+is consumed-once (§5.4), so `first_mes` **MUST** fall back to a return greeting on exactly the
+grown characters this feature exists for; and the export is *authored* from an allowlist, never
+copied from `card.json`.
+
+**The scrub** (`yurios/characters/privacy.py`) is the load-bearing half, defended four times:
+the exporter takes no path from any caller, so the private surfaces are never named; the SOUL
+reader is jailed and refuses `USER.md`, `MEMORY.md` and the manifest's own `runtime_only:` list
+however a `fields:` reference asks; the card is built key by key from the V3 allowlist; and then
+canaries harvested from *this* vault's private surfaces are asserted absent from both the card
+and the final bytes. Credentials and a distinctive `USER_NAME` are hard blocks at any length —
+and `privacy.py` is the only module in the export path permitted to read `os.environ`, so the
+module that can see a secret cannot emit one and the module that emits cannot see. A passage
+present in both her soul and a private surface is the honest hard case (she learned it, you
+approved it at the §23 gate) and fails **closed** pending one human acknowledgement.
+
+A card starts the relationship at zero: `USER.md` arrives empty, `memory/`,
+`goals.md`, `corpus/` and `traces/` are empty, and the new Vault's history begins at one commit
+(`soul-src`, D-014). The import path **MUST** seed a Vault the way `scripts/seed_vault.py` does,
+`MEMORY.md` included: it is `runtime_only:` because it is *memory*, so it lands as
+`memory/semantic/facts.md` + `forgotten.md` and **MUST NOT** also be written under `soul/`, where
+nothing reads it and her gated self-edits (§23) would be offered it as a place to put a memory. The studio (`/studio/`, `web/studio/`) is the surface: create a character
+without a card to import, edit one as prose with her own grown edits marked and diffable, pick a
+portrait or a selfie, and read what stays on the machine before pressing export.
 
 ---
 

@@ -17,12 +17,11 @@ nothing: no memory line, no commit.
 
 ### Muting her
 
-The speaker button beside the mic silences her voice on this device — it's on every page
-(sanctuary, Live2D, text room) and it's remembered per character, so a muted room opens muted.
-
-It mutes the speakers, not her: she keeps talking, her mouth keeps moving, her captions and the
-transcript keep filling. Your microphone is a separate button, and the sanctuary's rain is a
-third — muting her voice doesn't touch either.
+The speaker button beside the mic is on every page (sanctuary, Live2D, text room). It starts muted
+on first visit and is remembered per character. While muted and not listening, typed chat takes
+the text-only route and does not load the voice stack. Unmuting or starting the microphone opens
+the audio socket; muting again closes it once the mic is off. The sanctuary's rain is a separate
+control.
 
 ## Ears (STT)
 
@@ -138,6 +137,34 @@ A no-think reply stops when it's done and rarely nears it.
 speaks stalls the voice loop. The utility model keeps thinking on, because it runs off the hot
 path.
 
+## When she loads it
+
+Her voice is the heaviest thing a runtime holds — on the shipped CPU defaults a warm stack costs
+about **2.2 GB of RSS** and most of a minute — and nothing but `/ws/voice` ever wants it: muted
+typed chat, `/api/chat`, the channels and the whole mind run on the brain alone. Browser rooms
+start muted, so it loads only when someone **unmutes her or starts listening**, and is freed when
+the last audio socket closes. A node with six characters registered keeps one voice resident, not
+six.
+
+```ini
+VOICE_PRELOAD=false               # true = warm at boot instead (single-companion installs)
+VOICE_UNLOAD_AFTER_S=60           # empty-room grace before it's freed; 0 = at once, -1 = never
+```
+
+The grace period exists because a page reload is a disconnect too, and paying twenty seconds of
+model loading for an F5 is worse than holding the memory a minute longer. The first client into a
+cold room waits for the models and is told so — the room captions "loading her voice…" instead of
+sitting silent. `/api/health`'s `voice` block reports `loaded`, `listeners` and how many times it
+has warmed this run.
+
+What the two halves are actually worth: **not loading** saves the whole 2.2 GB for every character
+nobody visits, which is the point. **Unloading** is the smaller half — it returns the weights and
+some of the heap (~2.3 GB → ~2.1 GB RSS on the CPU defaults), because most of the footprint is
+torch's own allocator arena, which the process keeps and re-uses; the numbers plateau across
+repeated entries rather than climbing. On a CUDA voice (`qwen3_tts` on the GPU) unloading is worth
+far more: the VRAM goes back to the LLM and the image forge, which is the memory that's genuinely
+scarce there.
+
 ## Lip-sync
 
 Visemes are derived from the audio she's actually producing and ride the event bus alongside it,
@@ -161,7 +188,7 @@ backends later — everything is additive.
 
 ```bash
 python -m yurios.doctor            # what .env selects vs what's installed
-curl localhost:8768/api/health     # {"voice": {"ready", "stt", "tts", "vad"}, …}
+curl localhost:8768/api/health     # {"voice": {"loaded", "listeners", "stt", "tts", "vad"}, …}
 ```
 
 A missing dependency is never a hard failure: the seam falls back to its fake and logs the exact

@@ -27,6 +27,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import AsyncIterator, Optional
 
 from yurios.desktop.brain import BrainAdapter
@@ -59,6 +61,8 @@ class ToolBrain(BrainAdapter):
         # model-verbatim record per session (markers + results), for persist():
         # the corpus should see what the model actually did, not the cleaned speech
         self._raw: dict[str, str] = {}
+        self._request_context: ContextVar[dict] = ContextVar(
+            "toolbrain_request_context", default={})
 
     @classmethod
     def build(cls, cfg, *, guard: Guard, timers: TimerBoard,
@@ -82,6 +86,17 @@ class ToolBrain(BrainAdapter):
         Build #4 promised: the block's place in the prompt doesn't move — what
         fills it stops being a rendering and becomes the store's situation()."""
         self.world = world
+
+    @contextmanager
+    def turn_context(self, *, channel: str, client_id: str | None = None):
+        """Attach transport identity to asynchronous tools started by this turn."""
+        token = self._request_context.set({
+            "channel": channel, "client_id": client_id,
+        })
+        try:
+            yield
+        finally:
+            self._request_context.reset(token)
 
     # -- prompt assembly: the blocks + the situation (SPEC §19.2) ------
     def _assemble(self, session_id: str, text: str, *, window: list[dict],
@@ -248,4 +263,7 @@ class ToolBrain(BrainAdapter):
             # start-don't-await (§7.6): the render happens off-turn; the photo
             # arrives in the chat as a `message` event when it's done.
             if self.selfies is not None:
+                context = self._request_context.get()
+                data["_channel"] = context.get("channel")
+                data["_client_id"] = context.get("client_id")
                 self.selfies.start(data)

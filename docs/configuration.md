@@ -111,6 +111,8 @@ defaults a single-companion install and the migration start from.
 | `FRAME_MS` | `32` | audio frame size |
 | `MASK_LATENCY` | `true` | play a filler while the model spins up |
 | `EXPRESSION_DEFAULT` | `neutral` | her resting face |
+| `VOICE_PRELOAD` | `false` | warm the stack at boot instead of on unmute/listen |
+| `VOICE_UNLOAD_AFTER_S` | `60` | empty-room grace before her voice is freed; `0` at once, `-1` never |
 
 Backend-specific keys (`QWEN_*`, `SOVITS_*`) are in [Voice](voice.md).
 
@@ -157,6 +159,7 @@ All of `MIND_*`, plus the reflex windows — the full table with explanations is
 | `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` | *(empty)* | the single-companion pair |
 | `TELEGRAM_BOT_TOKEN_<ID>` / `TELEGRAM_CHAT_ID_<ID>` | — | one companion's own bot, by registry id |
 | `TELEGRAM_CHARACTER` | *(empty)* | who keeps the unsuffixed pair |
+| `TELEGRAM_SEND_NON_TELEGRAM` | `false` | copy web/voice/CLI/API replies to Telegram |
 
 See [Channels](channels.md).
 

@@ -127,15 +127,22 @@ class SelfieLab:
     def __init__(self, forge, *, clock: Clock,
                  post: Callable[..., dict],
                  speak: Callable[[str], Awaitable[bool]],
+                 notify: Optional[Callable[[str, dict], None]] = None,
                  parker=None,
                  quiet: Optional[Callable[[], Awaitable[None]]] = None):
         self.forge = forge
         self.clock = clock
         self.post = post                       # Runtime.post_message
         self.speak = speak                     # Runtime.speak_ambient (§8.4)
+        self.notify = notify                   # EventHub.publish, when hosted
         self.parker = parker                   # LLMParker | None (world/vram.py)
         self.quiet = quiet                     # Runtime.wait_turns_idle | None
         self._tasks: set[asyncio.Task] = set()
+        self._task_ids: dict[asyncio.Task, str] = {}
+        self._contracts: dict[asyncio.Task, dict] = {}
+        # One camera, one VRAM loan and one boolean ParkGate. Serialisation keeps
+        # one job from reopening the gate under another job's active render.
+        self._render_lock = asyncio.Lock()
 
     def _render(self, **kw):
         """One render, borrowing the LLM's VRAM when the card needs it: the
@@ -146,17 +153,36 @@ class SelfieLab:
         When the loan happened, the render pipeline is released BEFORE the
         restore: the cached pipeline and the re-pinning chat model are the two
         things that don't fit on the card at once, so keeping the pipeline
-        warm would make the restore fail with the card still full."""
+        warm would make the restore fail with the card still full. In a
+        `finally`, because a render that *died* strands its weights just as
+        surely as one that finished — and OOM, the likeliest way to get here,
+        is precisely the case where the card can least afford it."""
         if self.parker is None:
             return self.forge.selfie(**kw)
         with self.parker.parked() as borrowed:
-            result = self.forge.selfie(**kw)
-            if borrowed:
-                teardown = getattr(getattr(self.forge, "backend", None),
-                                   "_teardown", None)
-                if callable(teardown):
-                    teardown()
-            return result
+            try:
+                return self.forge.selfie(**kw)
+            finally:
+                if borrowed:
+                    self._release()
+
+    def _gate(self):
+        """The parker's ParkGate, or None when there isn't one — a stand-in
+        parker (tests, a hosted camera) parks nothing and gates nothing, the
+        same duck-typed tolerance `_release` gives the backend seam."""
+        return getattr(self.parker, "gate", None)
+
+    def _release(self) -> None:
+        """Hand back whatever VRAM the backend is holding between renders.
+
+        The local cameras keep their pipeline resident on purpose — a warm
+        pipeline is the difference between a 15-second selfie and a 40-second
+        one — so this is deliberate, not routine cleanup. Backends with nothing
+        resident (mock, hosted) have no `_teardown` and this does nothing."""
+        teardown = getattr(getattr(self.forge, "backend", None),
+                           "_teardown", None)
+        if callable(teardown):
+            teardown()
 
     def start(self, contract: dict) -> None:
         """Spawn one render from the tool's validated contract. Never blocks,
@@ -164,9 +190,60 @@ class SelfieLab:
         task = asyncio.create_task(self._job(dict(contract)),
                                    name=f"selfie-{contract.get('id', '?')}")
         self._tasks.add(task)
-        task.add_done_callback(self._tasks.discard)
+        self._task_ids[task] = str(contract.get("id", ""))
+        self._contracts[task] = contract
+        self._status(contract, "started")
+        task.add_done_callback(self._finished)
+
+    def _finished(self, task: asyncio.Task) -> None:
+        selfie_id = self._task_ids.pop(task, "")
+        contract = self._contracts.pop(task, {"id": selfie_id})
+        self._tasks.discard(task)
+        if task.cancelled():
+            self._status(contract, "cancelled")
+
+    def _status(self, contract: dict, state: str) -> None:
+        if self.notify is None:
+            return
+        event = {"id": str(contract.get("id", "")), "state": state}
+        if contract.get("_client_id"):
+            event["client_id"] = contract["_client_id"]
+        self.notify("selfie_status", event)
+
+    def active_ids(self, client_id: str | None = None) -> list[str]:
+        """IDs still rendering, optionally restricted to one submitted turn."""
+        ids = []
+        for task in self._tasks:
+            contract = self._contracts.get(task)
+            if client_id is None or (contract or {}).get("_client_id") == client_id:
+                ids.append(self._task_ids.get(task, ""))
+        return [selfie_id for selfie_id in ids if selfie_id]
+
+    async def cancel(self, ids: list[str] | None = None, *,
+                     client_id: str | None = None) -> list[str]:
+        """Cancel correlated renders; supplied IDs cannot cross request owners."""
+        wanted = set(ids or ())
+        cancelled = []
+        tasks = []
+        for task in list(self._tasks):
+            selfie_id = self._task_ids.get(task, "")
+            contract = self._contracts.get(task) or {}
+            if client_id is not None and contract.get("_client_id") != client_id:
+                continue
+            if wanted and selfie_id not in wanted:
+                continue
+            cancelled.append(selfie_id)
+            tasks.append(task)
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        await asyncio.sleep(0)                  # run cancellation callbacks/status
+        return [selfie_id for selfie_id in cancelled if selfie_id]
 
     async def _job(self, c: dict) -> None:
+        async with self._render_lock:
+            await self._serial_job(c)
+
+    async def _serial_job(self, c: dict) -> None:
         scene, mood = c.get("scene") or None, c.get("mood") or None
         wardrobe = c.get("wardrobe") or "everyday"   # the tier she asked the
         # tool for; unprompted shots stay in the everyday default (→ ch. 11:
@@ -177,15 +254,35 @@ class SelfieLab:
         # turn that asked is exactly the turn in flight right now, so wait
         # for a quiet moment first. Only a park needs this: a render that
         # fits alongside her brain starts at once.
-        if (self.parker is not None and self.quiet is not None
-                and self.parker.applicable() and self.parker.needs_park()):
-            log.info("selfie: parking needs the GPU — waiting for a quiet "
-                     "moment before the render")
-            await self.quiet()
+        failed = False
+        gate = self._gate()
         try:
-            result = await asyncio.to_thread(
+            if (self.parker is not None and self.quiet is not None
+                    and self.parker.applicable() and self.parker.needs_park()):
+                log.info("selfie: parking needs the GPU — waiting for a quiet "
+                         "moment before the render")
+                # The cleanup scope starts before this close: cancellation while
+                # draining the current turn must never strand the gate shut.
+                if gate is not None:
+                    gate.close()
+                await self.quiet()
+            worker = asyncio.create_task(asyncio.to_thread(
                 self._render, scene=scene, mood=mood, wardrobe=wardrobe,
-                save=False)
+                save=False))
+            try:
+                result = await asyncio.shield(worker)
+            except asyncio.CancelledError:
+                # A Python worker thread cannot be killed. Keep the VRAM gate
+                # closed until it actually exits, even if Stop is pressed twice.
+                while not worker.done():
+                    try:
+                        await asyncio.shield(worker)
+                    except asyncio.CancelledError:
+                        continue
+                    except Exception:
+                        break
+                await asyncio.gather(worker, return_exceptions=True)
+                raise
             stamp = int(self.clock.now())
             name = f"{stamp}-{c.get('id', 'x')}.png"
             path = Path(self.forge.out_dir) / name
@@ -193,15 +290,42 @@ class SelfieLab:
             path.write_bytes(result.data)
             self.forge._write_provenance(path, result.meta)   # the ledger (→ ch. 26)
         except Exception as e:                 # render failed: say so, quietly
+            failed = True
             log.exception("selfie render failed")
+            post_kw = {"proactive": True}
+            if c.get("_channel"):
+                post_kw["channel"] = c["_channel"]
+            if c.get("_client_id"):
+                post_kw["client_id"] = c["_client_id"]
+            post_kw["selfie_id"] = str(c.get("id", ""))
             self.post("assistant",
                       f"(the selfie didn't come out — {type(e).__name__})",
-                      proactive=True)
+                      **post_kw)
+            self._status(c, "error")
+        finally:
+            # `parked()` reopens the gate on every path it runs, but a cancel
+            # between the close above and the render never reaches it — and a
+            # gate stuck shut is a companion who stops answering.
+            if gate is not None:
+                gate.open()
+        if failed:
+            # Only now: while the `except` above was running, the live
+            # exception's traceback still pinned the dead pipeline's frames,
+            # and with them the gigabytes this is trying to hand back. (Same
+            # rule the backends' OOM retry follows — see diffusers.py.)
+            await asyncio.to_thread(self._release)
             return
 
         chosen = result.meta.get("template", {})
         detail = ", ".join(v for v in (chosen.get("scene"), chosen.get("mood")) if v)
-        self.post("assistant", "", image_url=f"/selfies/{name}", proactive=True)
+        post_kw = {"image_url": f"/selfies/{name}", "proactive": True}
+        if c.get("_channel"):
+            post_kw["channel"] = c["_channel"]
+        if c.get("_client_id"):
+            post_kw["client_id"] = c["_client_id"]
+        post_kw["selfie_id"] = str(c.get("id", ""))
+        self.post("assistant", "", **post_kw)
+        self._status(c, "done")
         # one soft line about it, only if she's free — a drop is fine (§8.3):
         # unlike a timer, the photo itself already landed.
         try:

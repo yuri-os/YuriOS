@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0c1110">
+  <meta name="description" content="YuriOS card studio — author a character, export her as a PNG">
+  <title>YuriOS / Card studio</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M8 1.5 14.5 8 8 14.5 1.5 8Z' fill='none' stroke='%23d7ff58' stroke-width='1.6'/></svg>">
+  <link rel="stylesheet" href="./studio.css">
+</head>
+<body>
+  <svg class="icon-bank" aria-hidden="true">
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-arrow" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></symbol>
+    <symbol id="i-back" viewBox="0 0 24 24"><path d="m15 19-7-7 7-7"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+    <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 16V4m0 0L7 9m5-5 5 5M5 15v4h14v-4"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v12m0 0 5-5m-5 5-5-5M5 19h14"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3 5 6v6c0 4 3 7 7 9 4-2 7-5 7-9V6Z"/><path d="m9 12 2 2 4-4"/></symbol>
+    <symbol id="i-sparkle" viewBox="0 0 24 24"><path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M18 6l-2.5 2.5M8.5 15.5 6 18"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><path d="M6 11h12v9H6zM9 11V7a3 3 0 0 1 6 0v4"/></symbol>
+    <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6Z"/><circle cx="12" cy="12" r="2.5"/></symbol>
+  </svg>
+
+  <div class="page-noise" aria-hidden="true"></div>
+
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="Back to the switchboard">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <span class="brand-copy"><b>YuriOS</b><small id="brand-sub">studio / character</small></span>
+    </a>
+    <div class="topbar-state">
+      <span class="pulse" id="save-pulse" aria-hidden="true"></span>
+      <span id="save-state">loading</span>
+    </div>
+    <div class="topbar-actions">
+      <a class="button button-quiet" href="/"><svg><use href="#i-back"></use></svg>Switchboard</a>
+      <button id="primary-action" class="button button-primary" type="button">
+        <svg><use href="#i-download"></use></svg><span>Export PNG</span>
+      </button>
+    </div>
+  </header>
+
+  <main class="workspace">
+    <nav class="index-rail" aria-label="Studio sections">
+      <div class="rail-code">YS / 03</div>
+      <div class="rail-line"></div>
+      <ul id="section-nav"></ul>
+      <div class="rail-line"></div>
+      <span class="rail-foot">card studio</span>
+    </nav>
+
+    <section class="board" aria-labelledby="page-title">
+      <header class="board-head">
+        <div>
+          <p class="eyebrow" id="page-eyebrow">Identity workbench</p>
+          <h1 id="page-title">Card studio</h1>
+          <p class="intro" id="page-intro">Everything that makes her who she is, and nothing that makes her yours. Edit the persona, pick a face, and take her out as one <code>.PNG</code>.</p>
+        </div>
+      </header>
+
+      <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
+
+      <section id="grown-strip" class="grown-strip" hidden>
+        <header>
+          <span class="eyebrow"><svg><use href="#i-sparkle"></use></svg> Grown since she arrived</span>
+          <p id="grown-summary"></p>
+        </header>
+        <ul id="grown-list"></ul>
+      </section>
+
+      <form id="studio-form" class="studio-form" autocomplete="off"></form>
+    </section>
+
+    <aside class="preview-rail" aria-label="Card preview">
+      <div class="preview-sticky">
+        <figure class="card-preview">
+          <img id="preview-image" alt="" />
+          <figcaption>
+            <strong id="preview-name">—</strong>
+            <span id="preview-meta"></span>
+          </figcaption>
+        </figure>
+
+        <section class="panel" aria-labelledby="tokens-title">
+          <h2 class="eyebrow" id="tokens-title">Prompt budget</h2>
+          <dl id="token-report" class="token-report"></dl>
+        </section>
+
+        <section class="panel" aria-labelledby="privacy-title">
+          <h2 class="eyebrow" id="privacy-title"><svg><use href="#i-shield"></use></svg> What stays here</h2>
+          <p id="privacy-lede" class="privacy-lede">—</p>
+          <ul id="privacy-stays" class="privacy-stays"></ul>
+          <p class="form-note">Her memory of you never travels. A card starts the relationship at zero.</p>
+        </section>
+
+        <section class="panel" aria-labelledby="warnings-title">
+          <h2 class="eyebrow" id="warnings-title">Before you share her</h2>
+          <ul id="warning-list" class="warning-list"></ul>
+        </section>
+      </div>
+    </aside>
+  </main>
+
+  <dialog id="review-dialog" class="modal">
+    <form id="review-form" class="modal-card" method="dialog">
+      <header class="modal-head">
+        <div><p class="eyebrow">Read this first</p><h2>Passages she learned from you</h2></div>
+        <button class="icon-button modal-close" type="button" value="cancel" aria-label="Close"><svg><use href="#i-close"></use></svg></button>
+      </header>
+      <p class="review-copy" id="review-copy"></p>
+      <ul id="review-list" class="review-list"></ul>
+      <footer class="modal-actions">
+        <button class="button button-quiet modal-close" type="button" value="cancel">Go back and edit</button>
+        <button id="review-confirm" class="button button-primary" type="button">I've read them — export</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <div id="toast-region" class="toast-region" aria-live="polite" aria-atomic="true"></div>
+  <script type="module" src="./studio.js"></script>
+</body>
+</html>

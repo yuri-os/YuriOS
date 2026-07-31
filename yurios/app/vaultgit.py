@@ -101,12 +101,32 @@ def head(vault: Path) -> str | None:
     return result.stdout.strip() if result.returncode == 0 else None
 
 
-def mv(vault: Path, src: str, dst: str) -> None:
-    """`git mv` inside the Vault (used to retire BOOTSTRAP.md, §5.4)."""
-    Path(vault, dst).parent.mkdir(parents=True, exist_ok=True)
-    result = _git(vault, "mv", src, dst)
-    if result.returncode != 0:
+def mv(vault: Path, src: str, dst: str, *, force: bool = False) -> None:
+    """Move a file inside the Vault (used to retire BOOTSTRAP.md, §5.4).
+
+    `git mv` first, because that is the operation that reads best afterwards.
+    With `force`, git's refusals are treated as bookkeeping rather than as a
+    verdict on the move, and the rename happens anyway — the commit that follows
+    stages everything (`add -A`), so history records it either way.
+
+    Retirement passes `force`, because both refusals are reachable and neither
+    means "don't move this": the destination is occupied when a bootstrap was
+    restored to re-run onboarding (a supported move — nothing is lost, the older
+    copy stays in `git log`), and the source is *not under version control* for
+    the moments between restoring that file by hand and the next commit. Without
+    this, either one leaves a greeting trying and failing to retire, on every
+    arrival, for good.
+    """
+    source, target = Path(vault, src), Path(vault, dst)
+    if not source.exists():
+        raise RuntimeError(f"vault mv failed: {src} is not there to move")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    result = _git(vault, "mv", *(["-f"] if force else []), src, dst)
+    if result.returncode == 0:
+        return
+    if not force:
         raise RuntimeError(f"vault mv failed: {result.stderr.strip()}")
+    source.replace(target)
 
 
 def log(vault: Path, n: int = 20) -> list[str]:

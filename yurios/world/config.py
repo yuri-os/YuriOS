@@ -77,6 +77,19 @@ class Config(VoiceConfig):
     # on a failed render. Only applies with an lm_studio/ chat route.
     selfie_llm_park: bool = True
 
+    # --- her voice, on demand (SPEC §9.9 — world/voicestack.py) ---
+    # Kokoro + faster-whisper + silero are the heaviest thing a runtime holds,
+    # and only /ws/voice ever wants them: the text room, /api/chat, the channels
+    # and the mind all run on the brain alone. So the stack loads when a client
+    # opens the audio socket and is freed when the last one closes it — a node
+    # hosting six characters keeps one voice resident, not six.
+    voice_preload: bool = False                 # 1 = warm at boot instead (single-companion)
+    # How long an empty room keeps her voice before it's freed. A page reload is
+    # a disconnect too, and paying 20 s of model loading for an F5 is worse than
+    # holding the memory a minute. 0 = drop it the moment the last client goes;
+    # negative = never unload once loaded.
+    voice_unload_after_s: float = 60.0
+
     # --- the mind: the always-on tick loop (SPEC §15–§18) ---
     mind_enabled: bool = True                   # off = Build #4 behaviour minus ambient life
     mind_seed: int = 0                          # 0 = unseeded; tests pin a seed
@@ -112,6 +125,9 @@ class Config(VoiceConfig):
     telegram_bot_token: str = ""                # @BotFather token; empty = channel off
     telegram_chat_id: str = ""                  # the ONE chat she talks in; unset =
                                                 #   pairing mode (the bot tells you the id)
+    # Telegram-originated turns always receive their reply there. This opt-in
+    # controls whether replies from web/voice/CLI/API chats are copied there too.
+    telegram_send_non_telegram: bool = False
     # An outside account belongs to exactly one character, so with more than one
     # of them in the house each gets her own bot: TELEGRAM_BOT_TOKEN_<ID> and
     # TELEGRAM_CHAT_ID_<ID> are hers alone (host.telegram_for_character). The

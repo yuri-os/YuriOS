@@ -46,14 +46,11 @@ if (id) {
 
 const viseme = new VisemeDriver();
 
-// The two switches every client carries (js/controls.js, SPEC §10.5). Telegram
-// starts OFF in here and nowhere else (SPEC §6.7): this is the page you open on
-// the device that is already holding the Telegram chat, and hearing her twice is
-// not two answers. `telegramWhenUnset` is only the first-visit answer — press it
-// once and the choice is remembered, here and in her other rooms.
+// The local speaker switch is shared with the body rooms. It starts muted, and
+// voice.js does not open the heavy audio socket until it is unmuted or the mic
+// starts listening.
 window.WorldControls.init({
   setMuted: (m) => viseme.setMuted(m),
-  telegramWhenUnset: false,
 });
 
 function enter() {

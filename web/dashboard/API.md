@@ -71,6 +71,22 @@ Blank `voice` and `model` values mean inherit the node default.
 in the `file` field. The client accepts PNG files up to 25 MB. A successful response
 may contain the imported character; the dashboard refreshes the registry regardless.
 
+## Approve
+
+A character whose summary carries `review_required: true` was imported from a card
+this node did not write: she is registered, her rooms are served, and nothing is
+running behind them. `POST /api/characters/{id}/approve` takes no body and returns
+`{ "character": {...}, "started": bool, "error": string|null }`. The two flags are
+separate on purpose — the review is cleared either way, and a runtime that failed to
+come up is reported rather than silently re-parked. The drawer only offers this while
+`review_required` is set.
+
+While she is parked the dashboard also refuses to walk into her rooms: every sanctuary,
+Live2D and text link on her card and in her drawer opens the approval dialog instead, and
+a successful approve continues to the door that was clicked. The room routes themselves
+stay reachable by URL — the host's own refusal (a `4404` close on the voice socket,
+carrying the reason) is what a client sees if it gets there another way.
+
 ## Archive
 
 `POST /api/characters/{id}/archive` takes no body. Archive is intentionally distinct

@@ -22,9 +22,10 @@ class Recorder:
         self.cues: list[str] = []
         self.busy = busy
 
-    def post(self, role, text, *, image_url=None, proactive=False):
+    def post(self, role, text, *, image_url=None, proactive=False, **metadata):
         entry = {"role": role, "text": text,
                  "image_url": image_url, "proactive": proactive}
+        entry.update(metadata)
         self.posts.append(entry)
         return entry
 
@@ -65,6 +66,136 @@ async def test_the_shot_lands_in_the_chat_and_on_disk(cfg, clock, forge):
     assert meta["template"]["mood"] == "happy"
     # …and she offers one line about it, since she was free (§8.3)
     assert rec.cues and "chat" in rec.cues[0]
+
+
+async def test_selfie_status_is_correlated_and_cancellable(cfg, clock, forge):
+    rec = Recorder()
+    events = []
+    lab = SelfieLab(
+        forge, clock=clock, post=rec.post, speak=rec.speak,
+        notify=lambda type_, payload: events.append({"type": type_, **payload}))
+    contract = {"id": "stop-me", "status": "started",
+                "_client_id": "browser-1", "_channel": "web"}
+    lab.start(contract)
+    assert lab.active_ids("browser-1") == ["stop-me"]
+    assert events == [{"type": "selfie_status", "id": "stop-me",
+                       "state": "started", "client_id": "browser-1"}]
+
+    assert await lab.cancel(["stop-me"]) == ["stop-me"]
+    await settle(lab)
+    assert events[-1] == {"type": "selfie_status", "id": "stop-me",
+                          "state": "cancelled", "client_id": "browser-1"}
+    assert rec.posts == []
+
+
+async def test_cancelling_waits_for_a_running_render_thread(cfg, clock):
+    """Cancellation suppresses the result, but a worker thread is not killable;
+    the coroutine must stay alive until it exits so VRAM cannot be handed back
+    to the LLM early."""
+    import threading
+
+    started = threading.Event()
+    release = threading.Event()
+
+    class SlowForge:
+        out_dir = cfg.selfie_dir
+
+        def selfie(self, **kw):
+            started.set()
+            release.wait(timeout=5)
+            raise RuntimeError("discard this cancelled result")
+
+    rec = Recorder()
+    lab = SelfieLab(SlowForge(), clock=clock, post=rec.post, speak=rec.speak)
+    lab.start({"id": "running", "status": "started"})
+    assert await asyncio.to_thread(started.wait, 2)
+
+    stopping = asyncio.create_task(lab.cancel(["running"]))
+    await asyncio.sleep(0.02)
+    assert not stopping.done()
+    stopping_again = asyncio.create_task(lab.cancel(["running"]))
+    await asyncio.sleep(0.02)
+    assert not stopping_again.done()
+    release.set()
+    assert await stopping == ["running"]
+    assert await stopping_again == ["running"]
+    assert rec.posts == []
+
+
+async def test_cancelling_while_waiting_for_quiet_reopens_the_gate(cfg, clock, forge):
+    class Gate:
+        closed = False
+
+        def close(self):
+            self.closed = True
+
+        def open(self):
+            self.closed = False
+
+    class Parker:
+        gate = Gate()
+
+        def applicable(self):
+            return True
+
+        def needs_park(self):
+            return True
+
+    never_quiet = asyncio.Event()
+    lab = SelfieLab(forge, clock=clock, post=Recorder().post,
+                    speak=Recorder().speak, parker=Parker(),
+                    quiet=never_quiet.wait)
+    lab.start({"id": "waiting", "status": "started",
+               "_client_id": "browser-1"})
+    for _ in range(50):
+        if lab.parker.gate.closed:
+            break
+        await asyncio.sleep(0)
+    assert lab.parker.gate.closed
+    assert await lab.cancel([], client_id="browser-1") == ["waiting"]
+    assert not lab.parker.gate.closed
+
+
+async def test_selfie_cancel_cannot_cross_request_owners(cfg, clock, forge):
+    rec = Recorder()
+    lab = SelfieLab(forge, clock=clock, post=rec.post, speak=rec.speak)
+    lab.start({"id": "owned", "status": "started", "_client_id": "owner"})
+    assert await lab.cancel(["owned"], client_id="other") == []
+    assert lab.active_ids("owner") == ["owned"]
+    await lab.cancel([], client_id="owner")
+
+
+async def test_selfie_jobs_are_serialized(cfg, clock, forge):
+    import threading
+
+    first_started = threading.Event()
+    release_first = threading.Event()
+    starts = []
+
+    class SerialForge:
+        out_dir = forge.out_dir
+
+        def selfie(self, **kw):
+            starts.append(kw.get("scene"))
+            if len(starts) == 1:
+                first_started.set()
+                release_first.wait(timeout=5)
+            return forge.selfie(**kw)
+
+        def _write_provenance(self, *args, **kwargs):
+            return forge._write_provenance(*args, **kwargs)
+
+    rec = Recorder()
+    lab = SelfieLab(SerialForge(), clock=clock, post=rec.post, speak=rec.speak)
+    lab.start({"id": "one", "scene": "window", "status": "started"})
+    lab.start({"id": "two", "scene": "bed", "status": "started"})
+    assert await asyncio.to_thread(first_started.wait, 2)
+    await asyncio.sleep(0.02)
+    assert starts == ["window"]
+    release_first.set()
+    await settle(lab)
+    assert starts == ["window", "bed"]
+    assert len(rec.posts) == 2
 
 
 async def test_wardrobe_rides_the_contract_and_defaults_to_everyday(cfg, clock, forge):
@@ -176,6 +307,9 @@ async def test_a_borrowed_render_releases_the_pipeline_before_the_restore(cfg, c
         def selfie(self, **kw):
             from yurios.forge.types import ImageResult
             return ImageResult.new(b"\x89PNG fake", "mock", model="m", seed=1)
+
+        def _write_provenance(self, path, meta):
+            pass                             # the ledger isn't what's under test
 
     class BorrowParker:
         def __init__(self):
@@ -342,3 +476,83 @@ async def test_the_tool_loop_starts_the_lab(cfg, guard, timers, controller, cloc
     assert "taking it now" in spoken           # the turn completed
     (contract,) = lab.started                  # …and the lab got the contract
     assert contract["scene"] == "window" and contract["status"] == "started"
+
+
+async def test_a_render_that_dies_still_hands_its_pipeline_back(cfg, clock):
+    """The OOM that started this: the render raised, the teardown sat on the
+    success path, and ~8 GiB of SDXL stayed on a 16 GiB card for the life of
+    the process — so the *next* render, and her brain, had nowhere to load."""
+    from contextlib import contextmanager
+
+    class DyingForge:
+        out_dir = cfg.selfie_dir
+
+        class backend:
+            torn: list[str] = []
+
+            @staticmethod
+            def _teardown():
+                DyingForge.backend.torn.append("teardown")
+
+        def selfie(self, **kw):
+            raise RuntimeError("CUDA out of memory")
+
+    class BorrowParker:
+        def __init__(self):
+            self.events: list[str] = []
+
+        def parked(self):
+            @contextmanager
+            def _ctx():
+                self.events.append("park")
+                try:
+                    yield True
+                finally:
+                    self.events.append("restore")
+            return _ctx()
+
+    rec = Recorder()
+    parker = BorrowParker()
+    lab = SelfieLab(DyingForge(), clock=clock, post=rec.post, speak=rec.speak,
+                    parker=parker)
+    lab.start({"id": "oom1", "status": "started"})
+    await settle(lab)
+
+    # Twice, and both matter. The first runs inside the park, before the
+    # restore re-pins her brain onto the card. The second runs after the
+    # `except` block has ended — only there is the traceback (and the frames
+    # still holding the pipeline) gone, so only there can the VRAM actually go.
+    assert DyingForge.backend.torn == ["teardown", "teardown"]
+    assert parker.events == ["park", "restore"]
+    assert rec.posts and "didn't come out" in rec.posts[0]["text"]
+
+
+async def test_an_unparked_render_that_dies_still_hands_its_pipeline_back(cfg, clock):
+    """No park means no borrowed VRAM, but a dead pipeline is dead weight on
+    the card either way — and an OOM is the likeliest reason to be here."""
+    class DyingForge:
+        out_dir = cfg.selfie_dir
+
+        class backend:
+            torn: list[str] = []
+
+            @staticmethod
+            def _teardown():
+                DyingForge.backend.torn.append("teardown")
+
+        def selfie(self, **kw):
+            raise RuntimeError("CUDA out of memory")
+
+    rec = Recorder()
+    lab = SelfieLab(DyingForge(), clock=clock, post=rec.post, speak=rec.speak)
+    lab.start({"id": "oom2", "status": "started"})
+    await settle(lab)
+    assert DyingForge.backend.torn == ["teardown"]
+
+
+async def test_a_backend_with_nothing_resident_is_left_alone(cfg, clock, forge):
+    """mock and the hosted cameras have no `_teardown` — the release must be a
+    no-op there, not an AttributeError that eats the failure message."""
+    lab = SelfieLab(forge, clock=clock, post=Recorder().post,
+                    speak=Recorder().speak)
+    lab._release()                                # no backend pipeline: nothing to do

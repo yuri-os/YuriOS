@@ -87,22 +87,10 @@
     </button>
     <!-- mute her voice (js/controls.js): the speakers only. Reading her is the
          whole point of this page, so a muted room still fills with her words. -->
-    <button id="voice-mute" class="icon-button voice-mute" title="mute her voice"
-            aria-label="mute her voice" aria-pressed="false">
+    <button id="voice-mute" class="icon-button voice-mute muted" title="unmute her voice"
+            aria-label="unmute her voice" aria-pressed="true">
       <svg class="voice-glyph" aria-hidden="true" viewBox="0 0 24 24">
         <path d="M4 10v4h3l4 3V7l-4 3H4zM15.4 9.3a4 4 0 0 1 0 5.4"/>
-      </svg>
-    </button>
-    <!-- …and whether she also leaves for Telegram (SPEC §10.5). Off by default
-         *here* (§6.7): the text room is the one you open on the phone that is
-         already holding the Telegram chat, and she should not say it twice.
-         Press it and that choice is remembered instead. Hidden when this
-         character has no channel — the server answers that. -->
-    <button id="telegram-mute" class="icon-button tg-mute" hidden
-            title="stop sending her messages to telegram"
-            aria-label="toggle sending her messages to telegram" aria-pressed="false">
-      <svg class="tg-glyph" aria-hidden="true" viewBox="0 0 24 24">
-        <path d="M3 11.2 21 3l-8.2 18-2.4-7.6L3 11.2z"/>
       </svg>
     </button>
     <input id="text" type="text" placeholder="…type to her" autocomplete="off">

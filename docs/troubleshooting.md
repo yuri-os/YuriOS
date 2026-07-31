@@ -38,6 +38,12 @@ It's refused rather than guessed at.
 
 Check `/api/health`'s `voice` block first.
 
+- `"tts": "unloaded"`, `"listeners": 0` — she's at rest, not broken. Her voice loads when a
+  client opens `/ws/voice` (enter one of her rooms) and is freed `VOICE_UNLOAD_AFTER_S` after
+  the last one leaves, so a node hosting several characters keeps one voice resident instead of
+  one per character. `VOICE_PRELOAD=1` warms it at boot instead.
+- The first person into a cold room waits ~20 s for the models; the room captions it
+  ("loading her voice…") rather than looking hung.
 - `"tts": "fake"` — the voice extra isn't installed. `./install.sh` (without `--thin`), or
   `pip install -e ".[voice]"`.
 - kokoro falls back to the fake — install `espeak-ng` as a **system** package. The pip wheel
@@ -149,8 +155,8 @@ autonomous half off and leaves the reactive companion intact.
   companion her own bot (`TELEGRAM_BOT_TOKEN_<ID>`), or name the owner with `TELEGRAM_CHARACTER`.
 - **`held by <her>`** — healthy, not failed: the shared unsuffixed bot went to whoever started
   first. Give this one her own.
-- **She reads but never sends** — the footer sending switch is off. It's session-scoped, so a
-  restart re-enables it.
+- **A local chat is not copied to Telegram** — this is the safe default. Enable
+  `TELEGRAM_SEND_NON_TELEGRAM` in settings if you intentionally want cross-chat forwarding.
 
 ## Memory and the index
 

@@ -28,6 +28,14 @@ const elements = {
   drawerIdentity: $("#drawer-identity"),
   drawerEnter: $("#drawer-enter"),
   detailContent: $("#detail-content"),
+  review: $("#drawer-review"),
+  approve: $("#approve-open"),
+  approveError: $("#approve-error"),
+  reviewDialog: $("#review-dialog"),
+  reviewDialogName: $("#review-dialog-name"),
+  reviewDialogApprove: $("#review-dialog-approve"),
+  reviewDialogStudio: $("#review-dialog-studio"),
+  reviewDialogError: $("#review-dialog-error"),
   importDialog: $("#import-dialog"),
   settingsDialog: $("#settings-dialog"),
   archiveDialog: $("#archive-dialog"),
@@ -42,6 +50,10 @@ const state = {
   detailRequest: null,
   listRequest: null,
   view: readView(),
+  // the parked character the approval dialog is asking about, and the room the
+  // user was trying to open when it got in the way
+  reviewId: null,
+  pendingRoom: null,
 };
 
 function readView() {
@@ -67,9 +79,12 @@ function icon(name) {
 }
 
 function setBusy(button, busy, busyLabel) {
-  if (!button.dataset.label) button.dataset.label = button.textContent;
+  // Swap the label, not the button: one with an icon keeps it (textContent on
+  // the button itself would take the <svg> out with the words and never put it back).
+  const slot = $("span", button) || button;
+  if (!slot.dataset.label) slot.dataset.label = slot.textContent;
   button.disabled = busy;
-  button.textContent = busy ? busyLabel : button.dataset.label;
+  slot.textContent = busy ? busyLabel : slot.dataset.label;
 }
 
 function errorMessage(error) {
@@ -88,7 +103,17 @@ function portrait(character, className = "portrait") {
   const node = element("span", { className, attrs: { "aria-hidden": "true" } });
   if (character.avatarUrl) {
     const image = element("img", { attrs: { src: character.avatarUrl, alt: "", loading: "lazy" } });
-    image.addEventListener("error", () => node.replaceChildren(document.createTextNode(initials(character.name))), { once: true });
+    /* Grid view shows the card art whole rather than cropped to a circle, so
+     * whatever the artwork's own shape leaves over is filled with a blurred
+     * copy of itself instead of a bar of background. encodeURI keeps the
+     * registry's URL from ending the url() string it lands in. */
+    node.classList.add("has-art");
+    node.style.setProperty("--portrait-art", `url("${encodeURI(character.avatarUrl)}")`);
+    image.addEventListener("error", () => {
+      node.classList.remove("has-art");
+      node.style.removeProperty("--portrait-art");
+      node.replaceChildren(document.createTextNode(initials(character.name)));
+    }, { once: true });
     node.append(image);
   } else {
     node.textContent = initials(character.name);
@@ -254,10 +279,16 @@ function syncDrawer() {
   }
   elements.drawerName.textContent = character.name;
   const where = rooms(character);
+  const studio = `/studio/?character=${encodeURIComponent(character.id)}`;
   elements.drawerEnter.href = where.sanctuary;
   $("#drawer-live2d").href = where.live2d;
   $("#drawer-text").href = where.text;
   $("#drawer-export").href = `/api/characters/${encodeURIComponent(character.id)}/export`;
+  $("#drawer-studio").href = studio;
+  // Her rooms open either way — they are worth a look before you decide — but
+  // while she is parked they open onto nothing, and this says why (SPEC §28).
+  elements.review.hidden = !character.reviewRequired;
+  $("#review-studio").href = studio;
   elements.drawerIdentity.style.setProperty("--character-accent", character.accent);
   elements.drawerIdentity.replaceChildren(
     portrait(character),
@@ -268,6 +299,7 @@ function syncDrawer() {
 
 function openDrawer(id) {
   state.selectedId = id;
+  elements.approveError.textContent = "";      // last character's start failure
   syncDrawer();
   elements.drawer.classList.add("open");
   elements.drawer.setAttribute("aria-hidden", "false");
@@ -479,6 +511,54 @@ async function submitSettings(event) {
   }
 }
 
+async function approveCharacter(id, { button, errorSlot, goTo = null } = {}) {
+  const character = state.characters.find((item) => item.id === id);
+  if (!character) return;
+  errorSlot.textContent = "";
+  setBusy(button, true, "Starting...");
+  try {
+    const response = await charactersApi.approve(character.id);
+    const updated = normalizeCharacter(response?.character ?? response);
+    if (updated?.id === character.id) Object.assign(character, updated);
+    renderCharacters();
+    syncDrawer();
+    // Approved and running are two different facts: she is out of review either
+    // way, and a failed start is hers to report, not a reason to hide the change.
+    if (response?.started === false) {
+      errorSlot.textContent = `Approved, but she did not start: ${response.error || "unknown error"}`;
+      toast(`${character.name} approved — start failed.`, "error");
+      return;
+    }
+    toast(`${character.name} approved and running.`);
+    if (state.selectedId === character.id) loadDetail(state.tab, true);
+    // She is up, and the click that opened this was on her way in — finish it.
+    if (goTo) {
+      closeModal(elements.reviewDialog);
+      location.href = goTo;
+    }
+  } catch (error) {
+    errorSlot.textContent = errorMessage(error);
+  } finally {
+    setBusy(button, false, "Starting...");
+  }
+}
+
+/* Every route into a character's rooms — the three links on her card, the three
+ * in her drawer — runs through here first. A parked character's rooms are served
+ * but empty (SPEC §28), so walking in gives a dead page and a socket that closes
+ * with 4404; the door asks instead. Returns whether the click was swallowed. */
+function guardRoom(event, character, href) {
+  if (!character?.reviewRequired) return false;
+  event.preventDefault();
+  state.reviewId = character.id;
+  state.pendingRoom = href;
+  elements.reviewDialogName.textContent = character.name;
+  elements.reviewDialogStudio.href = `/studio/?character=${encodeURIComponent(character.id)}`;
+  elements.reviewDialogError.textContent = "";
+  openModal(elements.reviewDialog);
+  return true;
+}
+
 async function submitArchive(event) {
   event.preventDefault();
   const character = selectedCharacter();
@@ -508,9 +588,13 @@ function wireEvents() {
     if (id) setLoop(id, event.target.dataset.control, event.target.checked, event.target);
   });
   elements.grid.addEventListener("click", (event) => {
-    const button = event.target.closest('[data-action="details"]');
-    const id = button?.closest("[data-character-id]")?.dataset.characterId;
-    if (id) openDrawer(id);
+    const card = event.target.closest("[data-character-id]");
+    const id = card?.dataset.characterId;
+    if (!id) return;
+    if (event.target.closest('[data-action="details"]')) return openDrawer(id);
+    // Enter / Live2D / Text on the card itself — the same three doors as the drawer's.
+    const link = event.target.closest("a[href]");
+    if (link) guardRoom(event, state.characters.find((item) => item.id === id), link.href);
   });
   elements.search.addEventListener("input", renderCharacters);
   elements.gridView.addEventListener("click", () => setView("grid"));
@@ -531,6 +615,15 @@ function wireEvents() {
     if (event.target === dialog) closeModal(dialog);
   }));
   $("#import-form").addEventListener("submit", submitImport);
+  // The drawer's three doors, guarded the same way the card's are.
+  for (const link of [elements.drawerEnter, $("#drawer-live2d"), $("#drawer-text")]) {
+    link.addEventListener("click", (event) => guardRoom(event, selectedCharacter(), link.href));
+  }
+  elements.approve.addEventListener("click", () => approveCharacter(state.selectedId, {
+    button: elements.approve, errorSlot: elements.approveError }));
+  elements.reviewDialogApprove.addEventListener("click", () => approveCharacter(state.reviewId, {
+    button: elements.reviewDialogApprove, errorSlot: elements.reviewDialogError,
+    goTo: state.pendingRoom }));
   $("#settings-open").addEventListener("click", openSettings);
   $("#settings-form").addEventListener("submit", submitSettings);
   $("#archive-open").addEventListener("click", () => {

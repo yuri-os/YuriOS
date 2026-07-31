@@ -62,9 +62,28 @@ def test_empty_board_is_not_done():
 # ---- the endpoint, wired through the real Runtime --------------------------
 
 def test_api_boot_reaches_done_with_every_service_settled(cfg):
-    """Fake voice backends warm in a blink; once the thread lands, /api/boot
-    reports done and no service is left pending (SPEC §6.4)."""
+    """Nothing is left pending once the runtime is up (SPEC §6.4). Her voice is
+    not among the waiting: it loads when someone opens /ws/voice (§9.9), so the
+    gate must not sit on three stages nobody is going to warm."""
     cfg = cfg.model_copy(update={"tools_backend": "off", "mind_enabled": False})
+    app = create_app(cfg, brain=FakeBrain())
+    with TestClient(app) as c:
+        snap = c.get("/api/boot").json()
+        assert snap["done"] is True
+        states = {s["key"]: s["state"] for s in snap["services"]}
+        assert states["tts"] == states["stt"] == states["vad"] == "skipped"
+        details = {s["key"]: s["detail"] for s in snap["services"]}
+        assert details["tts"] == "on demand"
+        assert states["tools"] == "skipped"            # backend off
+        assert not any(s["state"] in ("pending", "loading")
+                       for s in snap["services"])
+
+
+def test_voice_preload_warms_the_stages_at_boot(cfg):
+    """VOICE_PRELOAD=1 is the old behaviour, kept: warm off-thread at startup,
+    and the panel narrates all three stages as it goes."""
+    cfg = cfg.model_copy(update={"tools_backend": "off", "mind_enabled": False,
+                                 "voice_preload": True})
     app = create_app(cfg, brain=FakeBrain())
     with TestClient(app) as c:
         assert c.app.state.rt.voice_ready.wait(timeout=10)  # warm thread finished
@@ -72,6 +91,3 @@ def test_api_boot_reaches_done_with_every_service_settled(cfg):
         assert snap["done"] is True
         states = {s["key"]: s["state"] for s in snap["services"]}
         assert states["tts"] == states["stt"] == states["vad"] == "ready"
-        assert states["tools"] == "skipped"            # backend off
-        assert not any(s["state"] in ("pending", "loading")
-                       for s in snap["services"])

@@ -89,18 +89,10 @@
       <!-- FORK(B4): the two switches every client carries (/js/controls.js,
            SPEC §10.5), remembered per character across loads. Mute is her
            speakers only — she keeps talking, and the transcript keeps filling. -->
-      <button id="voice-mute" class="icon-button voice-mute" title="mute her voice"
-              aria-label="mute her voice" aria-pressed="false">
+      <button id="voice-mute" class="icon-button voice-mute muted" title="unmute her voice"
+              aria-label="unmute her voice" aria-pressed="true">
         <svg class="voice-glyph" aria-hidden="true" viewBox="0 0 24 24">
           <path d="M4 10v4h3l4 3V7l-4 3H4zM15.4 9.3a4 4 0 0 1 0 5.4"/>
-        </svg>
-      </button>
-      <!-- hidden until the server says this character has a telegram channel -->
-      <button id="telegram-mute" class="icon-button tg-mute" hidden
-              title="stop sending her messages to telegram"
-              aria-label="toggle sending her messages to telegram" aria-pressed="false">
-        <svg class="tg-glyph" aria-hidden="true" viewBox="0 0 24 24">
-          <path d="M3 11.2 21 3l-8.2 18-2.4-7.6L3 11.2z"/>
         </svg>
       </button>
     </footer>

@@ -38,7 +38,7 @@ def _retire_bootstrap(state) -> None:
     commit. From now on, file-absence means 'she has met you'."""
     try:
         vaultgit.mv(state.cfg.vault_dir, "soul/BOOTSTRAP.md",
-                    "soul/onboarded/BOOTSTRAP.done.md")
+                    "soul/onboarded/BOOTSTRAP.done.md", force=True)
         vaultgit.commit(state.cfg.vault_dir, "first session complete")
     except Exception:
         log.exception("bootstrap retirement failed (will retry next greeting)")

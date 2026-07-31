@@ -21,16 +21,19 @@ Three rules, learned from the failure log:
     call here is optional: no torch, no CUDA, no server, an old LM Studio —
     all mean "don't park", and the render falls back to its own offload path.
 
-The mid-render race is narrowed and documented: the selfie lab waits for a
+The mid-render race is closed from both sides. The selfie lab waits for a
 quiet moment before parking (no turn in flight — Runtime.wait_turns_idle),
 because evicting while a turn is streaming kills that stream mid-reply and
-her draft vanishes from the chat as if cancelled. What remains accepted: a
-chat turn that *arrives* while she is parked JIT-loads the model back, which
-can OOM the render. The window is tens of seconds; the render's OOM retry is
-the backstop, and the restore runs regardless.
+her draft vanishes from the chat as if cancelled. And a turn that *arrives*
+while she is parked now queues at the `ParkGate` below instead of JIT-loading
+the model straight back onto the card the render is mid-way through claiming
+— which is the OOM this module used to list as accepted, and which duly
+happened: evict at :01:47, a chat turn at :01:49, 4.4 GiB of chat model back
+on a 16 GiB card, render dead at :02:16 with 53 MiB free.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import threading
 import time
@@ -49,6 +52,86 @@ from yurios.forge.backends.diffusers import DiffusersBackend
 _DEFAULT_FLOOR_GIB = DiffusersBackend.RESIDENT_FREE_GIB
 _WAIT_STEP_S = 0.5
 _WAIT_BUDGET_S = 25.0     # LM Studio unloads are fast; don't stall a selfie
+# How long a turn will hold at the gate before going through anyway. Covers a
+# whole park window (evict ≤25 s + render + re-pin ≈8 s) with room to spare;
+# past that something is wedged, and a late reply beats a mute companion.
+_GATE_WAIT_S = 90.0
+
+
+class ParkGate:
+    """The park window, made waitable — the missing half of the quiet gate.
+
+    `wait_turns_idle` stops a park from starting *on top of* a live turn. This
+    stops the mirror case: a turn arriving *during* the park, whose first
+    completion call JIT-loads the very model the parker just evicted, into the
+    VRAM the render is still claiming. Turns wait at the door instead.
+
+    Open by default and open whenever no park is running, so every path that
+    never parks — hosted backends, a card with headroom, tests — walks through
+    without touching an event loop at all.
+
+    Threading: the parker runs on a render worker thread (`asyncio.to_thread`),
+    so mutations from off-loop hop to the loop; waiters are ordinary
+    coroutines. Callers must wait *before* `turn_started`, or the park's quiet
+    gate ends up waiting for a turn that is waiting for the park.
+    """
+
+    def __init__(self, *, timeout_s: float = _GATE_WAIT_S) -> None:
+        self.timeout_s = timeout_s
+        self._open = asyncio.Event()      # loop-agnostic since 3.10
+        self._open.set()
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
+
+    def bind(self, loop: asyncio.AbstractEventLoop) -> None:
+        """Remember the loop the waiters live on (Runtime.start_async)."""
+        self._loop = loop
+
+    async def wait(self) -> bool:
+        """Hold this turn until the render gives her brain back. True = the way
+        was clear (or cleared in time); False = the cap blew and the caller is
+        going through anyway."""
+        if self._open.is_set():
+            return True
+        log.info("park: a turn is waiting for the render to give the LLM back")
+        try:
+            await asyncio.wait_for(self._open.wait(), self.timeout_s)
+            return True
+        except asyncio.TimeoutError:
+            log.warning("park: still parked after %.0fs — letting the turn "
+                        "through (it may load the model mid-render)",
+                        self.timeout_s)
+            return False
+
+    def close(self) -> None:
+        """Shut the door: arriving turns queue until `open`."""
+        self._hop(False)
+
+    def open(self) -> None:
+        """Let them through. Idempotent, and safe to call when never closed —
+        every path out of a park runs it, including the ones that didn't park."""
+        self._hop(True)
+
+    def _hop(self, opened: bool) -> None:
+        """Apply the flag on the loop that owns the waiters, from either side.
+        No loop (tests, pre-startup, a closed loop) → set it directly; the
+        Event is only ever *awaited* from the loop thread anyway."""
+        def apply() -> None:
+            self._open.set() if opened else self._open.clear()
+
+        loop = self._loop
+        try:
+            if asyncio.get_running_loop() is loop:      # already on it
+                apply()
+                return
+        except RuntimeError:                           # not on any loop
+            pass
+        if loop is None or not loop.is_running():
+            apply()
+            return
+        try:
+            loop.call_soon_threadsafe(apply)
+        except RuntimeError:                           # loop closed under us
+            apply()
 
 
 def _torch_free_gib() -> Optional[float]:
@@ -73,9 +156,13 @@ class LLMParker:
     """
 
     def __init__(self, cfg, *, free_probe: Callable[[], Optional[float]] = None,
-                 resident_free_gib: Optional[float] = _DEFAULT_FLOOR_GIB):
+                 resident_free_gib: Optional[float] = _DEFAULT_FLOOR_GIB,
+                 gate: Optional[ParkGate] = None):
         self.cfg = cfg
         self._free = free_probe or _torch_free_gib
+        # Shared with the Runtime, which is where turns wait on it. Owning one
+        # by default keeps the parker usable standalone (tests, scripts).
+        self.gate = gate or ParkGate()
         # None = the resolved backend keeps nothing resident on the card
         # (mock, openrouter, off) → never park. Passed in from the runtime,
         # which is the only place that knows which backend actually got built:
@@ -134,6 +221,10 @@ class LLMParker:
         re-pins her brain, because the pipeline and the chat model are exactly
         the two things that don't fit on the card at once."""
         if not self.applicable() or not self.needs_park():
+            # The lab shuts the gate before it waits for a quiet moment, and
+            # the card can have freed up in between — a decision not to park
+            # must never leave turns queued behind a door nobody will open.
+            self.gate.open()
             yield False
             return
         with self._lock:
@@ -143,6 +234,7 @@ class LLMParker:
             before = self._free() or 0.0
             log.info("park: evicting %s from LM Studio for one render "
                      "(%.1f GiB free, floor %.0f)", ids, before, self.floor)
+            self.gate.close()        # usually already shut by the lab; idempotent
             evict(cfg.lmstudio_base_url, ids)
             self._await_free(before)
             try:
@@ -151,6 +243,13 @@ class LLMParker:
                 # Her brain comes back even if the render died — and the reload
                 # is the same pinned, TTL-free residency the boot path builds.
                 log.info("park: restoring %s to LM Studio", ids)
-                ensure_resident(cfg.lmstudio_base_url, ids,
-                                context_length=getattr(cfg, "context_length", 0),
-                                timeout=getattr(cfg, "lmstudio_load_timeout_s", 600.0))
+                try:
+                    ensure_resident(
+                        cfg.lmstudio_base_url, ids,
+                        context_length=getattr(cfg, "context_length", 0),
+                        timeout=getattr(cfg, "lmstudio_load_timeout_s", 600.0))
+                finally:
+                    # Even a failed restore opens the door: LM Studio will
+                    # JIT-load her on the next turn, which is the fallback the
+                    # gate exists to postpone, not to prevent.
+                    self.gate.open()

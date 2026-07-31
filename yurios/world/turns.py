@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from contextlib import nullcontext
 
 from yurios.desktop.voice.emotion import EmotionParser
 from yurios.desktop.voice.sentences import cut_sentences
@@ -45,27 +46,45 @@ class TextTurns:
         self.rt = rt
         self._lock = asyncio.Lock()
 
-    async def run(self, text: str, *, channel: str,
-                  session_id: str | None = None) -> dict:
-        """Drive one text turn. Returns {"session_id": …, "message": entry}
-        (`message` is None for an empty reply). Raises on a mid-stream brain
-        failure — the caller decides how to surface it; nothing was committed."""
+    async def greet(self, *, channel: str,
+                    session_id: str | None = None) -> dict:
+        """She speaks first, in text (SPEC §7, §9.3) — the voice route's greeting
+        fork with the audio taken out.
+
+        The same three properties the voice path has, for every text channel:
+        the opener comes from `brain.stream_greeting` (which plays `BOOTSTRAP.md`'s
+        authored cold open on the first-ever arrival, then retires it, §5.4); it
+        is committed as a **proactive** message, because she was not answering
+        anything; and it is never persisted as a turn — an opener is not a turn
+        the user took, so it leaves no journal entry and no corpus line.
+
+        Greeting is once per session per run, checked and marked under the turn
+        lock: a terminal that reconnects to a conversation it is already having
+        is not a new arrival (the voice route's `rt.greeted`, shared with it so
+        opening the CLI beside a live headset cannot greet twice). Returns
+        {"session_id": …, "message": entry-or-None}; `None` means she was
+        already greeted this run, or said nothing."""
         rt = self.rt
         async with self._lock:
             session_id = rt.brain.resolve_session(session_id)
-            rt.post_message("user", text, channel=channel)
-            rt.signals.post("user_message", {"text": text}, source=channel)
-            rt.turn_started()
+            if session_id in rt.greeted:
+                return {"session_id": session_id, "message": None}
+            rt.greeted.add(session_id)
+            await rt.park_gate.wait()          # the §7.6 door, as in `run`
+            rt.turn_started(proactive=True)
+            # A cold open is a scene, not an utterance: what she shows is the
+            # card's text, whole, and the parser below only decides what a voice
+            # would have said of it (the voice route's rule, §5.4).
+            cold = rt.brain.cold_open()
+            if cold:
+                rt.hub.publish("draft", {"text": cold})
             parser = EmotionParser(default=rt.cfg.expression_default)
-            raw: list[str] = []          # model output verbatim (tags kept, for persist)
-            shown: list[str] = []        # committed sentences, tags stripped
+            shown: list[str] = []
             buf = ""
             prev_events = 0
             try:
-                async for token in rt.brain.stream_reply(session_id, text):
-                    raw.append(token)
+                async for token in rt.brain.stream_greeting(session_id):
                     speakable = parser.push(token)
-                    # a closed tag drives the face before the text after it
                     while len(parser.events) > prev_events:
                         rt.controller.set_expression(
                             parser.events[prev_events].expression, 1.0, reset_ms=0)
@@ -74,10 +93,79 @@ class TextTurns:
                     done, buf = cut_sentences(buf)
                     for s in done:
                         shown.append(s)
-                        rt.hub.publish("draft", {"text": " ".join(shown)})
+                        if not cold:               # …unless the text is given
+                            rt.hub.publish("draft", {"text": " ".join(shown)})
                 parser.finish()
                 if buf.strip():
                     shown.append(buf.strip())
+            except Exception:
+                # nothing was committed and nothing was appended (a greeting
+                # never puts a user line in the window), so there is nothing to
+                # roll back — the draft simply never becomes a message.
+                rt.hub.publish("draft_cancel", {})
+                log.exception("text greeting failed mid-stream (channel %s)", channel)
+                raise
+            finally:
+                rt.turn_ended()
+
+            entry = None
+            text = cold or (" ".join(shown) if shown else "")
+            if text:
+                entry = rt.post_message("assistant", text,
+                                        proactive=True, channel=channel)
+            return {"session_id": session_id, "message": entry}
+
+    async def run(self, text: str, *, channel: str,
+                  session_id: str | None = None,
+                  client_id: str | None = None) -> dict:
+        """Drive one text turn. Returns {"session_id": …, "message": entry}
+        (`message` is None for an empty reply). Raises on a mid-stream brain
+        failure — the caller decides how to surface it; nothing was committed."""
+        rt = self.rt
+        async with self._lock:
+            session_id = rt.brain.resolve_session(session_id)
+            user_entry = rt.post_message("user", text, channel=channel,
+                                         client_id=client_id)
+            rt.signals.post("user_message", {"text": text}, source=channel)
+            # A selfie may be holding her brain's VRAM right now (§7.6): wait
+            # at the door rather than loading the chat model back onto a card
+            # the render hasn't finished with. Her line is already in the chat
+            # above, so the wait is visible as her thinking, not as a freeze.
+            # BEFORE `turn_started`, always: the park's quiet gate waits on
+            # that very counter, so a turn that announced itself and then
+            # blocked here would be waiting on a park waiting on it.
+            await rt.park_gate.wait()
+            rt.turn_started()
+            parser = EmotionParser(default=rt.cfg.expression_default)
+            raw: list[str] = []          # model output verbatim (tags kept, for persist)
+            shown: list[str] = []        # committed sentences, tags stripped
+            buf = ""
+            prev_events = 0
+            turn_context = getattr(rt.brain, "turn_context", None)
+            context = turn_context(channel=channel, client_id=client_id) \
+                if turn_context else nullcontext()
+            try:
+                with context:
+                    async for token in rt.brain.stream_reply(session_id, text):
+                        raw.append(token)
+                        speakable = parser.push(token)
+                        # a closed tag drives the face before the text after it
+                        while len(parser.events) > prev_events:
+                            rt.controller.set_expression(
+                                parser.events[prev_events].expression, 1.0, reset_ms=0)
+                            prev_events += 1
+                        buf += speakable
+                        done, buf = cut_sentences(buf)
+                        for s in done:
+                            shown.append(s)
+                            rt.hub.publish("draft", {"text": " ".join(shown)})
+                    parser.finish()
+                    if buf.strip():
+                        shown.append(buf.strip())
+            except asyncio.CancelledError:
+                rt.hub.publish("draft_cancel", {})
+                rt.brain.abandon(session_id)
+                raise
             except Exception:
                 # a turn that didn't happen leaves no trace (B2 §4.4) — including
                 # in her memory: stream_reply already put the user's line in the
@@ -100,4 +188,6 @@ class TextTurns:
                 await rt.brain.persist(session_id, text, "".join(raw))
                 rt.signals.post("turn_committed",
                                 {"text": text, "reply": reply}, source=channel)
-            return {"session_id": session_id, "message": entry}
+            selfies = rt.selfies.active_ids(client_id) if rt.selfies else []
+            return {"session_id": session_id, "message": entry,
+                    "user_message": user_entry, "active_selfies": selfies}

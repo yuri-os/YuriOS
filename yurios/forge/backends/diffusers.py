@@ -70,8 +70,17 @@ class DiffusersBackend(ImageBackend):
         self.hires = hires
         self.hires_scale = hires_scale
         self.hires_denoise = hires_denoise
+        # The user's setting, and it stays theirs: a crowded card can force
+        # *this* load to offload, but nothing here may rewrite what they asked
+        # for. That distinction is `_offloading` below — how the pipeline
+        # currently on the card was actually built, re-decided on every load.
+        # (They used to be one flag, which meant one crowded moment condemned
+        # every later render in the process to the slow path, long after the
+        # card had emptied — and silently disabled the OOM retry, because the
+        # retry's "am I already as small as I get?" check read the same flag.)
         self.cpu_offload = cpu_offload
         self._pipe = None                       # loaded on first render
+        self._offloading: bool | None = None    # mode of the loaded pipe
 
     # ---- availability (cheap; imports nothing heavy) ----
 
@@ -95,7 +104,7 @@ class DiffusersBackend(ImageBackend):
         # cost nothing; setdefault means the user's own setting always wins.
         os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
-    def _load(self):
+    def _load(self, force_offload: bool = False):
         if self._pipe is not None:
             return self._pipe
         self._prepare_env()
@@ -105,24 +114,33 @@ class DiffusersBackend(ImageBackend):
 
         cuda = self.device == "cuda" and torch.cuda.is_available()
         dtype = torch.float16 if cuda else torch.float32
-        if cuda and not self.cpu_offload \
-                and self._needs_offload(torch.cuda.mem_get_info()[0] / 1024**3):
-            # Cheaper than the crash: the resident fp16 pipeline wants ~11 GiB
-            # (weights + context + generation peaks). Sharing the card with an
-            # LLM usually means that room isn't there — offload from the start
-            # instead of OOM-ing mid-load and retrying (the backstop below).
-            log.warning(
-                "diffusers: %.1f GiB VRAM free, the resident pipeline wants "
-                "~%.0f — using model CPU offload for this session "
-                "(SELFIE_LOCAL_CPU_OFFLOAD=true makes it permanent).",
-                torch.cuda.mem_get_info()[0] / 1024**3, self.RESIDENT_FREE_GIB)
-            self.cpu_offload = True
+        offload = self.cpu_offload or force_offload
+        if cuda and not offload:
+            free = torch.cuda.mem_get_info()[0] / 1024**3
+            if self._needs_offload(free):
+                # Cheaper than the crash: the resident fp16 pipeline wants ~11
+                # GiB (weights + context + generation peaks). Sharing the card
+                # with an LLM usually means that room isn't there — offload
+                # from the start instead of OOM-ing mid-load and retrying (the
+                # backstop below). This load only: the next one measures again,
+                # and after a park there is usually room to be resident.
+                log.warning(
+                    "diffusers: %.1f GiB VRAM free, the resident pipeline "
+                    "wants ~%.0f — using model CPU offload for this render "
+                    "(SELFIE_LOCAL_CPU_OFFLOAD=true makes it permanent).",
+                    free, self.RESIDENT_FREE_GIB)
+                offload = True
+        offload = offload and cuda
+        # Recorded before the weights move, so a load that OOMs partway still
+        # tells `generate` which mode died — that is what decides whether
+        # there is a smaller way to try again.
+        self._offloading = offload
         pipe = StableDiffusionXLPipeline.from_single_file(
             self.model_path, torch_dtype=dtype)
         # DPM++ 2M is dpmsolver++'s default algorithm; Karras is the sigmas.
         pipe.scheduler = DPMSolverMultistepScheduler.from_config(
             pipe.scheduler.config, use_karras_sigmas=True)
-        if self.cpu_offload and cuda:
+        if offload:
             pipe.enable_model_cpu_offload()
         else:
             pipe = pipe.to(self.device if cuda else "cpu")
@@ -143,6 +161,7 @@ class DiffusersBackend(ImageBackend):
     def _teardown(self) -> None:
         """Drop the pipeline and hand the VRAM back (the OOM retry's reset)."""
         self._pipe = None
+        self._offloading = None                 # the next load decides afresh
         import gc
         gc.collect()
         try:
@@ -221,23 +240,29 @@ class DiffusersBackend(ImageBackend):
             # happen OUTSIDE this except block — while the exception is alive,
             # its traceback pins the dead pipeline's frame, and with it the
             # gigabytes of VRAM the retry needs back.
-            if self.cpu_offload or "out of memory" not in str(e).lower():
+            #
+            # `_offloading is False` — the render that just died was resident,
+            # so there is a smaller way to run it. Anything else (already
+            # offloading, or no pipeline to speak of) has nothing left to give.
+            # Read the *pipeline's* mode, never the user's setting: they were
+            # one flag once, and a session that had been forced to offload
+            # therefore looked like a session with nothing left to try.
+            if self._offloading is not False or "out of memory" not in str(e).lower():
                 raise
             oom = True
         if oom:
-            # Flip to model CPU offload and retry ONCE — slower, but a fraction
-            # of the resident footprint. Already offloading means a real
-            # failure, and the SelfieLab's quiet-message rule takes it.
+            # Retry ONCE on model CPU offload — slower, but a fraction of the
+            # resident footprint. For this render: the pipeline is dropped
+            # after it either way, and the next one measures the card again.
             log.warning(
                 "diffusers: CUDA out of memory — retrying this render with "
                 "model CPU offload (slower, much smaller VRAM footprint). "
                 "Make it permanent: SELFIE_LOCAL_CPU_OFFLOAD=true in .env")
-            self.cpu_offload = True
             self._teardown()
-            return self._render(req)
+            return self._render(req, force_offload=True)
 
-    def _render(self, req: GenRequest) -> ImageResult:
-        pipe = self._load()
+    def _render(self, req: GenRequest, force_offload: bool = False) -> ImageResult:
+        pipe = self._load(force_offload)
         seed = req.seed if req.seed is not None else secrets.randbelow(2**31)
         gen = self._make_generator(seed)
         steps, cfg = req.steps or self.steps, req.cfg or self.cfg

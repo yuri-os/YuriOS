@@ -130,6 +130,71 @@ def test_every_body_of_a_character_is_reachable_by_her_own_id(tmp_path, monkeypa
         assert live2d.headers["location"] == "/live2d/?character=yuri"
 
 
+def test_socket_for_a_parked_character_is_refused_in_websocket(tmp_path, monkeypatch):
+    """A card imported from elsewhere is registered but not running until it has
+    been reviewed (SPEC §28) — and her text room still opens and still dials
+    /ws/characters/<id>/voice. Answering that handshake with an HTTP 404 is not
+    something a websocket server can put on the wire: uvicorn logs `ASGI callable
+    returned without completing handshake` once per reconnect and the room dies
+    silently. The refusal has to arrive as a closed socket carrying the reason."""
+    registry = CharacterRegistry(tmp_path)
+    registry.add(record(tmp_path, "yuri"))
+    parked = record(tmp_path, "virelle", enabled=False, autostart=False)
+    parked.lifecycle.review_required = True
+    registry.add(parked)
+    monkeypatch.setattr("yurios.world.host.create_app", fake_character_app)
+    app = create_host_app(Config(data_dir=tmp_path), registry)
+
+    with TestClient(app) as client:
+        assert app.state.host.runtime("virelle") is None
+        with client.websocket_connect("/ws/characters/virelle/voice") as ws:
+            first = ws.receive_json()
+            assert first["type"] == "error"
+            assert "review" in first["message"]      # and what to do about it
+            assert "studio" in first["message"]
+            closed = ws.receive()
+        assert closed["type"] == "websocket.close"
+        assert closed["code"] == 4404          # "no runtime", so the client backs off
+        assert "Virelle" in closed["reason"]
+        # A close is a control frame: over 125 bytes (code included) it is not
+        # truncated, it raises, and the socket ends with no close frame at all.
+        # TestClient does not enforce that; a real server does.
+        assert len(closed["reason"].encode("utf-8")) <= 123
+        # the HTTP half of the same dispatcher still answers in HTTP
+        denied = client.get("/api/characters/virelle/health")
+        assert denied.status_code == 404
+        assert "Virelle" in denied.json()["detail"]
+
+
+def test_close_reason_always_fits_a_control_frame():
+    """Whatever the host has to say, the close frame stays sendable."""
+    from yurios.world.host import _close_reason
+
+    short = "no active character"
+    assert _close_reason(short) == short
+    two_sentences = "Virelle is waiting on review. " + "Open her in the studio. " * 8
+    assert _close_reason(two_sentences) == "Virelle is waiting on review."
+    unbroken = "über " * 60                        # no sentence to fall back to
+    assert len(_close_reason(unbroken).encode("utf-8")) <= 123
+    assert _close_reason(unbroken).endswith("...")
+
+
+def test_socket_with_no_active_character_is_refused_in_websocket(tmp_path, monkeypatch):
+    """Same rule for the unscoped /ws/voice the single-character clients use: it
+    falls through to the primary mount, which may have nobody behind it."""
+    registry = CharacterRegistry(tmp_path)
+    registry.add(record(tmp_path, enabled=False))
+    monkeypatch.setattr("yurios.world.host.create_app", fake_character_app)
+    app = create_host_app(Config(data_dir=tmp_path), registry)
+
+    with TestClient(app) as client:
+        assert app.state.host.primary_id is None
+        with client.websocket_connect("/ws/voice") as ws:
+            assert ws.receive_json() == {"type": "error", "message": "no active character"}
+            assert ws.receive()["code"] == 4404
+        assert client.get("/api/health").status_code == 503
+
+
 def test_primary_prefers_running_autostart_character(tmp_path, monkeypatch):
     registry = CharacterRegistry(tmp_path)
     registry.add(record(tmp_path, "mia", autostart=False))
@@ -200,6 +265,52 @@ def test_trusted_dashboard_import_starts_and_autostarts(tmp_path, monkeypatch):
         assert response.json()["character"]["runtime_state"] == "ready"
         assert app.state.host.runtime("mia") is not None
     assert calls == [(b"card", {"autostart": True})]
+
+
+def test_approve_clears_review_and_starts_the_runtime(tmp_path, monkeypatch):
+    """The one act that used to be a side effect of saving something else."""
+    registry = CharacterRegistry(tmp_path)
+    parked = record(tmp_path, "virelle", enabled=False, autostart=False)
+    parked.lifecycle.review_required = True
+    registry.add(parked)
+    monkeypatch.setattr("yurios.world.host.create_app", fake_character_app)
+    app = create_host_app(Config(data_dir=tmp_path), registry)
+
+    with TestClient(app) as client:
+        assert app.state.host.runtime("virelle") is None
+        body = client.post("/api/characters/virelle/approve").json()
+        assert body["started"] is True and body["error"] is None
+        assert body["character"]["review_required"] is False
+        assert body["character"]["runtime_state"] == "ready"
+        assert app.state.host.runtime("virelle") is not None
+        # and the dispatcher reaches her runtime instead of turning callers away
+        assert client.get("/api/characters/virelle/health").status_code == 200
+
+    saved = registry.require("virelle").lifecycle
+    assert (saved.review_required, saved.enabled, saved.autostart) == (False, True, True)
+
+
+def test_approve_reports_a_failed_start_without_reverting_the_approval(tmp_path, monkeypatch):
+    """Approved and running are two facts. A runtime that will not come up is
+    hers to report — re-parking her behind review would only hide it."""
+    registry = CharacterRegistry(tmp_path)
+    parked = record(tmp_path, "virelle", enabled=False, autostart=False)
+    parked.lifecycle.review_required = True
+    registry.add(parked)
+
+    def broken_app(cfg, **kwargs):
+        raise RuntimeError("no connection profile named 'default'")
+
+    monkeypatch.setattr("yurios.world.host.create_app", broken_app)
+    app = create_host_app(Config(data_dir=tmp_path), registry)
+
+    with TestClient(app) as client:
+        body = client.post("/api/characters/virelle/approve").json()
+        assert body["started"] is False
+        assert "connection profile" in body["error"]
+        assert body["character"]["review_required"] is False
+        assert body["character"]["runtime_state"] == "failed"
+    assert registry.require("virelle").lifecycle.enabled is True
 
 
 def test_character_settings_are_registry_scoped(tmp_path):
@@ -313,12 +424,15 @@ def test_the_settings_panel_edits_this_characters_own_bot(tmp_path, monkeypatch)
         return cfg, [f["key"] for f in group["fields"]]
 
     mia, keys = channel_keys("mia")
-    assert keys == ["TELEGRAM_BOT_TOKEN_MIA", "TELEGRAM_CHAT_ID_MIA"]
+    assert keys == ["TELEGRAM_BOT_TOKEN_MIA", "TELEGRAM_CHAT_ID_MIA",
+                    "TELEGRAM_SEND_NON_TELEGRAM"]
     _, keys = channel_keys("yuri")
-    assert keys == ["TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID"]   # hers, and hers alone
+    assert keys == ["TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID",
+                    "TELEGRAM_SEND_NON_TELEGRAM"]   # hers, and hers alone
 
     # a build with no channel knobs at all (B2's desktop config) drops the group
     bare = SimpleNamespace(**{f["attr"]: "" for g in panel.SCHEMA
+                              if g["group"] != "Channels"
                               for f in g["fields"] if not f.get("key_env")})
     assert not any(g["group"] == "Channels" for g in panel._groups_for(bare))
 
@@ -332,10 +446,15 @@ def test_the_settings_panel_edits_this_characters_own_bot(tmp_path, monkeypatch)
         shown = {f["key"]: f["value"] for g in client.get("/api/settings").json()["groups"]
                  for f in g["fields"]}
         assert shown["TELEGRAM_BOT_TOKEN_MIA"] == ""      # she has no bot yet
+        assert shown["TELEGRAM_SEND_NON_TELEGRAM"] is False
         saved = client.post("/api/settings",
                             json={"TELEGRAM_BOT_TOKEN_MIA": "hers"}).json()
         assert saved["written"] == ["TELEGRAM_BOT_TOKEN_MIA"]
+        saved = client.post("/api/settings",
+                            json={"TELEGRAM_SEND_NON_TELEGRAM": True}).json()
+        assert saved["written"] == ["TELEGRAM_SEND_NON_TELEGRAM"]
     assert "TELEGRAM_BOT_TOKEN_MIA=hers" in env_path.read_text()
+    assert "TELEGRAM_SEND_NON_TELEGRAM=true" in env_path.read_text()
 
 
 def test_host_refuses_overlapping_character_storage(tmp_path):

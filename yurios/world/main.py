@@ -9,9 +9,12 @@ the idle machine used to. Run:
 
     python -m yurios.world                 # reads HOST/PORT from .env (§11)
 
-The voice stack still warms off-thread (B2's pattern — her body renders in
-seconds, her voice follows), and the async machinery (tool runner, timers, the
-mind) starts on FastAPI startup so it lives on the server's event loop.
+The voice stack loads off-thread (B2's pattern — her body renders in seconds,
+her voice follows), but only for as long as somebody is in one of her rooms
+(`voicestack.py`, SPEC §9.9): on a node hosting a registry of characters,
+warming every autostarted one's Kokoro/whisper/silero at boot cost gigabytes
+nobody was listening to. The async machinery (tool runner, timers, the mind)
+starts on FastAPI startup so it lives on the server's event loop.
 """
 from __future__ import annotations
 
@@ -19,7 +22,6 @@ import asyncio
 import datetime
 import logging
 import threading
-import time
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -28,7 +30,6 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from starlette.datastructures import MutableHeaders
 
-from yurios.desktop.main import build_stt, build_tts, build_vad
 from yurios.desktop.voice.fillers import FillerBank
 
 from yurios.mind.loop import MindLoop
@@ -46,6 +47,7 @@ from .turns import TextTurns
 from .selfies import SelfieLab, build_forge
 from .tools.guard import Guard
 from .tools.timers import TimerBoard
+from .voicestack import VoiceStack
 
 log = logging.getLogger("world.main")
 WEB_DIR = Path(__file__).resolve().parent.parent.parent / "web"
@@ -97,6 +99,13 @@ class Runtime:
         # the realisation path); "off" leaves her without one.
         self.selfies: SelfieLab | None = None
         self.selfies_status = "off"
+        # The park window's door (§7.6, world/vram.py): shut while a render has
+        # borrowed her brain's VRAM, so a turn arriving mid-render queues here
+        # instead of loading the chat model back onto the card the render is
+        # still filling. Built unconditionally — every turn waits on it, and
+        # with no camera it simply never closes.
+        from .vram import ParkGate
+        self.park_gate = ParkGate()
         if cfg.selfie_backend != "off":
             forge, self.selfies_status = build_forge(cfg)
             from .vram import LLMParker
@@ -107,9 +116,11 @@ class Runtime:
             self.selfies = SelfieLab(forge, clock=self.clock,
                                      post=self.post_message,
                                      speak=self.speak_ambient,
+                                     notify=self.hub.publish,
                                      parker=LLMParker(
                                          cfg,
-                                         resident_free_gib=forge.backend.RESIDENT_FREE_GIB),
+                                         resident_free_gib=forge.backend.RESIDENT_FREE_GIB,
+                                         gate=self.park_gate),
                                      quiet=self.wait_turns_idle)
         # `brain` is injectable for the same reason as B2's: the route tests run
         # against a FakeBrain (no Vault, no SQLite). The real one is a ToolBrain —
@@ -162,13 +173,16 @@ class Runtime:
         self.channels_status = "off"
 
         # declare the boot services in the order they should read down the panel.
-        # voice comes up on the warm-up thread below; tools/mind are resolved in
-        # start_async; selfies is settled already, so it lands terminal now.
-        self.boot.declare("tts", "voice · speech synthesis")
-        self.boot.declare("stt", "voice · speech recognition")
-        self.boot.declare("vad", "voice · voice activity")
-        if cfg.mask_latency:
-            self.boot.declare("fillers", "voice · filler phrases")
+        # The voice stack declares its own three (plus fillers) as it is built;
+        # tools/mind are resolved in start_async; selfies is settled already, so
+        # it lands terminal now.
+        #
+        # Her voice is the heaviest thing this process holds and only `/ws/voice`
+        # wants it, so it loads when someone enters one of her rooms and goes when
+        # the last of them leaves (SPEC §9.9, world/voicestack.py). On a node with
+        # a registry that is the difference between one resident voice stack and
+        # one per autostarted character.
+        self.voice = VoiceStack(cfg, self.boot)
         self.boot.declare(
             "tools", "hands · tool server",
             state="skipped" if cfg.tools_backend == "off" else "pending")
@@ -196,14 +210,48 @@ class Runtime:
         self._mind_task: asyncio.Task | None = None
         self.loop: asyncio.AbstractEventLoop | None = None   # set at startup
 
-        # B2's voice warm-up, verbatim in shape (see desktop/main.py for why)
-        self.tts = self.stt = self.vad = None
-        self.tts_name = self.stt_name = self.vad_name = "loading"
-        self.filler_bank: FillerBank | None = None
+        # Sessions already greeted this run. She speaks first on arrival (§9.8),
+        # but a *reconnect* is not a new arrival — and during a voice warm several
+        # connections release together, so without this they would all greet.
         self.greeted: set[str] = set()
-        self.voice_ready = threading.Event()
-        threading.Thread(target=self._warm_voice, daemon=True,
-                         name="voice-warmup").start()
+
+    # The voice stack used to be four attributes on the Runtime and everything
+    # downstream reads them by name (the route, /api/health, the desktop route's
+    # shape). It moved behind `self.voice` when it became load-on-demand; these
+    # keep every reader working and reading the *current* stack rather than a
+    # stale reference to weights that have since been freed.
+
+    @property
+    def tts(self):
+        return self.voice.tts
+
+    @property
+    def stt(self):
+        return self.voice.stt
+
+    @property
+    def vad(self):
+        return self.voice.vad
+
+    @property
+    def filler_bank(self) -> FillerBank | None:
+        return self.voice.filler_bank
+
+    @property
+    def tts_name(self) -> str:
+        return self.voice.tts_name
+
+    @property
+    def stt_name(self) -> str:
+        return self.voice.stt_name
+
+    @property
+    def vad_name(self) -> str:
+        return self.voice.vad_name
+
+    @property
+    def voice_ready(self) -> threading.Event:
+        return self.voice.ready
 
     def _wire_context_meter(self) -> None:
         """Point the chat provider at the meter, if this brain has a real one.
@@ -286,56 +334,12 @@ class Runtime:
             # she still runs: LM Studio JIT-loads per request, slowly (§3.1)
             self.boot.done("models", state="failed", detail="none pinned — see the log")
 
-    def _warm_voice(self) -> None:
-        # These local torch models (Kokoro TTS, faster-whisper, silero) load
-        # cold on the CPU and can take a minute+ — the LLM runs elsewhere
-        # (LMStudio/Ollama), so this thread is the real startup cost. Narrate
-        # each stage so a slow boot doesn't look like a hang.
-        t0 = time.perf_counter()
-        log.info("voice: warming up (loading local models — this is the slow part)…")
-
-        def _stage(key: str, what: str, backend: str, load):
-            log.info("voice: loading %s (%s)…", what, backend)
-            self.boot.start(key, detail=backend)
-            start = time.perf_counter()
-            try:
-                obj, name = load()
-            except Exception as e:                 # a failed stage marks its own
-                self.boot.done(key, state="failed", detail=str(e)[:80])
-                raise
-            log.info("voice: %s ready [%s] in %.1fs", what, name, time.perf_counter() - start)
-            self.boot.done(key, detail=name)
-            return obj, name
-
-        try:
-            self.tts, self.tts_name = _stage("tts", "TTS", self.cfg.tts_backend, lambda: build_tts(self.cfg))
-            self.stt, self.stt_name = _stage("stt", "STT", self.cfg.stt_backend, lambda: build_stt(self.cfg))
-            self.vad, self.vad_name = _stage("vad", "VAD", self.cfg.vad_backend, lambda: build_vad(self.cfg))
-            if self.cfg.mask_latency:
-                log.info("voice: priming filler phrases (MASK_LATENCY)…")
-                self.boot.start("fillers")
-                filler_bank = FillerBank(tts=self.tts)
-                try:
-                    filler_bank.prime()
-                    self.filler_bank = filler_bank
-                    log.info("voice: fillers primed")
-                    self.boot.done("fillers", detail="primed")
-                except Exception:
-                    log.exception("filler prime failed; masking disabled this run")
-                    self.boot.done("fillers", state="failed", detail="prime failed")
-        finally:
-            # an earlier stage that raised leaves the later ones un-run; don't
-            # let them hang the boot panel — settle any that never resolved.
-            for key in self.boot.unresolved(("tts", "stt", "vad", "fillers")):
-                self.boot.done(key, state="failed", detail="not reached")
-            self.voice_ready.set()
-            log.info("voice: ready — she can hear and speak (%.1fs total)",
-                     time.perf_counter() - t0)
-
     # ---- the transcript (SPEC §2.6) ----
 
     def post_message(self, role: str, text: str, *, image_url: str | None = None,
-                     proactive: bool = False, channel: str | None = None) -> dict:
+                     proactive: bool = False, channel: str | None = None,
+                     client_id: str | None = None,
+                     selfie_id: str | None = None) -> dict:
         """Commit one chat entry: append the ring, publish the `message` event.
         `proactive` marks lines she spoke unprompted (greeting, ambient, a
         finished selfie) — the YuriOS flag, same meaning. `channel` names the
@@ -353,6 +357,10 @@ class Runtime:
             entry["proactive"] = True
         if channel:
             entry["channel"] = channel
+        if client_id:
+            entry["client_id"] = client_id
+        if selfie_id:
+            entry["selfie_id"] = selfie_id
         self.transcript.append(entry)
         del self.transcript[:-200]
         self.hub.publish("message", entry)
@@ -405,6 +413,8 @@ class Runtime:
 
     async def start_async(self) -> None:
         self.loop = asyncio.get_running_loop()
+        # the render thread closes/opens the gate from off-loop; tell it where
+        self.park_gate.bind(self.loop)
         # the hands (SPEC §7.2): spawn/connect, discover, wire — or degrade.
         # tools_backend=off, a missing `mcp` install, or a dead server all leave
         # her hand-less but talking; /api/health says which happened.
@@ -487,6 +497,7 @@ class Runtime:
 
     async def stop_async(self) -> None:
         self.stopping.set()                    # open SSE streams end themselves
+        await self.voice.close()               # cancel a pending unload; free the weights
         await self.channels.stop_all()
         if self.selfies is not None:
             await self.selfies.close()

@@ -2,18 +2,23 @@
 
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
 from pathlib import Path
 from typing import Any, Mapping
 
+import yaml
 from PIL import Image, ImageOps, UnidentifiedImageError
 
 from .card import CardLimits, CardParseError, card_fields, parse_png_card
+from .privacy import PRIVATE_SOUL_FILES
+from .soulfiles import SoulReader
 from .models import (
     BodyBinding,
     CharacterPaths,
@@ -31,6 +36,13 @@ from .registry import CharacterRegistry
 
 class CharacterImportError(ValueError):
     pass
+
+
+#: What a name in a card's soul payload may look like. Deliberately narrow: no
+#: separators, no leading dot, one extension, and only the two the SOUL uses.
+_SOUL_FILE_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}\.(?:md|yaml)")
+MAX_SOUL_FILE_BYTES = 256 * 1024
+MAX_SOUL_TOTAL_BYTES = 1024 * 1024
 
 
 def _text(value: object) -> str:
@@ -57,6 +69,87 @@ def _is_yurios_card(card: Mapping[str, Any], fields: Mapping[str, Any]) -> bool:
         if isinstance(extensions, Mapping):
             candidates.append(extensions.get("yurios"))
     return any(value is True or isinstance(value, Mapping) for value in candidates)
+
+
+def _yurios_block(card: Mapping[str, Any], fields: Mapping[str, Any]) -> dict[str, Any]:
+    for owner in (fields, card):
+        extensions = owner.get("extensions")
+        if isinstance(extensions, Mapping) and isinstance(extensions.get("yurios"), Mapping):
+            return dict(extensions["yurios"])
+    return {}
+
+
+def _soul_payload(block: Mapping[str, Any]) -> dict[str, str] | None:
+    """The verbatim soul files a YuriOS card carries, or ``None`` if unusable.
+
+    This is the difference between a card that re-imports as *her* and one that
+    re-imports as a flattened summary of her: `_create_soul` below can only
+    synthesise `vault/soul/` back out of card prose, which loses the
+    CONSTITUTION/PERSONA split, the appearance/manner separation and every
+    frontmatter key. When the payload is present and sound, it is written as-is.
+
+    Everything here is adversarial input — a `.PNG` from a stranger on the
+    internet is the single least trustworthy thing this runtime touches — so the
+    rules are narrow and any failure falls back to synthesis rather than raising:
+    a card that cannot be trusted to carry a soul is still a perfectly good card.
+
+      * plain basenames only, `[A-Za-z0-9._-]`, `.md` or `.yaml` — no separators,
+        no `..`, no dotfiles, so nothing can be planted outside `vault/soul/`
+        (a `.git/hooks/post-commit` would otherwise be remote code execution);
+      * never a runtime-only file: a hostile card must not be able to seed a
+        `USER.md` that the next partner-model merge treats as established fact;
+      * bounded per file and in total, and valid UTF-8;
+      * `soul.yaml` must be present and parse, and every `fields:` reference
+        must resolve against the files provided — a manifest pointing at a file
+        that is not in the payload would leave the runtime unable to load her.
+    """
+    payload = block.get("soul")
+    if not isinstance(payload, Mapping):
+        return None
+    raw = payload.get("files")
+    if not isinstance(raw, Mapping) or not raw:
+        return None
+
+    files: dict[str, str] = {}
+    total = 0
+    for name, text in raw.items():
+        if not isinstance(name, str) or not isinstance(text, str):
+            return None
+        if name != Path(name).name or not _SOUL_FILE_RE.fullmatch(name):
+            return None
+        if name.casefold() in {p.casefold() for p in PRIVATE_SOUL_FILES}:
+            return None
+        encoded = len(text.encode("utf-8"))
+        if encoded > MAX_SOUL_FILE_BYTES:
+            return None
+        total += encoded
+        if total > MAX_SOUL_TOTAL_BYTES:
+            return None
+        files[name] = text
+
+    digests = payload.get("sha256")
+    if isinstance(digests, Mapping):
+        for name, expected in digests.items():
+            actual = hashlib.sha256(files[name].encode("utf-8")).hexdigest()
+            if name in files and isinstance(expected, str) and expected != actual:
+                return None
+
+    if "soul.yaml" not in files:
+        return None
+    try:
+        manifest = yaml.safe_load(files["soul.yaml"])
+    except yaml.YAMLError:
+        return None
+    if not isinstance(manifest, dict) or not isinstance(manifest.get("fields"), dict):
+        return None
+    referenced = SoulReader(Path(".")).referenced_files(manifest["fields"])
+    missing = [name for name in referenced if name not in files]
+    # BOOTSTRAP.md is consumed-once (§5.4): a card cut from a character who has
+    # already met someone legitimately has none, and `_create_soul` writes a
+    # fresh cold open from the card's `first_mes`.
+    if [name for name in missing if name != "BOOTSTRAP.md"]:
+        return None
+    return files
 
 
 def _world_markdown(book: object, name: str) -> str:
@@ -89,6 +182,61 @@ def _examples_markdown(value: str) -> str:
         parts = ["_(No example dialogue was supplied.)_"]
     blocks = [f"## Example {index}\n\n{part}" for index, part in enumerate(parts, start=1)]
     return "---\nsoul: examples\n---\n\n# Example dialogues\n\n" + "\n\n".join(blocks)
+
+
+def _write_partner_model(soul: Path) -> None:
+    """`USER.md`, empty. The relationship starts at zero.
+
+    Not configurable, and written on every path — synthesised or verbatim. A
+    card handed to someone else carries who she is, never who you were to her
+    (`soul-src`, D-014).
+
+    The manifest's other `runtime_only:` file, `MEMORY.md`, deliberately has no
+    counterpart here. It is runtime memory rather than persona prose, so it
+    never lands under `soul/` at all: `scripts/seed_vault.py` splits it into
+    `memory/semantic/facts.md` and `forgotten.md`, which is where every reader
+    looks, and `_create_vault` below seeds those two empty. A `soul/MEMORY.md`
+    written beside them would be a second, inert copy — read by nothing, yet
+    offered to her gated self-edit flow as somewhere to put a memory
+    (`mind/vaultio.py`'s `EDITABLE_SOUL`), which is a place for one to go and
+    never come back.
+    """
+    _write(
+        soul / "USER.md",
+        """---
+soul: user
+runtime_only: true
+---
+
+# User model
+
+## Who {{user}} seems to be
+
+_(unknown)_
+
+## What helps, and what does not
+
+_(to be learned)_
+""",
+    )
+
+
+def _restore_soul(soul: Path, files: Mapping[str, str], fields: Mapping[str, Any],
+                  name: str) -> None:
+    """Write a card's verbatim soul payload, so the round trip is byte-exact."""
+    soul.mkdir(parents=True, exist_ok=True)
+    for filename, text in files.items():
+        (soul / filename).write_text(text, encoding="utf-8")
+    if "BOOTSTRAP.md" not in files:
+        # Her cold open was consumed before the card was cut, but the person
+        # importing her has not met her yet — so she gets one, from the card.
+        first_message = _text(fields.get("first_mes")) or f"Hello, I am {name}."
+        _write(
+            soul / "BOOTSTRAP.md",
+            "---\nsoul: bootstrap\nconsumed_once: true\n---\n\n"
+            f"# Bootstrap\n\n## Cold open\n\n{first_message}",
+        )
+    _write_partner_model(soul)
 
 
 def _create_soul(soul: Path, fields: Mapping[str, Any], name: str) -> None:
@@ -198,28 +346,11 @@ _(The source card does not separate appearance from description.)_
     _write(soul / "EXAMPLES.md", _examples_markdown(_text(fields.get("mes_example"))))
     _write(soul / "WORLD.md", _world_markdown(fields.get("character_book"), name))
     _write(soul / "NOTES.md", creator_notes or "_(No creator notes were supplied.)_")
-    _write(
-        soul / "USER.md",
-        """---
-soul: user
-runtime_only: true
----
-
-# User model
-
-## Who {{user}} seems to be
-
-_(unknown)_
-
-## What helps, and what does not
-
-_(to be learned)_
-""",
-    )
-    _write(soul / "MEMORY.md", "# Relationship memory\n\n_(No memories yet.)_")
+    _write_partner_model(soul)
 
 
-def _create_vault(vault: Path, fields: Mapping[str, Any], name: str) -> None:
+def _create_vault(vault: Path, fields: Mapping[str, Any], name: str,
+                  soul_files: Mapping[str, str] | None = None) -> None:
     soul = vault / "soul"
     for directory in (
         vault / "memory" / "episodic",
@@ -229,7 +360,10 @@ def _create_vault(vault: Path, fields: Mapping[str, Any], name: str) -> None:
         vault / "world",
     ):
         directory.mkdir(parents=True, exist_ok=True)
-    _create_soul(soul, fields, name)
+    if soul_files:
+        _restore_soul(soul, soul_files, fields, name)
+    else:
+        _create_soul(soul, fields, name)
     _write(vault / ".gitignore", "memory/index/")
     _write(vault / "goals.md", "# Goals\n\n_(No goals yet.)_")
     _write(vault / "memory" / "summary.md", "# Conversation summary\n\n_(Empty.)_")
@@ -270,7 +404,7 @@ def _sanitize_portrait(png: bytes, limits: CardLimits) -> bytes:
         raise CharacterImportError(f"cannot decode PNG pixels: {exc}") from exc
 
 
-def _initialize_git(vault: Path) -> bool:
+def _initialize_git(vault: Path, *, message: str = "vault: import character card") -> bool:
     git = shutil.which("git")
     if git is None:
         return False
@@ -303,7 +437,7 @@ def _initialize_git(vault: Path) -> bool:
     if result.returncode != 0:
         raise CharacterImportError(f"git add failed: {result.stderr.strip()}")
     result = subprocess.run(
-        [*git_at_vault, "commit", "-q", "-m", "vault: import character card"],
+        [*git_at_vault, "commit", "-q", "-m", message],
         capture_output=True,
         text=True,
     )
@@ -370,6 +504,8 @@ class CharacterImporter:
             raise CharacterImportError(f"character root already exists: {final_root}")
         final_paths = CharacterPaths.under(final_root)
         native = _is_yurios_card(parsed.data, fields)
+        block = _yurios_block(parsed.data, fields) if native else {}
+        soul_files = _soul_payload(block) if native else None
         lifecycle = LifecycleFlags(
             enabled=(native if enabled is None else bool(enabled)) if native else False,
             autostart=bool(autostart) if native else False,
@@ -403,7 +539,7 @@ class CharacterImporter:
                 encoding="utf-8",
             )
             staged.portrait.write_bytes(portrait)
-            _create_vault(staged.vault, fields, name)
+            _create_vault(staged.vault, fields, name, soul_files)
             for directory in (staged.corpus, staged.traces, staged.tool_logs, staged.selfies):
                 directory.mkdir(parents=True, exist_ok=True)
             if self.initialize_git:

@@ -5,8 +5,8 @@ source feeds which prompt section ("she reads herself into being", → ch. 19).
 Build #1 does NOT consume a flattened card; it resolves `soul.yaml` against the
 `.md` files in `vault/soul/` on every turn.
 
-The resolver is from `../yuri-soul/build_card.py` (§5.1) — same
-reference syntax:
+The resolver is `yurios/characters/soulfiles.py` (§5.1), promoted out of this
+module once the card exporter needed it too — same reference syntax:
 
     FILE.md#Heading   → the prose under that "## Heading"
     FILE.md@key       → a key from the file's YAML frontmatter
@@ -15,6 +15,9 @@ reference syntax:
 A list of sources concatenates in order. `WORLD.md` (lorebook) and
 `EXAMPLES.md` (<START> blocks) get structured parsers, same as build_card.py.
 A missing file or section fails loudly, never silently (§13.3).
+
+`parse_md`, `split_sections` and `_Reader` are re-exported here because half the
+repo imports them from this module; there is one implementation, next door.
 """
 from __future__ import annotations
 
@@ -24,31 +27,13 @@ from pathlib import Path
 
 import yaml
 
-FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
-H2_RE = re.compile(r"^##\s+(.*?)\s*$", re.MULTILINE)
-
-
-def parse_md(path: Path) -> tuple[dict, str]:
-    """Return (frontmatter dict, body) for a soul .md file."""
-    text = path.read_text(encoding="utf-8")
-    m = FRONTMATTER_RE.match(text)
-    if m:
-        front = yaml.safe_load(m.group(1)) or {}
-        body = text[m.end():]
-    else:
-        front, body = {}, text
-    return front, body
-
-
-def split_sections(body: str) -> dict[str, str]:
-    """Map each '## Heading' to the prose beneath it (order preserved)."""
-    sections: dict[str, str] = {}
-    matches = list(H2_RE.finditer(body))
-    for i, m in enumerate(matches):
-        start = m.end()
-        end = matches[i + 1].start() if i + 1 < len(matches) else len(body)
-        sections[m.group(1).strip()] = body[start:end].strip()
-    return sections
+from yurios.characters.soulfiles import (  # noqa: F401 (re-exported)
+    FRONTMATTER_RE,
+    H2_RE,
+    SoulReader as _Reader,
+    parse_md,
+    split_sections,
+)
 
 
 def apply_macros(text: str, char_name: str, user_name: str) -> str:
@@ -90,65 +75,6 @@ class Soul:
         low = message.lower()
         hits = [e for e in self.lorebook if any(k.lower() in low for k in e.keys)]
         return sorted(hits, key=lambda e: e.insertion_order)
-
-
-class _Reader:
-    """Lazy reader/cache over the soul folder (from build_card.py)."""
-
-    def __init__(self, folder: Path):
-        self.folder = folder
-        self._front: dict[str, dict] = {}
-        self._sections: dict[str, dict[str, str]] = {}
-        self._body: dict[str, str] = {}
-
-    def _load(self, fname: str):
-        if fname not in self._front:
-            path = self.folder / fname
-            if not path.exists():
-                raise FileNotFoundError(f"soul references missing file: {fname}")
-            front, body = parse_md(path)
-            self._front[fname] = front
-            self._body[fname] = body.strip()
-            self._sections[fname] = split_sections(body)
-
-    def front(self, fname: str) -> dict:
-        self._load(fname); return self._front[fname]
-
-    def body(self, fname: str) -> str:
-        self._load(fname); return self._body[fname]
-
-    def section(self, fname: str, heading: str) -> str:
-        self._load(fname)
-        secs = self._sections[fname]
-        if heading not in secs:
-            raise KeyError(f"{fname}: no '## {heading}' section "
-                           f"(have: {', '.join(secs) or 'none'})")
-        return secs[heading]
-
-    def sections(self, fname: str) -> dict[str, str]:
-        self._load(fname); return self._sections[fname]
-
-    def resolve(self, ref: str) -> str:
-        """Resolve a 'FILE#Heading' / 'FILE@key' / 'FILE' reference to text."""
-        if "#" in ref:
-            fname, heading = ref.split("#", 1)
-            return self.section(fname.strip(), heading.strip())
-        if "@" in ref:
-            fname, key = ref.split("@", 1)
-            val = self.front(fname.strip()).get(key.strip())
-            if val is None:
-                raise KeyError(f"{fname}: no frontmatter key '{key}'")
-            return str(val)
-        return self.body(ref.strip())
-
-    def resolve_field(self, src) -> str:
-        if isinstance(src, list):
-            return "\n\n".join(self.resolve(r) for r in src)
-        return self.resolve(src)
-
-    def resolve_list(self, src) -> list[str]:
-        srcs = src if isinstance(src, list) else [src]
-        return [self.resolve(r) for r in srcs]
 
 
 def _build_examples(reader: _Reader, fname: str) -> str:

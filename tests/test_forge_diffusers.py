@@ -51,7 +51,12 @@ def backend(monkeypatch, tmp_path):
     ckpt.write_bytes(b"not really a model")
     b = DiffusersBackend(model_path=str(ckpt))
     pipe, i2i = FakePipe(), FakeI2I()
-    monkeypatch.setattr(b, "_load", lambda: pipe)
+
+    def fake_load(force_offload=False):
+        b._offloading = bool(force_offload)     # what the real _load records
+        return pipe
+
+    monkeypatch.setattr(b, "_load", fake_load)
     monkeypatch.setattr(b, "_make_img2img", lambda p: i2i)
     monkeypatch.setattr(b, "_make_generator", lambda seed: None)
     enc_calls = []
@@ -109,7 +114,7 @@ def test_hires_can_be_turned_off(monkeypatch, tmp_path):
     ckpt = tmp_path / "m.safetensors"
     ckpt.write_bytes(b"x")
     b = DiffusersBackend(model_path=str(ckpt), hires=False)
-    monkeypatch.setattr(b, "_load", lambda: FakePipe())
+    monkeypatch.setattr(b, "_load", lambda force_offload=False: FakePipe())
     monkeypatch.setattr(b, "_make_generator", lambda seed: None)
     monkeypatch.setattr(b, "_encode_prompts",
                         lambda p, prompt, negative: ("PE", "PP", "NE", "NP"))
@@ -201,44 +206,86 @@ def test_missing_deps_degrade_to_mock_loudly(cfg, tmp_path, monkeypatch, caplog)
 
 # ---- the VRAM wall: OOM degrades, it never crashes the turn ----
 
+def _modes(backend, monkeypatch, outcomes, crowded=False):
+    """Stub `_render` to record the mode each attempt ran in, setting
+    `_offloading` the way the real `_load` would: the user's setting, or a
+    forced retry, or `crowded` — a card too full for a resident load, which is
+    the third way `_load` ends up offloading. `outcomes` is one entry per
+    attempt: an exception to raise, or a value to return."""
+    seen: list[bool] = []
+
+    def attempt(req, force_offload=False):
+        seen.append(force_offload)
+        backend._offloading = bool(backend.cpu_offload or force_offload or crowded)
+        out = outcomes[len(seen) - 1]
+        if isinstance(out, Exception):
+            raise out
+        return out
+
+    monkeypatch.setattr(backend, "_render", attempt)
+    return seen
+
+
 def test_an_oom_retries_once_with_cpu_offload(backend, monkeypatch):
-    calls = []
-
-    def flaky(req):
-        calls.append(1)
-        if len(calls) == 1:
-            raise RuntimeError("CUDA out of memory. Tried to allocate 14.00 MiB")
-        return "RESULT"
-
+    modes = _modes(backend, monkeypatch, [
+        RuntimeError("CUDA out of memory. Tried to allocate 14.00 MiB"),
+        "RESULT"])
     torn = []
-    monkeypatch.setattr(backend, "_render", flaky)
     monkeypatch.setattr(backend, "_teardown", lambda: torn.append(1))
-    assert backend.cpu_offload is False
 
     assert backend.generate(GenRequest(prompt="p")) == "RESULT"
-    assert calls == [1, 1]                             # exactly one retry
+    assert modes == [False, True]                      # resident, then offloaded
     assert torn == [1]                                 # VRAM handed back first
-    assert backend.cpu_offload is True                 # …and the fix sticks
+    assert backend.cpu_offload is False                # the setting stays theirs
+
+
+def test_the_offload_retry_does_not_condemn_the_next_render(backend, monkeypatch):
+    """The latch this replaced: one crowded moment rewrote the user's setting,
+    so every later render in the process stayed on the slow path however empty
+    the card had since become — and the OOM retry, reading that same flag,
+    quietly stopped retrying at all."""
+    monkeypatch.setattr(backend, "_teardown", backend._teardown)
+    modes = _modes(backend, monkeypatch, [
+        RuntimeError("CUDA out of memory"), "FIRST",    # forced onto offload…
+        RuntimeError("CUDA out of memory"), "SECOND"])  # …and still free to try
+
+    assert backend.generate(GenRequest(prompt="p")) == "FIRST"
+    assert backend.generate(GenRequest(prompt="p")) == "SECOND"
+    # the second render starts resident again, and can still shrink when it has to
+    assert modes == [False, True, False, True]
+    assert backend.cpu_offload is False
+
+
+def test_a_configured_offload_is_never_retried(monkeypatch, tmp_path):
+    """SELFIE_LOCAL_CPU_OFFLOAD=true means every load is already as small as it
+    gets — an OOM there is a real wall, not a footprint to shrink."""
+    ckpt = tmp_path / "m.safetensors"
+    ckpt.write_bytes(b"x")
+    b = DiffusersBackend(model_path=str(ckpt), cpu_offload=True)
+    modes = _modes(b, monkeypatch, [RuntimeError("CUDA out of memory")])
+
+    with pytest.raises(RuntimeError, match="out of memory"):
+        b.generate(GenRequest(prompt="p"))
+    assert modes == [False]                            # one attempt, no retry
 
 
 def test_a_non_oom_error_propagates(backend, monkeypatch):
-    def boom(req):
-        raise RuntimeError("NaN in the unet")
-
-    monkeypatch.setattr(backend, "_render", boom)
+    modes = _modes(backend, monkeypatch, [RuntimeError("NaN in the unet")])
     with pytest.raises(RuntimeError, match="NaN"):
         backend.generate(GenRequest(prompt="p"))
-    assert backend.cpu_offload is False                # no false-positive flip
+    assert modes == [False]                            # no false-positive retry
+    assert backend.cpu_offload is False
 
 
-def test_an_oom_with_offload_already_on_propagates(backend, monkeypatch):
-    def boom(req):
-        raise RuntimeError("CUDA out of memory")
-
-    backend.cpu_offload = True
-    monkeypatch.setattr(backend, "_render", boom)
+def test_an_oom_on_a_card_too_full_to_be_resident_propagates(backend, monkeypatch):
+    """The 18:02 failure: the card was crowded, so `_load` picked offload on
+    its own, and the render OOM'd anyway. Nothing left to shrink — it goes to
+    the lab's quiet-message rule rather than looping."""
+    modes = _modes(backend, monkeypatch,
+                   [RuntimeError("CUDA out of memory")], crowded=True)
     with pytest.raises(RuntimeError, match="out of memory"):
-        backend.generate(GenRequest(prompt="p"))       # the lab's quiet-message rule
+        backend.generate(GenRequest(prompt="p"))
+    assert modes == [False]
 
 
 def test_prepare_env_sets_expandable_segments_but_respects_the_user(monkeypatch):

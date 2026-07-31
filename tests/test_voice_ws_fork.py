@@ -50,6 +50,18 @@ def rig(cfg, controller):
         yield client, app.state.rt, brain
 
 
+def handshake(ws) -> str:
+    """The session id, skipping the cold-start notice. The first client into a
+    cold room is told `warming` *before* its session id — that notice is what
+    shuts the composer, so it has to come out ahead of everything (§9.9). The
+    matching `ready` lands after and is harmless to `drain`."""
+    while True:
+        m = ws.receive_json()
+        if m["type"] == "session":
+            return m["session_id"]
+        assert m["type"] == "warming", f"unexpected {m['type']} before the session"
+
+
 def drain(ws, cap=60):
     kinds, texts = [], []
     for _ in range(cap):
@@ -69,7 +81,7 @@ def test_b2_behaviour_preserved_greeting_once_noise_drop(rig):
 
     with client.websocket_connect("/ws/voice") as ws:
         ws.send_json({"type": "hello", "session_id": None})
-        sid = ws.receive_json()["session_id"]
+        sid = handshake(ws)
         kinds, texts = drain(ws)                        # she greets first (B2 §7)
         assert kinds[-1] == "done" and any("there you are" in t for t in texts)
 
@@ -95,7 +107,7 @@ def test_ambient_injection_reaches_the_client_and_is_not_persisted(rig):
     client, rt, brain = rig
     with client.websocket_connect("/ws/voice") as ws:
         ws.send_json({"type": "hello", "session_id": None})
-        ws.receive_json()                               # session
+        handshake(ws)                                   # session (past any warm notice)
         drain(ws)                                       # the greeting
         persisted_before = len(brain.persist_calls)
 
@@ -115,7 +127,7 @@ def test_ambient_refused_while_a_turn_is_in_flight(rig):
     client, rt, brain = rig
     with client.websocket_connect("/ws/voice") as ws:
         ws.send_json({"type": "hello", "session_id": None})
-        ws.receive_json()
+        handshake(ws)                                   # session (past any warm notice)
         drain(ws)                                       # greeting done
 
         brain.hold = asyncio.Event()                    # the reply will park mid-turn
@@ -135,7 +147,7 @@ def test_disconnect_unregisters_the_ambient_injector(rig):
     client, rt, brain = rig
     with client.websocket_connect("/ws/voice") as ws:
         ws.send_json({"type": "hello", "session_id": None})
-        ws.receive_json()
+        handshake(ws)                                   # session (past any warm notice)
         drain(ws)
         assert rt._ambient                              # registered while live
     for _ in range(50):
@@ -164,20 +176,52 @@ def test_turns_commit_to_the_transcript_greeting_is_proactive(rig):
     client, rt, brain = rig
     with client.websocket_connect("/ws/voice") as ws:
         ws.send_json({"type": "hello", "session_id": None})
-        ws.receive_json()
+        handshake(ws)                                   # session (past any warm notice)
         drain(ws)                                       # the greeting
         assert wait_for(lambda: len(rt.transcript) == 1)
         greet = rt.transcript[0]
         assert greet["role"] == "assistant" and greet["proactive"] is True
         assert "there you are" in greet["text"]         # tag stripped, text kept
+        assert greet["channel"] == "voice"
 
-        ws.send_json({"type": "text", "text": "talk to me"})
+        ws.send_json({"type": "text", "text": "talk to me",
+                      "client_id": "browser-1"})
+        accepted = ws.receive_json()
+        assert accepted["type"] == "accepted"
+        assert accepted["message"]["client_id"] == "browser-1"
         drain(ws)
         assert wait_for(lambda: len(rt.transcript) == 3)
         assert [m["role"] for m in rt.transcript] == ["assistant", "user", "assistant"]
         assert rt.transcript[1]["text"] == "talk to me"
+        assert rt.transcript[1]["channel"] == "voice"
+        assert rt.transcript[1]["client_id"] == "browser-1"
         assert "all done now" in rt.transcript[2]["text"]
+        assert rt.transcript[2]["channel"] == "voice"
         assert not rt.transcript[2].get("proactive")    # a reply, not an approach
+
+
+def test_the_cold_open_is_committed_as_written_not_as_spoken(rig):
+    """A cold open is a *scene* (§5.4). The pipeline strips `*narration*` on the
+    way to TTS — right for a voice, ruinous for the card's first message: a
+    transcript built from that residue opened the relationship with the handful
+    of noises that happened to be in quotes."""
+    client, rt, brain = rig
+    scene = ('*She looks up from the window, and the rain goes quiet.* '
+             '"You found me." *A pause, and something eases in her.* '
+             '"I hoped you would."')
+    brain.cold = scene
+    with client.websocket_connect("/ws/voice") as ws:
+        ws.send_json({"type": "hello", "session_id": None})
+        handshake(ws)
+        _kinds, texts = drain(ws)
+        assert wait_for(lambda: len(rt.transcript) == 1)
+        greet = rt.transcript[0]
+        assert greet["text"] == scene, "the room shows the card's text, whole"
+        assert greet["proactive"] is True
+
+        spoken = " ".join(texts)                        # what went to TTS
+        assert "You found me." in spoken
+        assert "looks up from the window" not in spoken  # a voice reads no stage directions
 
 
 def test_a_spoken_turn_puts_the_stt_transcript_in_the_chat(rig):
@@ -185,14 +229,15 @@ def test_a_spoken_turn_puts_the_stt_transcript_in_the_chat(rig):
     speech = np.full(512, 0.2, dtype=np.float32).tobytes()
     with client.websocket_connect("/ws/voice") as ws:
         ws.send_json({"type": "hello", "session_id": None})
-        ws.receive_json()
+        handshake(ws)                                   # session (past any warm notice)
         drain(ws)                                       # greeting
         for _ in range(6):
             ws.send_bytes(speech)
-        ws.send_json({"type": "endpoint"})
+        ws.send_json({"type": "endpoint", "client_id": "spoken-1"})
         drain(ws)
     assert wait_for(lambda: any(
-        m["role"] == "user" and m["text"] == "hey, i'm back"   # the FakeSTT script
+        m["role"] == "user" and m["text"] == "hey, i'm back" and
+        m.get("client_id") == "spoken-1"             # the FakeSTT script + receipt
         for m in rt.transcript))
 
 
@@ -200,7 +245,7 @@ def test_bargein_drops_the_draft_and_commits_nothing(rig):
     client, rt, brain = rig
     with client.websocket_connect("/ws/voice") as ws:
         ws.send_json({"type": "hello", "session_id": None})
-        ws.receive_json()
+        handshake(ws)                                   # session (past any warm notice)
         drain(ws)                                       # greeting (1 entry)
         brain.hold = asyncio.Event()                    # park the reply mid-turn
         ws.send_json({"type": "text", "text": "talk to me"})
@@ -224,7 +269,7 @@ def test_expressions_ride_the_puppet_lane_not_the_wire(rig):
     client, rt, brain = rig
     with client.websocket_connect("/ws/voice") as ws:
         ws.send_json({"type": "hello", "session_id": None})
-        ws.receive_json()
+        handshake(ws)                                   # session (past any warm notice)
         kinds, _ = drain(ws)                            # the greeting ([happy] …)
         assert "expression" not in kinds                # off the audio wire (§10)
     # …and onto the hub, with voice-turn hold semantics (reset 0, B2 §6)
@@ -237,7 +282,7 @@ def test_ambient_lines_commit_as_proactive(rig):
     client, rt, brain = rig
     with client.websocket_connect("/ws/voice") as ws:
         ws.send_json({"type": "hello", "session_id": None})
-        ws.receive_json()
+        handshake(ws)                                   # session (past any warm notice)
         drain(ws)                                       # greeting
         fut = asyncio.run_coroutine_threadsafe(
             rt.speak_ambient("((the rain))"), rt.loop)

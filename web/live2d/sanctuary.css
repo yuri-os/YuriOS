@@ -174,6 +174,10 @@ svg{ width:1.1em; height:1.1em; fill:none; stroke:currentColor; stroke-width:1.7
 }
 .msg.her .who{ color:var(--soft); }
 .msg .who em{ font-style:normal; color:var(--amber); }
+.msg.you .receipt{ color:var(--mint); }
+.msg.you.pending{ opacity:.78; }
+.msg.you.pending .receipt{ color:var(--dim); }
+.msg.you.failed .receipt{ color:var(--amber); }
 /* the stamp sits at the far edge of the header row, never wrapping */
 .msg .who .when{ margin-left:auto; white-space:nowrap; color:var(--dim);
                  font-variant-numeric:tabular-nums; }
@@ -182,12 +186,22 @@ svg{ width:1.1em; height:1.1em; fill:none; stroke:currentColor; stroke-width:1.7
   border:1px solid var(--rule);
 }
 .composer{ flex:none; display:flex; gap:8px; padding:12px; border-top:1px solid var(--rule); }
+/* her voice is still loading — nothing typed here can be answered yet (§9.9) */
+.composer.warming{ opacity:.72; }
+.composer.warming #text,.composer.warming .icon-button,.composer.warming .mic{ cursor:progress; }
+.composer.warming #text::placeholder{ animation:breathe 1.8s ease-in-out infinite; }
+@keyframes breathe{ 50%{ opacity:.4; } }
+@media (prefers-reduced-motion:reduce){
+  .composer.warming #text::placeholder{ animation:none; }
+}
 .icon-button{
   width:38px; height:38px; display:grid; place-items:center; flex:none;
   border:1px solid var(--rule); border-radius:2px; background:transparent;
   color:var(--soft); cursor:pointer; transition:.18s ease;
 }
 .icon-button:hover,.icon-button:focus-visible{ border-color:var(--soft); color:var(--ink); }
+#send.processing{ border-color:var(--amber); color:var(--amber); }
+#send.processing svg{ fill:currentColor; animation:pulse 1.2s ease-in-out infinite; }
 
 /* FORK(B4): the footer switches (/js/controls.js, SPEC §10.5) — one vocabulary
    for both: lit while the thing is happening, dimmed and slashed while it isn't */

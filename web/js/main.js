@@ -74,11 +74,8 @@ async function boot() {
     els.rainMute.title = muted ? 'unmute the rain' : 'mute the rain';
   });
 
-  // The two switches this page shares with the Live2D body and the text room
-  // (js/controls.js, SPEC §10.5): how loud she is here, and whether her lines
-  // also leave for Telegram. Both remembered per character across loads; the
-  // rooms adopt the runtime's current sending state when there is nothing
-  // remembered yet, which is what the sanctuary has always done.
+  // The local speaker switch is shared with the Live2D body and text room.
+  // Voice starts muted and its heavy socket is demand-driven in voice.js.
   window.WorldControls.init({ setMuted: (m) => viseme.setMuted(m) });
 
   // The gate's button only becomes real once her body is in the room (the click
@@ -129,7 +126,9 @@ async function boot() {
     els.enter?.remove();
     // the chat column is hidden on the desktop (§6.5) — the composer moves to
     // the hover bar so typing to her still works
-    document.querySelector('.controls')?.appendChild(els.text);
+    const controls = document.querySelector('.controls');
+    controls?.appendChild(els.text);
+    controls?.appendChild(els.send);
     enter();
     addEventListener('pointerdown', () => viseme.context().resume(), { once: true });
   } else {

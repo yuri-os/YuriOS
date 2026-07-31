@@ -166,6 +166,10 @@ svg{ width:1.1em; height:1.1em; fill:none; stroke:currentColor; stroke-width:1.7
 }
 .msg.her .who{ color:var(--soft); }
 .msg .who em{ font-style:normal; color:var(--amber); }
+.msg.you .receipt{ color:var(--mint); }
+.msg.you.pending{ opacity:.78; }
+.msg.you.pending .receipt{ color:var(--dim); }
+.msg.you.failed .receipt{ color:var(--amber); }
 .msg .who .when{ margin-left:auto; white-space:nowrap; color:var(--dim);
                  font-variant-numeric:tabular-nums; }
 .msg-img{
@@ -189,6 +193,20 @@ svg{ width:1.1em; height:1.1em; fill:none; stroke:currentColor; stroke-width:1.7
 }
 #text::placeholder{ color:var(--dim); }
 #text:focus{ border-color:var(--acid-dark); box-shadow:0 0 0 3px rgb(215 255 88 / .06); }
+#send.processing{ border-color:var(--amber); color:var(--amber); }
+#send.processing svg{ fill:currentColor; animation:pulse 1.2s ease-in-out infinite; }
+
+/* Her voice is still loading, so nothing typed here can be answered yet (SPEC
+   §9.9, js/voice.js). Shut, not hidden: the placeholder carries the reason and
+   the pulse says it's working on it rather than broken. */
+.composer.warming{ opacity:.72; }
+.composer.warming #text{ cursor:progress; }
+.composer.warming #text::placeholder{ color:var(--dim); animation:breathe 1.8s ease-in-out infinite; }
+.composer.warming .icon-button,.composer.warming .mic{ cursor:progress; }
+@keyframes breathe{ 50%{ opacity:.4; } }
+@media (prefers-reduced-motion:reduce){
+  .composer.warming #text::placeholder{ animation:none; }
+}
 /* the two shared switches (js/controls.js, SPEC §10.5) — one vocabulary: lit
    while the thing is happening, dimmed and slashed while it isn't */
 .voice-mute,.tg-mute{ position:relative; }

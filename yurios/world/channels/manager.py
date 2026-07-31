@@ -39,7 +39,8 @@ class ChannelManager:
             channels.append(TelegramChannel(
                 cfg.telegram_bot_token, cfg.telegram_chat_id,
                 selfie_dir=cfg.selfie_dir,
-                chat_id_env=cfg.telegram_chat_id_env))
+                chat_id_env=cfg.telegram_chat_id_env,
+                sending_enabled=cfg.telegram_send_non_telegram))
         return cls(channels)
 
     @property

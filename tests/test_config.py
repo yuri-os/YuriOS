@@ -23,6 +23,7 @@ def test_defaults():
     # the context window is unset by default: the provider's own default stands
     # until someone says otherwise (§11)
     assert cfg.context_length == 0
+    assert not cfg.telegram_send_non_telegram
     # the B2 layer is still underneath (one Config object, four builds)
     assert cfg.tts_backend and cfg.vad_onset_frames
 
@@ -33,12 +34,14 @@ def test_env_overrides(monkeypatch):
     monkeypatch.setenv("MIND_ENABLED", "false")
     monkeypatch.setenv("RAIN_INTENSITY", "0.1")
     monkeypatch.setenv("CONTEXT_LENGTH", "32768")
+    monkeypatch.setenv("TELEGRAM_SEND_NON_TELEGRAM", "true")
     cfg = Config(_env_file=None)
     assert cfg.context_length == 32768
     assert cfg.tools_backend == "off"
     assert cfg.mind_interrupt_threshold == 0.9
     assert not cfg.mind_enabled
     assert cfg.rain_intensity == 0.1
+    assert cfg.telegram_send_non_telegram
 
 
 def test_importing_yurios_quiets_the_libraries_that_phone_out():

@@ -83,7 +83,12 @@ class FakeBrain:
         self.persisted: tuple[str, str, str] | None = None
         self.persist_calls: list[tuple[str, str, str]] = []   # every turn that persisted
         self.abandon_calls: list[str] = []                    # …and every one rolled back
+        self.cold: str | None = None      # set it to be a first-ever arrival (§5.4)
         self._gate: asyncio.Event | None = None
+
+    def cold_open(self) -> str | None:
+        """The authored scene she opens on before she has met anyone, or None."""
+        return self.cold
 
     def gate_after(self, n_tokens: int) -> asyncio.Event:
         """Return an Event that fires once `n_tokens` have been yielded — lets a
@@ -103,7 +108,7 @@ class FakeBrain:
             await asyncio.sleep(0)      # a real await point — cancellation lands here
 
     async def stream_greeting(self, session_id: str):
-        for tok in _wordish("[happy] Oh, there you are."):
+        for tok in _wordish(self.cold or "[happy] Oh, there you are."):
             yield tok
             await asyncio.sleep(0)
 

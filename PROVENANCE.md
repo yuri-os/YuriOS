@@ -26,11 +26,20 @@ Waifus*), assembled and then carried forward as first-party code:
   `web/live2d/README.md`. (Its Cubism runtime is genuinely third-party and fetched,
   not committed — that is the one vendored piece; `python scripts/fetch_live2d.py`.)
 - **`soul-src/`** — the SOUL source the Vault is seeded from.
+- **`yurios/characters/exporter.py`** + **`web/studio/`** — the card studio: SOUL → a
+  V3 `.PNG` and back. The PNG-embedding and self-verification approach descends from
+  the book's card converter (`build_card.py`, ch. 07/33) — in particular the
+  hand-written `tEXt` chunks spliced after IHDR, kept because Pillow's `PngInfo`
+  emits `iTXt` on some versions and SillyTavern reads only `tEXt`. The scrub
+  (`privacy.py`), the verbatim-soul extension block and the studio page are
+  first-party. Book ch. 33.
 
 `world/brain.py` subclasses `desktop/brain.py`'s `BrainAdapter` to add the tool loop;
 `world/routes/voice_ws.py` began as a copy of `desktop/routes/voice_ws.py`, extended
-with the engagement notifications, ambient injector, transcript tee, and signal tee
-described in its own module docstring. These are ordinary internal-reuse
+with the engagement notifications, ambient injector, transcript tee, signal tee, and
+the on-demand voice stack (`world/voicestack.py`) described in its own module
+docstring — Build #2 warms its stack at startup because it hosts exactly one
+companion; a world node hosts a registry of them. These are ordinary internal-reuse
 relationships between packages of one project, not cross-repo vendoring.
 
 ## What the mind (`yurios/mind/`) added on top of the Build #4 body

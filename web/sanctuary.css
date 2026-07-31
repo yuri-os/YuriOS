@@ -231,6 +231,10 @@ svg{ width:1.1em; height:1.1em; fill:none; stroke:currentColor; stroke-width:1.7
 }
 .msg.her .who{ color:var(--soft); }
 .msg .who em{ font-style:normal; color:var(--amber); }
+.msg.you .receipt{ color:var(--mint); }
+.msg.you.pending{ opacity:.78; }
+.msg.you.pending .receipt{ color:var(--dim); }
+.msg.you.failed .receipt{ color:var(--amber); }
 /* the stamp sits at the far edge of the header row, never wrapping */
 .msg .who .when{ margin-left:auto; white-space:nowrap; color:var(--dim);
                  font-variant-numeric:tabular-nums; }
@@ -241,6 +245,8 @@ svg{ width:1.1em; height:1.1em; fill:none; stroke:currentColor; stroke-width:1.7
 
 .composer{ flex:none; display:flex; gap:8px; padding:12px; border-top:1px solid var(--rule); }
 .composer .icon-button{ width:40px; height:40px; }
+#send.processing{ border-color:var(--amber); color:var(--amber); }
+#send.processing svg{ fill:currentColor; animation:pulse 1.2s ease-in-out infinite; }
 #text{
   flex:1; width:100%; height:40px; padding:0 13px;
   border:1px solid var(--rule); border-radius:2px; outline:none;
@@ -248,6 +254,17 @@ svg{ width:1.1em; height:1.1em; fill:none; stroke:currentColor; stroke-width:1.7
 }
 #text::placeholder{ color:var(--dim); }
 #text:focus{ border-color:var(--acid-dark); box-shadow:0 0 0 3px rgb(215 255 88 / .06); }
+
+/* Her voice is still loading, so nothing typed here can be answered yet (SPEC
+   §9.9, js/voice.js). Shut, not hidden: the placeholder carries the reason and
+   the pulse says it's working on it rather than broken. */
+.composer.warming{ opacity:.72; }
+.composer.warming #text,.composer.warming .icon-button,.composer.warming .mic{ cursor:progress; }
+.composer.warming #text::placeholder{ animation:breathe 1.8s ease-in-out infinite; }
+@keyframes breathe{ 50%{ opacity:.4; } }
+@media (prefers-reduced-motion:reduce){
+  .composer.warming #text::placeholder{ animation:none; }
+}
 
 /* narrow window: the room above, the chat below — never a horizontal scroll */
 @media (max-width: 720px){

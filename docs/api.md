@@ -31,15 +31,25 @@ Websockets follow the same shape: `/ws/voice` and `/ws/characters/<id>/voice`.
 | `GET /` | the character switchboard (`?desktop=…` redirects to the primary's sanctuary) |
 | `GET /characters/{id}/sanctuary/` | her VRM page |
 | `GET /characters/{id}/live2d` | redirects to `/live2d/?character={id}` |
+| `GET /studio/` | the card studio — `?character={id}` edits her, no parameter creates one |
 | `GET /api/characters` | `{version, primary, characters: […]}` |
 | `GET /api/connections` | named connection profiles; `secret_configured` says whether the key env var is set |
 | `POST /api/characters/import` | `multipart/form-data`, the card PNG in `file` |
+| `POST /api/characters` | create from a studio draft: `{draft, portrait?, character_id?}` → 201 |
+| `GET /api/studio/template` | `{draft, sections, constitution_fields}` — a starting draft |
+| `GET /api/characters/{id}/studio` | `{draft, provenance, grown, images, sections}` |
+| `PATCH /api/characters/{id}/studio` | save a draft into the SOUL; one commit; restarts her |
+| `POST /api/characters/{id}/studio/preview` | the card, report and privacy pane — no file |
+| `POST /api/characters/{id}/export` | the card PNG, with export options in the body |
+| `GET /api/characters/{id}/selfies` | `{selfies: [{name, url, bytes, taken_at}]}` |
+| `POST /api/characters/{id}/portrait` | adopt a face: `{selfie}` or `{image}` (base64) |
 | `GET /api/characters/{id}/profile` | `{settings: {…}}` |
 | `PATCH /api/characters/{id}/profile` | edit; also accepts the review |
+| `POST /api/characters/{id}/approve` | accept the review and start her: `{character, started, error}` |
 | `PATCH /api/characters/{id}/loop` | `{"enabled": bool}` — her mind, live |
 | `PATCH /api/characters/{id}/controls` | `{"mind"?, "utility"?, "dream"?}` |
 | `GET /api/characters/{id}/portrait` | PNG, `Cache-Control: no-cache` |
-| `GET /api/characters/{id}/export` | her V2+V3 card PNG, as a download |
+| `GET /api/characters/{id}/export` | her V2+V3 card PNG, as a download, with defaults |
 | `GET /api/characters/{id}/selfies/{name}` | one saved photo |
 | `GET /api/characters/{id}/journal?days=` | `{days: [{day, entries}]}` |
 | `GET /api/characters/{id}/log` | the tail of her tick trace + tool audit |
@@ -65,13 +75,28 @@ A character summary looks like:
 
 Errors use a non-2xx status with `detail` in the body.
 
+A refused export is the one place `detail` is an object rather than a string, because the client
+has to act on it — see [the card format](card-format.md#when-the-export-refuses):
+
+```json
+{"detail": {"detail": "…why…", "code": "review_required",
+            "surface": "vault/soul/USER.md", "field": "",
+            "overlaps": [{"surface": "…", "excerpt": "…", "hard": false}]}}
+```
+
+`code` is one of `leak` (never overridable), `review_required` (re-send with
+`{"acknowledged": true}` once a human has read the passages), `manifest`, `validation` or
+`invalid`.
+
 ## Runtime routes
 
 ### Conversation
 
 | Route | |
 |---|---|
-| `POST /api/chat` | `{text, session_id?, channel?}` → `{session_id, message}`. Mirrors the voice route's contract minus the audio; a failed turn leaves no trace. Never waits on the voice warm-up |
+| `POST /api/chat` | `{text, session_id?, channel?, client_id?}` → `{session_id, user_message, message, active_selfies}`. Mirrors the voice route minus audio; `telegram` is a reserved origin |
+| `POST /api/chat/cancel` | `{client_id, selfie_ids?}` → cancel that browser turn and its correlated camera work |
+| `POST /api/greeting` | `{session_id?, channel?}` → `{session_id, message}`. She speaks first: the voice route greets on connect, a text client asks. Committed `proactive`, never persisted, once per session per run (`message: null` after that). The first-ever call plays her cold open |
 | `GET /api/history` | the last 100 chat entries, for backfilling a fresh page |
 
 Text turns from all channels serialise on one lock.
@@ -102,16 +127,20 @@ thread-safe.
 `WS /ws/voice` — the audio-only socket.
 
 - **Up:** binary mic PCM, plus `hello` / `endpoint` / `bargein` / `text` control frames.
-- **Down:** `session`, `filler` / `audio` (base64 PCM plus the sentence text, for visemes),
-  `done`, `cancelled`, `error`.
+- **Down:** `session`, `warming`, `filler` / `audio` (base64 PCM plus the sentence text, for
+  visemes), `done`, `cancelled`, `error`.
 
 Turn expressions are re-routed onto the event bus, so the face has exactly one lane.
+
+Opening this socket is what loads her voice, and closing the last one frees it (see
+[voice](voice.md#when-she-loads-it)): the first client into a cold room gets a `warming` frame and
+waits ~20 s for the models rather than being answered by a stand-in.
 
 ### Health and boot
 
 | Route | |
 |---|---|
-| `GET /api/health` | what's actually wired: character, channels, voice (ready/stt/tts/vad), tools, mind, activity, selfies, viewers, context |
+| `GET /api/health` | what's actually wired: character, channels, voice (loaded/listeners/stt/tts/vad), tools, mind, activity, selfies, viewers, context |
 | `GET /api/boot` | the startup board the enter gate polls: each service pending → loading → ready/failed/skipped, with timings |
 | `GET /api/context` | `{used, limit, exact}` — prompt tokens against the window |
 
@@ -153,7 +182,7 @@ files. With the mind off, these answer `503` and `/api/health` says so.
 |---|---|
 | `GET /selfies/{name}` | one saved photo from the runtime's `SELFIE_DIR` |
 | `GET /api/config` | the Live2D rig registry: `{avatar_model, avatar_model_url, avatar_available}` |
-| `/assets/`, `/dashboard/`, `/live2d/`, `/models/`, `/shared/`, `/js/` | static |
+| `/assets/`, `/dashboard/`, `/studio/`, `/live2d/`, `/models/`, `/shared/`, `/js/` | static |
 
 ## Notes for client authors
 

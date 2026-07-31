@@ -20,6 +20,9 @@
     <symbol id="i-tune" viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h2M10 17h10M14 4v6M6 14v6"/></symbol>
     <symbol id="i-archive" viewBox="0 0 24 24"><path d="M4 8h16v12H4zM3 4h18v4H3zM9 12h6"/></symbol>
     <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M19 8a8 8 0 1 0 1 6M19 3v5h-5"/></symbol>
+    <symbol id="i-card" viewBox="0 0 24 24"><path d="M4 4h16v16H4zM4 15l4-4 5 5M14 13l2-2 4 4"/><circle cx="9.5" cy="8.5" r="1.5"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v12m0 0 5-5m-5 5-5-5M5 19h14"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 13 5 5L20 7"/></symbol>
     <!-- her other two rooms: the Live2D body (SPEC §6.6) — a face, because that
          is all a Live2D rig is — and the bodyless text room (SPEC §6.7), a
          transcript in a speech bubble -->
@@ -37,10 +40,16 @@
       <span class="pulse" id="fleet-pulse" aria-hidden="true"></span>
       <span id="fleet-summary">connecting</span>
     </div>
-    <button class="button button-primary import-open" type="button">
-      <svg><use href="#i-plus"></use></svg>
-      <span>Import character</span>
-    </button>
+    <div class="topbar-actions">
+      <button class="button button-quiet import-open" type="button">
+        <svg><use href="#i-upload"></use></svg>
+        <span>Import</span>
+      </button>
+      <a class="button button-primary" href="/studio/">
+        <svg><use href="#i-plus"></use></svg>
+        <span>Create character</span>
+      </a>
+    </div>
   </header>
 
   <main class="workspace">
@@ -106,6 +115,23 @@
       </button>
     </header>
     <div id="drawer-identity" class="drawer-identity"></div>
+    <!-- A card written elsewhere imports parked (SPEC §28): registered, her rooms
+         served, no runtime behind them. Approving is its own act, so it gets its
+         own button rather than riding along on a settings save. -->
+    <section id="drawer-review" class="review-gate" hidden>
+      <p class="eyebrow">Imported card</p>
+      <p>Nothing is running behind her rooms yet. Read her card through — the studio shows
+        every field — then approve her to enable the character and start her runtime.</p>
+      <div class="review-actions">
+        <button id="approve-open" class="button button-primary" type="button">
+          <svg><use href="#i-check"></use></svg><span>Approve and start</span>
+        </button>
+        <a id="review-studio" class="button button-quiet" href="#"><svg><use href="#i-card"></use></svg>Read in studio</a>
+      </div>
+    </section>
+    <!-- Outside the gate on purpose: approving hides the gate, and a runtime that
+         then refused to come up is exactly what the user still needs to read. -->
+    <div id="approve-error" class="form-error" role="alert"></div>
     <!-- the three ways into the same character: the 3D room, the Live2D body
          (SPEC §6.6) and the bodyless text room (SPEC §6.7). One runtime behind
          all three — the bus and the voice socket do not care which one is open. -->
@@ -113,7 +139,8 @@
       <a id="drawer-enter" class="button button-primary" href="#">Enter sanctuary <svg><use href="#i-arrow"></use></svg></a>
       <a id="drawer-live2d" class="button button-quiet" href="#"><svg><use href="#i-live2d"></use></svg>Live2D body</a>
       <a id="drawer-text" class="button button-quiet" href="#"><svg><use href="#i-text"></use></svg>Text only</a>
-      <a id="drawer-export" class="button button-quiet" href="#" download>Export PNG</a>
+      <a id="drawer-studio" class="button button-quiet" href="#"><svg><use href="#i-card"></use></svg>Edit in studio</a>
+      <a id="drawer-export" class="button button-quiet" href="#" download><svg><use href="#i-download"></use></svg>Export PNG</a>
       <button id="settings-open" class="button button-quiet" type="button"><svg><use href="#i-tune"></use></svg>Settings</button>
     </div>
     <nav id="detail-tabs" class="detail-tabs" aria-label="Character details">
@@ -148,6 +175,27 @@
         <button id="import-submit" class="button button-primary" type="submit">Import to node</button>
       </footer>
     </form>
+  </dialog>
+
+  <!-- Every way into a parked character's rooms lands here instead (SPEC §28):
+       the rooms open, but nothing is running behind them, so the door asks the
+       one question that would make them work. -->
+  <dialog id="review-dialog" class="modal">
+    <div class="modal-card">
+      <header class="modal-head">
+        <div><p class="eyebrow">Imported card</p><h2>Approve <span id="review-dialog-name">this character</span>?</h2></div>
+        <button class="icon-button modal-close" type="button" aria-label="Close approval dialog"><svg><use href="#i-close"></use></svg></button>
+      </header>
+      <p class="archive-copy">She was imported from a card this node did not write, so she stays parked
+        until someone has read her through — her rooms would open onto nothing. Approving enables her,
+        starts her runtime and takes you in.</p>
+      <div id="review-dialog-error" class="form-error" role="alert"></div>
+      <footer class="modal-actions">
+        <button class="button button-quiet modal-close" type="button">Close</button>
+        <a id="review-dialog-studio" class="button button-quiet" href="#"><svg><use href="#i-card"></use></svg>Read in studio</a>
+        <button id="review-dialog-approve" class="button button-primary" type="button"><svg><use href="#i-check"></use></svg><span>Approve and start</span></button>
+      </footer>
+    </div>
   </dialog>
 
   <dialog id="settings-dialog" class="modal">

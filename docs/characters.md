@@ -97,16 +97,68 @@ The SOUL files are authoritative — prompts are assembled from them, never from
 an edit that didn't reach the files would be an edit that didn't happen. A running character is
 restarted so the change takes effect.
 
+## The card studio
+
+`/studio/` is where a character is written and where she leaves. Reach it from **Create
+character** on the board, or **Edit in studio** in any character's drawer.
+
+It edits card *fields* — name, identity, manner, scenario, greetings, examples, lore, notes —
+and writes them back down through `soul.yaml` into the SOUL files, one commit per save. The
+right-hand column shows the card that will actually ship: the face, the per-field prompt budget
+against the ch. 07 guidance, and what stays on this machine.
+
+Two things there are worth knowing about:
+
+- **The constitution is locked by default.** `Identity`, `History`, `Voice law` and `Hard limits`
+  live in `CONSTITUTION.md`, which [§23](mind.md#self-edits)'s gate forbids *her* from editing.
+  It does not forbid you — but it takes a deliberate click, and the commit says
+  `studio: edit constitution` so it stands out in `git log`.
+- **Grown since she arrived** lists every part of herself she rewrote and you approved, with the
+  date and her stated reason. It is read from the Vault's git log, so it is as trustworthy as
+  `git log` is.
+
+Creating a character opens on the shape of a working one (from `soul-src`) rather than eight
+empty boxes. Nothing exists on disk until you press create; after that she is enabled and
+autostarts, because you wrote her and there is nothing to review.
+
 ## Exporting a character
 
-`GET /api/characters/<id>/export` returns her as a PNG card carrying both a V2 (`chara`) and a V3
-(`ccv3`) chunk, so it opens anywhere cards open.
+The studio's **Export PNG** button, or `GET /api/characters/<id>/export` for the defaults.
+You get a card carrying both a V2 (`chara`) and a V3 (`ccv3`) chunk, so it opens anywhere cards
+open, plus a `yurios` block so it re-imports here with full fidelity — see
+[the card format](card-format.md).
 
-**What travels:** her portrait, identity, persona, scenario, lore, creator notes.
-**What never travels:** `USER.md`, relationship memory, her corpus, traces, tool audit, selfies,
-and every credential.
+**What travels:** her portrait or a selfie you pick, her identity, persona, scenario, greetings,
+examples, lore and creator notes — including everything she has grown into since you met.
+**What never travels:** `USER.md`, relationship memory, the episodic journal, consolidated facts,
+her goals, her world model, the corpus, traces, the tool audit, and every credential.
 
-Sharing her is sharing who she is, not who you are.
+Sharing her is sharing who she is, not who you are. A card starts the relationship at zero.
+
+### When the export refuses
+
+Two different refusals, and the studio renders them differently:
+
+- **`leak`** — content from a surface that never leaves this machine is in the card, or a
+  credential, or your own name. Not overridable. The message names the surface and quotes the
+  passage; fix the soul file and export again.
+- **`review_required`** — a passage in her soul files also appears in a private surface. For a
+  companion who has grown that is *expected*: she learned something about you, proposed it into
+  her persona, and you approved it at the gate. The machine cannot tell that apart from a fact
+  pasted into the wrong file, so it stops, shows you the passages, and asks once.
+
+The one-click route fails closed for both, which is deliberate: an unacknowledged overlap that
+merely warned would ship silently.
+
+### Options
+
+| Option | Default | What it does |
+|---|---|---|
+| Card format | `V3 + V2` | `V2 only` drops V3-only fields and lorebook decorators |
+| Carry her soul files | on | the verbatim SOUL in the `yurios` block — off makes a re-import lossy |
+| Credit YuriOS in the notes | on | a paragraph in `creator_notes` and a `yurios` tag; never her persona |
+| Include dates | on | off writes `0` for both timestamps — a modification date is a disclosure |
+| Face | her portrait | or any selfie, or an upload; framed to 512×768 |
 
 ## Loop switches
 

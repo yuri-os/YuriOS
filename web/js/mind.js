@@ -124,6 +124,10 @@
     if (mind) {
       render();
       refreshTimer = setInterval(render, 20000);  // DORMANT ticks are slow
+    } else {
+      // anything she said while this panel covered the transcript couldn't be
+      // scrolled to — a hidden box has no height. Pin the bottom on the way back.
+      window.WorldChat?.scrollToLatest?.();
     }
   }
 

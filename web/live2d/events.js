@@ -14,8 +14,10 @@
 (() => {
   if (document.documentElement.classList.contains('desktop')) {
     const text = document.getElementById('text');
+    const send = document.getElementById('send');
     const bar = document.querySelector('.controls');
     if (text && bar) bar.appendChild(text);
+    if (send && bar) bar.appendChild(send);
   }
 
   window.addEventListener('world-ev', (e) => {

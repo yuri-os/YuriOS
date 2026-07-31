@@ -18,12 +18,10 @@ async def health(request: Request) -> dict:
         "ok": True,
         "character": rt.cfg.companion_name,
         "channels": rt.channels_status,    # "off" | "telegram · @bot" | "… failed: …" (§10.5)
-        "voice": {
-            "ready": rt.voice_ready.is_set(),
-            "stt": rt.stt_name,
-            "tts": rt.tts_name,
-            "vad": rt.vad_name,
-        },
+        # loaded/listeners are the on-demand stack (§9.9): "unloaded" backends
+        # with no listeners is her at rest, not her broken — she loads them when
+        # somebody opens /ws/voice.
+        "voice": rt.voice.status(),
         "tools": rt.tools_status,          # "mcp" | "fake" | "off" | "failed: …"
         "mind": rt.mind_status,            # "running" | "disabled" | "failed: …" (§15)
         "activity": rt.mind.activity.state if rt.mind else None,

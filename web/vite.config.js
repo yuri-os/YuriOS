@@ -30,6 +30,10 @@ export default defineConfig({
         // voice socket, no WebGL. Its own entry so the room's bundle (three.js,
         // three-vrm — about a megabyte) is not on a page that never draws.
         text: resolve(import.meta.dirname, 'text/index.html'),
+        // the card studio (SPEC §28): authoring and export, served at /studio/.
+        // Selects its character by query parameter, so one entry covers both
+        // "create" and "edit" without a route that would shadow the mount.
+        studio: resolve(import.meta.dirname, 'studio/index.html'),
       },
     },
   },

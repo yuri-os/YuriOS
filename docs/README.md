@@ -30,6 +30,7 @@ plain language. Where the two disagree, the SPEC wins — and that is a bug wort
 | Page | What's in it |
 |---|---|
 | [HTTP & event API](api.md) | Every route, the SSE event bus, the voice websocket |
+| [The card format](card-format.md) | The V3 card YuriOS writes, the `yurios` block, and what is never on it |
 | [Architecture](architecture.md) | The packages, the seams, the file layout, running the tests |
 | [Troubleshooting](troubleshooting.md) | She's silent / she won't start / the room is black / turns fail |
 

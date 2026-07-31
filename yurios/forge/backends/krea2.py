@@ -157,10 +157,14 @@ class Krea2Backend(ImageBackend):
         self.device = device
         self.steps = steps
         self.cfg = cfg
+        # The user's setting, never rewritten from in here; `_offloading` is
+        # how the loaded pipeline was actually built. (Same split, and the same
+        # reason, as the SDXL backend — see diffusers.py.)
         self.cpu_offload = cpu_offload
         self.max_sequence_length = max_sequence_length
         self.attention_backend = attention_backend
         self._pipe = None                      # loaded on first render
+        self._offloading: bool | None = None   # mode of the loaded pipe
 
     # ---- availability (cheap; imports nothing heavy) ----
 
@@ -278,7 +282,7 @@ class Krea2Backend(ImageBackend):
         model.eval()
         return model
 
-    def _load(self):
+    def _load(self, force_offload: bool = False):
         if self._pipe is not None:
             return self._pipe
         self._prepare_env()
@@ -287,19 +291,24 @@ class Krea2Backend(ImageBackend):
 
         cuda = self.device == "cuda" and torch.cuda.is_available()
         dtype = torch.bfloat16 if cuda else torch.float32
-        if cuda and not self.cpu_offload \
-                and self._needs_offload(torch.cuda.mem_get_info()[0] / 1024**3):
-            # Cheaper than the crash: loading resident here would OOM partway,
-            # and the retry below would pay for the whole load twice (~a minute
-            # on this model). Decide up front instead. (Same rule as the SDXL
-            # backend, with a floor this model's two big components set.)
-            log.warning(
-                "krea2: %.1f GiB VRAM free, a resident pipeline wants ~%.0f — "
-                "using model CPU offload for this session "
-                "(SELFIE_LOCAL_CPU_OFFLOAD=true makes it permanent).",
-                torch.cuda.mem_get_info()[0] / 1024**3, self.RESIDENT_FREE_GIB)
-            self.cpu_offload = True
-        offload = self.cpu_offload and cuda
+        offload = self.cpu_offload or force_offload
+        if cuda and not offload:
+            free = torch.cuda.mem_get_info()[0] / 1024**3
+            if self._needs_offload(free):
+                # Cheaper than the crash: loading resident here would OOM
+                # partway, and the retry below would pay for the whole load
+                # twice (~a minute on this model). Decide up front instead —
+                # for this load, re-measured on the next one. (Same rule as
+                # the SDXL backend, with a floor this model's two big
+                # components set.)
+                log.warning(
+                    "krea2: %.1f GiB VRAM free, a resident pipeline wants "
+                    "~%.0f — using model CPU offload for this render "
+                    "(SELFIE_LOCAL_CPU_OFFLOAD=true makes it permanent).",
+                    free, self.RESIDENT_FREE_GIB)
+                offload = True
+        offload = offload and cuda
+        self._offloading = offload             # before the weights move
         snapshot = self._snapshot()
         # When offloading, the transformer must start on the CPU like every
         # other component: accelerate's hooks move each one onto the card only
@@ -345,6 +354,7 @@ class Krea2Backend(ImageBackend):
     def _teardown(self) -> None:
         """Drop the pipeline and hand the VRAM back (the parker's reset)."""
         self._pipe = None
+        self._offloading = None                # the next load decides afresh
         import gc
         gc.collect()
         try:
@@ -369,9 +379,12 @@ class Krea2Backend(ImageBackend):
         except RuntimeError as e:
             # NOTE: the retry must happen OUTSIDE this except block — while the
             # exception is alive its traceback pins the dead pipeline's frame,
-            # and with it the gigabytes the retry needs back. (Same rule as the
-            # SDXL backend; see diffusers.py.)
-            if self.cpu_offload or "out of memory" not in str(e).lower():
+            # and with it the gigabytes the retry needs back. And the check is
+            # on the *pipeline's* mode, not the user's setting: a session
+            # forced onto offload once must still be able to shrink a later
+            # resident render. (Same rules as the SDXL backend; see
+            # diffusers.py.)
+            if self._offloading is not False or "out of memory" not in str(e).lower():
                 raise
             oom = True
         if oom:
@@ -379,12 +392,11 @@ class Krea2Backend(ImageBackend):
                 "krea2: CUDA out of memory — retrying this render with model "
                 "CPU offload (slower, much smaller VRAM footprint). Make it "
                 "permanent: SELFIE_LOCAL_CPU_OFFLOAD=true in .env")
-            self.cpu_offload = True
             self._teardown()
-            return self._render(req)
+            return self._render(req, force_offload=True)
 
-    def _render(self, req: GenRequest) -> ImageResult:
-        pipe = self._load()
+    def _render(self, req: GenRequest, force_offload: bool = False) -> ImageResult:
+        pipe = self._load(force_offload)
         seed = req.seed if req.seed is not None else secrets.randbelow(2**31)
         d_steps, d_cfg = self._defaults()
         steps = req.steps or d_steps

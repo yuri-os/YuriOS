@@ -5,12 +5,14 @@ provider calls (evict / ensure_resident) are spied at their module.
 """
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
 from yurios.app.providers import lmstudio
 from yurios.forge.backends.diffusers import DiffusersBackend
 from yurios.forge.backends.krea2 import Krea2Backend
-from yurios.world.vram import LLMParker, _DEFAULT_FLOOR_GIB
+from yurios.world.vram import LLMParker, ParkGate, _DEFAULT_FLOOR_GIB
 
 _RESIDENT_FLOOR_GIB = _DEFAULT_FLOOR_GIB
 
@@ -146,3 +148,99 @@ def test_await_free_gives_up_within_budget(cfg, monkeypatch):
     p = make_parker(cfg, 5.0)                    # VRAM never comes back
     monkeypatch.setattr("yurios.world.vram.time.sleep", lambda s: None)
     p._await_free(before=5.0)                    # returns anyway — the render goes ahead
+
+
+# ---- the gate: a turn that arrives mid-park waits instead of reloading ----
+
+def test_the_gate_starts_open_so_an_ordinary_turn_never_waits(cfg):
+    gate = ParkGate()
+    assert asyncio.run(gate.wait()) is True
+
+
+def test_a_park_shuts_the_gate_and_reopens_it(cfg, spied, monkeypatch):
+    p = make_parker(cfg, 5.0)
+    monkeypatch.setattr(p, "_await_free", lambda before: None)
+    seen = []
+
+    with p.parked():
+        seen.append(p.gate._open.is_set())        # shut for the render's duration
+    seen.append(p.gate._open.is_set())
+    assert seen == [False, True]
+
+
+def test_a_failed_render_reopens_the_gate(cfg, spied, monkeypatch):
+    """The leak this guards against is silence: a gate stuck shut is a
+    companion who stops answering, which is worse than the OOM it prevents."""
+    p = make_parker(cfg, 5.0)
+    monkeypatch.setattr(p, "_await_free", lambda before: None)
+
+    with pytest.raises(RuntimeError):
+        with p.parked():
+            raise RuntimeError("render exploded")
+    assert p.gate._open.is_set() is True
+
+
+def test_a_failed_restore_still_reopens_the_gate(cfg, monkeypatch):
+    """LM Studio will JIT-load her on the next turn — that fallback is what the
+    gate postpones, not what it forbids."""
+    p = make_parker(cfg, 5.0)
+    monkeypatch.setattr(p, "_await_free", lambda before: None)
+    monkeypatch.setattr(lmstudio, "evict", lambda base, ids, **kw: None)
+    monkeypatch.setattr(lmstudio, "ensure_resident",
+                        lambda base, ids, **kw: (_ for _ in ()).throw(
+                            RuntimeError("LM Studio is gone")))
+
+    with pytest.raises(RuntimeError, match="LM Studio is gone"):
+        with p.parked():
+            pass
+    assert p.gate._open.is_set() is True
+
+
+def test_a_render_that_decides_not_to_park_reopens_a_pre_shut_gate(cfg, spied):
+    """The lab shuts the gate before waiting for a quiet moment, and the card
+    can free up in between — that decision must not strand queued turns."""
+    p = make_parker(cfg, 14.0)                   # plenty of room by now
+    p.gate.close()
+    with p.parked() as borrowed:
+        pass
+    assert borrowed is False
+    assert p.gate._open.is_set() is True
+
+
+def test_a_turn_waits_at_a_shut_gate_and_proceeds_when_it_opens():
+    gate = ParkGate()
+
+    async def scenario():
+        gate.bind(asyncio.get_running_loop())
+        gate.close()
+        waiter = asyncio.create_task(gate.wait())
+        await asyncio.sleep(0)                   # let it reach the gate
+        assert not waiter.done()                 # held, not let through
+        gate.open()
+        return await asyncio.wait_for(waiter, 1)
+
+    assert asyncio.run(scenario()) is True
+
+
+def test_a_wedged_gate_lets_the_turn_through_rather_than_going_mute():
+    async def scenario():
+        gate = ParkGate(timeout_s=0.05)          # nobody is coming to open it
+        gate.bind(asyncio.get_running_loop())
+        gate.close()
+        return await gate.wait()
+
+    assert asyncio.run(scenario()) is False      # failed open, on purpose
+
+
+def test_the_gate_can_be_shut_from_the_render_worker_thread():
+    """The parker runs under asyncio.to_thread; the flag has to cross back."""
+    async def scenario():
+        gate = ParkGate(timeout_s=0.05)
+        gate.bind(asyncio.get_running_loop())
+        await asyncio.to_thread(gate.close)
+        blocked = await gate.wait()              # times out → the close landed
+        await asyncio.to_thread(gate.open)
+        await asyncio.sleep(0)                   # let the threadsafe callback run
+        return blocked, await gate.wait()
+
+    assert asyncio.run(scenario()) == (False, True)

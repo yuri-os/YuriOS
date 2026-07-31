@@ -171,9 +171,12 @@ SCHEMA: list[dict] = [
          "help": "her own @BotFather bot — one bot per companion, never shared "
                  "(Telegram hands a token's updates to a single poller)"},
         {"key": "TELEGRAM_CHAT_ID", "attr": "telegram_chat_id",
-         "key_env": "telegram_chat_id_env", "type": "text",
-         "help": "the one chat she answers in. Leave empty, save, restart, and "
-                 "message the bot once — it replies with the id to paste here"},
+          "key_env": "telegram_chat_id_env", "type": "text",
+          "help": "the one chat she answers in. Leave empty, save, restart, and "
+                  "message the bot once — it replies with the id to paste here"},
+        {"key": "TELEGRAM_SEND_NON_TELEGRAM", "attr": "telegram_send_non_telegram",
+         "type": "bool",
+         "help": "also copy replies from web, voice, CLI and API chats to Telegram"},
     ]},
     {"group": "Desktop window", "fields": [
         {"key": "WINDOW_WIDTH", "attr": "window_width", "type": "number",

@@ -44,6 +44,7 @@ export const charactersApi = Object.freeze({
     method: "PATCH",
     body: JSON.stringify(settings),
   }),
+  approve: (id) => request(characterPath(id, "/approve"), { method: "POST" }),
   archive: (id) => request(characterPath(id, "/archive"), { method: "POST" }),
   importPng: (file) => {
     const body = new FormData();

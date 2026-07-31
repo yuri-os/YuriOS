@@ -41,17 +41,20 @@ def test_api_chat_runs_one_committed_turn(cfg):
     brain = FakeBrain()
     app = make_app(cfg, brain)
     with TestClient(app) as c:
-        r = c.post("/api/chat", json={"text": "hi there", "channel": "cli"})
+        r = c.post("/api/chat", json={
+            "text": "hi there", "channel": "cli", "client_id": "browser-1"})
         assert r.status_code == 200
         data = r.json()
         assert data["session_id"] == "0" * 32
         assert data["message"]["role"] == "assistant"
         assert data["message"]["text"] == STRIPPED       # tags drive the face, not the text
         assert data["message"]["channel"] == "cli"
+        assert data["user_message"]["client_id"] == "browser-1"
 
         rt = app.state.rt
         roles = [(m["role"], m.get("channel")) for m in rt.transcript]
         assert roles == [("user", "cli"), ("assistant", "cli")]
+        assert rt.transcript[0]["client_id"] == "browser-1"
         # the verbatim reply (tags kept) persisted — B2's corpus rule
         assert brain.persisted is not None
         assert "[happy]" in brain.persisted[2]
@@ -69,6 +72,8 @@ def test_api_chat_session_continues_and_rejects_noise(cfg):
         assert again["session_id"] == first["session_id"]
         # a punctuation-only line is not a turn (B2 §3.2, held on this path too)
         assert c.post("/api/chat", json={"text": ". . ."}).status_code == 422
+        assert c.post("/api/chat", json={
+            "text": "spoof", "channel": "telegram"}).status_code == 422
 
 
 def test_api_chat_midstream_failure_leaves_no_reply_trace(cfg):
@@ -85,6 +90,72 @@ def test_api_chat_midstream_failure_leaves_no_reply_trace(cfg):
         assert [m["role"] for m in rt.transcript] == ["user"]   # her half never landed
         assert brain.persisted is None
         assert ("turn_committed", "api") not in signal_types(rt)
+
+
+def test_api_chat_cancel_tombstone_stops_a_late_request(cfg):
+    app = make_app(cfg)
+    with TestClient(app) as c:
+        stopped = c.post("/api/chat/cancel", json={
+            "client_id": "late-browser", "selfie_ids": []})
+        assert stopped.status_code == 200
+        late = c.post("/api/chat", json={
+            "text": "do not run", "client_id": "late-browser"})
+        assert late.status_code == 409
+        assert app.state.rt.transcript == []
+
+
+# ---- POST /api/greeting — she speaks first, in text (SPEC §7) ---------------
+
+def test_api_greeting_opens_the_conversation_once(cfg):
+    brain = FakeBrain()
+    app = make_app(cfg, brain)
+    with TestClient(app) as c:
+        r = c.post("/api/greeting", json={"channel": "cli"})
+        assert r.status_code == 200
+        data = r.json()
+        entry = data["message"]
+        assert entry["role"] == "assistant"
+        assert entry["text"] == "Oh, there you are."      # FakeBrain, tags gone
+        assert entry["proactive"] is True                 # she was not answering
+        assert entry["channel"] == "cli"
+
+        rt = app.state.rt
+        # an opener is not a turn: no user line above it, and nothing persisted
+        assert [m["role"] for m in rt.transcript] == ["assistant"]
+        assert brain.persisted is None
+        assert ("turn_committed", "cli") not in signal_types(rt)
+
+        # …and it is once per session per run: a reconnecting terminal is not a
+        # new arrival, so the second ask is quiet rather than a second hello
+        again = c.post("/api/greeting", json={
+            "channel": "cli", "session_id": data["session_id"]}).json()
+        assert again["message"] is None
+        assert [m["role"] for m in rt.transcript] == ["assistant"]
+
+
+def test_api_greeting_commits_a_cold_open_as_written(cfg):
+    """Same rule as the voice route (§5.4): the scene is shown whole, and only
+    the pipeline's idea of what a voice would say of it is thrown away."""
+    brain = FakeBrain()
+    brain.cold = ('*The rain traces the window.* "You found the signal." '
+                  '*She does not look away.*')
+    app = make_app(cfg, brain)
+    with TestClient(app) as c:
+        entry = c.post("/api/greeting", json={"channel": "cli"}).json()["message"]
+        assert entry["text"] == brain.cold
+        assert entry["proactive"] is True
+
+
+def test_api_greeting_midstream_failure_leaves_no_trace(cfg):
+    class BrokenBrain(FakeBrain):
+        async def stream_greeting(self, session_id):
+            yield "[happy] Oh, "
+            raise RuntimeError("model died")
+
+    app = make_app(cfg, BrokenBrain())
+    with TestClient(app) as c:
+        assert c.post("/api/greeting", json={"channel": "cli"}).status_code == 502
+        assert app.state.rt.transcript == []
 
 
 # ---- the Telegram adapter ---------------------------------------------------
@@ -208,7 +279,7 @@ async def test_telegram_non_text_gets_the_stock_line():
 
 async def test_telegram_delivers_assistant_lines_only_and_chunks(tmp_path):
     tr = ScriptedTelegram()
-    ch = tg(tr, selfie_dir=tmp_path)
+    ch = tg(tr, selfie_dir=tmp_path, sending_enabled=True)
     await ch._deliver_event({"type": "message", "role": "user", "text": "me"})
     await ch._deliver_event({"type": "draft", "text": "half a"})
     await ch._deliver_event({"type": "avatar", "op": "rain"})
@@ -223,7 +294,7 @@ async def test_telegram_delivers_assistant_lines_only_and_chunks(tmp_path):
 async def test_telegram_sends_the_selfie_file_itself(tmp_path):
     (tmp_path / "shot.png").write_bytes(b"\x89PNG fake")
     tr = ScriptedTelegram()
-    ch = tg(tr, selfie_dir=tmp_path)
+    ch = tg(tr, selfie_dir=tmp_path, sending_enabled=True)
     await ch._deliver_event({"type": "message", "role": "assistant",
                              "text": "took one!", "image_url": "/selfies/shot.png"})
     assert tr.sent("sendMessage") == []          # the photo carried the caption
@@ -232,9 +303,7 @@ async def test_telegram_sends_the_selfie_file_itself(tmp_path):
 
 
 async def test_telegram_sending_switch_gates_outbound_only(tmp_path):
-    """The sanctuary switch (routes/channels.py) flips `sending_enabled` on the
-    live adapter: while off, nothing leaves for the chat — but she still reads
-    it, and the flag is runtime-only (a fresh adapter defaults to sending)."""
+    """Cross-chat forwarding is opt-in; Telegram itself keeps working."""
     tr = ScriptedTelegram()
     ch = tg(tr, selfie_dir=tmp_path)
     ch.sending_enabled = False
@@ -243,12 +312,15 @@ async def test_telegram_sending_switch_gates_outbound_only(tmp_path):
     assert tr.sent("sendMessage") == []          # outbound gated
     await ch._handle_update(update())            # …but inbound still lands
     assert ch.rt.turns.calls == [("hello", "telegram", None)]
+    await ch._deliver_event({"type": "message", "role": "assistant",
+                             "text": "telegram reply", "channel": "telegram"})
+    assert [b["text"] for b in tr.sent("sendMessage")] == ["telegram reply"]
     ch.sending_enabled = True
     await ch._deliver_event({"type": "message", "role": "assistant",
                              "text": "back on"})
-    assert [b["text"] for b in tr.sent("sendMessage")] == ["back on"]
+    assert [b["text"] for b in tr.sent("sendMessage")] == ["telegram reply", "back on"]
     await ch._client.aclose()
-    assert TelegramChannel("tok", "42").sending_enabled   # restart re-enables
+    assert not TelegramChannel("tok", "42").sending_enabled
 
 
 def test_telegram_sending_route_flips_the_live_adapter(cfg):
@@ -260,7 +332,7 @@ def test_telegram_sending_route_flips_the_live_adapter(cfg):
     rt.channels = ChannelManager([channel])
     with TestClient(app) as c:
         assert c.get("/api/channels/telegram/sending").json() == {
-            "configured": True, "sending_enabled": True}
+            "configured": True, "sending_enabled": False}
         r = c.post("/api/channels/telegram/sending", json={"enabled": False})
         assert r.json()["sending_enabled"] is False
         assert channel.sending_enabled is False
@@ -274,9 +346,12 @@ def test_telegram_sending_route_404s_without_a_channel(cfg):
     app = make_app(cfg)                          # no token → no adapter
     with TestClient(app) as c:
         assert c.get("/api/channels/telegram/sending").json() == {
-            "configured": False, "sending_enabled": True}
+            "configured": False, "sending_enabled": False}
         assert c.post("/api/channels/telegram/sending",
                       json={"enabled": False}).status_code == 404
+    with TestClient(app, client=("192.0.2.1", 5000)) as remote:
+        assert remote.post("/api/channels/telegram/sending",
+                           json={"enabled": True}).status_code == 403
 
 
 

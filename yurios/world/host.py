@@ -5,14 +5,11 @@ from __future__ import annotations
 import asyncio
 import base64
 import datetime
-import io
 import json
 import logging
 import os
 import re
 import shutil
-import struct
-import zlib
 from collections.abc import Mapping
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -20,7 +17,6 @@ from typing import Any, NamedTuple
 
 import yaml
 from dotenv import dotenv_values
-from PIL import Image
 
 from fastapi import FastAPI, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
@@ -30,6 +26,10 @@ from yurios.characters import (
     CharacterImporter, CharacterRecord, CharacterRegistry,
     ConnectionProfile, ConnectionProfiles,
 )
+from yurios.characters import studio as studio_model
+from yurios.characters.creator import create_character, template_draft
+from yurios.characters.exporter import ExportOptions, build_export, preview_export
+from yurios.characters.privacy import CardExportError
 
 from .config import Config
 from .main import DIST_DIR, WEB_DIR, create_app
@@ -46,29 +46,12 @@ def _card_values(record: CharacterRecord) -> tuple[dict[str, Any], dict[str, Any
     return wrapper, data
 
 
-def _replace_section(path: Path, heading: str, value: str) -> None:
-    text = path.read_text(encoding="utf-8") if path.is_file() else ""
-    marker = f"## {heading}"
-    match = re.search(rf"(?m)^## {re.escape(heading)}\s*$", text)
-    block = f"{marker}\n\n{value.strip()}\n"
-    if match is None:
-        text = text.rstrip() + "\n\n" + block
-    else:
-        following = re.search(r"(?m)^##\s+", text[match.end():])
-        end = match.end() + following.start() if following else len(text)
-        text = text[:match.start()] + block + text[end:]
-    path.write_text(text.rstrip() + "\n", encoding="utf-8")
-
-
-def _set_frontmatter(path: Path, key: str, value: str) -> None:
-    text = path.read_text(encoding="utf-8")
-    if not text.startswith("---\n") or "\n---\n" not in text[4:]:
-        return
-    end = text.index("\n---\n", 4)
-    front = yaml.safe_load(text[4:end]) or {}
-    front[key] = value
-    rendered = yaml.safe_dump(front, sort_keys=False, allow_unicode=True).strip()
-    path.write_text(f"---\n{rendered}\n---\n{text[end + 5:].lstrip()}", encoding="utf-8")
+# The soul writers live in `characters/studio.py` — the settings modal below and
+# the studio page must move a section the same way, and two copies of a markdown
+# section-replacer that disagree would show up as a persona that silently loses a
+# heading depending on which surface last saved it.
+_replace_section = studio_model._replace_section
+_set_frontmatter = studio_model._set_frontmatter
 
 
 def _update_soul(record: CharacterRecord, fields: dict[str, Any]) -> None:
@@ -103,27 +86,44 @@ def _update_soul(record: CharacterRecord, fields: dict[str, Any]) -> None:
             manifest.write_text(text, encoding="utf-8")
 
 
-def _text_chunk(keyword: str, card: dict[str, Any]) -> bytes:
-    encoded = base64.b64encode(json.dumps(card, ensure_ascii=False).encode("utf-8"))
-    body = keyword.encode("latin-1") + b"\0" + encoded
-    return (struct.pack(">I", len(body)) + b"tEXt" + body
-            + struct.pack(">I", zlib.crc32(b"tEXt" + body) & 0xFFFFFFFF))
+def _images(record: CharacterRecord) -> dict[str, Any]:
+    """Every picture that could become the card's face."""
+    selfies: list[dict[str, Any]] = []
+    if record.paths.selfies.is_dir():
+        for path in sorted(record.paths.selfies.glob("*.png"),
+                           key=lambda p: p.stat().st_mtime, reverse=True)[:60]:
+            stat = path.stat()
+            selfies.append({
+                "name": path.name,
+                "url": f"/api/characters/{record.id}/selfies/{path.name}",
+                "bytes": stat.st_size,
+                "taken_at": datetime.datetime.fromtimestamp(
+                    stat.st_mtime, datetime.timezone.utc).isoformat(),
+            })
+    return {"portrait": record.paths.portrait.is_file(), "selfies": selfies}
 
 
-def _export_card(record: CharacterRecord) -> bytes:
+def _sync_card_json(record: CharacterRecord, draft: "studio_model.Draft") -> None:
+    """Keep `card.json` in step with a studio save.
+
+    It is not the export's source — the exporter reads the SOUL (§7.3) — but the
+    settings modal and the dashboard tiles still read it, so a studio edit that
+    left it stale would show the old description on the card grid.
+    """
     wrapper, data = _card_values(record)
-    data.setdefault("name", record.display.name)
-    data.setdefault("description", record.display.description)
-    v3 = {**wrapper, "spec": "chara_card_v3", "spec_version": "3.0", "data": data}
-    v2 = {"spec": "chara_card_v2", "spec_version": "2.0", "data": data}
-    if record.paths.portrait.is_file():
-        png = record.paths.portrait.read_bytes()
-    else:
-        output = io.BytesIO()
-        Image.new("RGB", (512, 768), "#11111a").save(output, format="PNG")
-        png = output.getvalue()
-    ihdr_end = 33
-    return png[:ihdr_end] + _text_chunk("chara", v2) + _text_chunk("ccv3", v3) + png[ihdr_end:]
+    data.update({
+        "name": draft.name, "description": draft.description,
+        "personality": draft.personality, "scenario": draft.scenario,
+        "first_mes": draft.first_mes, "system_prompt": draft.system_prompt,
+        "post_history_instructions": draft.post_history_instructions,
+        "creator_notes": draft.creator_notes, "creator": draft.creator,
+        "character_version": draft.character_version, "tags": list(draft.tags),
+    })
+    wrapper["data"] = data
+    record.paths.card_json.parent.mkdir(parents=True, exist_ok=True)
+    record.paths.card_json.write_text(
+        json.dumps(wrapper, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8")
 
 
 def _tail_jsonl(path: Path, limit: int = 100) -> list[dict[str, Any]]:
@@ -289,6 +289,29 @@ class CharacterHost:
         app = self.apps.get(character_id)
         return app.state.rt if app is not None else None
 
+    def why_not_running(self, character_id: str) -> str:
+        """The reason a character has no runtime, in words for the client.
+
+        "not running" is the one thing the room already knows; which of the four
+        reasons it is decides what the user does next, and only the host can
+        tell them apart."""
+        record = self.registry.get(character_id)
+        if record is None:
+            return "no such character on this node"
+        name = record.display.name or character_id
+        if record.lifecycle.review_required:
+            # First sentence carries the whole reason on its own: it is what fits
+            # in a close frame once _close_reason has had it (SPEC §28).
+            return (f"{name} is waiting on review, so nothing is running behind this "
+                    f"room. Open her in the studio, or save her settings from the "
+                    f"dashboard, and she starts.")
+        if not record.lifecycle.enabled:
+            return f"{name} is disabled on this node."
+        error = self.errors.get(character_id)
+        if error:
+            return f"{name} failed to start: {error}"
+        return f"{name} is not running yet."
+
     async def start(self, character_id: str) -> None:
         async with self._lock:
             if character_id in self.apps:
@@ -373,6 +396,51 @@ class CharacterHost:
         }
 
 
+async def _turn_away(scope, receive, send, detail: str, *, status: int = 404) -> None:
+    """Refuse a request in the protocol it arrived in.
+
+    A websocket handshake cannot be answered with an HTTP response: uvicorn has
+    no wire to put one on, so it logs `ASGI callable returned without completing
+    handshake` and drops the connection — one line per retry, and a browser left
+    with a bare 1006 that says nothing about why her room is empty. A character
+    who imported as a foreign card sits exactly there: registered, page served,
+    no runtime behind it until she has been reviewed (§28).
+
+    So the socket is accepted and closed with a reason, and the frame in between
+    is the `{"type":"error"}` every client already knows how to read (js/voice.js,
+    world/routes/voice_ws.py). `4404` is the private-range code for "this
+    character has no runtime" — a client can back off on it instead of
+    reconnecting into the same wall every 1.5 seconds."""
+    if scope.get("type") == "websocket":
+        await receive()                          # the handshake's websocket.connect
+        await send({"type": "websocket.accept"})
+        await send({"type": "websocket.send",
+                    "text": json.dumps({"type": "error", "message": detail})})
+        await send({"type": "websocket.close", "code": 4404,
+                    "reason": _close_reason(detail)})
+        return
+    await JSONResponse({"detail": detail}, status_code=status)(scope, receive, send)
+
+
+_CLOSE_REASON_LIMIT = 123      # a close frame carries 125 bytes; 2 of them are the code
+
+
+def _close_reason(detail: str) -> str:
+    """*detail* cut down to what a close frame can actually carry.
+
+    A websocket close is a control frame, and an oversized one is a protocol
+    error the server raises on rather than sends — the connection then ends with
+    no close frame at all, which is worse than the truncation. The whole sentence
+    already went out in the error frame ahead of this; the close keeps its
+    first line so a client that only ever sees `onclose` still learns something."""
+    if len(detail.encode("utf-8")) <= _CLOSE_REASON_LIMIT:
+        return detail
+    head = detail.split(". ")[0] + "."
+    if len(head.encode("utf-8")) <= _CLOSE_REASON_LIMIT:
+        return head
+    return detail.encode("utf-8")[:_CLOSE_REASON_LIMIT - 3].decode("utf-8", "ignore") + "..."
+
+
 class _RuntimeDispatcher:
     def __init__(self, host: CharacterHost, kind: str):
         self.host = host
@@ -388,8 +456,7 @@ class _RuntimeDispatcher:
         character_id, separator, remainder = path.partition("/")
         child = self.host.apps.get(character_id)
         if not separator or child is None:
-            response = JSONResponse({"detail": "character runtime is not running"}, status_code=404)
-            await response(scope, receive, send)
+            await _turn_away(scope, receive, send, self.host.why_not_running(character_id))
             return
         target = ("/api/" if self.kind == "api" else "/ws/") + remainder
         child_scope = dict(scope)
@@ -465,12 +532,184 @@ def create_host_app(base: Config, registry: CharacterRegistry | None = None) -> 
             raise HTTPException(404, "no such selfie")
         return FileResponse(path, media_type="image/png")
 
+    # ---- the card studio (SPEC §28) --------------------------------------
+    #
+    # Export is the importer's mirror, and the one place in this API where a
+    # refusal is a feature: `CardExportError` carries a code the studio renders
+    # differently — `leak` is "no", `review_required` is "not yet, read this
+    # first". Both come back as 422 with the offending passages, never as a 500.
+
+    def _options(body: Mapping[str, Any]) -> ExportOptions:
+        image_bytes = None
+        if body.get("image_data"):
+            try:
+                raw = str(body["image_data"]).split(",", 1)[-1]
+                image_bytes = base64.b64decode(raw, validate=True)
+            except (ValueError, TypeError) as exc:
+                raise HTTPException(400, "image_data must be base64") from exc
+        try:
+            return ExportOptions(
+                spec=str(body.get("spec", "v3")),
+                include_soul=bool(body.get("include_soul", True)),
+                image=str(body.get("image", "portrait")),
+                image_bytes=image_bytes,
+                fit=str(body.get("fit", "contain")),
+                attribution=bool(body.get("attribution", True)),
+                timestamps=bool(body.get("timestamps", True)),
+                filename=body.get("filename") or None,
+                acknowledged=bool(body.get("acknowledged", False)))
+        except CardExportError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    def _refused(exc: CardExportError) -> HTTPException:
+        return HTTPException(422, exc.to_dict())
+
     @app.get("/api/characters/{character_id}/export")
     async def export_card(character_id: str):
+        """The drawer's one-click export: defaults, and the scrub in front."""
         record = require(character_id)
-        filename = re.sub(r"[^a-z0-9_-]+", "-", record.display.name.lower()).strip("-")
-        return Response(_export_card(record), media_type="image/png", headers={
-            "Content-Disposition": f'attachment; filename="{filename or record.id}.png"'})
+        try:
+            result = build_export(record, ExportOptions(),
+                                  user_name=base.user_name)
+        except CardExportError as exc:
+            raise _refused(exc) from exc
+        return Response(result.png, media_type="image/png", headers={
+            "Content-Disposition": f'attachment; filename="{result.filename}"'})
+
+    @app.post("/api/characters/{character_id}/export")
+    async def export_card_configured(character_id: str, request: Request):
+        record = require(character_id)
+        try:
+            result = build_export(record, _options(await request.json()),
+                                  user_name=base.user_name)
+        except CardExportError as exc:
+            raise _refused(exc) from exc
+        return Response(result.png, media_type="image/png", headers={
+            "Content-Disposition": f'attachment; filename="{result.filename}"',
+            "X-Yurios-Card-Bytes": str(len(result.png))})
+
+    @app.post("/api/characters/{character_id}/studio/preview")
+    async def studio_preview(character_id: str, request: Request):
+        """Everything the review pane renders, and no file."""
+        record = require(character_id)
+        try:
+            result = preview_export(record, _options(await request.json()),
+                                    user_name=base.user_name)
+        except CardExportError as exc:
+            raise _refused(exc) from exc
+        return result.to_dict()
+
+    @app.get("/api/studio/template")
+    async def studio_template():
+        return {"draft": template_draft().to_dict(),
+                "sections": [{"field": name, "ref": ref, "label": label}
+                             for name, ref, label in studio_model.SECTION_FIELDS],
+                "constitution_fields": sorted(studio_model.CONSTITUTION_FIELDS)}
+
+    @app.post("/api/characters")
+    async def create(request: Request):
+        body = await request.json()
+        draft = studio_model.Draft.from_dict(body.get("draft") or {})
+        portrait = None
+        if body.get("portrait"):
+            try:
+                portrait = base64.b64decode(str(body["portrait"]).split(",", 1)[-1],
+                                            validate=True)
+            except (ValueError, TypeError) as exc:
+                raise HTTPException(400, "portrait must be base64") from exc
+        try:
+            record = create_character(registry, draft, portrait=portrait,
+                                      character_id=body.get("character_id") or None)
+        except (ValueError, CardExportError) as exc:
+            raise HTTPException(400, str(exc)) from exc
+        if record.lifecycle.enabled:
+            await host.start(record.id)
+        return JSONResponse({"character": host.summary(record)}, status_code=201)
+
+    @app.get("/api/characters/{character_id}/studio")
+    async def studio_draft(character_id: str):
+        record = require(character_id)
+        try:
+            draft, provenance = studio_model.read_draft(record)
+        except CardExportError as exc:
+            raise _refused(exc) from exc
+        return {
+            "id": record.id,
+            "draft": draft.to_dict(),
+            "provenance": {name: item.to_dict() for name, item in provenance.items()},
+            "grown": studio_model.grown_fields(provenance),
+            "sections": [{"field": name, "ref": ref, "label": label}
+                         for name, ref, label in studio_model.SECTION_FIELDS],
+            "constitution_fields": sorted(studio_model.CONSTITUTION_FIELDS),
+            "images": _images(record),
+            "portrait_url": f"/api/characters/{record.id}/portrait",
+        }
+
+    @app.patch("/api/characters/{character_id}/studio")
+    async def studio_save(character_id: str, request: Request):
+        record = require(character_id)
+        body = await request.json()
+        draft = studio_model.Draft.from_dict(body.get("draft") or body)
+        try:
+            touched = studio_model.apply_draft(record, draft)
+        except CardExportError as exc:
+            raise _refused(exc) from exc
+        record.display.name = draft.name
+        record.display.description = draft.description
+        record.display.creator = draft.creator
+        record.display.tags = list(draft.tags)
+        # A card edited in the studio has been looked at by definition.
+        if record.lifecycle.review_required:
+            record.lifecycle.review_required = False
+            record.lifecycle.enabled = True
+            record.lifecycle.autostart = True
+        registry.upsert(record)
+        _sync_card_json(record, draft)
+        touched_constitution = "CONSTITUTION.md" in touched
+        try:
+            from yurios.app import vaultgit
+            vaultgit.commit(record.paths.vault,
+                            "studio: edit constitution" if touched_constitution
+                            else "studio: edit character card")
+        except Exception:
+            log.exception("could not commit studio edit")
+        if host.runtime(character_id) is not None:
+            await host.restart(character_id)
+        elif record.lifecycle.enabled:
+            await host.start(character_id)
+        return {"character": host.summary(record), "touched": touched}
+
+    @app.get("/api/characters/{character_id}/selfies")
+    async def list_selfies(character_id: str):
+        return {"selfies": _images(require(character_id))["selfies"]}
+
+    @app.post("/api/characters/{character_id}/portrait")
+    async def set_portrait(character_id: str, request: Request):
+        """Adopt an upload or one of her selfies as the character's face."""
+        from yurios.characters.importer import _sanitize_portrait
+        from yurios.characters import CardLimits
+
+        record = require(character_id)
+        body = await request.json()
+        if body.get("selfie"):
+            base_dir = record.paths.selfies.resolve()
+            path = (base_dir / str(body["selfie"])).resolve()
+            if path.parent != base_dir or not path.is_file():
+                raise HTTPException(404, "no such selfie")
+            raw = path.read_bytes()
+        elif body.get("image"):
+            try:
+                raw = base64.b64decode(str(body["image"]).split(",", 1)[-1], validate=True)
+            except (ValueError, TypeError) as exc:
+                raise HTTPException(400, "image must be base64") from exc
+        else:
+            raise HTTPException(400, "send a selfie name or a base64 image")
+        try:
+            record.paths.portrait.parent.mkdir(parents=True, exist_ok=True)
+            record.paths.portrait.write_bytes(_sanitize_portrait(raw, CardLimits()))
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        return {"portrait_url": f"/api/characters/{record.id}/portrait"}
 
     @app.get("/api/characters/{character_id}/profile")
     async def get_settings(character_id: str):
@@ -547,6 +786,29 @@ def create_host_app(base: Config, registry: CharacterRegistry | None = None) -> 
         elif record.lifecycle.enabled:
             await host.start(character_id)
         return {"character": host.summary(record)}
+
+    @app.post("/api/characters/{character_id}/approve")
+    async def approve(character_id: str):
+        """Say out loud what saving her settings has always said quietly.
+
+        A card written elsewhere imports parked (SPEC §28) and the only way out
+        used to be a side effect of some other save — nothing on the switchboard
+        named the act. This does the one thing and nothing else: review cleared,
+        enabled, autostart on, runtime up. A start that fails leaves her approved
+        and reports why, because "she is allowed to run" and "she ran" are two
+        different facts and the dashboard shows both."""
+        record = require(character_id)
+        record.lifecycle.review_required = False
+        record.lifecycle.enabled = True
+        record.lifecycle.autostart = True
+        registry.upsert(record)
+        started, detail = True, None
+        if host.runtime(character_id) is None:
+            try:
+                await host.start(character_id)
+            except Exception as exc:                       # already logged by start()
+                started, detail = False, str(exc)
+        return {"character": host.summary(record), "started": started, "error": detail}
 
     @app.patch("/api/characters/{character_id}/loop")
     async def set_loop(character_id: str, request: Request):
@@ -672,6 +934,11 @@ def create_host_app(base: Config, registry: CharacterRegistry | None = None) -> 
               name="frontend-assets")
     app.mount("/dashboard", StaticFiles(directory=DIST_DIR / "dashboard", html=True,
                                          check_dir=False), name="dashboard")
+    # The studio selects its character by query parameter (`/studio/?character=…`)
+    # rather than by path, following `/live2d/?character=…`: a `/studio/{id}` route
+    # would have to be declared before this mount and would shadow its assets.
+    app.mount("/studio", StaticFiles(directory=DIST_DIR / "studio", html=True,
+                                     check_dir=False), name="studio")
     app.mount("/api/characters", _RuntimeDispatcher(host, "api"), name="character-api")
     app.mount("/ws/characters", _RuntimeDispatcher(host, "ws"), name="character-ws")
 
@@ -680,8 +947,10 @@ def create_host_app(base: Config, registry: CharacterRegistry | None = None) -> 
         async def __call__(self, scope, receive, send):
             child = host.apps.get(host.primary_id or "")
             if child is None:
-                response = JSONResponse({"detail": "no active character"}, status_code=503)
-                await response(scope, receive, send)
+                # /ws/voice lands here on a single-character node, so this refusal
+                # has to speak websocket too (see _turn_away).
+                await _turn_away(scope, receive, send, "no active character",
+                                 status=503)
                 return
             child.state.server = getattr(app.state, "server", None)
             await child(scope, receive, send)

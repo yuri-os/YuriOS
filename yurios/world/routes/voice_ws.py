@@ -24,7 +24,12 @@ On top of that spine:
      ENGAGED preempt) and a committed exchange posts `turn_committed` (the
      mind's REFLECT share: world model, promise extraction) onto the
      SignalBus. The reply itself still streams on this reactive path — the
-     loop observes the conversation, it never sits in front of it (SPEC §15.3).
+     loop observes the conversation, it never sits in front of it (SPEC §15.3);
+  7. the voice stack's lifetime (SPEC §9.9): this socket is the only thing in
+     the process that wants her ears and voice, so it holds them. The first
+     connection warms the stack (and says `warming` while it does), every later
+     one joins it, and the last one out drops it — otherwise a host running six
+     characters warms six of them at boot for nobody (world/voicestack.py).
 
 Client → server messages (JSON, except audio which is binary frames):
     {"type":"hello", "session_id": "<optional prior id>"}
@@ -35,6 +40,8 @@ Client → server messages (JSON, except audio which is binary frames):
 
 Server → client messages (JSON; audio PCM is base64 in `pcm`):
     {"type":"session", "session_id":...}
+    {"type":"warming", "message":...}   her voice is loading — first one in (§9.9)
+    {"type":"ready"}                    …and it landed; the composer reopens
     {"type":"filler"|"audio", "text":..., "sr":..., "pcm": <base64 float32>}
     {"type":"done", "latency":..., "expression":...} | {"type":"cancelled"}
     {"type":"error", "message":...}
@@ -45,6 +52,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
+from contextlib import nullcontext
 
 import numpy as np
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
@@ -98,13 +106,46 @@ async def voice(ws: WebSocket):
     except WebSocketDisconnect:
         return                                    # client left before saying hello
     session_id = brain.resolve_session(hello.get("session_id"))
-    await safe_send({"type": "session", "session_id": session_id})
 
-    # The voice stack may still be warming (Runtime loads it off-thread so the
-    # page — her body — appears immediately). Wait here, per connection: the
-    # socket stays open, her avatar is already up, and the greeting fires the
+    # This socket IS "the user entered the room" (SPEC §9.9): her voice loads
+    # here, for as long as somebody is holding one open, and is freed a beat
+    # after the last one closes — which is what keeps a node full of characters
+    # from warming a Kokoro nobody is listening to. Waiting is per connection:
+    # the socket stays open, her avatar is already up, and the greeting fires the
     # moment her voice is ready. Never uses a stand-in.
-    await asyncio.to_thread(rt.voice_ready.wait)
+    #
+    # Announced FIRST, before even the session id: the notice is what closes the
+    # client's composer, and the gap between "socket open" and "server actually
+    # reading" is precisely when a typed line is lost. Nothing below this line
+    # is read off the wire until `acquire` returns.
+    warming = not rt.voice.loaded
+    if warming:
+        # Say so rather than looking hung: the client captions it and shuts the
+        # composer, and a cold stack is ~20 s of silence (web/js/voice.js).
+        await safe_send({"type": "warming", "message": "loading her voice…"})
+    await safe_send({"type": "session", "session_id": session_id})
+    await rt.voice.acquire()
+    # Always send the all-clear. A demand-driven client closes this socket while
+    # muted, and a later reconnect may find an already-warm stack without ever
+    # receiving the `warming` frame.
+    await safe_send({"type": "ready"})
+    try:
+        await _in_the_room(ws, rt, session_id, safe_send)
+    finally:
+        # every way out of the room — a clean close, a reload, a raise — puts the
+        # stack down; the last one to leave takes her voice with them (§9.9)
+        rt.voice.release()
+
+
+async def _in_the_room(ws: WebSocket, rt, session_id: str, safe_send) -> None:
+    """One connected client's turn machinery, for as long as they're here.
+
+    Split from the handshake above only so the voice stack is acquired and
+    released around exactly this — a listener that leaked because something in
+    here raised would pin her weights in memory for the life of the process,
+    which is the bug this whole seam exists to avoid.
+    """
+    brain = rt.brain
     stt = rt.stt
     # Server-side debounced VAD (B2 §3.4, §4.2): an endpoint only becomes a turn
     # if real speech was actually heard. `gate.confirmed` read at endpoint.
@@ -120,7 +161,9 @@ async def voice(ws: WebSocket):
 
     turn_task: asyncio.Task | None = None
 
-    async def run(agen, proactive: bool = False, user_text: str = "") -> None:
+    async def run(agen, proactive: bool = False, user_text: str = "",
+                  commit_text: str | None = None,
+                  client_id: str | None = None) -> None:
         """Pump one turn's OutEvents to the client until it ends or the client goes.
 
         Spoken sentences accumulate into a `draft` on the hub and commit as a
@@ -129,30 +172,57 @@ async def voice(ws: WebSocket):
         spoke unprompted (greeting, ambient). A committed real turn is teed
         onto the SignalBus as a `turn_committed` signal — the mind's REFLECT
         share of the conversation (world model, promise extraction). A
-        barged-in turn posts nothing."""
+        barged-in turn posts nothing.
+
+        `commit_text` is the cold open's exemption (§5.4): what she *shows* is
+        given, not accumulated from what she said. Everything the pipeline does
+        on the way to TTS — the expression tags, the `*narration*` strip — is
+        right for speech and wrong for an authored scene, and a scene committed
+        from its audio arrives as the fragments that happened to be in quotes.
+        So the text goes up once, whole, as the draft, the audio plays under it,
+        and `done` commits the same text the card carries."""
+        # `agen` hasn't run a line yet (async generators are lazy), so this is
+        # still before the brain is touched: hold the turn while a selfie has
+        # her VRAM, and hold it before `turn_started` — the park's quiet gate
+        # waits on that counter (§7.6, world/vram.py).
+        await safe_send({"type": "processing", "client_id": client_id})
+        await rt.park_gate.wait()
         rt.turn_started(proactive=proactive)       # the mind (§15.3)
         spoken: list[str] = []                     # the draft
+        if commit_text:
+            rt.hub.publish("draft", {"text": commit_text})
         try:
-            async for ev in agen:
-                if ev.kind == "expression":        # one lane for the face (§10)
-                    rt.controller.set_expression(ev.expression, 1.0, reset_ms=0)
-                    continue
-                if ev.kind == "audio" and ev.text:  # the draft grows
-                    spoken.append(ev.text)
-                    rt.hub.publish("draft", {"text": " ".join(spoken)})
-                elif ev.kind == "done" and spoken:  # commit
-                    rt.post_message("assistant", " ".join(spoken),
-                                    proactive=proactive)
-                    if user_text:                  # the SignalBus tee
-                        rt.signals.post("turn_committed",
-                                        {"text": user_text,
-                                         "reply": " ".join(spoken)},
-                                        source="voice")
-                elif ev.kind in ("cancelled", "error"):   # no trace
-                    rt.hub.publish("draft_cancel", {})
-                if not await safe_send(_encode(ev)):
-                    controller.cancel()        # client vanished → tear the turn down
-                    return
+            turn_context = getattr(brain, "turn_context", None)
+            context = turn_context(channel="voice", client_id=client_id) \
+                if turn_context else nullcontext()
+            with context:
+                async for ev in agen:
+                    if ev.kind == "expression":        # one lane for the face (§10)
+                        rt.controller.set_expression(ev.expression, 1.0, reset_ms=0)
+                        continue
+                    if ev.kind == "audio" and ev.text:  # the draft grows
+                        spoken.append(ev.text)
+                        if not commit_text:            # …unless the text is given
+                            rt.hub.publish("draft", {"text": " ".join(spoken)})
+                    elif ev.kind == "done" and (spoken or commit_text):  # commit
+                        rt.post_message("assistant", commit_text or " ".join(spoken),
+                                        proactive=proactive, channel="voice")
+                        if user_text:                  # the SignalBus tee
+                            rt.signals.post("turn_committed",
+                                            {"text": user_text,
+                                             "reply": " ".join(spoken)},
+                                            source="voice")
+                    elif ev.kind in ("cancelled", "error"):   # no trace
+                        rt.hub.publish("draft_cancel", {})
+                    payload = _encode(ev)
+                    if ev.kind == "done":
+                        payload["client_id"] = client_id
+                        payload["active_selfies"] = (
+                            rt.selfies.active_ids(client_id)
+                            if rt.selfies and client_id else [])
+                    if not await safe_send(payload):
+                        controller.cancel()        # client vanished → tear the turn down
+                        return
         except Exception:
             log.exception("turn stream failed")
             rt.hub.publish("draft_cancel", {})
@@ -194,7 +264,9 @@ async def voice(ws: WebSocket):
         turn_task = asyncio.create_task(run(
             controller.run_turn(session_id, "", persist=False,
                                 tokens=brain.stream_greeting(session_id)),
-            proactive=True))                       # she speaks first
+            proactive=True,                        # she speaks first
+            commit_text=brain.cold_open()))        # …and on the first-ever
+                                                   # arrival, from the card (§5.4)
 
     try:
         while True:
@@ -218,6 +290,24 @@ async def voice(ws: WebSocket):
                 controller.cancel()                # tears down TTS + generation
                 continue
 
+            if kind == "reset_audio":
+                stt.reset()
+                gate.reset()
+                continue
+
+            if kind == "cancel":
+                controller.cancel()
+                selfie_ids = data.get("selfie_ids")
+                cancel_client = data.get("client_id")
+                if rt.selfies and isinstance(cancel_client, str) and cancel_client:
+                    ids = [str(i) for i in selfie_ids[:16]] \
+                        if isinstance(selfie_ids, list) else []
+                    await rt.selfies.cancel(
+                        ids, client_id=cancel_client)
+                await safe_send({"type": "cancelled",
+                                 "client_id": data.get("client_id")})
+                continue
+
             if kind == "endpoint" or kind == "text":
                 # a new turn starts: make sure the previous one is torn down first
                 if turn_task and not turn_task.done():
@@ -233,16 +323,26 @@ async def voice(ws: WebSocket):
                 gate.reset()
                 # last net: a punctuation-only hallucination is not a turn (B2 §3.2)
                 if not is_meaningful_transcript(text):
+                    if kind == "text":
+                        await safe_send({"type": "rejected",
+                                         "client_id": data.get("client_id"),
+                                         "message": "not a meaningful turn"})
                     continue
                 # the user's turn joins the transcript — this is
                 # what makes a *spoken* turn visible in the chat panel (§2.6)
-                rt.post_message("user", text)
+                client_id = data.get("client_id")
+                if not isinstance(client_id, str) or len(client_id) > 64:
+                    client_id = None
+                entry = rt.post_message("user", text, channel="voice",
+                                        client_id=client_id)
+                await safe_send({"type": "accepted", "message": entry,
+                                 "client_id": client_id})
                 # …and the SignalBus — the ENGAGED preempt rides it
                 rt.signals.post("user_message", {"text": text}, source="voice")
                 trace = TurnTrace()
                 turn_task = asyncio.create_task(
                     run(controller.run_turn(session_id, text, trace=trace),
-                        user_text=text))
+                        user_text=text, client_id=client_id))
     except WebSocketDisconnect:
         pass
     finally:

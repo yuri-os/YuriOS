@@ -53,6 +53,7 @@ class TelegramChannel(Channel):
     def __init__(self, token: str, chat_id: str = "", *,
                  selfie_dir: Path | None = None,
                  chat_id_env: str = "TELEGRAM_CHAT_ID",
+                 sending_enabled: bool = False,
                  api_base: str = API_BASE,
                  transport: httpx.AsyncBaseTransport | None = None):
         self.token = token
@@ -64,10 +65,9 @@ class TelegramChannel(Channel):
         self.chat_id_env = chat_id_env or "TELEGRAM_CHAT_ID"
         self.api_base = api_base
         self._transport = transport          # tests inject a MockTransport
-        # the sanctuary switch (routes/channels.py): False = she still reads
-        # the chat but sends nothing to it. Runtime-only — a restart re-enables,
-        # because "she went quiet" must never outlive the session that asked.
-        self.sending_enabled = True
+        # Telegram turns always answer where they arrived. This controls only
+        # cross-chat copies from the browser, voice, CLI and API.
+        self.sending_enabled = sending_enabled
         self.rt = None
         self._client: httpx.AsyncClient | None = None
         self._tasks: list[asyncio.Task] = []
@@ -189,11 +189,13 @@ class TelegramChannel(Channel):
 
     async def _deliver_event(self, event: dict) -> None:
         """Send one hub event to the chat, if it's hers to hear: committed
-        assistant lines only (drafts and puppet traffic stay in the room), and
-        only while the sanctuary's sending switch is on."""
-        if not self.chat_id or not self.sending_enabled:
+        assistant lines only (drafts and puppet traffic stay in the room).
+        Telegram replies always return here; other origins require opt-in."""
+        if not self.chat_id:
             return
         if event.get("type") != "message" or event.get("role") != "assistant":
+            return
+        if event.get("channel") != self.name and not self.sending_enabled:
             return
         text = event.get("text", "")
         image = self._selfie_path(event.get("image_url"))

@@ -1,11 +1,15 @@
 """The startup status board (SPEC §2, §6.4) — the kernel-boot log the UI shows
 while she wakes.
 
-The slow part of boot is the local voice stack: Kokoro TTS, faster-whisper and
-silero load cold on the CPU and can take a minute (world.main._warm_voice), so a
-fresh page would otherwise sit on the enter gate with no sign of life. This board
+The slow parts of boot are local models: the embedder that indexes her memory, and
+— when a room is opened — the voice stack, whose Kokoro TTS, faster-whisper and
+silero load cold on the CPU and can take a minute (world/voicestack.py). A fresh
+page would otherwise sit on the enter gate with no sign of life. This board
 records each service as it moves pending → loading → ready | failed | skipped,
-with how long it took, and `/api/boot` serves the snapshot. The web boot panel
+with how long it took, and `/api/boot` serves the snapshot. A service that only
+loads on demand declares itself `skipped` and narrates itself later if it does
+run: the gate polls until every service is terminal, so nothing may be left
+pending for an event that might never come. The web boot panel
 (web/js/boot.js) polls it — deliberately *not* the /api/events bus, because that
 stream only opens after the enter gesture (SPEC §6.4), and the whole point is to
 show progress *before* she's ready to be entered.

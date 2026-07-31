@@ -240,13 +240,34 @@ def test_live2d_client_is_served(client):
     for name in ("index.html", "avatar.js", "voice.js",
                  "sanctuary.css", "README.md"):
         assert (WEB / "live2d" / name).exists(), f"web/live2d/{name} missing"
-    # it speaks the same wire the forked route preserves (SPEC §10)
-    assert "/ws/voice" in (WEB / "live2d" / "voice.js").read_text()
+    # Live2D supplies its audio graph to the same transport implementation as
+    # the other rooms, so request/stop/receipt semantics cannot drift.
+    live2d_voice = (WEB / "live2d" / "voice.js").read_text()
+    assert "import('/js/voice.js')" in live2d_voice
+    assert "/ws/voice" in (WEB / "js" / "voice.js").read_text()
     assert ":root.desktop" in (WEB / "live2d" / "sanctuary.css").read_text()
     r = client.get("/live2d/")
     assert r.status_code == 200 and "avatar.js" in r.text
     # the settings panel is now the one shared source, loaded by both frontends
     assert "/shared/settings.js" in r.text
+
+
+def test_browser_chat_controls_share_safe_defaults():
+    pages = [WEB / "index.html", WEB / "text" / "index.html",
+             WEB / "live2d" / "index.html"]
+    for page in pages:
+        html = page.read_text()
+        assert 'id="telegram-mute"' not in html
+        assert 'class="icon-button voice-mute muted"' in html
+        assert 'aria-pressed="true"' in html
+
+    controls = (WEB / "js" / "controls.js").read_text()
+    voice = (WEB / "js" / "voice.js").read_text()
+    chat = (WEB / "js" / "chat.js").read_text()
+    assert "readPref('voiceMuted') ?? true" in controls
+    assert "const wantsVoice = () => !muted || listening" in voice
+    assert "'/api/chat/cancel'" in voice and "beginProcessing" in voice
+    assert "addPendingUser" in chat and "'received'" in chat
 
 
 def test_shared_settings_panel_is_served(client):

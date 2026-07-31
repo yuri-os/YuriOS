@@ -27,6 +27,7 @@ from yurios.app.corpus import CorpusLogger  # noqa: F401 (documents the reused s
 from yurios.app.main import AppState, create_app
 from yurios.app.memory.store import Record
 from yurios.app.routes.chat import post_turn
+from yurios.app import vaultgit
 
 from .config import Config
 from .voice.emotion import EXPRESSION_DIRECTIVE, SPOKEN_STYLE_DIRECTIVE
@@ -150,10 +151,65 @@ class BrainAdapter:
         await post_turn(self.state, record, session_id, pend.turn_index + 1)
 
     # -- the greeting: she speaks first (SPEC §7) -------------------------------
+    def _has_history(self) -> bool:
+        """Has she met you yet? The journal knows (file-presence semantics, §5.4)."""
+        episodic = self.state.cfg.vault_dir / "memory" / "episodic"
+        return episodic.exists() and any(episodic.glob("*.md"))
+
+    async def _retire_bootstrap(self) -> None:
+        """Consumed once (§5.4): `git mv soul/BOOTSTRAP.md soul/onboarded/…` and
+        commit, so file-absence now means "she has met you" and `git log` keeps
+        the script that bootstrapped her inspectable. Under the Vault lock and
+        off the event loop: it is git, and a turn may be committing beside it."""
+        async with self.state.vault_lock:
+            def retire() -> None:
+                vaultgit.mv(self.state.cfg.vault_dir, "soul/BOOTSTRAP.md",
+                            "soul/onboarded/BOOTSTRAP.done.md", force=True)
+                vaultgit.commit(self.state.cfg.vault_dir, "first session complete")
+            try:
+                await asyncio.to_thread(retire)
+            except Exception:
+                log.exception("bootstrap retirement failed (retried next greeting)")
+
+    def cold_open(self) -> str | None:
+        """The authored first message, while she has not met you (§5.4) — or None
+        once she has, which is every arrival after the first.
+
+        This is the text to **show**: a cold open is a *scene* (the card's
+        `first_mes`, stage directions and all), not an utterance. The voice
+        pipeline strips `*narration*` on its way to TTS, which is right for
+        speech and ruinous for this — a scene-shaped cold open reaches the
+        transcript as the handful of noises that happened to be in quotes. So
+        callers commit what this returns and let the pipeline speak whatever it
+        can of it. Pure: the retirement is `stream_greeting`'s to do."""
+        soul = self.state.soul_loader.load()
+        if soul.bootstrap is None or self._has_history():
+            return None
+        return soul.bootstrap
+
     async def stream_greeting(self, session_id: str) -> AsyncIterator[str]:
         """Stream the continuity opener. Self-contained: window=[] and the cue is
         NOT appended to the transcript (an opener is not a turn the user took), so
-        it never pollutes the next window and is never persisted (§7)."""
+        it never pollutes the next window and is never persisted (§7).
+
+        Except on the first-ever arrival, where there is no continuity to open
+        from: `BOOTSTRAP.md` is present, so she speaks its authored cold open
+        verbatim instead of a completion (§5.4). No model call, and no corpus
+        line — the text is hand-written SOUL, not something she generated. That
+        one *does* join the session window, unlike every other opener: it is the
+        scene her first reply has to follow from, and a model that never saw it
+        answers into an empty room. Once the journal shows she has met you, the
+        bootstrap is retired and every greeting from then on is memory-grounded."""
+        cold = self.cold_open()
+        if cold is not None:
+            if self.state.sessions.get(session_id) is not None:
+                self.state.sessions.append_message(session_id, "assistant", cold)
+            for word in cold.split(" "):
+                yield word + " "
+            return
+        if self.state.soul_loader.load().bootstrap is not None:
+            await self._retire_bootstrap()
+
         cue = GREET_CUE.format(user=self.cfg.user_name)
         _soul, prompt = self._assemble(session_id, cue, window=[], lore=[])
         async for token in self.state.chat.stream(

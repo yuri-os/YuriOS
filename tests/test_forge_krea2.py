@@ -56,7 +56,11 @@ def backend(monkeypatch, tmp_path):
         {"modelspec.architecture": "krea-2", "modelspec.title": "Krea 2 Base"})
     b = Krea2Backend(model_path=str(ckpt))
     pipe = FakePipe()
-    monkeypatch.setattr(b, "_load", lambda: pipe)
+    def fake_load(force_offload=False):
+        b._offloading = bool(b.cpu_offload or force_offload)
+        return pipe
+
+    monkeypatch.setattr(b, "_load", fake_load)
     monkeypatch.setattr(b, "_make_generator", lambda seed: None)
     b._fake_pipe = pipe
     return b
@@ -218,41 +222,71 @@ def test_provenance_names_the_backend_and_the_checkpoint(backend):
     assert meta["sampler"] == "FlowMatchEulerDiscrete"
 
 
-# ---- OOM: flip to offload and retry once (the SDXL backend's rule) ----------
+# ---- OOM: shrink and retry once (the SDXL backend's rule) ------------------
+
+def _modes(backend, monkeypatch, outcomes, crowded=False):
+    """Stub `_render` to record the mode each attempt ran in, setting
+    `_offloading` the way the real `_load` would. See test_forge_diffusers.py."""
+    seen: list[bool] = []
+
+    def attempt(req, force_offload=False):
+        seen.append(force_offload)
+        backend._offloading = bool(backend.cpu_offload or force_offload or crowded)
+        out = outcomes[len(seen) - 1]
+        if isinstance(out, Exception):
+            raise out
+        return out
+
+    monkeypatch.setattr(backend, "_render", attempt)
+    return seen
+
 
 def test_out_of_memory_retries_once_with_offload(monkeypatch, backend):
-    calls = []
-
-    def boom(req):
-        calls.append(backend.cpu_offload)
-        if len(calls) == 1:
-            raise RuntimeError("CUDA out of memory. Tried to allocate 2 GiB")
-        return "second-result"
-
-    monkeypatch.setattr(backend, "_render", boom)
+    modes = _modes(backend, monkeypatch, [
+        RuntimeError("CUDA out of memory. Tried to allocate 2 GiB"),
+        "second-result"])
     monkeypatch.setattr(backend, "_teardown", lambda: None)
+
     assert backend.generate(GenRequest(prompt="x")) == "second-result"
-    assert calls == [False, True]               # retried, with offload flipped on
+    assert modes == [False, True]               # resident, then the offloaded retry
+    assert backend.cpu_offload is False         # the user's setting is untouched
+
+
+def test_the_offload_retry_does_not_condemn_the_next_render(monkeypatch, backend):
+    """Krea 2 pays about a minute per load, so a render needlessly stuck on the
+    slow path costs more here than it does for SDXL."""
+    modes = _modes(backend, monkeypatch, [
+        RuntimeError("CUDA out of memory"), "first",
+        RuntimeError("CUDA out of memory"), "second"])
+
+    assert backend.generate(GenRequest(prompt="x")) == "first"
+    assert backend.generate(GenRequest(prompt="x")) == "second"
+    assert modes == [False, True, False, True]
+    assert backend.cpu_offload is False
 
 
 def test_out_of_memory_while_already_offloading_propagates(monkeypatch, backend):
-    backend.cpu_offload = True
-
-    def boom(req):
-        raise RuntimeError("CUDA out of memory")
-
-    monkeypatch.setattr(backend, "_render", boom)
+    backend.cpu_offload = True                  # the user asked for offload
+    modes = _modes(backend, monkeypatch, [RuntimeError("CUDA out of memory")])
     with pytest.raises(RuntimeError):
         backend.generate(GenRequest(prompt="x"))
+    assert modes == [False]                     # nothing left to shrink
+
+
+def test_out_of_memory_on_a_card_too_full_to_be_resident_propagates(monkeypatch, backend):
+    modes = _modes(backend, monkeypatch,
+                   [RuntimeError("CUDA out of memory")], crowded=True)
+    with pytest.raises(RuntimeError):
+        backend.generate(GenRequest(prompt="x"))
+    assert modes == [False]
 
 
 def test_a_non_oom_runtime_error_is_not_retried(monkeypatch, backend):
-    def boom(req):
-        raise RuntimeError("the checkpoint is missing a tensor")
-
-    monkeypatch.setattr(backend, "_render", boom)
+    modes = _modes(backend, monkeypatch,
+                   [RuntimeError("the checkpoint is missing a tensor")])
     with pytest.raises(RuntimeError, match="missing a tensor"):
         backend.generate(GenRequest(prompt="x"))
+    assert modes == [False]
     assert backend.cpu_offload is False
 
 

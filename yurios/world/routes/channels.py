@@ -1,13 +1,13 @@
 """/api/channels — the sanctuary's switches for the outside channels (SPEC §10.5).
 
 A channel is still *on* when its credentials are set — that's how she stays
-reachable. What lives here is the one runtime knob a person in the room wants
-within arm's reach: whether her lines also *leave* for Telegram. The switch
-flips a flag on the live adapter, so it applies the moment it's pressed and
-scopes per character under the host (each runtime holds its own adapters);
-nothing is written to `.env`, and a restart puts sending back on.
+reachable. The settings panel owns the persistent cross-chat forwarding
+default. This endpoint remains for integrations that need a temporary runtime
+override; browser chat rooms do not expose it as a button.
 """
 from __future__ import annotations
+
+import ipaddress
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
@@ -28,7 +28,8 @@ async def telegram_sending(request: Request) -> dict:
     """Whether this character has a telegram channel, and whether it sends."""
     channels = _telegram_channels(request)
     return {"configured": bool(channels),
-            "sending_enabled": all(c.sending_enabled for c in channels)}
+            "sending_enabled": bool(channels) and
+                               all(c.sending_enabled for c in channels)}
 
 
 class SendingSwitch(BaseModel):
@@ -38,6 +39,14 @@ class SendingSwitch(BaseModel):
 @router.post("/api/channels/telegram/sending")
 async def set_telegram_sending(body: SendingSwitch, request: Request) -> dict:
     """Flip outbound delivery on the live adapter — inbound keeps working."""
+    host = request.client.host if request.client else None
+    try:
+        local = host == "testclient" or (
+            host is not None and ipaddress.ip_address(host).is_loopback)
+    except ValueError:
+        local = False
+    if not local:
+        raise HTTPException(403, "channel settings are local-only")
     channels = _telegram_channels(request)
     if not channels:
         raise HTTPException(404, "no telegram channel configured")

@@ -54,6 +54,25 @@ async def test_the_first_greeting_is_the_authored_cold_open(
     assert (seeded_vault / "soul" / "BOOTSTRAP.md").is_file()
 
 
+async def test_the_first_persisted_turn_retires_the_bootstrap(
+        cfg, seeded_vault, clock, controller):
+    """The first completed exchange creates the journal and consumes the bootstrap
+    in that same post-turn transaction, without waiting for another greeting."""
+    chat = CannedChat("[tender] I'm glad you stayed.")
+    brain = make_brain(cfg, seeded_vault, chat, clock, controller)
+    session = brain.resolve_session(None)
+
+    await collect(brain.stream_greeting(session))
+    reply = "".join(await collect(brain.stream_reply(session, "I'm Sam.")))
+    await brain.persist(session, "I'm Sam.", reply)
+
+    assert any((seeded_vault / "memory" / "episodic").glob("*.md"))
+    assert not (seeded_vault / "soul" / "BOOTSTRAP.md").exists()
+    done = seeded_vault / "soul" / "onboarded" / "BOOTSTRAP.done.md"
+    assert done.is_file()
+    assert brain.cold_open() is None
+
+
 async def test_the_bootstrap_retires_once_the_journal_shows_a_meeting(
         cfg, seeded_vault, clock, controller):
     """One episodic entry is the whole exit condition: from here the greeting is

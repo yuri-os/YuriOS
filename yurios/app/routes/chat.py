@@ -34,10 +34,19 @@ def sse(payload: dict) -> str:
 
 async def post_turn(state, record: Record, session_id: str, turn_count: int) -> None:
     """§10.1 step 9 — the post-turn pipeline, off the critical path (§2.2):
-    remember (journal + index + USER.md), maybe summarise, then ONE git commit."""
+    remember, consume bootstrap, maybe summarise, then ONE git commit."""
     async with state.vault_lock:
+        retired_bootstrap = False
         try:
             await state.store.remember(record)
+            bootstrap = state.cfg.vault_dir / "soul" / "BOOTSTRAP.md"
+            if bootstrap.is_file():
+                try:
+                    vaultgit.mv(state.cfg.vault_dir, "soul/BOOTSTRAP.md",
+                                "soul/onboarded/BOOTSTRAP.done.md", force=True)
+                    retired_bootstrap = True
+                except Exception:
+                    log.exception("bootstrap retirement failed (will retry next greeting)")
             if state.utility is not None and turn_count % state.cfg.summary_every_n == 0:
                 window = state.sessions.window(
                     session_id, state.cfg.summary_every_n * 2)
@@ -58,8 +67,11 @@ async def post_turn(state, record: Record, session_id: str, turn_count: int) -> 
             log.exception("post-turn pipeline error (turn already served)")
         finally:
             # every durable change is a commit — the diary of how she grew (§6.5)
+            message = f"turn {session_id[:8]}:{record.turn_index}"
+            if retired_bootstrap:
+                message += "; first session complete"
             vaultgit.commit(state.cfg.vault_dir,
-                            f"turn {session_id[:8]}:{record.turn_index}")
+                            message)
 
 
 @router.post("/api/chat")

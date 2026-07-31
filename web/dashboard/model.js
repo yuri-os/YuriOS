@@ -6,6 +6,7 @@ const STATE_ALIASES = Object.freeze({
   idle: "resting",
   dormant: "resting",
   paused: "resting",
+  dream: "dreaming",
   sleeping: "dreaming",
   stopped: "offline",
   disabled: "offline",

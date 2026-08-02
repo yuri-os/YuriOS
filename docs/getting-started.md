@@ -17,7 +17,8 @@ source .venv/bin/activate
 That is the full install: her body, brain, memory, MCP tools, text chat **and her real voice**
 (faster-whisper ears, the kokoro voice, silero turn-taking — all CPU-only). No flags and no
 follow-up step; the script installs exactly what the `.env` it writes selects. Her voice models
-download themselves the first time she speaks, and after that she is offline.
+download themselves the first time a client opens the voice connection (for example, when you
+unmute her or start listening), and after that she is offline.
 
 Want her without the voice stack? `./install.sh --thin` is a 280 MB text-only install. Everything
 is additive and re-runnable, so you can add the voice later. See [Installation](installation.md)

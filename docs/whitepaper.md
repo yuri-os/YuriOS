@@ -4,7 +4,7 @@
 
 *The YuriOS Project · v1.0 · July 2026*
 
-Project: <https://github.com/> (this repository) · Normative spec: [`SPEC.md`](../SPEC.md) · Code provenance: [`PROVENANCE.md`](../PROVENANCE.md)
+Project: <https://github.com/yuri-os/YuriOS> (this repository) · Normative spec: [`SPEC.md`](../SPEC.md) · Code provenance: [`PROVENANCE.md`](../PROVENANCE.md)
 
 ---
 
@@ -145,13 +145,12 @@ feature: attempts to engineer a "spine" into companion personas produce cold, ar
 agents that contradict users about their own lives and are rated worse. The evidence that
 companion use drives dependence or prosocial decline is, at present, thin and contested (small,
 self-selected samples; self-report; intentions rather than behaviour). YuriOS's position,
-accordingly, is to **lead with warmth**, to treat sycophancy as a *user-monitored* rather than
-a *companion-policed* concern, and to instrument rather than moralize: an optional, local,
-off-by-default **relationship-health monitor** scores sycophancy and over-attachment signals
-and reports them only to the user, never gating replies or lecturing in character (§5.9). This
-is a deliberate reaction to a well-known industry episode in which an over-correction of a
-model's personality — after a sycophancy scare — produced a large "you made it cold, I lost a
-friend" user backlash.
+accordingly, is to **lead with warmth** and to treat sycophancy as a *user-monitored* rather than
+a *companion-policed* concern. A future optional, local relationship-health monitor could score
+sycophancy and over-attachment signals and report them only to the user, never gating replies or
+lecturing in character. This is a deliberate reaction to a well-known industry episode in which
+an over-correction of a model's personality — after a sycophancy scare — produced a large "you
+made it cold, I lost a friend" user backlash.
 
 ### 2.5 What makes a companion beloved
 
@@ -229,7 +228,7 @@ flowchart TB
     TURNS["Text-turn runner<br/>shared, per-channel"]
     BRAIN["ToolBrain<br/>brain + in-stream MCP tool loop"]
     MEM["MemoryStore + Vault<br/>git-backed files"]
-    MCP["MCP server — 4 tools<br/>timer · music · weather · selfie"]
+    MCP["MCP server — 5 tools<br/>timer · music · weather · selfie · picture"]
     FORGE["SelfieLab → ImageForge"]
     VRM["VrmController<br/>the puppet strings"]
     HUB["EventHub<br/>one outbound bus"]
@@ -472,7 +471,7 @@ under `soul-src/`. Origins are recorded in `PROVENANCE.md`; the normative contra
 (`lm_studio/…`, `ollama/…`, `openrouter/…`); embeddings are local by default. The frontend uses
 three.js / three-vrm bundled by Vite. The default stack needs no API key.
 
-**The Vault.** The entire mind is one git repository:
+**The Vault.** The versioned mind is one git repository:
 
 ```
 vault/
@@ -483,9 +482,11 @@ vault/
 ├── world/         beliefs.jsonl · state.json · situation.md   (present tense)
 ├── knowledge/     reference/ (dropped docs) · index/          (documents)
 ├── goals.md       intentions with provenance + commitment
-├── state/         sessions · activity · budget · engine cursor · pending edits
-└── traces/        ticks.jsonl                                  (per-decision audit)
+└── state/         sessions · activity · budget · engine cursor · pending edits
 ```
+
+The per-decision audit lives beside the Vault at
+`data/characters/<id>/traces/ticks.jsonl`.
 
 **Prompt assembly** is ordered and budgeted: voice law → persona backbone → scenario → fired
 lore → partner model → rolling summary → recalled memories → the situation block → an honesty

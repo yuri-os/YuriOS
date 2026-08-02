@@ -16,7 +16,8 @@ python -m yurios.world             # → http://localhost:8768
 With no options this installs everything the shipped `.env.example` selects, so she runs as
 configured out of the box: her body, brain, memory, MCP tools and text chat, plus her real voice
 (faster-whisper ears, the kokoro voice, silero turn-taking) on the CPU-only torch wheel. ~1.6 GB,
-no CUDA, and no model weights are downloaded at install time. Nothing needs a cloud key.
+no CUDA, and no model weights are downloaded at install time; they download the first time a client
+opens the voice connection. Nothing needs a cloud key.
 
 The script installs system packages, [`uv`](https://docs.astral.sh/uv/), Node, the venv, her
 Vault and the web build — and finishes by running the doctor, which should come back with nothing

@@ -143,7 +143,7 @@ Backend-specific keys (`QWEN_*`, `SOVITS_*`) are in [Voice](voice.md).
 | `TOOLS_BACKEND` | `mcp` | `mcp` · `fake` · `off` |
 | `TOOL_MAX_CALLS_PER_TURN` | `2` | |
 | `TOOL_TIMEOUT_S` | `10` | |
-| `TOOL_RATE_TIMER` / `_MUSIC` / `_WEATHER` / `_SELFIE` | `6` / `6` / `4` / `2` | calls per minute |
+| `TOOL_RATE_TIMER` / `_MUSIC` / `_WEATHER` / `_SELFIE` / `_PICTURE` | `6` / `6` / `4` / `2` / `2` | calls per minute |
 | `TIMER_MAX_MINUTES` | `180` | |
 | `WEATHER_BACKEND` | `open_meteo` | `open_meteo` · `fake` |
 | `WEATHER_CITY` | `Seoul` (`.env.example`) | the default when she isn't told one |

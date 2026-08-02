@@ -34,6 +34,10 @@ Websockets follow the same shape: `/ws/voice` and `/ws/characters/<id>/voice`.
 | `GET /studio/` | the card studio — `?character={id}` edits her, no parameter creates one |
 | `GET /api/characters` | `{version, primary, characters: […]}` |
 | `GET /api/connections` | named connection profiles; `secret_configured` says whether the key env var is set |
+| `GET /api/characters/{id}/brain` | the character's effective brain connection and tuning settings |
+| `PATCH /api/characters/{id}/brain` | save brain connection/tuning overrides and apply them immediately |
+| `GET /api/brain` | the primary character's brain settings |
+| `PATCH /api/brain` | save and immediately apply the primary character's brain overrides |
 | `POST /api/characters/import` | `multipart/form-data`, the card PNG in `file` |
 | `POST /api/characters` | create from a studio draft: `{draft, portrait?, character_id?}` → 201 |
 | `GET /api/studio/template` | `{draft, sections, constitution_fields}` — a starting draft |
@@ -98,7 +102,7 @@ without that Accept header it answers with the single object above.
 Errors use a non-2xx status with `detail` in the body.
 
 A refused export is the one place `detail` is an object rather than a string, because the client
-has to act on it — see [the card format](card-format.md#when-the-export-refuses):
+has to act on it — see [Characters → When the export refuses](characters.md#when-the-export-refuses):
 
 ```json
 {"detail": {"detail": "…why…", "code": "review_required",
@@ -140,6 +144,8 @@ detach posts `user_absent`.
 | `avatar` | expression, gaze, posture, visemes, `rain`, `music` — the puppet lane |
 | `journal` | a new `[she]` journal line |
 | `mind` | activity/budget/goal updates for the inner-life tab |
+| `context` | current `{used, limit, limit_source, reserve, exact, pct}` context-meter snapshot; sticky |
+| `selfie_status` | `{id, state, client_id?}` for asynchronous camera work: `started`, `done`, `cancelled`, or `error` |
 
 Publishes are non-blocking (a stalled client loses events, never blocks the publisher) and
 thread-safe.
@@ -149,8 +155,9 @@ thread-safe.
 `WS /ws/voice` — the audio-only socket.
 
 - **Up:** binary mic PCM, plus `hello` / `endpoint` / `bargein` / `text` control frames.
-- **Down:** `session`, `warming`, `filler` / `audio` (base64 PCM plus the sentence text, for
-  visemes), `done`, `cancelled`, `error`.
+- **Down:** `session`, `warming`, `ready`, `processing`, `filler` / `audio` (base64 PCM plus the
+  sentence text, for visemes), `done`, `cancelled`, `error`. `ready` means the voice stack is
+  available; `processing` includes the accepted turn's optional `client_id`.
 
 Turn expressions are re-routed onto the event bus, so the face has exactly one lane.
 

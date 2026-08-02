@@ -77,11 +77,15 @@ second fully-driven puppet.
 ### Fetching the runtime
 
 The Cubism Core runtime and the rigs are third-party and are **not** in this repo (proprietary
-Cubism Core, plus rig licensing). Fetch them once:
+Cubism Core, plus rig licensing). Fetch the runtime and sample rigs once. The default Hiyori rig
+also needs the `hiyori_free_zh.zip` archive from the [Live2D Free Material
+page](https://www.live2d.com/en/learn/sample/):
 
 ```bash
-python scripts/fetch_live2d.py
+python scripts/fetch_live2d.py --model-zip /path/to/hiyori_free_zh.zip
 ```
+
+`--airi /path/to/airi` is an alternative when a local AIRI checkout already contains that archive.
 
 With `web/live2d/vendor/` empty the page runs voice-only and says so.
 
@@ -115,9 +119,10 @@ What you keep:
 - her **voice**, and yours — TTS playback, the mic, barge-in, all unchanged;
 - the **inner life** tab (journal, goals, queued self-edits) and the `.env` settings panel;
 - the context gauge and the first-audio latency readout;
-- the two footer switches — [mute her voice](voice.md#muting-her) and
-  [Telegram sending](channels.md#the-sending-switch), which starts **off** in here: this is the
-  page you open on the device already holding the Telegram chat.
+- the [mute-her-voice switch](voice.md#muting-her), which starts **off** in here.
+
+Telegram forwarding is configured with `TELEGRAM_SEND_NON_TELEGRAM`; see
+[Channels → Cross-chat forwarding](channels.md#cross-chat-forwarding).
 
 What you lose: the body and the room, and with them everything addressed to them — `expression`,
 `gaze`, `bone`, `mouth`, and the `rain` and `music` ambience. She still emits all of it; this page

@@ -61,7 +61,7 @@ An always-on mind is affordable only because it's almost always nearly asleep.
 | **ENGAGED** | talking | `MIND_ENGAGED_CADENCE_S` (10 s) |
 | **IDLE** | you were recently around — goal work happens here | `MIND_IDLE_CADENCE_S` (60 s) |
 | **DORMANT** | long quiet | `MIND_DORMANT_CADENCE_S` (900 s) |
-| **DREAM** | consolidation, entered from DORMANT inside a local-time window | `MIND_DREAM_CADENCE_S` (5 s, chunked) |
+| **DREAM** | consolidation, entered from DORMANT inside a local-time window | `MIND_DREAM_CADENCE_S` (120 s, chunked) |
 
 Everything except the preempt is a slow drift *down* the cost ladder on configured timeouts
 (`MIND_ENGAGED_TIMEOUT_S`, `MIND_IDLE_TIMEOUT_S`). A user turn is the only thing that moves up it,
@@ -258,10 +258,11 @@ MIND_MAX_INTERRUPTS_PER_DAY=3     # the hard daily cap
 MIND_CONSIDER_COOLDOWN_S=3600     # minimum gap between re-chewing one goal
 MIND_DAILY_TOKENS=200000
 MIND_DREAM_TICK_TOKENS=4000
+MIND_TRACE_MAX_BYTES=2000000       # rotate traces/ticks.jsonl to ticks.jsonl.1 at this size
 MIND_ENGAGED_CADENCE_S=10
 MIND_IDLE_CADENCE_S=60
 MIND_DORMANT_CADENCE_S=900
-MIND_DREAM_CADENCE_S=5
+MIND_DREAM_CADENCE_S=120
 MIND_ENGAGED_TIMEOUT_S=180        # quiet this long → IDLE
 MIND_IDLE_TIMEOUT_S=3600          # away this long → DORMANT
 MIND_DREAM_START_HOUR=2
@@ -274,8 +275,8 @@ Body reflexes and the murmur keep the old idle machine's windows:
 IDLE_SETTLE_S=20                  # quiet after a turn before ambient life resumes
 IDLE_ACT_MIN_S=8                  # reflex window: gaze drift, expression pulse, posture
 IDLE_ACT_MAX_S=25
-IDLE_TALK_MIN_S=1800              # the self-talk impulse: one short in-character line
-IDLE_TALK_MAX_S=3600              #   after this much quiet
+IDLE_TALK_MIN_S=120               # the self-talk impulse: one short in-character line
+IDLE_TALK_MAX_S=300               #   after this much quiet
 ```
 
 The murmur only happens in IDLE, only with you present, only after the quiet window — and it's

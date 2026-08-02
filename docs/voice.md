@@ -5,8 +5,8 @@ one real-time websocket. Every one of them has a fake, so she boots and runs wit
 installed; a fake seam is simply silent, and says so on startup.
 
 The default install gives you all three, CPU-only, no CUDA: faster-whisper ears, the kokoro voice,
-silero turn-taking. Their model weights fetch themselves the first time she speaks, and after
-that she is offline.
+silero turn-taking. Their model weights fetch themselves the first time a client opens the voice
+connection (for example, when you unmute her or start listening), and after that she is offline.
 
 ## Using it
 
@@ -76,6 +76,7 @@ QWEN_MODEL=Qwen/Qwen3-TTS-12Hz-1.7B-Base
 QWEN_REF_AUDIO=                   # "" = the bundled designed clip
 QWEN_REF_TEXT=                    # its transcript
 QWEN_INSTRUCT=A warm, gentle young woman in her twenties; …
+QWEN_LANGUAGE=English
 QWEN_DEVICE=cuda:0
 QWEN_DTYPE=bfloat16
 QWEN_ATTN=sdpa                    # flash_attention_2 for lower VRAM, if installed

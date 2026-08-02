@@ -21,12 +21,17 @@ The default: `http://localhost:8768/`. See [Bodies](bodies.md).
 ```bash
 python -m yurios.chat                              # against a running server
 python -m yurios.chat --url http://192.168.1.5:8768
+python -m yurios.chat --character mika             # enter a card directly
+python -m yurios.chat --model ollama/qwen3:8b       # change her reply model
 python -m yurios.chat --new                        # start a fresh conversation window
 ```
 
-A remote thin client over `POST /api/chat` and `/api/events`. Its SSE attach counts as presence,
-exactly like an open page — so she knows you're there. The conversation window survives across
-runs unless you pass `--new`.
+A remote thin client over `POST /api/chat` and `/api/events`. On a multi-character host it shows
+the available cards at launch; pass `--character <id>` to skip the picker, or use `/cards` and
+`/use <id>` while chatting. Each card keeps its own conversation session. `/model <id>` and
+`/utility <id>` change the selected card's models live; use `reset` to inherit the host default.
+Its SSE attach counts as presence, exactly like an open page — so she knows you're there. The
+conversation window survives across runs unless you pass `--new`.
 
 She speaks first here too: the terminal asks for the greeting on arrival (`POST /api/greeting`),
 so you get the same opener a headset would. Reattaching to a conversation already going stays

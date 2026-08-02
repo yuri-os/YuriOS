@@ -31,6 +31,7 @@ from yurios.characters.creator import create_character, template_draft
 from yurios.characters.exporter import ExportOptions, build_export, preview_export
 from yurios.characters.privacy import CardExportError
 
+from . import rewire
 from .config import Config
 from .main import DIST_DIR, WEB_DIR, create_app
 
@@ -208,6 +209,53 @@ def telegram_for_character(base: Config, character_id: str,
                                "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID")
 
 
+def _endpoint_field(model: str) -> str | None:
+    """Which base-url knob a model id is served by, or None if it is hosted."""
+    if model.startswith("lm_studio/"):
+        return "lmstudio_base_url"
+    if model.startswith("ollama/"):
+        return "ollama_base_url"
+    return None
+
+
+def _apply_connection(update: dict[str, Any], base: Config, record: CharacterRecord,
+                      profile: ConnectionProfile | None,
+                      env: Mapping[str, str]) -> None:
+    """Point her models at *her* server, with *her* key (SPEC §31.1–§31.2).
+
+    Her record's own endpoint wins over the named profile's: a profile is the
+    house's shared connection and her record is the exception she was given, so
+    the more specific one is the one that means anything. Neither set = the
+    host's `.env`, like every other blank binding.
+
+    An endpoint names one server, so it re-points the base url of whichever local
+    provider her models actually route to — her chat model's, or her utility
+    model's when only that one is local. A hosted route has no base url to move;
+    it has a key, and `api_key_env` names the variable holding it. The value is
+    read here and never stored: the registry is a file people copy between
+    machines, and a card must never carry a secret (§30.5)."""
+    endpoint = record.connection.endpoint or (profile.endpoint if profile else "")
+    if endpoint:
+        chat = update.get("chat_model", base.chat_model)
+        utility = update.get("utility_model", base.utility_model)
+        field = _endpoint_field(chat) or _endpoint_field(utility)
+        # …unless it is verbatim one of the house's *other* server's urls. The
+        # `default` profile is seeded from whichever provider the host's own
+        # model uses (§31.1), so a character who moves to the other one would
+        # otherwise inherit an endpoint that names the wrong server entirely.
+        # Dropping it puts her back on the host's url for her provider, which is
+        # what "inherit" meant all along.
+        house = {base.lmstudio_base_url: "lmstudio_base_url",
+                 base.ollama_base_url: "ollama_base_url"}
+        if field and house.get(endpoint, field) == field:
+            update[field] = endpoint
+    key_env = record.connection.api_key_env or (profile.api_key_env if profile else "")
+    # An empty variable is a key that has not been set yet, not an instruction to
+    # forget the host's — she keeps talking on the house key until hers arrives.
+    if key_env and env.get(key_env, "").strip():
+        update["openrouter_api_key"] = env[key_env].strip()
+
+
 def config_for_character(base: Config, record: CharacterRecord,
                          profile: ConnectionProfile | None = None,
                          *, environ: Mapping[str, str] | None = None) -> Config:
@@ -222,9 +270,10 @@ def config_for_character(base: Config, record: CharacterRecord,
         "utility_enabled": record.loops.utility,
         "dream_enabled": record.loops.dream,
     }
+    env = _env_values(base, environ)       # read once; both resolutions want it
     (update["telegram_bot_token"], update["telegram_chat_id"],
      update["telegram_bot_token_env"], update["telegram_chat_id_env"]) = (
-        telegram_for_character(base, record.id, environ))
+        telegram_for_character(base, record.id, env))
     if record.models.chat:
         update["chat_model"] = record.models.chat
     if record.models.utility:
@@ -239,14 +288,101 @@ def config_for_character(base: Config, record: CharacterRecord,
         update["desktop_body"] = record.body.backend
     if record.body.model:
         update["avatar_model"] = record.body.model
-    endpoint = profile.endpoint if profile and profile.endpoint else record.connection.endpoint
-    if endpoint:
-        model = record.models.chat
-        update["lmstudio_base_url" if model.startswith("lm_studio/") else "ollama_base_url"] = endpoint
+    _apply_connection(update, base, record, profile, env)
+    # Her own knobs (SPEC §31.2): anything the record names that is a real Config
+    # field. Coerced against that field's type — the registry is JSON and a
+    # hand-edited `"0.8"` must not reach LiteLLM as text — and a value that will
+    # not coerce is dropped with a warning rather than taking her runtime down.
     for key, value in record.models.options.items():
-        if key in Config.model_fields:
-            update[key] = value
+        if key not in Config.model_fields:
+            continue
+        try:
+            update[key] = rewire.coerce(base, key, value)
+        except ValueError as exc:
+            log.warning("character %s: ignoring %s — %s", record.id, key, exc)
     return base.model_copy(update=update)
+
+
+_KEY_ENV_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+# The knobs that live in `models.options` rather than in a named binding — the
+# profile form accepts them alongside the two model ids (SPEC §31.2).
+_OPTION_KEYS = frozenset(
+    spec["key"] for spec in rewire.OVERRIDE_SCHEMA if spec["store"] == "options")
+
+
+def _construction_fingerprint(record: CharacterRecord) -> tuple:
+    """What a runtime bakes in when it is built (SPEC §31.4).
+
+    Her name (it is the runtime's `companion_name`), her voice, her body, and the
+    two loops that are wired rather than switched. Everything else a profile save
+    can touch reaches her while she runs: her brain settings through `retune`,
+    the mind switch through `set_mind_enabled`, and the card fields through the
+    SOUL, which the brain re-reads on every turn (§5).
+
+    Compared before and after the save rather than by which keys were *sent* —
+    the switchboard's form posts every field on every save, and re-submitting the
+    same voice is not a reason to take her conversation down."""
+    return (record.display.name, record.voice.tts_backend, record.voice.stt_backend,
+            record.voice.voice_id, record.body.backend, record.body.model,
+            record.loops.utility, record.loops.dream)
+
+
+def brain_overrides(record: CharacterRecord) -> dict[str, Any]:
+    """What this character has taken for herself — blank fields left out.
+
+    The inverse of `save_brain_overrides`, and the reason both live here: the
+    settings screen must round-trip, and an override that reads back as
+    something the record does not hold is a form that lies."""
+    values: dict[str, Any] = {}
+    for spec in rewire.OVERRIDE_SCHEMA:
+        key, store = spec["key"], spec["store"]
+        if store == "options":
+            if key in record.models.options:
+                values[key] = record.models.options[key]
+            continue
+        holder = record.connection if store in ("endpoint", "api_key_env") else record.models
+        current = getattr(holder, store, "") or ""
+        if current:
+            values[key] = current
+    return values
+
+
+def save_brain_overrides(record: CharacterRecord, body: Mapping[str, Any],
+                         base: Config) -> list[str]:
+    """Write the submitted overrides onto *record*; return the keys that moved.
+
+    A key that is absent is left alone; a key sent **empty** is *cleared*, which
+    is how the screen says "go back to inheriting the house's". Values are
+    coerced and validated here, before anything is persisted — a bad number must
+    fail the request, not the next turn."""
+    touched: list[str] = []
+    for spec in rewire.OVERRIDE_SCHEMA:
+        key, store = spec["key"], spec["store"]
+        if key not in body:
+            continue
+        raw = body[key]
+        blank = raw is None or (isinstance(raw, str) and not raw.strip())
+        if store == "options":
+            previous = record.models.options.get(key)
+            if blank:
+                record.models.options.pop(key, None)
+                if previous is not None:
+                    touched.append(key)
+                continue
+            value = rewire.coerce(base, key, raw)
+            if previous != value:
+                record.models.options[key] = value
+                touched.append(key)
+            continue
+        value = "" if blank else str(raw).strip()
+        if key == "api_key_env" and value and not _KEY_ENV_RE.fullmatch(value):
+            raise ValueError("api_key_env must be an environment variable name")
+        holder = record.connection if store in ("endpoint", "api_key_env") else record.models
+        if (getattr(holder, store) or "") != value:
+            setattr(holder, store, value)
+            touched.append(key)
+    return touched
 
 
 class CharacterHost:
@@ -289,6 +425,25 @@ class CharacterHost:
         app = self.apps.get(character_id)
         return app.state.rt if app is not None else None
 
+    def effective_config(self, record: CharacterRecord) -> Config:
+        """Her `.env`, with her record's overrides laid over it (SPEC §31.2)."""
+        return config_for_character(
+            self.base, record, self.connections.get(record.connection.profile))
+
+    async def retune(self, record: CharacterRecord) -> dict[str, Any]:
+        """Move a *running* character onto her current brain settings, live.
+
+        The registry has already been written by the time this is called, so a
+        character with no runtime is not a failure — she will read the same
+        settings the moment she starts. What this buys is the other case: she is
+        mid-conversation, and the next thing she says comes from the new model
+        without her losing the thread (SPEC §31.4)."""
+        rt = self.runtime(record.id)
+        if rt is None:
+            return {"applied": [], "running": False}
+        result = await rt.retune(rewire.snapshot(self.effective_config(record)))
+        return {**result, "running": True}
+
     def why_not_running(self, character_id: str) -> str:
         """The reason a character has no runtime, in words for the client.
 
@@ -321,11 +476,8 @@ class CharacterHost:
                 raise RuntimeError("character is disabled or still requires review")
             self.states[character_id] = "starting"
             try:
-                app = create_app(
-                    config_for_character(
-                        self.base, record,
-                        self.connections.get(record.connection.profile)),
-                    manage_lifespan=False, mount_frontend=False)
+                app = create_app(self.effective_config(record),
+                                 manage_lifespan=False, mount_frontend=False)
                 await app.state.rt.start_async()
                 self.apps[character_id] = app
                 self.states[character_id] = "ready"
@@ -499,6 +651,83 @@ def create_host_app(base: Config, registry: CharacterRegistry | None = None) -> 
              bool(item.api_key_env and os.environ.get(item.api_key_env))}
             for item in host.connections.list()
         ]}
+
+    # ---- her own brain (SPEC §31.2, §31.4) --------------------------------
+    #
+    # The gear in every room opens two panels stacked: the house's `.env`
+    # (desktop/routes/settings.py — loopback-only, restart to apply) and this
+    # one, which is hers. Nothing here is a secret: the key is named, never
+    # carried, so it needs no stricter guard than the rest of the same-origin
+    # switchboard API (§32.4).
+    #
+    # `/api/brain` without an id answers for the primary character, because the
+    # single-companion install's pages carry no character in their URL (§29.7).
+
+    def _require_primary() -> CharacterRecord:
+        record = registry.get(host.primary_id or "")
+        if record is None:
+            raise HTTPException(503, "no active character")
+        return record
+
+    def _brain_payload(record: CharacterRecord) -> dict[str, Any]:
+        effective = host.effective_config(record)
+        overrides = brain_overrides(record)
+        profile = host.connections.get(record.connection.profile)
+        # One endpoint names one server: the local provider her models actually
+        # route to (hosted routes have a key instead, and no url to show).
+        endpoint_field = (_endpoint_field(effective.chat_model)
+                          or _endpoint_field(effective.utility_model))
+        inherited = {
+            "endpoint": getattr(base, endpoint_field) if endpoint_field else "",
+            "api_key_env": (profile.api_key_env if profile else "") or "",
+        }
+        key_env = record.connection.api_key_env or inherited["api_key_env"]
+        return {
+            "character": record.id,
+            "name": record.display.name,
+            "running": host.runtime(record.id) is not None,
+            "connection_profile": record.connection.profile,
+            "fields": [{**spec, "value": overrides.get(spec["key"], ""),
+                        "inherited": inherited.get(spec["key"],
+                                                   getattr(base, spec["key"], ""))}
+                       for spec in rewire.OVERRIDE_SCHEMA],
+            # the name is safe to show; whether it is *set* is the useful part
+            "key_configured": bool(
+                key_env and _env_values(base, None).get(key_env, "").strip()),
+            "effective": {
+                "chat_model": effective.chat_model,
+                "utility_model": effective.utility_model,
+                "endpoint": getattr(effective, endpoint_field) if endpoint_field else "",
+                "api_key_env": key_env,
+            },
+        }
+
+    async def _save_brain(record: CharacterRecord, body: Mapping[str, Any]) -> dict:
+        try:
+            changed = save_brain_overrides(record, body, base)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        if changed:
+            registry.upsert(record)
+        result = await host.retune(record)
+        return {**_brain_payload(record), "changed": changed,
+                "applied": result["applied"]}
+
+    @app.get("/api/characters/{character_id}/brain")
+    async def brain(character_id: str):
+        return _brain_payload(require(character_id))
+
+    @app.patch("/api/characters/{character_id}/brain")
+    async def save_brain(character_id: str, request: Request):
+        return await _save_brain(require(character_id), await request.json())
+
+    @app.get("/api/brain")
+    async def primary_brain():
+        return _brain_payload(_require_primary())
+
+    @app.patch("/api/brain")
+    async def save_primary_brain(request: Request):
+        return await _save_brain(_require_primary(), await request.json())
 
     @app.post("/api/characters/import")
     async def import_card(file: UploadFile):
@@ -720,6 +949,8 @@ def create_host_app(base: Config, registry: CharacterRegistry | None = None) -> 
             "model": record.models.chat, "utility_model": record.models.utility,
             "voice": record.voice.voice_id, "connection": record.connection.backend,
             "connection_profile": record.connection.profile,
+            "endpoint": record.connection.endpoint or "",
+            "api_key_env": record.connection.api_key_env or "",
             "body_backend": record.body.backend, "body_model": record.body.model,
             "enabled": record.lifecycle.enabled, "review_required": record.lifecycle.review_required,
             "mind": record.loops.mind, "utility": record.loops.utility,
@@ -733,6 +964,7 @@ def create_host_app(base: Config, registry: CharacterRegistry | None = None) -> 
     async def save_settings(character_id: str, request: Request):
         record = require(character_id)
         body = await request.json()
+        built_with = _construction_fingerprint(record)
         if "name" in body and str(body["name"]).strip():
             record.display.name = str(body["name"]).strip()
         if "description" in body:
@@ -755,6 +987,22 @@ def create_host_app(base: Config, registry: CharacterRegistry | None = None) -> 
             record.body.backend = backend
         if "body_model" in body:
             record.body.model = str(body["body_model"])
+        # Her own connection, the two fields a profile cannot hold for her: the
+        # server she is reached on, and the variable her key is read from.
+        if "endpoint" in body:
+            record.connection.endpoint = str(body["endpoint"]).strip()
+        if "api_key_env" in body:
+            key_env = str(body["api_key_env"]).strip()
+            if key_env and not _KEY_ENV_RE.fullmatch(key_env):
+                raise HTTPException(400, "api_key_env must be an environment variable name")
+            record.connection.api_key_env = key_env
+        # …and her own model knobs, accepted here too, so one save can move a
+        # model and the temperature it wants together (an empty value clears).
+        try:
+            save_brain_overrides(record, {key: value for key, value in body.items()
+                                          if key in _OPTION_KEYS}, base)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
         for key in ("mind", "utility", "dream"):
             if key in body:
                 setattr(record.loops, key, bool(body[key]))
@@ -781,11 +1029,21 @@ def create_host_app(base: Config, registry: CharacterRegistry | None = None) -> 
             record.lifecycle.enabled = True
             record.lifecycle.autostart = True
         registry.upsert(record)
+        applied: list[str] = []
         if was_running:
-            await host.restart(character_id)
+            # Which model she thinks with is not worth a rebuild (SPEC §31.4):
+            # unless this save moved something the runtime was *built* with, she
+            # keeps her session, her mind and her voice, and simply answers the
+            # next line through the new brain.
+            if _construction_fingerprint(record) != built_with:
+                await host.restart(character_id)
+            else:
+                applied = (await host.retune(record))["applied"]
+                if "mind" in body:
+                    await host.runtime(character_id).set_mind_enabled(record.loops.mind)
         elif record.lifecycle.enabled:
             await host.start(character_id)
-        return {"character": host.summary(record)}
+        return {"character": host.summary(record), "applied": applied}
 
     @app.post("/api/characters/{character_id}/approve")
     async def approve(character_id: str):

@@ -762,6 +762,11 @@ running build has no knob for **MUST** be dropped rather than shown dead. Values
 live `Config`, writes are surgical (only changed fields, upserted line-by-line so the comments in
 `.env` survive), and a save asks for a restart rather than pretending to hot-apply.
 
+The same gear opens a second panel above it with a different owner: **this character's own brain**
+(§31.4). Those fields belong to her registry record, every one of them blank by default meaning
+*inherit the file below*, and a save there applies to the running conversation at once. One dialog,
+two scopes, two honest promises — and the panel **MUST** say which is which.
+
 ## §12 — Omissions → superseded by §26
 
 ## §13 — Tests → superseded by §27
@@ -1080,7 +1085,10 @@ brain with fake models.
   partial character, a generic card lands under review, a name collision takes the next id
   (`test_characters_importer.py`); the host — overlapping storage refused at construction, per-character
   config resolution and Telegram pair resolution, routing to the right runtime, the profile save that
-  accepts a review, portrait cache headers (`test_host.py`); and the migration — check/dry-run/run,
+  accepts a review, portrait cache headers, her own connection beating the profile she points at and
+  an override cleared handing her back to the `.env` (`test_host.py`); the live model swap — both
+  providers and the memory store's reference rebuilt, the per-call knobs needing none, a registry
+  string coerced or refused, an injected model left alone (`test_rewire.py`); and the migration — check/dry-run/run,
   the refusals of §33.3, legacy roots left untouched, the marker written last, and the default
   portrait installed exactly once (`test_migration.py`).
 
@@ -1232,13 +1240,39 @@ changes; a runtime does not know it has neighbours.
   builds a runtime `Config` from the host's, always replacing the character-scoped identity and
   paths (name, vault, corpus, traces, tool logs, selfies, the loop switches, her Telegram pair),
   and replacing a field only when her record names one: chat and utility model, TTS/STT backend
-  and voice register, body backend and avatar model. A blank binding therefore means *inherit*,
-  which is what makes one `.env` still configure a house. The connection profile's endpoint (else
-  her record's) re-points the LM Studio or Ollama base url according to her chat model's prefix.
+  and voice register, body backend and avatar model, plus any `.env` knob named in
+  `models.options` (`temperature`, the reasoning switches, `MAX_REPLY_TOKENS`, `CONTEXT_LENGTH`…),
+  coerced to that field's own type — the registry is JSON, and a value that will not coerce is
+  dropped with a warning rather than taking her runtime down. A blank binding therefore means
+  *inherit*, which is what makes one `.env` still configure a house.
+  **Her own connection wins over the profile she points at**: a profile is the house's shared
+  connection and her record is the exception she was given, so `connection.endpoint` (else the
+  profile's) re-points the LM Studio or Ollama base url her models actually route to, and
+  `connection.api_key_env` (else the profile's) names the variable her key is read from. The key
+  is read from the environment at resolution time and **MUST NOT** be written to the registry.
+  An inherited endpoint that is verbatim the host's url for the *other* local provider is
+  ignored — the seeded `default` profile carries whichever provider the host's own model uses
+  (§31.1), and a character who moves to the other one inherits the host's url for hers.
 - §31.3 **Loop switches are per character.** `mind`, `utility` and `dream` are registry fields, not
   just `.env` knobs: one companion may be a fully autonomous mind while another is reactive-only.
   Toggling `mind` **MUST** take effect on the live runtime without a restart; toggling `utility`
   or `dream` **MAY** restart her runtime, because they are wired at construction.
+- §31.4 **Her brain settings change without a restart.** The model a character speaks through,
+  its route, its key and its per-call knobs **MUST** be swappable on a running runtime: the
+  providers are rebuilt from the live `Config` — which is *mutated in place*, since one object is
+  shared by the runtime, the brain, the memory store, the mind and the VRAM parker — and
+  `AppState.chat`/`AppState.utility` (and the memory store's own utility reference) are
+  re-pointed (`world/rewire.py`). A stream already in flight holds its provider and finishes on
+  it; everything after it speaks through the new one, in the same session, with the same memory,
+  mind and voice. Pinning a newly chosen local model into LM Studio happens *behind* the answer, and
+  the context gauge is re-probed when it lands. The embedder is explicitly **not** hot-swappable:
+  changing it re-indexes the Vault (§4.3). `GET|PATCH /api/brain` (and `/api/characters/<id>/brain`,
+  which is what the gear in her room calls) is the surface. A profile save (§30.4) **MUST** take
+  the same path rather than restarting whenever it left everything the runtime was *built* with —
+  her name, her voice, her body, the utility and dream loops — where it found it. That decision is
+  made by comparing the record before and after the save, not by which keys were sent: the
+  switchboard posts the whole form every time, and re-submitting an unchanged voice is not a
+  reason to take her conversation down.
 
 ## §32 — The switchboard
 
@@ -1255,6 +1289,7 @@ changes; a runtime does not know it has neighbours.
   carry the same chrome (§6.3): entering a character must not feel like leaving the app.
 - §32.4 **The API is same-origin JSON** (`web/dashboard/API.md`): `GET /api/characters`,
   `GET /api/connections`, `POST /api/characters/import`, `GET|PATCH /api/characters/<id>/profile`,
+  `GET|PATCH /api/characters/<id>/brain` (§31.4 — also unprefixed, for the primary),
   `PATCH /api/characters/<id>/loop`, `PATCH /api/characters/<id>/controls`,
   `GET /api/characters/<id>/{portrait,export,journal,log,context-history}`,
   `POST /api/characters/<id>/archive`, `DELETE /api/characters/<id>/purge?confirm=…`. The portrait

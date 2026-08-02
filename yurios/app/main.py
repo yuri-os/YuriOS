@@ -120,6 +120,40 @@ def _preload_lmstudio(cfg: Config, *, chat: bool, embed: bool) -> list[str]:
                            timeout=cfg.lmstudio_load_timeout_s)
 
 
+def model_api_base(cfg: Config, model: str) -> str:
+    """The server a model id is reached on, if it is a local one.
+
+    Local ids carry no key; they need their server's base url instead — the
+    LM Studio /v1 endpoint, or the Ollama root (so a non-default OLLAMA_BASE_URL
+    follows through to chat routing, not just the settings-panel model list).
+    A hosted route answers with "" and rides the api key."""
+    if model.startswith("lm_studio/"):
+        return cfg.lmstudio_base_url
+    if model.startswith("ollama/"):
+        return cfg.ollama_base_url
+    return ""
+
+
+def build_chat_model(cfg: Config, *, meter=None):
+    """Her reply voice, from config alone. One construction path, so a model
+    swapped at runtime (world/rewire.py) is built exactly like the boot one."""
+    from yurios.app.providers.openrouter import LiteLLMChatModel
+    return LiteLLMChatModel(cfg.chat_model, cfg.openrouter_api_key, cfg.temperature,
+                            api_base=model_api_base(cfg, cfg.chat_model),
+                            thinking=cfg.chat_thinking, meter=meter)
+
+
+def build_utility_model(cfg: Config):
+    """The extraction/summary model, or None when utility work is off."""
+    if not cfg.utility_enabled:
+        return None
+    from yurios.app.providers.openrouter import LiteLLMUtilityModel
+    return LiteLLMUtilityModel(cfg.utility_model, cfg.openrouter_api_key,
+                               max_tokens=cfg.utility_max_tokens,
+                               thinking=cfg.utility_thinking,
+                               api_base=model_api_base(cfg, cfg.utility_model))
+
+
 def create_app(cfg: Config | None = None, *, chat_model=None, utility_model=None,
                embedder=None) -> FastAPI:
     cfg = cfg or Config()
@@ -136,25 +170,9 @@ def create_app(cfg: Config | None = None, *, chat_model=None, utility_model=None
             "the Vault).")
 
     embedder = embedder or _default_embedder(cfg)
-    if chat_model is None or (cfg.utility_enabled and utility_model is None):
-        from yurios.app.providers.openrouter import LiteLLMChatModel, LiteLLMUtilityModel
-        # Local ids carry no key; they need their server's base url instead — the
-        # LM Studio /v1 endpoint, or the Ollama root (so a non-default OLLAMA_BASE_URL
-        # follows through to chat routing, not just the settings-panel model list).
-        def _base(model: str) -> str:
-            if model.startswith("lm_studio/"):
-                return cfg.lmstudio_base_url
-            if model.startswith("ollama/"):
-                return cfg.ollama_base_url
-            return ""
-        chat_model = chat_model or LiteLLMChatModel(
-            cfg.chat_model, cfg.openrouter_api_key, cfg.temperature,
-            api_base=_base(cfg.chat_model), thinking=cfg.chat_thinking)
-        if cfg.utility_enabled and utility_model is None:
-            utility_model = LiteLLMUtilityModel(
-                cfg.utility_model, cfg.openrouter_api_key,
-                max_tokens=cfg.utility_max_tokens, thinking=cfg.utility_thinking,
-                api_base=_base(cfg.utility_model))
+    chat_model = chat_model or build_chat_model(cfg)
+    if cfg.utility_enabled and utility_model is None:
+        utility_model = build_utility_model(cfg)
 
     loader = SoulLoader(soul_dir, user_name=cfg.user_name)
     soul_name = loader.load().name

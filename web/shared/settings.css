@@ -96,6 +96,14 @@ stroke-width="2.4" stroke-linecap="round"><path d="M5.5 5.5 18.5 18.5M18.5 5.5 5
   letter-spacing:.2em; text-transform:uppercase;
   padding-bottom:10px; margin-bottom:14px; border-bottom:1px solid var(--rule);
 }
+/* the two scopes in one dialog (SPEC §31.2): her registry record above, the
+ * house's .env below. The live group carries a left rule so the eye can see
+ * where "hers, now" ends and "the house's, on restart" begins. */
+.set-group-live{ border-left:1px solid var(--acid-dark, var(--rule)); padding-left:14px; }
+.set-scope-note{ color:var(--dim); font:9px/1.7 var(--font-mono); margin:0 0 4px; }
+.set-scope-house{ margin-top:26px; }
+.set-scope-warn{ color:var(--amber); font:9px/1.7 var(--font-mono); margin:14px 0 0; }
+
 .set-row{ display:block; margin:16px 0; }
 .set-key{
   margin-bottom:8px; color:var(--soft); font:9px var(--font-mono);

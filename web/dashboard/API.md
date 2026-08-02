@@ -65,6 +65,36 @@ as read-only diagnostics.
 updated character, `{ "character": {...} }`, or a successful acknowledgement.
 Blank `voice` and `model` values mean inherit the node default.
 
+Model and connection fields — `model`, `utility_model`, `connection_profile`,
+`endpoint`, `api_key_env` and the model knobs (`temperature`, `chat_thinking`,
+`utility_thinking`, `max_reply_tokens`, `context_length`) — reach a running
+character **without a restart**, and the response carries `applied: [...]` naming
+what moved on the live runtime. The character is rebuilt only when the save
+actually changed something wired at construction — her name, voice, body, or the
+utility/dream loops — so posting the whole form with one new model value keeps
+her conversation alive.
+
+## Her brain
+
+`GET /api/characters/{id}/brain` returns the same fields as a form:
+
+```json
+{ "character": "yuri", "name": "Yuri", "running": true,
+  "connection_profile": "default", "key_configured": true,
+  "fields": [{ "key": "chat_model", "type": "model", "value": "ollama/llama3",
+               "inherited": "lm_studio/…", "help": "…" }],
+  "effective": { "chat_model": "…", "utility_model": "…",
+                 "endpoint": "…", "api_key_env": "OPENROUTER_API_KEY" } }
+```
+
+`value` is her own override (`""` = inherit) and `inherited` is what the node's
+`.env` would give her. `PATCH` takes `{ key: value }` with an empty value
+clearing an override, and answers with the same payload plus `changed` (what was
+written to the registry) and `applied` (what moved on the live runtime). Both
+routes are also served unprefixed as `/api/brain` for the primary character,
+which is what the gear panel in a single-companion install calls. The API key is
+never sent or accepted — only the name of the variable holding it.
+
 ## PNG import
 
 `POST /api/characters/import` accepts `multipart/form-data` with the character PNG

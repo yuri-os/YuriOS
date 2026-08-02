@@ -149,17 +149,34 @@ with `python scripts/reindex.py`.
 
 ## Per-character models
 
-Everything above sets the **house default**. Each character may override her own chat model,
-utility model, voice and body in her registry record; a blank binding means "inherit". The
-switchboard's profile drawer is the front end for that, and
-[Characters → connection profiles](characters.md#connection-profiles) explains named endpoints —
-useful when two companions live on two different servers.
+Everything above sets the **house default**. Each character may take her own chat model, utility
+model, endpoint, API key variable and model knobs (temperature, the reasoning switches, the reply
+cap, the context window) in her registry record; a blank field means "inherit the `.env`". So one
+companion can run on a 4 B local model while another answers from OpenRouter, on one node, from
+one config file.
 
-## Changing models later
+Two front ends edit exactly the same record:
 
-Model knobs are read once at boot. Edit `.env` (by hand or through the gear panel) and restart:
-the panel says so out loud after a save rather than pretending to hot-apply. Her memory, persona
-and history are model-independent — swapping the model does not cost you the companion.
+- **The gear in her room** — the top panel of the settings dialog is hers, the rest is the house's
+  `.env`. Each field's placeholder names what she would inherit if you left it blank.
+- **The switchboard's profile drawer** — the same fields on the character board.
+
+[Characters → connection profiles](characters.md#connection-profiles) explains named endpoints,
+which is the shared version of the same idea: her own endpoint wins over the profile she points at.
+The key itself never enters the registry — `api_key_env` names the environment variable it is read
+from, so a character can be copied to another machine without carrying a secret.
+
+## Changing models mid-conversation
+
+**Her** model, route, key and knobs apply the moment you save — no restart, no lost session.
+Whatever she is mid-sentence about finishes on the model it started on; the next thing she says
+comes from the new one, with the same memory, the same mind and the same voice. A newly chosen
+LM Studio model is pinned in the background, so the first turn after a swap may wait on the load.
+
+The **house** knobs in `.env` are still read once at boot — the gear panel says so after a save,
+rather than pretending to hot-apply — as is the embedder, which re-indexes the Vault when it
+changes. Her memory, persona and history are model-independent either way: swapping the model
+does not cost you the companion.
 
 ## Checking what's wired
 

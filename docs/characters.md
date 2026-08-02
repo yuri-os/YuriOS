@@ -79,7 +79,9 @@ can't quietly get a mind, tools and a Telegram bot before you've read it.
 ## Editing a character
 
 Her profile drawer edits name, description, personality, scenario, first message, chat model,
-utility model, voice, connection profile, body backend and rig, and her three loop switches.
+utility model, endpoint, API key variable, voice, connection profile, body backend and rig, and her
+three loop switches. The model and connection fields are also on the gear panel inside her room,
+and blank means "inherit the node's `.env`".
 
 Saving writes `card.json` **and** rewrites the matching sections of her SOUL files in the Vault,
 then commits the Vault:
@@ -94,8 +96,12 @@ then commits the Vault:
 | `name` | `soul/soul.yaml` |
 
 The SOUL files are authoritative — prompts are assembled from them, never from `card.json` — so
-an edit that didn't reach the files would be an edit that didn't happen. A running character is
-restarted so the change takes effect.
+an edit that didn't reach the files would be an edit that didn't happen.
+
+A running character is restarted only if the save moved something her runtime was **built** with —
+her name, her voice, her body, or the utility/dream loops. A change to her model, endpoint, key
+variable, model knobs, mind switch or card text reaches her while she runs: she changes model
+mid-conversation and keeps the thread (the SOUL is re-read on every turn).
 
 ## The card studio
 

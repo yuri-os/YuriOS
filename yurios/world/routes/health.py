@@ -17,6 +17,11 @@ async def health(request: Request) -> dict:
     return {
         "ok": True,
         "character": rt.cfg.companion_name,
+        # Which brain she is speaking through *right now*: a character may run on
+        # her own model rather than the one in .env, and that can be changed
+        # mid-conversation (§31.4), so this reads the live Config, not the file.
+        "model": rt.cfg.chat_model,
+        "utility_model": rt.cfg.utility_model if rt.cfg.utility_enabled else None,
         "channels": rt.channels_status,    # "off" | "telegram · @bot" | "… failed: …" (§10.5)
         # loaded/listeners are the on-demand stack (§9.9): "unloaded" backends
         # with no listeners is her at rest, not her broken — she loads them when

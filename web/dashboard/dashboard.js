@@ -463,6 +463,8 @@ async function openSettings() {
   form.elements.description.value = character.description === "No profile note has been set." ? "" : character.description;
   form.elements.connection_profile.value = character.connectionProfile;
   form.elements.utility_model.value = "";
+  form.elements.endpoint.value = "";
+  form.elements.api_key_env.value = "";
   form.elements.body_backend.value = character.raw?.body_backend || "";
   form.elements.body_model.value = character.raw?.body_model || "";
   for (const name of ["personality", "scenario", "first_mes"]) form.elements[name].value = "";
@@ -473,8 +475,9 @@ async function openSettings() {
     const payload = await charactersApi.settings(character.id);
     const settings = payload?.settings ?? payload;
     if (state.selectedId !== character.id || !settings || typeof settings !== "object") return;
-    for (const name of ["name", "voice", "model", "utility_model", "body_backend",
-      "body_model", "description", "connection_profile", "personality", "scenario", "first_mes"]) {
+    for (const name of ["name", "voice", "model", "utility_model", "endpoint",
+      "api_key_env", "body_backend", "body_model", "description",
+      "connection_profile", "personality", "scenario", "first_mes"]) {
       if (settings[name] != null) form.elements[name].value = settings[name];
     }
     for (const key of ["mind", "utility", "dream"]) {
@@ -503,7 +506,15 @@ async function submitSettings(event) {
     closeModal(elements.settingsDialog);
     renderCharacters();
     syncDrawer();
-    toast(`${character.name}'s profile saved.`);
+    // A model or connection change lands on the live runtime (SPEC §31.4) —
+    // say so, because "saved" and "she is already using it" are different news.
+    const applied = response?.applied || [];
+    const model = updated?.model && updated.model !== "node default" ? updated.model : null;
+    toast(applied.includes("chat_model") && model
+      ? `${character.name} is now on ${model} — no restart.`
+      : applied.length
+        ? `${character.name}'s profile saved and applied live.`
+        : `${character.name}'s profile saved.`);
   } catch (apiError) {
     error.textContent = errorMessage(apiError);
   } finally {

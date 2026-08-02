@@ -7,11 +7,12 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from yurios.characters import (
-    CharacterPaths, CharacterRecord, CharacterRegistry, DisplayMetadata,
-    LifecycleFlags,
+    CharacterPaths, CharacterRecord, CharacterRegistry, ConnectionProfile,
+    DisplayMetadata, LifecycleFlags,
 )
 from yurios.world.channels.manager import ChannelManager
 from yurios.world.channels.telegram import TelegramChannel
+from yurios.world import rewire
 from yurios.world.config import Config
 from yurios.world.host import (
     config_for_character, create_host_app, telegram_for_character,
@@ -19,11 +20,19 @@ from yurios.world.host import (
 
 
 class FakeRuntime:
-    def __init__(self, name: str):
-        self.name = name
+    def __init__(self, cfg):
+        self.cfg = cfg
+        self.name = cfg.companion_name
         self.started = False
         self.mind = None
         self.context = SimpleNamespace(snapshot=lambda: {"used": 12, "limit": 100})
+
+    async def retune(self, wanted):
+        """The real diff, without the providers: this is what the runtime does
+        to its live Config when her brain settings move (SPEC §31.4)."""
+        applied = rewire.apply(None, self.cfg, rewire.differences(self.cfg, wanted))
+        return {"applied": applied, "chat_model": self.cfg.chat_model,
+                "utility_model": self.cfg.utility_model}
 
     async def start_async(self):
         self.started = True
@@ -53,7 +62,7 @@ def record(root: Path, character_id: str = "yuri", *, enabled=True, autostart=No
 
 def fake_character_app(cfg, **kwargs):
     app = FastAPI()
-    app.state.rt = FakeRuntime(cfg.companion_name)
+    app.state.rt = FakeRuntime(cfg)
 
     @app.get("/api/health")
     async def health():
@@ -470,3 +479,166 @@ def test_host_refuses_overlapping_character_storage(tmp_path):
         assert "storage overlaps" in str(exc)
     else:
         raise AssertionError("overlapping character roots were accepted")
+
+
+# ---- her own brain: the per-character connection (SPEC §31.1–§31.4) --------
+
+
+def test_her_own_connection_beats_the_profile_she_points_at(tmp_path):
+    """A profile is the house's shared connection; her record is the exception
+    she was given, so the more specific one wins."""
+    her = record(tmp_path, "yuri")
+    her.models.chat = "ollama/llama3"
+    her.connection.endpoint = "http://gpu.lan:11434"
+    her.connection.api_key_env = "YURI_KEY"
+    shared = ConnectionProfile(name="default", endpoint="http://localhost:11434",
+                               api_key_env="OPENROUTER_API_KEY")
+
+    cfg = config_for_character(Config(data_dir=tmp_path, _env_file=None), her, shared,
+                               environ={"YURI_KEY": "sk-hers"})
+
+    assert cfg.chat_model == "ollama/llama3"
+    assert cfg.ollama_base_url == "http://gpu.lan:11434"
+    assert cfg.openrouter_api_key == "sk-hers"
+
+
+def test_an_endpoint_for_the_other_server_is_not_forced_on_her(tmp_path):
+    """The seeded `default` profile carries whichever provider the host's own
+    model uses — a character who moves to the other one inherits the host's url
+    for *hers*, not a pointer at the wrong server."""
+    base = Config(data_dir=tmp_path, _env_file=None,
+                  chat_model="lm_studio/house", lmstudio_base_url="http://lms:1234/v1",
+                  ollama_base_url="http://ollama:11434")
+    her = record(tmp_path, "yuri")
+    her.models.chat = "ollama/llama3"
+    seeded = ConnectionProfile(name="default", endpoint="http://lms:1234/v1")
+
+    cfg = config_for_character(base, her, seeded, environ={})
+
+    assert cfg.ollama_base_url == "http://ollama:11434"
+
+
+def test_her_knobs_are_coerced_out_of_the_registrys_json(tmp_path):
+    her = record(tmp_path, "yuri")
+    her.models.options = {"temperature": "0.35", "chat_thinking": "true",
+                          "nonsense": 1, "context_length": "not a number"}
+
+    cfg = config_for_character(Config(data_dir=tmp_path, _env_file=None), her,
+                               environ={})
+
+    assert cfg.temperature == 0.35 and cfg.chat_thinking is True
+    assert not hasattr(cfg, "nonsense")
+    assert cfg.context_length == Config(_env_file=None).context_length  # dropped, loudly
+
+
+def test_the_brain_panel_shows_what_is_hers_and_what_is_inherited(tmp_path, monkeypatch):
+    registry = CharacterRegistry(tmp_path)
+    her = record(tmp_path, "yuri")
+    her.models.chat = "ollama/llama3"
+    registry.add(her)
+    monkeypatch.setattr("yurios.world.host.create_app", fake_character_app)
+    base = Config(data_dir=tmp_path, _env_file=None, chat_model="lm_studio/house")
+
+    with TestClient(create_host_app(base, registry)) as client:
+        panel = client.get("/api/characters/yuri/brain").json()
+
+    fields = {f["key"]: f for f in panel["fields"]}
+    assert fields["chat_model"]["value"] == "ollama/llama3"
+    assert fields["chat_model"]["inherited"] == "lm_studio/house"
+    assert fields["utility_model"]["value"] == ""          # blank = inherit
+    assert panel["effective"]["chat_model"] == "ollama/llama3"
+    assert panel["running"] is True
+
+
+def test_saving_her_brain_reaches_the_live_runtime_without_a_restart(tmp_path, monkeypatch):
+    registry = CharacterRegistry(tmp_path)
+    registry.add(record(tmp_path, "yuri"))
+    monkeypatch.setattr("yurios.world.host.create_app", fake_character_app)
+    base = Config(data_dir=tmp_path, _env_file=None, chat_model="lm_studio/house")
+
+    with TestClient(create_host_app(base, registry)) as client:
+        host = client.app.state.host
+        before = host.runtime("yuri")
+        saved = client.patch("/api/characters/yuri/brain",
+                             json={"chat_model": "ollama/llama3",
+                                   "temperature": "0.4"}).json()
+        after = host.runtime("yuri")
+
+    assert after is before                      # the same runtime, mid-conversation
+    assert saved["applied"] == ["chat_model", "temperature"]
+    assert before.cfg.chat_model == "ollama/llama3" and before.cfg.temperature == 0.4
+    assert registry.require("yuri").models.chat == "ollama/llama3"
+    assert registry.require("yuri").models.options["temperature"] == 0.4
+
+
+def test_clearing_an_override_hands_her_back_to_the_env(tmp_path, monkeypatch):
+    registry = CharacterRegistry(tmp_path)
+    her = record(tmp_path, "yuri")
+    her.models.chat = "ollama/llama3"
+    her.models.options = {"temperature": 0.4}
+    registry.add(her)
+    monkeypatch.setattr("yurios.world.host.create_app", fake_character_app)
+    base = Config(data_dir=tmp_path, _env_file=None, chat_model="lm_studio/house",
+                  temperature=0.9)
+
+    with TestClient(create_host_app(base, registry)) as client:
+        rt = client.app.state.host.runtime("yuri")
+        saved = client.patch("/api/characters/yuri/brain",
+                             json={"chat_model": "", "temperature": ""}).json()
+
+    assert saved["effective"]["chat_model"] == "lm_studio/house"
+    assert rt.cfg.chat_model == "lm_studio/house" and rt.cfg.temperature == 0.9
+    assert registry.require("yuri").models.chat == ""
+    assert "temperature" not in registry.require("yuri").models.options
+
+
+def test_an_unparseable_knob_is_refused_before_anything_is_written(tmp_path, monkeypatch):
+    registry = CharacterRegistry(tmp_path)
+    registry.add(record(tmp_path, "yuri"))
+    monkeypatch.setattr("yurios.world.host.create_app", fake_character_app)
+
+    with TestClient(create_host_app(Config(data_dir=tmp_path, _env_file=None),
+                                    registry)) as client:
+        refused = client.patch("/api/characters/yuri/brain",
+                               json={"temperature": "warm"})
+        named = client.patch("/api/characters/yuri/brain",
+                             json={"api_key_env": "not a variable"})
+
+    assert refused.status_code == 400 and named.status_code == 400
+    assert registry.require("yuri").models.options == {}
+
+
+def test_a_model_change_on_the_profile_form_also_skips_the_restart(tmp_path, monkeypatch):
+    registry = CharacterRegistry(tmp_path)
+    registry.add(record(tmp_path, "yuri"))
+    monkeypatch.setattr("yurios.world.host.create_app", fake_character_app)
+
+    with TestClient(create_host_app(Config(data_dir=tmp_path, _env_file=None),
+                                    registry)) as client:
+        host = client.app.state.host
+        before = host.runtime("yuri")
+        # the switchboard posts the whole form, not a diff: re-sending the same
+        # voice and body must not count as a change
+        whole_form = {"name": "Yuri", "voice": "", "model": "ollama/llama3",
+                      "utility_model": "", "endpoint": "", "api_key_env": "",
+                      "body_backend": "", "body_model": "", "description": "resident",
+                      "mind": True, "utility": True, "dream": True}
+        saved = client.patch("/api/characters/yuri/profile", json=whole_form).json()
+        assert host.runtime("yuri") is before
+        assert saved["applied"] == ["chat_model"]
+        # …but her voice is wired at construction, so that one still rebuilds her
+        client.patch("/api/characters/yuri/profile", json={"voice": "af_sky"})
+        assert host.runtime("yuri") is not before
+
+
+def test_the_primary_answers_the_unprefixed_brain_route(tmp_path, monkeypatch):
+    """The single-companion install's pages carry no character in the URL."""
+    registry = CharacterRegistry(tmp_path)
+    registry.add(record(tmp_path, "yuri"))
+    monkeypatch.setattr("yurios.world.host.create_app", fake_character_app)
+
+    with TestClient(create_host_app(Config(data_dir=tmp_path, _env_file=None),
+                                    registry)) as client:
+        assert client.get("/api/brain").json()["character"] == "yuri"
+        assert client.patch("/api/brain", json={"chat_model": "ollama/llama3"}
+                            ).json()["effective"]["chat_model"] == "ollama/llama3"

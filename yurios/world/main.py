@@ -122,6 +122,10 @@ class Runtime:
                                          resident_free_gib=forge.backend.RESIDENT_FREE_GIB,
                                          gate=self.park_gate),
                                      quiet=self.wait_turns_idle)
+        # Whether the providers behind her voice are ours to rebuild (SPEC §31.4).
+        # An injected brain or an injected model belongs to the caller — a live
+        # model swap moves the Config knobs and leaves the object alone.
+        self._owns_models = brain is None and chat_model is None
         # `brain` is injectable for the same reason as B2's: the route tests run
         # against a FakeBrain (no Vault, no SQLite). The real one is a ToolBrain —
         # the BrainAdapter with the §7 tool loop wrapped around it. Building it
@@ -517,6 +521,60 @@ class Runtime:
                 index.close()
             except Exception:
                 log.exception("memory index close failed")
+
+    # ---- her brain settings, changed while she is talking (SPEC §31.4) ----
+
+    async def retune(self, wanted: dict) -> dict:
+        """Move this runtime onto another model (or route, or key) in place.
+
+        `wanted` is the character's *effective* brain settings — her record's
+        overrides already resolved against the host's `.env`
+        (`host.config_for_character`), so this method never has to know that
+        characters exist. Only the fields that actually differ move; the answer
+        names them, so the caller can say "nothing changed" honestly.
+
+        The swap itself is synchronous and instant: the next model call — the
+        very next token if a turn is streaming — goes to the new provider. What
+        *isn't* instant is pinning a local model into LM Studio's memory, so that
+        runs behind the answer; until it lands, LM Studio JIT-loads her the slow
+        way, which is late, not broken (§3.1)."""
+        from . import rewire
+
+        changes = rewire.differences(self.cfg, wanted)
+        state = getattr(self.brain, "state", None) if self._owns_models else None
+        applied = rewire.apply(state, self.cfg, changes, meter=self.context)
+        if applied and self.cfg.chat_model.startswith("lm_studio/"):
+            task = asyncio.create_task(self._repin_lmstudio(), name="lmstudio-repin")
+            self._tasks.append(task)           # cancelled with the rest on shutdown…
+            task.add_done_callback(self._forget_task)    # …and forgotten once done
+        return {"applied": applied, "chat_model": self.cfg.chat_model,
+                "utility_model": self.cfg.utility_model}
+
+    def _forget_task(self, task: asyncio.Task) -> None:
+        """Drop a finished one-shot task from the shutdown list, whichever order
+        it and `stop_async`'s clear() happen in."""
+        try:
+            self._tasks.remove(task)
+        except ValueError:
+            pass
+
+    async def _repin_lmstudio(self) -> None:
+        """Load the newly chosen LM Studio model and re-read the window it got.
+
+        Off the event loop and off the answer's critical path: a cold model off
+        disk is a minute, and she is mid-conversation. The context gauge's
+        ceiling belongs to whichever model is loaded *now*, so it is re-probed
+        here rather than left showing the old model's window."""
+        try:
+            if self.cfg.lmstudio_preload:
+                from yurios.app.main import _preload_lmstudio
+                await asyncio.to_thread(_preload_lmstudio, self.cfg,
+                                        chat=True, embed=False)
+            await asyncio.to_thread(self._probe_context_window, self.cfg)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("could not pin the newly selected model in LM Studio")
 
     async def set_mind_enabled(self, enabled: bool) -> None:
         """Pause/resume autonomy without taking conversation offline."""

@@ -15,6 +15,10 @@ she still runs.
 Config is read once, so a change takes effect on the next restart. The settings panel says so out
 loud after a save rather than pretending to hot-apply.
 
+A knob here is the **house default**: every character inherits it unless her own record overrides
+that field. Her brain settings are the exception to the restart rule — see
+[her own brain](#her-own-brain) below.
+
 ## The settings panel
 
 The gear in every room opens a form over these same `.env` keys. One schema drives the form *and*
@@ -28,6 +32,22 @@ Telegram pair) resolves to *hers*.
 
 Groups: Brain · Embeddings · Storage · Server · Speech-to-text · Text-to-speech · Turn-taking ·
 The loop · Channels · Desktop window.
+
+## Her own brain
+
+Above the `.env` groups, the same dialog carries a panel that is **hers**: chat model, utility
+model, endpoint, the environment variable her API key is read from, the two reasoning switches,
+temperature, the reply cap and the context window. Leave a field empty and she inherits the house's
+— the placeholder tells you what that is.
+
+The difference that matters: **these apply immediately**. Save while you are talking to her and the
+next thing she says comes from the new model, in the same session, with the same memory and mind.
+Nothing restarts, nothing is lost. (A local model that isn't loaded yet is pinned in the
+background, so that first turn may be slow.)
+
+The values live in her registry record (`data/characters.json`), not in `.env`, which is what lets
+two companions on one node run two different models. The key itself is never stored — only the
+name of the variable holding it. The same fields are on the switchboard's profile drawer.
 
 ## Brain
 

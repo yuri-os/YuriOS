@@ -17,7 +17,16 @@
  * provider dropdown (LM Studio · Ollama · OpenRouter · Custom) beside a model box
  * you can type into OR fill from a live "browse" of what that provider is serving
  * (GET /api/models?provider=…). The stored .env value is the LiteLLM id — the
- * provider prefix + the model — which we split apart on load and re-join on save. */
+ * provider prefix + the model — which we split apart on load and re-join on save.
+ *
+ * Above all of that sits a second panel with a different owner: HER brain
+ * (GET|PATCH /api/brain, world/host.py — SPEC §31.2, §31.4). Those fields belong to one
+ * character's registry record rather than to the file, every one of them blank
+ * by default meaning *inherit the .env below*, and — because the providers behind
+ * her voice are two small objects, not a process — a save applies to the running
+ * conversation at once. So one dialog carries two scopes with two honest
+ * promises: hers now, the house's on restart. `rows` carries the scope, which is
+ * what keeps the diff going to the right endpoint. */
 (() => {
   const runtimeReady = window.YuriOSRuntime
     ? Promise.resolve()
@@ -28,9 +37,10 @@
   const body = document.getElementById("settings-body");
   const note = document.getElementById("settings-note");
   const pathEl = document.getElementById("settings-path");
-  let initial = {};        // key → value as loaded (to compute the diff on save)
-  let rows = [];           // {key, read} — the single source of truth for save()
+  let initial = {};        // scope:key → value as loaded (the diff baseline)
+  let rows = [];           // {key, scope, read} — the source of truth for save()
   let loaded = false;
+  let brain = null;        // the character's own brain panel, if this node has one
 
   const el = (tag, props = {}, ...kids) => {
     const n = Object.assign(document.createElement(tag), props);
@@ -136,20 +146,29 @@
   // provider is a prefix baked into the stored id, so we split it off / rejoin it.
   function modelField(f) {
     const id = "set-" + f.key;
-    const { provider, model } = splitModel(f.value == null ? "" : String(f.value));
+    const current = f.value == null ? "" : String(f.value);
+    // An empty box is not "the bare provider prefix" — for a character override
+    // it is the whole point: inherit whatever the .env says. So the provider
+    // starts on the id being inherited, and read() answers "" until something
+    // is actually typed.
+    const { provider, model } = splitModel(current || (f.inherited || ""));
     const sel = el("select", { className: "set-input set-model-provider" });
     for (const p of PROVIDERS)
       sel.append(el("option", { value: p.id, textContent: p.label, selected: p.id === provider }));
     const input = el("input", {
       id, className: "set-input set-model-name", type: "text",
-      value: model, placeholder: "model id (or click browse)", autocomplete: "off",
+      value: current ? model : "", autocomplete: "off",
+      placeholder: f.inherited ? `inherit — ${f.inherited}` : "model id (or click browse)",
     });
     const b = attachBrowse(input, () => sel.value, { custom: "custom: type the full id" });
     sel.addEventListener("change", () => b.hide());   // stale list is for the old provider
     const combo = el("div", { className: "set-model" },
       el("div", { className: "set-model-row" }, sel, input, b.browse), b.list);
     document.addEventListener("mousedown", (e) => { if (!combo.contains(e.target)) b.hide(); });
-    return { node: combo, read: () => joinModel(sel.value, input.value), status: b.status };
+    return {
+      node: combo, status: b.status,
+      read: () => (input.value.trim() ? joinModel(sel.value, input.value) : ""),
+    };
   }
 
   // the embedding model field: no provider dropdown of its own — the "provider" IS
@@ -209,6 +228,65 @@
     return { node: input, datalist, read, input };
   }
 
+  // ---- her own brain: the same controls, tri-stated on "inherit" ----
+  // Every control here has a third state the .env panel has no use for: empty,
+  // meaning "whatever the house runs". A checkbox cannot say that, so booleans
+  // become a three-option select; the numbers and the endpoint say it with a
+  // placeholder naming the value they would inherit.
+  function brainControl(f) {
+    const id = "brain-" + f.key;
+    const shown = f.value == null ? "" : String(f.value);
+    if (f.type === "model") return modelField({ ...f, key: "brain-" + f.key });
+    if (f.type === "bool") {
+      const s = el("select", { id, className: "set-input" });
+      const inherited = f.inherited ? "on" : "off";
+      s.append(el("option", { value: "", textContent: `inherit (${inherited})`,
+        selected: shown === "" }));
+      s.append(el("option", { value: "true", textContent: "on", selected: shown === "true" }));
+      s.append(el("option", { value: "false", textContent: "off", selected: shown === "false" }));
+      return { node: s, read: () => s.value };
+    }
+    const input = el("input", {
+      id, className: "set-input", type: f.type === "number" ? "number" : "text",
+      value: shown, autocomplete: "off",
+      placeholder: f.inherited === "" || f.inherited == null
+        ? "inherit" : `inherit — ${f.inherited}`,
+    });
+    if (f.step) input.step = f.step;
+    return { node: input, read: () => input.value.trim() };
+  }
+
+  function brainRow(f) {
+    const label = el("label", { className: "set-row" });
+    const ctl = brainControl(f);
+    const wrap = el("div", { className: "set-ctl" }, ctl.node);
+    if (f.type !== "model") label.htmlFor = "brain-" + f.key;
+    rows.push({ key: f.key, scope: "brain", read: ctl.read });
+    initial["brain:" + f.key] = ctl.read();
+    label.append(el("div", { className: "set-key", textContent: f.key.replace(/_/g, " ") }), wrap);
+    if (f.help) label.append(el("div", { className: "set-help", textContent: f.help }));
+    if (ctl.status) label.append(ctl.status);
+    return label;
+  }
+
+  function brainSection(data) {
+    const sec = el("section", { className: "set-group set-group-live" });
+    sec.append(el("h3", { className: "set-group-title",
+      textContent: `${data.name || "this character"} · her own brain` }));
+    const running = data.running
+      ? "Saved here, applied to this conversation at once — no restart."
+      : "She is not running; these apply the moment she starts.";
+    sec.append(el("p", { className: "set-scope-note",
+      textContent: `Hers alone. Leave a field empty to inherit the .env below. ${running}` }));
+    for (const f of data.fields) sec.append(brainRow(f));
+    const key = data.effective?.api_key_env;
+    if (key && !data.key_configured) {
+      sec.append(el("p", { className: "set-scope-warn",
+        textContent: `${key} is not set — a hosted model will refuse her calls until it is.` }));
+    }
+    return sec;
+  }
+
   function fieldRow(f) {
     const label = el("label", { className: "set-row" });
     const head = el("div", { className: "set-key" }, f.key.toLowerCase());
@@ -234,63 +312,131 @@
       }
     }
 
-    rows.push({ key: f.key, read: ctl.read });
-    initial[f.key] = ctl.read();
+    rows.push({ key: f.key, scope: "env", read: ctl.read });
+    initial["env:" + f.key] = ctl.read();
     label.append(head, wrap);
     if (f.help) label.append(el("div", { className: "set-help", textContent: f.help }));
     if (ctl.status) label.append(ctl.status);
     return label;
   }
 
+  // The character panel is optional: a build with no registry behind it (the
+  // Build #2 desktop app) 404s here, and a node with nothing running answers
+  // 503 — both mean "no character to configure", not an error to show.
+  async function loadBrain() {
+    try {
+      const r = await fetch(apiPath("/api/brain"));
+      if (!r.ok) return null;
+      const data = await r.json();
+      return Array.isArray(data?.fields) ? data : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
   async function load() {
     await runtimeReady;
-    try {
-      const r = await fetch(apiPath("/api/settings"));
-      const data = await r.json();
-      pathEl.textContent = data.env_path || "";
-      body.textContent = "";
-      initial = {}; rows = [];
-      for (const g of data.groups) {
+    // The two panels are fetched together and fail apart: the .env editor lives
+    // in her runtime and answers nothing while she is parked, which must not
+    // take the character panel — the very screen you would fix that from — down
+    // with it.
+    const [settings, brainData] = await Promise.all([
+      fetch(apiPath("/api/settings")).then((r) => r.json()).catch((e) => ({ error: e })),
+      loadBrain(),
+    ]);
+    pathEl.textContent = settings.env_path || "";
+    body.textContent = "";
+    initial = {}; rows = [];
+    brain = brainData;
+    if (brain) {
+      body.append(brainSection(brain));
+      body.append(el("p", { className: "set-scope-note set-scope-house",
+        textContent: "Everything below is the house's .env — the default every "
+          + "character inherits, and a restart to apply." }));
+    }
+    if (Array.isArray(settings.groups)) {
+      for (const g of settings.groups) {
         const sec = el("section", { className: "set-group" });
         sec.append(el("h3", { className: "set-group-title", textContent: g.group }));
         for (const f of g.fields) sec.append(fieldRow(f));
         body.append(sec);
       }
-      loaded = true;
-    } catch (e) {
-      body.textContent = "";
-      body.append(el("p", { className: "settings-loading", textContent: "couldn't load settings: " + e }));
+    } else {
+      body.append(el("p", { className: "settings-loading",
+        textContent: "couldn't load the .env panel: "
+          + (settings.error || settings.detail || "unavailable") }));
     }
+    loaded = true;
+  }
+
+  // Her fields go to her registry record and take effect on the running
+  // conversation; the .env fields go to the file and wait for a restart. Both
+  // are sent, and the note says which of the two things happened.
+  async function saveBrain(diff) {
+    const r = await fetch(apiPath("/api/brain"), {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(diff),
+    });
+    const res = await r.json();
+    if (!r.ok) throw new Error(res.detail || `HTTP ${r.status}`);
+    for (const k of Object.keys(diff)) initial["brain:" + k] = diff[k];
+    const applied = (res.applied || []).length;
+    if (!applied) return `saved ${brainName()}'s settings`;
+    return res.running
+      ? `${brainName()} is now speaking through ${res.effective.chat_model}`
+      : `saved — ${brainName()} starts on ${res.effective.chat_model}`;
+  }
+
+  const brainName = () => (brain && brain.name) || "she";
+
+  async function saveEnv(diff) {
+    const r = await fetch(apiPath("/api/settings"), {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(diff),
+    });
+    const res = await r.json();
+    const n = (res.written || []).length;
+    for (const k of res.written || []) initial["env:" + k] = diff[k];
+    return { restart: !!res.restart_required,
+             text: res.restart_required
+               ? `${n} .env setting${n === 1 ? "" : "s"} saved — restart to apply`
+               : "saved" };
   }
 
   async function save() {
     await runtimeReady;
-    const diff = {};
+    const diffs = { brain: {}, env: {} };
     for (const row of rows) {
       const now = row.read();
-      if (String(now) !== String(initial[row.key])) diff[row.key] = now;
+      if (String(now) !== String(initial[`${row.scope}:${row.key}`]))
+        diffs[row.scope][row.key] = now;
     }
-    if (!Object.keys(diff).length) { note.textContent = "no changes"; return; }
+    const changedBrain = Object.keys(diffs.brain).length;
+    const changedEnv = Object.keys(diffs.env).length;
+    if (!changedBrain && !changedEnv) { note.textContent = "no changes"; return; }
     note.textContent = "saving…";
+    note.classList.remove("restart");
+    const said = [];
+    let restart = false;
     try {
-      const r = await fetch(apiPath("/api/settings"), {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(diff),
-      });
-      const res = await r.json();
-      const n = (res.written || []).length;
-      note.textContent = res.restart_required
-        ? `saved ${n} setting${n === 1 ? "" : "s"} — restart the app to apply`
-        : "saved";
-      note.classList.toggle("restart", !!res.restart_required);
-      for (const k of res.written || []) initial[k] = diff[k];   // the new baseline
+      if (changedBrain) said.push(await saveBrain(diffs.brain));
+      if (changedEnv) {
+        const res = await saveEnv(diffs.env);
+        restart = res.restart;
+        said.push(res.text);
+      }
+      note.textContent = said.join(" · ");
+      note.classList.toggle("restart", restart);
     } catch (e) {
       note.textContent = "save failed: " + e;
     }
   }
 
   document.getElementById("settings-open").addEventListener("click", async () => {
-    if (!loaded) await load();
+    // Reloaded on every open once a character panel is in play: what it reports
+    // — which model she is actually on, whether she is running — is live state,
+    // and a stale panel about a running companion is worse than a lost draft.
+    if (!loaded || brain) await load();
     note.textContent = "";
     note.classList.remove("restart");
     dlg.showModal();

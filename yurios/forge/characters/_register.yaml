@@ -1,0 +1,50 @@
+# The shared register — what every character inherits when her own appearance
+# file doesn't say otherwise (forge/character.py, `Character.load(defaults=…)`).
+#
+# The split this file exists to make: `identity` is *who she is* and belongs to
+# her alone; everything here is *how the picture is made* and belongs to the
+# house. A derived appearance.yaml (forge/appearance.py) therefore has to carry
+# only `name` + `identity` — the register, the text guard, and the universal
+# anatomy guard come from here, so a character imported from a card renders at
+# the same quality as the one shipped with the repo.
+#
+# Anything below can still be overridden per character: a character whose look
+# genuinely isn't 2.5D anime sets her own `quality_preamble` and this stops
+# applying to her.
+
+name: ""            # never used — a register is nobody
+
+# The locked register (D-011: 2.5D semi-realistic anime). The leading booru-style
+# quality tags are what the Illustrious-lineage bases actually respond to; the
+# prose after pins the look. Deliberately NO "photorealistic/8k" — those push the
+# semi-realistic bases all the way to photoreal, off-register.
+quality_preamble: >-
+  masterpiece, best quality, amazing quality, newest, very aesthetic, absurdres,
+  highly detailed, anime key visual. High-end 2.5D semi-realistic anime art —
+  halfway between anime illustration and a polished 3D render, the register of a
+  premium collectible character card or anime key visual: soft airbrushed cel
+  shading, dreamy volumetric lighting, rich saturated color, fine painterly detail,
+  creamy bokeh depth of field. NOT photorealistic, NOT flat cartoon.
+
+# The text/watermark guard plus the universal quality block, on every render.
+base_negative: >-
+  No text, no words, no letters, no watermark, no logo, no signature, no UI elements.
+  (worst quality, low quality, normal quality), lowres, bad anatomy, bad hands,
+  imperfect eyes, unnatural face, unnatural body, error, extra limb, missing limbs, blurry.
+
+# Applied only when someone is in frame. Purely the *structural* guard — hands,
+# eyes, limb counts — and deliberately nothing about who she is: skin tone, build
+# and species belong to `identity`, where they can differ per character. (Yuri's
+# own file adds hers on top; a derived one may add its own via
+# `character_negative`, which replaces this — see forge/appearance.py, which
+# folds this text back in so nothing is lost.)
+character_negative: >-
+  Eyes are properly structured and symmetric — no blank eyes, no pupil-less or
+  solid-color eyes, no empty white eyes, no missing iris or pupils, no asymmetric or
+  uneven eyes, no misaligned or cross-eyed gaze, no deformed or malformed eyes, no
+  extra or doubled pupils, no poorly-drawn eyes. Hands are whole and correctly
+  formed — no extra fingers, no missing fingers, no fused or malformed hands.
+
+# 2:3 portrait, the aspect the canon art uses.
+width: 832
+height: 1216

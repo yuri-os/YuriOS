@@ -45,12 +45,38 @@ ANNOUNCE_CUE = (
     "({detail}). Say one short, warm line about it, nothing else.))")
 
 
+def _identity(cfg):
+    """Whose face the camera renders (SPEC §7.6).
+
+    `SELFIE_CHARACTER` unset means the house's own character — the shipped Yuri
+    — which is right for a single-character install and is what every existing
+    .env expects. A character runtime sets it to her `appearance.yaml`, and if
+    that file is missing she gets the neutral stand-in rather than inheriting
+    whoever happens to be shipped: a photo of the wrong person is worse than a
+    photo of no one, and it is the failure that let Lumina's selfies come back
+    with Yuri's cat ears and Yuri's name in the provenance sidecar.
+    """
+    from yurios.forge import Character
+
+    path = Path(cfg.selfie_character) if cfg.selfie_character else None
+    if path is None:
+        return Character.load(FORGE_DIR / "characters" / "yuri.yaml")
+    if path.is_file():
+        return Character.load(path, defaults=Character.register())
+    log.warning(
+        "selfies: %s has no appearance file at %s — rendering a neutral "
+        "stand-in rather than another character's likeness. Run "
+        "`python -m yurios.characters appearance <id>` to derive one from "
+        "her card.", getattr(cfg, "companion_name", "this character"), path)
+    return Character.neutral(getattr(cfg, "companion_name", "") or "her")
+
+
 def build_forge(cfg) -> tuple[object, str]:
     """The forge behind the lab, from config. Returns (forge, status) where
     status is what /api/health reports: "openrouter" | "mock" | "mock (…)"."""
     from yurios.forge import Character, ImageForge, SelfieBook, make_backend
 
-    character = Character.load(FORGE_DIR / "characters" / "yuri.yaml")
+    character = _identity(cfg)
     overlays = []
     if cfg.selfie_templates_extra:             # personal registers (user file)
         extra = Path(cfg.selfie_templates_extra)
@@ -129,7 +155,8 @@ class SelfieLab:
                  speak: Callable[[str], Awaitable[bool]],
                  notify: Optional[Callable[[str, dict], None]] = None,
                  parker=None,
-                 quiet: Optional[Callable[[], Awaitable[None]]] = None):
+                 quiet: Optional[Callable[[], Awaitable[None]]] = None,
+                 situation: Optional[Callable[[], str]] = None):
         self.forge = forge
         self.clock = clock
         self.post = post                       # Runtime.post_message
@@ -137,6 +164,7 @@ class SelfieLab:
         self.notify = notify                   # EventHub.publish, when hosted
         self.parker = parker                   # LLMParker | None (world/vram.py)
         self.quiet = quiet                     # Runtime.wait_turns_idle | None
+        self.situation = situation             # () -> visual facts about now
         self._tasks: set[asyncio.Task] = set()
         self._task_ids: dict[asyncio.Task, str] = {}
         self._contracts: dict[asyncio.Task, dict] = {}
@@ -165,6 +193,21 @@ class SelfieLab:
             finally:
                 if borrowed:
                     self._release()
+
+    def _situation(self) -> str:
+        """The visual facts about right now, or "" when nobody wired any.
+
+        Never fatal and never loud: a selfie that lost its context is a slightly
+        more generic photo, which is not worth failing a render over.
+        """
+        if self.situation is None:
+            return ""
+        try:
+            return (self.situation() or "").strip()
+        except Exception:
+            log.exception("selfie: couldn't read the situation — rendering "
+                          "without it")
+            return ""
 
     def _gate(self):
         """The parker's ParkGate, or None when there isn't one — a stand-in
@@ -245,9 +288,16 @@ class SelfieLab:
 
     async def _serial_job(self, c: dict) -> None:
         scene, mood = c.get("scene") or None, c.get("mood") or None
+        framing, lighting = c.get("framing") or None, c.get("lighting") or None
+        look, avoid = c.get("look") or "", c.get("avoid") or ""
         wardrobe = c.get("wardrobe") or "everyday"   # the tier she asked the
         # tool for; unprompted shots stay in the everyday default (→ ch. 11:
         # the yaml gates nothing — whether a tier renders is the backend's call)
+        # What she didn't say, the world says (§7.6): the hour, the weather, the
+        # room she is actually in this minute. Read at render time rather than
+        # at ask time — a few seconds either way changes nothing, and it keeps
+        # the tool contract free of host state.
+        situation = self._situation()
         # A parked render evicts her LM Studio brain — never while a turn is
         # still streaming from it (the eviction kills that stream mid-reply
         # and the draft vanishes from the chat). start-don't-await means the
@@ -267,8 +317,9 @@ class SelfieLab:
                     gate.close()
                 await self.quiet()
             worker = asyncio.create_task(asyncio.to_thread(
-                self._render, scene=scene, mood=mood, wardrobe=wardrobe,
-                save=False))
+                self._render, look=look, scene=scene, mood=mood,
+                wardrobe=wardrobe, framing=framing, lighting=lighting,
+                avoid=avoid, situation=situation, save=False))
             try:
                 result = await asyncio.shield(worker)
             except asyncio.CancelledError:
@@ -317,7 +368,10 @@ class SelfieLab:
             return
 
         chosen = result.meta.get("template", {})
-        detail = ", ".join(v for v in (chosen.get("scene"), chosen.get("mood")) if v)
+        # Her own words first — they describe the shot better than two slot
+        # names ever did, and it is her line about her own photo.
+        detail = chosen.get("look") or ", ".join(
+            v for v in (chosen.get("scene"), chosen.get("mood")) if v)
         post_kw = {"image_url": f"/selfies/{name}", "proactive": True}
         if c.get("_channel"):
             post_kw["channel"] = c["_channel"]

@@ -87,32 +87,51 @@ def build_server(*, weather: WeatherProvider | None = None,
             if os.environ.get("SELFIE_TEMPLATES_EXTRA") else []
         book = SelfieBook.load(FORGE_DIR / "templates" / "selfie.yaml",
                                overlays=overlays)
-        desc = ("Take a selfie of yourself to share in the chat — it appears "
-                "there a few moments later. Each slot takes one of the named "
-                "options OR any free-form description of your own: the "
-                "library is a starting point, not a limit, so match the moment "
-                "exactly as asked — and off-menu, paint it in a vivid phrase "
-                "the camera can work from, not a single keyword. "
-                f"`scene` e.g.: {', '.join(sorted(book.scenes))} "
-                "(empty = your choice); "
-                f"`mood` e.g.: {', '.join(sorted(book.moods))}, or any "
-                "expression or pose you describe yourself; "
+        desc = ("Take a photo of yourself to share in the chat — it appears "
+                "there a few moments later. "
+                "`look` is the important one: describe the picture you want in "
+                "your own words, as much or as little as you like — where you "
+                "are, how you're sitting, what you're doing with your hands, "
+                "what your face is doing, what's behind you. Write it the way "
+                "you'd describe a photo you're about to take, not as keywords. "
+                "This is your picture: whatever you put in `look` is what gets "
+                "made, and it overrides every option below. Anything you leave "
+                "out is filled in from where you actually are right now — the "
+                "hour, the weather, the room — so a short `look` is fine when "
+                "the moment already says the rest.\n"
+                "The rest are optional shorthands. Each takes one of the named "
+                "options OR any phrase of your own; the library is a starting "
+                "point, not a limit, and nothing is chosen for you if you leave "
+                "it empty. "
+                f"`scene` e.g.: {', '.join(sorted(book.scenes))}; "
+                f"`framing` e.g.: {', '.join(sorted(book.framings))}; "
+                f"`lighting` e.g.: {', '.join(sorted(book.lighting))}; "
+                f"`mood` e.g.: {', '.join(sorted(book.moods))}; "
                 f"`wardrobe` e.g.: {', '.join(sorted(book.wardrobe))}, or any "
-                "outfit you care to describe (empty = everyday)."
+                "outfit you care to describe (empty = everyday). "
+                "`avoid` is anything you specifically don't want in the shot.\n"
+                "One call is one photo — it is already on its way when this "
+                "answers, so never call it twice for the same picture."
                 # the library's own voice (tool_hint in the yaml — shipped
                 # empty, an overlay's register explained in its own words)
                 + (f" {book.tool_hint}" if book.tool_hint else ""))
 
         @mcp.tool(description=desc)
-        def take_selfie(scene: str = "", mood: str = "", wardrobe: str = "") -> dict:
-            # Named template keys render from the library; anything else passes
-            # through verbatim (forge/templates.py — no off-menu refusal).
+        def take_selfie(look: str = "", scene: str = "", mood: str = "",
+                        wardrobe: str = "", framing: str = "",
+                        lighting: str = "", avoid: str = "") -> dict:
+            # Everything passes through: `look` verbatim, named template keys
+            # from the library, anything else as her own words
+            # (forge/templates.py — no off-menu refusal). Empty slots stay empty
+            # rather than being rotated in behind her back.
             return {"id": uuid.uuid4().hex[:8],
+                    "look": look or None,
                     "scene": scene or None, "mood": mood or None,
-                    "wardrobe": wardrobe or None,
+                    "wardrobe": wardrobe or None, "framing": framing or None,
+                    "lighting": lighting or None, "avoid": avoid or None,
                     "status": "started",
                     "note": "the photo will appear in the chat shortly — "
-                            "no need to wait for it"}
+                            "no need to wait for it, and no need to ask again"}
 
     return mcp
 

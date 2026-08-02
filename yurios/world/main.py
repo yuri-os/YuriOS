@@ -45,6 +45,7 @@ from .context import ContextMeter, short_tokens
 from .hub import EventHub
 from .turns import TextTurns
 from .selfies import SelfieLab, build_forge
+from .situation import render_visual_situation
 from .tools.guard import Guard
 from .tools.timers import TimerBoard
 from .voicestack import VoiceStack
@@ -121,7 +122,8 @@ class Runtime:
                                          cfg,
                                          resident_free_gib=forge.backend.RESIDENT_FREE_GIB,
                                          gate=self.park_gate),
-                                     quiet=self.wait_turns_idle)
+                                     quiet=self.wait_turns_idle,
+                                     situation=self.visual_situation)
         # Whether the providers behind her voice are ours to rebuild (SPEC §31.4).
         # An injected brain or an injected model belongs to the caller — a live
         # model swap moves the Config knobs and leaves the object alone.
@@ -404,6 +406,13 @@ class Runtime:
             self.turns_idle.set()
         if self.mind:
             self.mind.turn_ended()
+
+    def visual_situation(self) -> str:
+        """Where she actually is, as a camera would see it (§7.6). The selfie
+        lab's gap-filler: what she doesn't describe comes from here rather than
+        from a dice roll, so an unprompted shot at 2am in the rain looks like
+        2am in the rain."""
+        return render_visual_situation(self.clock, controller=self.controller)
 
     async def wait_turns_idle(self) -> None:
         """Block until no turn is in flight. The selfie lab's VRAM parker is

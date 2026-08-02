@@ -119,19 +119,41 @@ class SelfieBook:
     def compose(
         self,
         *,
+        look: str = "",
         scene: Optional[str] = None,
         framing: Optional[str] = None,
         lighting: Optional[str] = None,
         mood: Optional[str] = None,
         wardrobe: Optional[str] = "everyday",
+        situation: str = "",
         seed: Optional[int] = None,
+        rotate: bool = False,
     ) -> Tuple[str, Dict[str, str], str]:
         """Return (scene_prompt, chosen, negative_extra): every picked slot is
-        recorded, and any per-tier negatives come along for the render."""
+        recorded, and any per-tier negatives come along for the render.
+
+        `look` is her own description of the picture, and it leads — the slots
+        that follow refine it rather than compete with it. It is the answer to
+        the rigidity this library used to impose: five dropdowns could not
+        express "curled on the window seat with my sleeves over my hands,
+        grinning at you sideways", and a companion who can only pick from a menu
+        takes the same photo forever.
+
+        `rotate` decides what an unnamed slot means. False — the default now —
+        means *nothing*: she said what she wanted and the rest is left to the
+        renderer, or to `situation`. True restores the old seeded rotation,
+        which is still what an unprompted shot with nothing to go on wants.
+        Rolling dice for slots she didn't ask about is precisely how one request
+        became two different photos and how every selfie ended up a costume
+        change she never requested.
+        """
         rng = random.Random(seed)
         chosen: Dict[str, str] = {}
         frags: List[str] = []
         neg_frags: List[str] = []
+        if look.strip():
+            frags.append(look.strip())
+            chosen["look"] = look.strip()
         for label, table, key in (
             ("scene", self.scenes, scene),
             ("framing", self.framings, framing),
@@ -139,6 +161,8 @@ class SelfieBook:
             ("lighting", self.lighting, lighting),
             ("mood", self.moods, mood),
         ):
+            if key is None and not rotate:
+                continue                        # unasked is unasked
             name, frag = self._pick(label, table, key, rng)
             if name:
                 chosen[label] = name
@@ -147,4 +171,10 @@ class SelfieBook:
                     neg_frags.append(neg)
             if frag:
                 frags.append(frag)
+        # The world as it is, last: it fills what nobody named (the hour, the
+        # weather, the room she is actually in) and must never argue with what
+        # she did name, which is why it comes after every slot above.
+        if situation.strip():
+            frags.append(situation.strip())
+            chosen["situation"] = situation.strip()
         return " ".join(frags), chosen, " ".join(neg_frags)

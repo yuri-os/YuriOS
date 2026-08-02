@@ -216,6 +216,84 @@ async def test_wardrobe_rides_the_contract_and_defaults_to_everyday(cfg, clock, 
     assert tiers == {"w1.png": "dressy", "w2.png": "everyday"}
 
 
+async def test_her_own_words_reach_the_render_and_the_ledger(cfg, clock, forge):
+    """`look` is the field she describes a whole picture in. It has to survive
+    the whole way — contract, lab, forge, provenance — or she is back to five
+    dropdowns."""
+    rec = Recorder()
+    words = "curled on the window seat, sleeves over my hands, grinning sideways"
+    lab = SelfieLab(forge, clock=clock, post=rec.post, speak=rec.speak)
+    lab.start({"id": "lk", "look": words, "framing": "close",
+               "avoid": "no hats", "status": "started"})
+    await settle(lab)
+
+    png = cfg.selfie_dir / rec.posts[-1]["image_url"].removeprefix("/selfies/")
+    meta = json.loads(png.with_suffix(".json").read_text())
+    assert meta["template"]["look"] == words
+    assert words in meta["prompt"]                 # hers, in the actual prompt
+    assert meta["template"]["framing"] == "close"
+    assert "no hats" in meta["negative"]           # her own "not like that"
+    # and her words are what she is cued to speak about, not two slot names
+    assert words in rec.cues[0]
+
+
+async def test_the_situation_fills_only_a_real_gap(cfg, clock, forge):
+    """The world fills in what she didn't say — and shuts up the moment she
+    says where she is, because appending rain-on-the-glass to her sunlit beach
+    is worse than adding nothing."""
+    rec = Recorder()
+    lab = SelfieLab(forge, clock=clock, post=rec.post, speak=rec.speak,
+                    situation=lambda: "It is night, rain on the glass.")
+    lab.start({"id": "gap", "mood": "happy", "status": "started"})
+    lab.start({"id": "placed", "look": "on a sunlit beach", "status": "started"})
+    await settle(lab)
+
+    prompts = {}
+    for post in rec.posts:
+        png = cfg.selfie_dir / post["image_url"].removeprefix("/selfies/")
+        meta = json.loads(png.with_suffix(".json").read_text())
+        prompts[post["image_url"].split("-")[-1]] = meta["prompt"]
+    assert "rain on the glass" in prompts["gap.png"]
+    assert "rain on the glass" not in prompts["placed.png"]
+    assert "sunlit beach" in prompts["placed.png"]
+
+
+async def test_a_broken_situation_costs_a_photo_nothing(cfg, clock, forge):
+    def boom() -> str:
+        raise RuntimeError("the world model fell over")
+
+    rec = Recorder()
+    lab = SelfieLab(forge, clock=clock, post=rec.post, speak=rec.speak,
+                    situation=boom)
+    lab.start({"id": "s1", "mood": "happy", "status": "started"})
+    await settle(lab)
+    assert rec.posts and rec.posts[-1]["image_url"]     # the photo still lands
+
+
+def test_the_camera_renders_her_and_not_the_shipped_character(cfg, tmp_path):
+    """The bug this whole seam exists to close: one hardcoded yuri.yaml meant
+    every character wore Yuri's face and the sidecar called the photo hers."""
+    from yurios.characters.appearance import write_appearance
+    path = write_appearance(tmp_path / "appearance.yaml", "Lumina",
+                            "a petite young woman with silver-white hair")
+    forge, _ = build_forge(cfg.model_copy(update={"selfie_character": str(path)}))
+    assert forge.character.name == "Lumina"
+    assert "silver-white hair" in forge.character.identity
+    assert "cat ears" not in forge.character.identity
+    assert "masterpiece" in forge.character.quality_preamble   # still on-register
+
+
+def test_a_missing_appearance_file_renders_nobody_not_someone_else(cfg, tmp_path,
+                                                                   caplog):
+    cfg = cfg.model_copy(update={"selfie_character": str(tmp_path / "gone.yaml"),
+                                 "companion_name": "Lumina"})
+    with caplog.at_level("WARNING"):
+        forge, _ = build_forge(cfg)
+    assert "cat ears" not in forge.character.identity
+    assert "unspecified" in forge.character.identity
+    assert "neutral stand-in" in caplog.text
+
+
 async def test_announce_is_dropped_when_she_is_busy_but_the_photo_stays(cfg, clock, forge):
     rec = Recorder(busy=True)
     lab = SelfieLab(forge, clock=clock, post=rec.post, speak=rec.speak)

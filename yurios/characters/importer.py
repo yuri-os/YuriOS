@@ -16,6 +16,7 @@ from typing import Any, Mapping
 import yaml
 from PIL import Image, ImageOps, UnidentifiedImageError
 
+from .appearance import mechanical_identity, write_appearance
 from .card import CardLimits, CardParseError, card_fields, parse_png_card
 from .privacy import PRIVATE_SOUL_FILES
 from .soulfiles import SoulReader
@@ -539,6 +540,14 @@ class CharacterImporter:
                 encoding="utf-8",
             )
             staged.portrait.write_bytes(portrait)
+            # Her face, before anything can go wrong with it (§7.6). Written
+            # from the card's own words, synchronously, so a character always
+            # leaves the importer with a likeness of her own — the utility model
+            # rewrites this into better prose when one is reachable
+            # (`refine_appearance`), but an import that never gets that far must
+            # not leave her borrowing whoever is shipped in the repo.
+            write_appearance(staged.appearance, name,
+                             mechanical_identity(name, _text(fields.get("description"))))
             _create_vault(staged.vault, fields, name, soul_files)
             for directory in (staged.corpus, staged.traces, staged.tool_logs, staged.selfies):
                 directory.mkdir(parents=True, exist_ok=True)

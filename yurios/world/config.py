@@ -47,6 +47,12 @@ class Config(VoiceConfig):
     # repo, exactly like the checkpoint below. Set but missing → one loud
     # WARNING and the shipped library alone.
     selfie_templates_extra: str = ""
+    # Whose likeness the camera renders — an appearance yaml (forge/character.py).
+    # Empty = the shipped Yuri, which is the right answer for a single-character
+    # house; a character runtime points this at her own `appearance.yaml`
+    # (host.py, `config_for_character`), because rendering one character with
+    # another's face is the one failure a camera must never have.
+    selfie_character: str = ""
     tool_rate_selfie: int = 2                   # calls/minute — images are expensive
 
     # --- the local camera: SELFIE_BACKEND=diffusers (your GPU, no third party) ---

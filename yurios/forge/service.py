@@ -109,20 +109,47 @@ class ImageForge:
     def selfie(
         self,
         *,
+        look: str = "",
         scene: Optional[str] = None,
         framing: Optional[str] = None,
         lighting: Optional[str] = None,
         mood: Optional[str] = None,
         wardrobe: str = "everyday",
+        avoid: str = "",
+        situation: str = "",
         seed: Optional[int] = None,
         save: bool = True,
         **over: Any,
     ) -> ImageResult:
-        """A selfie 'of her': compose a varied scene from the template library
-        (→ ch. 26, the anti-collapse fix), then render on-register."""
+        """A selfie 'of her': her own description of the shot, refined by any
+        library slots she named, filled out by the world as it is, rendered
+        on-register.
+
+        The library rotates a shot in only when there is genuinely nothing to go
+        on — no words of hers, no named slot, no situation. That is the honest
+        reading of an empty ask ("take a selfie", no further thought), and it is
+        the *only* case that should surprise her: everywhere else, what comes
+        back is what she described.
+        """
+        # The world fills a *gap*, never an argument. She has said where she is
+        # the moment she writes a `look` or names a `scene`, and appending "rain
+        # on the window at night" to her sunlit beach is worse than adding
+        # nothing at all — so context arrives only when nobody has set the
+        # picture's place. A mood-only or wardrobe-only ask is exactly the case
+        # it exists for.
+        placed = bool(look.strip() or scene)
+        if placed:
+            situation = ""
+        asked = bool(placed or situation.strip()
+                     or any(v is not None for v in (framing, lighting, mood)))
         scene_prompt, chosen, negative_extra = self.book.compose(
-            scene=scene, framing=framing, lighting=lighting, mood=mood,
-            wardrobe=wardrobe, seed=seed)
+            look=look, scene=scene, framing=framing, lighting=lighting, mood=mood,
+            wardrobe=wardrobe, situation=situation, seed=seed, rotate=not asked)
+        if avoid.strip():
+            # Her own "not like that" (→ ch. 11: still no enforcement posture —
+            # this is her steering the picture, not the engine refusing one).
+            negative_extra = " ".join(x for x in (negative_extra, avoid.strip()) if x)
+            chosen["avoid"] = avoid.strip()
         label = "selfie-" + "-".join(chosen.get(k, "") for k in ("scene", "wardrobe")).strip("-")
         result = self.generate(scene_prompt, include_character=True, label=label or "selfie",
                                negative_extra=negative_extra, seed=seed, save=save, **over)

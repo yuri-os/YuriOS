@@ -102,7 +102,12 @@ async def test_take_selfie_contract_and_freeform_passthrough():
         selfie = next(t for t in listed.tools if t.name == "take_selfie")
         assert "window" in selfie.description and "happy" in selfie.description
         assert "cozy" in selfie.description and "dressy" in selfie.description
-        assert "free-form" in selfie.description
+        assert "in your own words" in selfie.description
+        # …and it leads with `look` — the field she describes a whole picture
+        # in — because a menu of five slots is what made every selfie the same
+        assert "`look`" in selfie.description
+        assert set(selfie.inputSchema["properties"]) == {
+            "look", "scene", "mood", "wardrobe", "framing", "lighting", "avoid"}
 
 
 async def test_set_timer_returns_the_contract():

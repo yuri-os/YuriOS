@@ -75,6 +75,57 @@ def _left(seconds: float) -> str:
     return f"about {h} hour{'s' if h != 1 else ''}"
 
 
+def _hour_fragment(now: datetime.datetime) -> str:
+    """The hour, as light rather than as a number. A renderer draws "the low
+    warm light of late afternoon"; it draws nothing at all from "16:40"."""
+    hour = now.hour
+    if hour < 5:
+        return ("the small hours of the night, the room dark around a single "
+                "warm pool of lamplight")
+    if hour < 8:
+        return "early morning, thin pale light just reaching the room"
+    if hour < 11:
+        return "morning, clear and bright"
+    if hour < 14:
+        return "the middle of the day, full even daylight"
+    if hour < 17:
+        return "afternoon, warm slanting light"
+    if hour < 20:
+        return "early evening, the last of the golden light going blue"
+    return "night, the room lit warm against the dark outside"
+
+
+def _rain_fragment(intensity: float) -> str:
+    # No pronouns here: this text is appended to the prompt for whichever
+    # character is holding the camera, and the house does not know who that is.
+    if intensity <= 0.0:
+        return "the window dry and clear"
+    if intensity < 0.34:
+        return "a light rain beading the window behind"
+    if intensity < 0.67:
+        return "steady rain tracing the window behind"
+    return "heavy rain sheeting down the window behind, the glass streaming"
+
+
+def render_visual_situation(clock: Clock, *, controller: VrmController) -> str:
+    """The stage as a *camera* sees it (SPEC §7.6) — the same host surfaces the
+    situation block reads, phrased as things that can be drawn.
+
+    This is what fills the gaps when she doesn't describe a whole picture. It is
+    deliberately only the facts a photograph would show: the hour as light, the
+    weather on the glass. Her body, her timers and her music belong in the
+    prompt she thinks with, not in the one the renderer paints from — a running
+    timer is not visible in a photo, and asking a generator to draw one gets you
+    a clock face nobody wanted.
+    """
+    now = datetime.datetime.fromtimestamp(clock.now())
+    parts = [_hour_fragment(now)]
+    scene = controller.scene_state()
+    if scene.get("rain") is not None:
+        parts.append(_rain_fragment(scene["rain"]))
+    return "It is " + ", ".join(parts) + "."
+
+
 def render_situation(clock: Clock, *, controller: VrmController,
                      timers: TimerBoard, user_name: str = "you") -> str:
     """The stage, as prose: time, body, weather, music, running timers."""

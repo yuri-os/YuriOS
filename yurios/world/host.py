@@ -27,6 +27,7 @@ from yurios.characters import (
     ConnectionProfile, ConnectionProfiles,
 )
 from yurios.characters import studio as studio_model
+from yurios.characters.appearance import ensure_appearance, refine_appearance
 from yurios.characters.creator import create_character, template_draft
 from yurios.characters.exporter import ExportOptions, build_export, preview_export
 from yurios.characters.privacy import CardExportError
@@ -266,6 +267,7 @@ def config_for_character(base: Config, record: CharacterRecord,
         "trace_dir": record.paths.traces,
         "tool_log_dir": record.paths.tool_logs,
         "selfie_dir": record.paths.selfies,
+        "selfie_character": str(record.paths.appearance),
         "mind_enabled": record.loops.mind,
         "utility_enabled": record.loops.utility,
         "dream_enabled": record.loops.dream,
@@ -475,6 +477,7 @@ class CharacterHost:
             if record.lifecycle.review_required or not record.lifecycle.enabled:
                 raise RuntimeError("character is disabled or still requires review")
             self.states[character_id] = "starting"
+            ensure_appearance(record)   # her own face, before her camera (§7.6)
             try:
                 app = create_app(self.effective_config(record),
                                  manage_lifespan=False, mount_frontend=False)
@@ -736,6 +739,18 @@ def create_host_app(base: Config, registry: CharacterRegistry | None = None) -> 
             record = CharacterImporter(registry).import_card(payload, autostart=True)
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
+        # The importer already left her a likeness taken straight from her
+        # card's own words; this rewrites it as prose a renderer can use
+        # (characters/appearance.py). Before the start, so her camera is built
+        # on the better one — and never fatal: an import that succeeded must not
+        # be undone by a model that was busy.
+        try:
+            from yurios.app.main import build_utility_model
+            await refine_appearance(
+                record, build_utility_model(host.effective_config(record)))
+        except Exception:
+            log.exception("appearance: couldn't refine %s's likeness — keeping "
+                          "the one read from her card", record.id)
         if record.lifecycle.enabled and not record.lifecycle.review_required:
             await host.start(record.id)
         return {"character": host.summary(record)}

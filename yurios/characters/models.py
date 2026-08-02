@@ -117,6 +117,9 @@ class CharacterPaths:
     traces: Path
     tool_logs: Path
     selfies: Path
+    # Her visual identity for the forge — who the camera renders (§7.6). Derived
+    # from her card at import (characters/appearance.py) and hand-editable after.
+    appearance: Path
 
     @classmethod
     def under(cls, root: Path) -> "CharacterPaths":
@@ -131,6 +134,7 @@ class CharacterPaths:
             traces=root / "traces",
             tool_logs=root / "tool-logs",
             selfies=root / "selfies",
+            appearance=root / "appearance.yaml",
         )
 
 
@@ -181,7 +185,16 @@ class CharacterRecord:
                 raise ValueError("character paths must be an object")
             base = Path(data_root).resolve() if data_root is not None else None
             paths: dict[str, Path] = {}
+            # A registry written before a path existed simply doesn't carry it;
+            # rebuild the missing one under her root rather than refusing to
+            # load her. Every path here is derived from `root` by `under()`, so
+            # the reconstruction is the same answer a fresh import would give.
+            defaults = CharacterPaths.under(Path(str(raw_paths["root"])))
             for key in CharacterPaths.__dataclass_fields__:
+                if key not in raw_paths:
+                    paths[key] = getattr(defaults, key) if base is None else (
+                        base / getattr(defaults, key)).resolve()
+                    continue
                 path = Path(str(raw_paths[key]))
                 if base is not None:
                     if path.is_absolute():

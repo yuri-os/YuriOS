@@ -27,11 +27,39 @@ def test_named_slots_compose_from_the_library():
     assert negative == ""                        # plain string tiers carry none
 
 
-def test_empty_slots_rotate_in_seeded():
-    _, a, _ = BOOK.compose(seed=42)
-    _, b, _ = BOOK.compose(seed=42)
+def test_empty_slots_rotate_in_seeded_when_asked_to():
+    _, a, _ = BOOK.compose(seed=42, rotate=True)
+    _, b, _ = BOOK.compose(seed=42, rotate=True)
     assert a == b                                 # a seed reproduces the shot
     assert set(a) == {"scene", "framing", "wardrobe", "lighting", "mood"}
+
+
+def test_unasked_slots_stay_unasked_by_default():
+    """The anti-surprise rule. Rotation used to be unconditional, so a slot she
+    never mentioned was filled by a dice roll — which is how one request came
+    back as two different photos, and how every shot arrived with a costume and
+    a light she hadn't chosen. Now silence means silence."""
+    prompt, chosen, _ = BOOK.compose(mood="happy")
+    assert set(chosen) == {"mood", "wardrobe"}    # wardrobe is a passed default
+    assert "SCENE-" not in prompt and "LIGHT-" not in prompt
+    assert "FRAMING-" not in prompt
+
+
+def test_her_own_words_lead_the_prompt():
+    """`look` is the whole point of the change: one field she can describe an
+    entire picture in, ahead of every slot that used to be the only way in."""
+    words = "curled on the window seat, sleeves over my hands, grinning sideways"
+    prompt, chosen, _ = BOOK.compose(look=words, framing="close")
+    assert prompt.startswith(words)               # hers first, slots refine
+    assert "FRAMING-close" in prompt
+    assert chosen["look"] == words
+
+
+def test_the_situation_lands_last_and_is_recorded():
+    prompt, chosen, _ = BOOK.compose(mood="happy",
+                                     situation="It is night, rain on the glass.")
+    assert prompt.endswith("It is night, rain on the glass.")
+    assert chosen["situation"] == "It is night, rain on the glass."
 
 
 def test_freeform_text_passes_through_verbatim():

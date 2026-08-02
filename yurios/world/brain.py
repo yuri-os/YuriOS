@@ -37,7 +37,7 @@ from yurios.desktop.config import Config
 from .avatar.controller import VrmController
 from .situation import render_situation
 from .tools.client import ToolRunner, ToolSpec, build_directive
-from .tools.guard import Guard
+from .tools.guard import Guard, Turn
 from .tools.timers import TimerBoard
 from .tooltags import ToolCall, ToolTagParser
 
@@ -172,6 +172,7 @@ class ToolBrain(BrainAdapter):
         messages = list(messages)
         calls_made = 0
         cap = self.cfg.tool_max_calls_per_turn
+        turn = self.guard.turn()      # one dedupe scope for this reply (§7.3)
         while True:
             parser = ToolTagParser()
             spoken_this_pass: list[str] = []
@@ -204,7 +205,7 @@ class ToolBrain(BrainAdapter):
                 return
 
             calls_made += 1
-            result = await self._execute(call)
+            result = await self._execute(call, turn)
             raw.append(f'\n[[{call.tool} → {result}]]\n')
             # the continuation: her partial reply + the result, back to the model
             # as the SAME turn (§7.4). The partial must be in the messages or she
@@ -220,11 +221,11 @@ class ToolBrain(BrainAdapter):
                     + ".))"},
             ]
 
-    async def _execute(self, call: ToolCall) -> str:
+    async def _execute(self, call: ToolCall, turn: Turn | None = None) -> str:
         """Guard → MCP → audit → host-side realisation. Never raises: a denied or
         failed call becomes a short result string the model can speak to (§7.3)."""
         t0 = self.guard.clock.now()
-        ok, reason = self.guard.check(call.tool)
+        ok, reason = self.guard.check(call.tool, call.args, turn=turn)
         if not ok:
             self.guard.audit(call.tool, call.args, f"denied: {reason}", 0.0, "")
             return f"denied ({reason})"

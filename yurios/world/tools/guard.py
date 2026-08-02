@@ -19,6 +19,30 @@ log = logging.getLogger("world.guard")
 RESULT_MAX_CHARS = 600      # a tool result is a fact for her to speak to, not a payload
 
 
+def _fingerprint(tool: str, args: dict | None) -> str:
+    """What counts as "the same call". Exact, deliberately: `cozy` and `bare`
+    are two different photos she may well have meant, so only a byte-identical
+    repeat is a repeat — a near-miss is her changing her mind, and policy does
+    not get to guess about that."""
+    return tool + "\0" + json.dumps(args or {}, sort_keys=True, default=str)
+
+
+class Turn:
+    """One reply's worth of dedupe memory, handed out by `Guard.turn()`.
+
+    The scope lives with the caller rather than on the Guard because turns
+    overlap: sessions stream concurrently against the one shared Guard, and a
+    duplicate is only a duplicate *within the reply that made it*. A held Turn
+    is therefore the only state that distinguishes "she asked twice" from "she
+    asked again later", and it dies with the pass loop that owns it.
+    """
+
+    __slots__ = ("seen",)
+
+    def __init__(self) -> None:
+        self.seen: set[str] = set()
+
+
 class Guard:
     def __init__(self, *, rates_per_min: dict[str, int], log_dir: Path,
                  clock: Clock):
@@ -33,10 +57,28 @@ class Guard:
 
     # ---- policy ----
 
-    def check(self, tool: str) -> tuple[bool, str]:
-        """Allowlist + rate limit. Returns (allowed, reason-if-denied)."""
+    def turn(self) -> Turn:
+        """A fresh dedupe scope — one per reply (world/brain.py's pass loop)."""
+        return Turn()
+
+    def check(self, tool: str, args: dict | None = None, *,
+              turn: Turn | None = None) -> tuple[bool, str]:
+        """Allowlist + one-per-turn dedupe + rate limit. Returns
+        (allowed, reason-if-denied). Without a `turn` the dedupe is simply not
+        in play — the other two rules stand on their own."""
         if tool not in self._rates:
             return False, "not a tool she has"
+        # Same hand, same arguments, same reply: the model re-emitting a marker
+        # it already spent, not a second thing she meant. Start-don't-await
+        # results (§7.6) invite exactly this — `status: started` carries no
+        # photo, so the continuation reads as though nothing happened and she
+        # reaches for the camera again. The rate limit can't catch it (a burst
+        # of two is what the bucket is *for*), and the per-turn cap only bounds
+        # how many duplicates land. Checked before the bucket, so a repeat costs
+        # her nothing but the answer.
+        fp = _fingerprint(tool, args) if turn is not None else ""
+        if turn is not None and fp in turn.seen:
+            return False, "already done this turn"
         b = self._buckets[tool]
         rate = self._rates[tool]
         now = self.clock.now()
@@ -45,6 +87,8 @@ class Guard:
         if b["tokens"] < 1.0:
             return False, "rate limit"
         b["tokens"] -= 1.0
+        if turn is not None:          # only a call she actually got to make
+            turn.seen.add(fp)
         return True, ""
 
     @staticmethod

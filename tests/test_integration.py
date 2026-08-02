@@ -10,6 +10,7 @@ fresh from the soul-src, no reference to ../01 or ../02.
 """
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -119,6 +120,51 @@ async def test_tool_turn_over_the_real_brain(vault, cfg, clock):
     log = subprocess.run(["git", "-C", str(vault), "log", "--oneline"],
                          capture_output=True, text=True).stdout
     assert sum("turn" in l for l in log.splitlines()) == 1
+
+
+async def test_the_same_marker_twice_in_one_turn_runs_once(vault, cfg, clock):
+    """The two-selfies bug, over the real pass loop (§7.3).
+
+    A start-don't-await result (`status: started`) carries nothing she can see,
+    so the continuation reads as though the call never landed and she emits the
+    identical marker again. Both passed the old guard — the rate limit is a
+    burst of two by design, and the per-turn cap of two only bounded how many
+    duplicates got through — and the chat got two photos, two timers, two of
+    whatever she reached for. The second call must never reach the runner.
+    """
+    cfg = cfg.model_copy(update={
+        "vault_dir": vault, "embed_dim": 8,
+        "corpus_dir": vault.parent / "corpus",
+        "trace_dir": vault.parent / "traces"})
+    chat = ScriptedChat([
+        ["On ", "it. ", MARKER],
+        ["Just ", "a ", "moment. ", MARKER],       # the same ask, re-emitted
+        ["There ", "— ", "ten ", "minutes."],
+    ])
+    guard = Guard(rates_per_min={"set_timer": 6}, log_dir=cfg.tool_log_dir,
+                  clock=clock)
+    timers = TimerBoard(clock)
+    runner = FakeToolRunner()
+    brain = ToolBrain.build(cfg, guard=guard, timers=timers,
+                            controller=VrmController(), chat_model=chat,
+                            utility_model=FakeUtility(), embedder=FakeEmbedder())
+    brain.set_tools(runner, list(SPECS))
+    sid = brain.resolve_session(None)
+    tc = TurnController(brain=brain, tts=FakeTTS(), filler_bank=None,
+                        mask_latency=False, trace_dir=cfg.trace_dir)
+
+    events = [ev async for ev in tc.run_turn(sid, "set a tea timer, ten minutes")]
+
+    assert events[-1].kind == "done"
+    assert runner.calls == [("set_timer", {"minutes": 10, "label": "tea"})]
+    assert [t.label for t in timers.pending()] == ["tea"]      # one timer, not two
+
+    # the duplicate is on the record as a refusal, and she was told in the
+    # continuation — so she can speak to it instead of reaching a third time
+    audit = [json.loads(l) for l in
+             (cfg.tool_log_dir / "calls.jsonl").read_text().strip().splitlines()]
+    assert [a["verdict"] for a in audit] == ["ok", "denied: already done this turn"]
+    assert "already done this turn" in chat.calls[-1][-1]["content"]
 
 
 async def test_a_barged_in_turn_leaves_nothing_in_her_memory(vault, cfg, clock):

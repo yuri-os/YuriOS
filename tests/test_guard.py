@@ -26,6 +26,39 @@ def test_rate_limit_token_bucket_refills_on_the_injected_clock(clock, cfg):
     assert not guard.check("set_timer")[0]
 
 
+def test_same_call_twice_in_one_turn_is_denied(guard):
+    """The selfie bug: `status: started` carries no photo, so she re-emits the
+    marker she already spent and the chat gets two of everything."""
+    turn = guard.turn()
+    args = {"scene": "window", "wardrobe": "cozy"}
+    assert guard.check("set_timer", args, turn=turn) == (True, "")
+    ok, reason = guard.check("set_timer", dict(args), turn=turn)
+    assert not ok and reason == "already done this turn"
+
+
+def test_dedupe_is_exact_and_scoped_to_the_one_turn(guard):
+    """Different arguments are a different call; a later turn is a clean slate."""
+    first = guard.turn()
+    assert guard.check("set_timer", {"minutes": 10}, turn=first)[0]
+    assert guard.check("set_timer", {"minutes": 5}, turn=first)[0]
+    assert guard.check("set_timer", {"minutes": 10}, turn=guard.turn())[0]
+
+
+def test_a_denied_duplicate_costs_no_rate_budget(clock, cfg):
+    guard = Guard(rates_per_min={"set_timer": 2}, log_dir=cfg.tool_log_dir,
+                  clock=clock)
+    turn = guard.turn()
+    assert guard.check("set_timer", {"minutes": 10}, turn=turn)[0]
+    assert not guard.check("set_timer", {"minutes": 10}, turn=turn)[0]
+    # the repeat spent nothing: the second *distinct* call still has a token
+    assert guard.check("set_timer", {"minutes": 5}, turn=turn)[0]
+
+
+def test_check_without_a_turn_keeps_the_old_two_rule_behaviour(guard):
+    assert guard.check("set_timer", {"minutes": 10})[0]
+    assert guard.check("set_timer", {"minutes": 10})[0]
+
+
 def test_truncate_caps_result_length():
     long = "x" * (RESULT_MAX_CHARS * 2)
     out = Guard.truncate(long)

@@ -39,10 +39,20 @@ log = logging.getLogger("world.selfies")
 
 FORGE_DIR = Path(__file__).resolve().parent.parent / "forge"
 
-# the announce cue (§8.3): spoken only if she's free, through the ambient seam
+# the announce cue (§8.3): spoken only if she's free, through the ambient seam.
+# Two words for two cameras — "the selfie you just took" is a strange thing to
+# say about a photo of the rain, and she should sound like she knows which of
+# the two she reached for.
 ANNOUNCE_CUE = (
-    "((The selfie you just took is ready — it's visible in the chat now "
+    "((The {noun} you just took is ready — it's visible in the chat now "
     "({detail}). Say one short, warm line about it, nothing else.))")
+
+
+def _noun(kind: str) -> str:
+    """What to call the thing she just made. `kind` comes off the tool contract;
+    a contract from before there were two cameras has none, and a selfie is the
+    right thing to assume."""
+    return "picture" if kind == "picture" else "selfie"
 
 
 def _identity(cfg):
@@ -172,7 +182,21 @@ class SelfieLab:
         # one job from reopening the gate under another job's active render.
         self._render_lock = asyncio.Lock()
 
-    def _render(self, **kw):
+    def _compose(self, kind: str, kw: dict):
+        """Which of the two cameras this contract asked for (§7.6).
+
+        Both end in the same backend, the same register and the same provenance
+        ledger; the only difference is whether her likeness is in the frame.
+        Keeping the choice here — rather than in two parallel jobs — means the
+        parking, the gate, the cancellation dance and the announce path are
+        written once and cannot drift apart.
+        """
+        if kind == "picture":
+            return self.forge.picture(kw.get("subject", ""),
+                                      avoid=kw.get("avoid", ""), save=False)
+        return self.forge.selfie(**kw)
+
+    def _render(self, kind: str = "selfie", **kw):
         """One render, borrowing the LLM's VRAM when the card needs it: the
         parker evicts her LM Studio models for the render's duration and
         re-pins them after (finally — a failed render never strands her brain).
@@ -186,10 +210,10 @@ class SelfieLab:
         surely as one that finished — and OOM, the likeliest way to get here,
         is precisely the case where the card can least afford it."""
         if self.parker is None:
-            return self.forge.selfie(**kw)
+            return self._compose(kind, kw)
         with self.parker.parked() as borrowed:
             try:
-                return self.forge.selfie(**kw)
+                return self._compose(kind, kw)
             finally:
                 if borrowed:
                     self._release()
@@ -287,17 +311,29 @@ class SelfieLab:
             await self._serial_job(c)
 
     async def _serial_job(self, c: dict) -> None:
-        scene, mood = c.get("scene") or None, c.get("mood") or None
-        framing, lighting = c.get("framing") or None, c.get("lighting") or None
-        look, avoid = c.get("look") or "", c.get("avoid") or ""
-        wardrobe = c.get("wardrobe") or "everyday"   # the tier she asked the
-        # tool for; unprompted shots stay in the everyday default (→ ch. 11:
-        # the yaml gates nothing — whether a tier renders is the backend's call)
-        # What she didn't say, the world says (§7.6): the hour, the weather, the
-        # room she is actually in this minute. Read at render time rather than
-        # at ask time — a few seconds either way changes nothing, and it keeps
-        # the tool contract free of host state.
-        situation = self._situation()
+        kind = str(c.get("kind") or "selfie")
+        noun = _noun(kind)
+        if kind == "picture":
+            # Nothing to fill in and nothing to roll: she wrote the subject, and
+            # a picture of something else is entirely hers to describe. The
+            # situation stays out for the same reason it stays out of a selfie
+            # she placed herself — "it is night, rain on the window" appended to
+            # her sunlit meadow is worse than adding nothing at all.
+            kw = {"subject": c.get("subject") or "", "avoid": c.get("avoid") or ""}
+        else:
+            scene, mood = c.get("scene") or None, c.get("mood") or None
+            framing, lighting = c.get("framing") or None, c.get("lighting") or None
+            look, avoid = c.get("look") or "", c.get("avoid") or ""
+            wardrobe = c.get("wardrobe") or "everyday"   # the tier she asked the
+            # tool for; unprompted shots stay in the everyday default (→ ch. 11:
+            # the yaml gates nothing — whether a tier renders is the backend's call)
+            # What she didn't say, the world says (§7.6): the hour, the weather,
+            # the room she is actually in this minute. Read at render time rather
+            # than at ask time — a few seconds either way changes nothing, and it
+            # keeps the tool contract free of host state.
+            kw = {"look": look, "scene": scene, "mood": mood, "wardrobe": wardrobe,
+                  "framing": framing, "lighting": lighting, "avoid": avoid,
+                  "situation": self._situation()}
         # A parked render evicts her LM Studio brain — never while a turn is
         # still streaming from it (the eviction kills that stream mid-reply
         # and the draft vanishes from the chat). start-don't-await means the
@@ -317,9 +353,7 @@ class SelfieLab:
                     gate.close()
                 await self.quiet()
             worker = asyncio.create_task(asyncio.to_thread(
-                self._render, look=look, scene=scene, mood=mood,
-                wardrobe=wardrobe, framing=framing, lighting=lighting,
-                avoid=avoid, situation=situation, save=False))
+                self._render, kind, save=False, **kw))
             try:
                 result = await asyncio.shield(worker)
             except asyncio.CancelledError:
@@ -342,7 +376,7 @@ class SelfieLab:
             self.forge._write_provenance(path, result.meta)   # the ledger (→ ch. 26)
         except Exception as e:                 # render failed: say so, quietly
             failed = True
-            log.exception("selfie render failed")
+            log.exception("%s render failed", noun)
             post_kw = {"proactive": True}
             if c.get("_channel"):
                 post_kw["channel"] = c["_channel"]
@@ -350,7 +384,7 @@ class SelfieLab:
                 post_kw["client_id"] = c["_client_id"]
             post_kw["selfie_id"] = str(c.get("id", ""))
             self.post("assistant",
-                      f"(the selfie didn't come out — {type(e).__name__})",
+                      f"(the {noun} didn't come out — {type(e).__name__})",
                       **post_kw)
             self._status(c, "error")
         finally:
@@ -383,9 +417,10 @@ class SelfieLab:
         # one soft line about it, only if she's free — a drop is fine (§8.3):
         # unlike a timer, the photo itself already landed.
         try:
-            await self.speak(ANNOUNCE_CUE.format(detail=detail or "a new shot"))
+            await self.speak(ANNOUNCE_CUE.format(noun=noun,
+                                                 detail=detail or "a new shot"))
         except Exception:
-            log.exception("selfie announce failed")
+            log.exception("%s announce failed", noun)
 
     async def close(self) -> None:
         for t in list(self._tasks):

@@ -1,7 +1,7 @@
 # Selfies — her camera
 
-`take_selfie` is the fourth of her [hands](tools.md), and the one that teaches the lesson the
-others can't: **a slow tool must not sit inside the turn.** A render takes 10–30 seconds; dead air
+`take_selfie` and `show_picture` are the two of her [hands](tools.md) that share a camera, and
+the ones that teach the lesson the others can't: **a slow tool must not sit inside the turn.** A render takes 10–30 seconds; dead air
 after her lead-in would read as a hang.
 
 So the tool starts work and never awaits it:
@@ -32,7 +32,7 @@ SELFIE_BACKEND=openrouter         # openrouter | diffusers | krea2 | mock | off
 | `mock` | deterministic placeholder cards | nothing — keyless, offline |
 | `off` | no camera at all | — |
 
-With `SELFIE_BACKEND=off` the tool isn't advertised to the model: no hand, rather than a dead one.
+With `SELFIE_BACKEND=off` neither tool is advertised to the model: no hand, rather than a dead one.
 
 **Any backend that can't run degrades to `mock` with one loud WARNING** — no key, missing
 dependencies, a missing checkpoint, or no access to a gated repo. She keeps working and
@@ -128,9 +128,24 @@ moment first. Set `SELFIE_LLM_PARK=false` to never touch LM Studio (renders use 
 
 ## What she can ask for
 
-The tool takes three optional slots — `scene`, `mood`, `wardrobe` — and the shot is composed as
-*scene + framing + wardrobe + lighting + mood*. Name a slot to pin it; leave it out and the
-service rotates one in (seeded, so a seed reproduces a shot).
+`look` is the important one: **the whole picture in her own words**, written the way you'd
+describe a photo rather than as keywords. It leads the prompt and overrides everything else. Five
+dropdowns could never express *"curled on the window seat with my sleeves over my hands, grinning
+at you sideways"*, and a companion who can only pick from a menu takes the same photo forever.
+
+The rest — `scene`, `framing`, `lighting`, `mood`, `wardrobe` — are optional shorthands that
+refine it, and `avoid` is her own "not like that". **A slot she doesn't name stays unnamed.**
+Nothing is rolled behind her back: a rotation she never asked for is how one request came back as
+two different photos, and how every unprompted shot turned into a costume change.
+
+What she leaves out is filled from *where she actually is* — the hour as light, the rain on the
+glass (`render_visual_situation`). Only the gaps: the moment she writes a `look` or names a
+`scene` she has placed the picture herself, and the world stops volunteering. Appending "it is
+night, rain on the window" to her sunlit meadow is worse than adding nothing.
+
+The library only rotates a shot in when there is genuinely nothing to go on — no words, no slot,
+no situation. That's the honest reading of "take a selfie" with no further thought, and it's the
+only case that should surprise her.
 
 Shipped keys (`yurios/forge/templates/selfie.yaml`):
 
@@ -180,9 +195,36 @@ Two mechanics make a tier real rather than decorative. **Per-tier negatives** fi
 tier's look collides with the generator's default and the positive words alone lose to the model's
 prior. **Pinned tiers** are named-asks-only: never rotated into an unprompted shot.
 
-Her visual identity — the locked art register, her appearance, the quality preamble — lives in
-`yurios/forge/characters/yuri.yaml`. Edit `identity` to re-skin her; leave `quality_preamble`
-alone, since that's the register itself.
+## Whose face the camera renders
+
+Her visual identity — her appearance, the quality preamble, the structural negatives — lives in
+an **appearance yaml**. The house's own is `yurios/forge/characters/yuri.yaml`; every imported
+character gets `data/characters/<id>/appearance.yaml`, derived from her card at import and
+hand-editable afterwards. Each inherits the shared register from
+`yurios/forge/characters/_register.yaml`, so a derived file is usually two fields long. Edit
+`identity` to re-skin her; leave `quality_preamble` alone, since that's the register itself.
+
+A character runtime points `SELFIE_CHARACTER` at her own file. If it's missing, the camera
+renders a **neutral stand-in** and says so loudly rather than falling back to whoever the house
+ships — a photo of the wrong person is worse than a photo of no one.
+
+## show_picture — the camera pointed away from her
+
+`take_selfie` can only ever answer *"here is a picture of me"*. `show_picture` is the other half:
+the street below, a sketch she made, the thing she keeps meaning to show you.
+
+```
+"here, look — [[show_picture {"subject": "the rain running down the glass, the city smeared behind it"}]]"
+```
+
+It takes a required `subject` and an optional `avoid`, and that's all. **No library, no slots, no
+rotation, and no situation fill-in** — her words are the whole prompt, because no menu could
+anticipate what she might want to show you, and she has already written the scene.
+
+Her likeness is left out of that frame (`include_character=False`): a photo of the rain doesn't
+have her in it just because she took it. Everything else is shared with the selfie path — one
+lab, one VRAM loan, one provenance ledger, the same start-don't-await rule, the same quiet
+message when a render fails.
 
 ## Where the photos go
 
@@ -201,6 +243,10 @@ it's saved.
 
 ```ini
 TOOL_RATE_SELFIE=2                # calls per minute — images are expensive
+TOOL_RATE_PICTURE=2               # show_picture gets its own budget, not a share
 ```
+
+Separate buckets on purpose: they cost the same GPU, but they're different urges, and spending
+her picture budget on the street below shouldn't stop her sending you her face a minute later.
 
 Like every tool call, allowed or denied, each one appends an audit line to `TOOL_LOG_DIR`.

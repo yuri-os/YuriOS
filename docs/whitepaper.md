@@ -274,13 +274,18 @@ expression, gaze, bone, mouth, material, animation, and scene channels. Lip-sync
 the RMS amplitude of the audio actually playing, so mouth and voice cannot drift. A second,
 Live2D body is available on the same bus.
 
-**The hands** (`yurios/world/tools`) are exactly four tools exposed over a real Model Context
-Protocol server: `set_timer`, `play_music`, `get_weather`, and `take_selfie`. Tools are emitted
+**The hands** (`yurios/world/tools`) are exactly five tools exposed over a real Model Context
+Protocol server: `set_timer`, `play_music`, `get_weather`, `take_selfie`, and `show_picture`.
+Tools are emitted
 *in the token stream* (`[[tool {json}]]`), stripped from speech, and pass a guard (allowlist,
-per-tool rate limits, per-turn cap, timeout, audit log) before execution. The slow tool
-(`take_selfie`, a 10–30 s image render) demonstrates the **start-don't-await** rule: the tool
+one-per-turn dedupe, per-tool rate limits, per-turn cap, timeout, audit log) before execution.
+The slow tools
+(`take_selfie` and `show_picture`, a 10–30 s image render) demonstrate the **start-don't-await**
+rule: the tool
 returns immediately and the host completes the render off-turn, posting the photo to the chat
-when ready.
+when ready. What the image *is* comes from the character, not from a menu: she describes the
+picture in her own words, the host fills only the gaps she left from the live situation, and
+`show_picture` renders anything that isn't her with her likeness out of frame.
 
 **One bus, many frontends.** Everything the host tells a frontend is one typed JSON event on a
 single outbound `EventHub`, delivered over Server-Sent Events; only audio keeps a socket of its

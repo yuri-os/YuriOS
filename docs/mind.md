@@ -289,7 +289,7 @@ see [Characters](characters.md#loop-switches).
 
 ## What the mind deliberately doesn't do
 
-- **No tool calls.** The four hands stay conversational; a tool-bearing autonomous act needs a
+- **No tool calls.** Her hands stay conversational; a tool-bearing autonomous act needs a
   broker that comes with the sandboxed workshop.
 - **No code execution, no shell, no autonomous research-and-build.**
 - **No multimodal sensing** — SENSE reads text, time, files and its own completions.

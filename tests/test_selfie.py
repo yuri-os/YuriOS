@@ -668,3 +668,129 @@ async def test_a_backend_with_nothing_resident_is_left_alone(cfg, clock, forge):
     lab = SelfieLab(forge, clock=clock, post=Recorder().post,
                     speak=Recorder().speak)
     lab._release()                                # no backend pipeline: nothing to do
+
+
+# --- the other camera: show_picture (§7.6) ---------------------------------
+# `take_selfie` can only answer "here is a picture of me". These pin the half
+# that lets her show you anything else — her words are the whole prompt, and
+# her likeness is out of the frame.
+
+async def test_a_picture_is_of_the_thing_and_not_of_her(cfg, clock, forge):
+    """The one rule that makes this a different camera rather than a differently
+    worded selfie: her identity never enters the prompt."""
+    rec = Recorder()
+    lab = SelfieLab(forge, clock=clock, post=rec.post, speak=rec.speak)
+    subject = "the street below, wet and empty, one streetlight still on"
+    lab.start({"id": "pic1", "kind": "picture", "subject": subject,
+               "status": "started"})
+    await settle(lab)
+
+    (post,) = rec.posts
+    png = cfg.selfie_dir / post["image_url"].removeprefix("/selfies/")
+    meta = json.loads(png.with_suffix(".json").read_text())
+    assert subject in meta["prompt"]
+    assert forge.character.identity not in meta["prompt"]
+    # …and the ledger records her words as the picture, the way a `look` is
+    assert meta["template"]["look"] == subject
+
+
+async def test_a_picture_does_not_borrow_the_situation(cfg, clock, forge):
+    """She wrote the whole subject, so there is no gap to fill — and appending
+    "it is night, rain on the window" to her sunlit meadow is worse than adding
+    nothing at all (the same rule a placed selfie follows)."""
+    rec = Recorder()
+    lab = SelfieLab(forge, clock=clock, post=rec.post, speak=rec.speak,
+                    situation=lambda: "It is night, heavy rain on the glass.")
+    lab.start({"id": "pic2", "kind": "picture",
+               "subject": "a sunlit meadow at noon", "status": "started"})
+    await settle(lab)
+
+    png = cfg.selfie_dir / rec.posts[0]["image_url"].removeprefix("/selfies/")
+    meta = json.loads(png.with_suffix(".json").read_text())
+    assert "heavy rain" not in meta["prompt"]
+
+
+async def test_her_avoid_still_steers_a_picture(cfg, clock, forge):
+    rec = Recorder()
+    lab = SelfieLab(forge, clock=clock, post=rec.post, speak=rec.speak)
+    lab.start({"id": "pic3", "kind": "picture", "subject": "my desk at night",
+               "avoid": "people", "status": "started"})
+    await settle(lab)
+
+    png = cfg.selfie_dir / rec.posts[0]["image_url"].removeprefix("/selfies/")
+    meta = json.loads(png.with_suffix(".json").read_text())
+    assert "people" in meta["negative"]
+
+
+async def test_she_calls_a_picture_a_picture(cfg, clock, forge):
+    """The announce cue is the only place she names what she just made — "the
+    selfie you just took" about a photo of the rain is a small lie."""
+    rec = Recorder()
+    lab = SelfieLab(forge, clock=clock, post=rec.post, speak=rec.speak)
+    lab.start({"id": "pic4", "kind": "picture", "subject": "the rain",
+               "status": "started"})
+    await settle(lab)
+    assert "picture you just took" in rec.cues[0]
+
+    rec2 = Recorder()
+    lab2 = SelfieLab(forge, clock=clock, post=rec2.post, speak=rec2.speak)
+    lab2.start({"id": "self4", "status": "started"})   # no kind: still a selfie
+    await settle(lab2)
+    assert "selfie you just took" in rec2.cues[0]
+
+
+async def test_a_picture_that_fails_says_so_as_a_picture(cfg, clock):
+    class DyingForge:
+        out_dir = cfg.selfie_dir
+        backend = None
+
+        def picture(self, subject, **kw):
+            raise RuntimeError("CUDA out of memory")
+
+    rec = Recorder()
+    lab = SelfieLab(DyingForge(), clock=clock, post=rec.post, speak=rec.speak)
+    lab.start({"id": "pic5", "kind": "picture", "subject": "the rain",
+               "status": "started"})
+    await settle(lab)
+    assert "the picture didn't come out" in rec.posts[0]["text"]
+
+
+async def test_the_tool_loop_starts_a_picture_too(cfg, guard, timers, controller,
+                                                  clock):
+    """[[show_picture …]] takes the same §7.5 realisation path as the selfie —
+    one lab, one start-don't-await rule, two cameras."""
+    from yurios.world.tools.fakes import FakeToolRunner
+
+    class SpyLab:
+        def __init__(self):
+            self.started: list[dict] = []
+
+        def start(self, contract):
+            self.started.append(contract)
+
+    guard._rates["show_picture"] = 2
+    guard._buckets["show_picture"] = {"tokens": 2.0, "at": clock.now()}
+    lab = SpyLab()
+    chat = ScriptedChat([
+        ['Here, look — ', '[[show_picture {"subject": "the rain on the glass"}]]'],
+        ['…it does that every night.'],
+    ])
+    brain = make_toolbrain(cfg, guard, timers, controller, chat,
+                           runner=FakeToolRunner(), selfies=lab)
+    spoken = "".join(await collect(
+        brain._stream_with_tools([{"role": "user", "content": "what's it like out?"}], [])))
+    assert "every night" in spoken
+    (contract,) = lab.started
+    assert contract["kind"] == "picture"
+    assert contract["subject"] == "the rain on the glass"
+
+
+def test_the_two_cameras_have_separate_budgets(cfg, clock):
+    """Spending her picture budget on the street below must not cost her the
+    ability to send you her face a minute later — different urges, one GPU."""
+    guard = Guard(rates_per_min={"take_selfie": 2, "show_picture": 2},
+                  log_dir=cfg.tool_log_dir, clock=clock)
+    assert guard.check("show_picture")[0]
+    assert guard.check("show_picture")[0]
+    assert guard.check("show_picture") == (False, "rate limit")
+    assert guard.check("take_selfie")[0]

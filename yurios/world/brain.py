@@ -265,7 +265,8 @@ class ToolBrain(BrainAdapter):
                                       volume=data.get("volume"))
             else:
                 self.controller.music("stop")
-        elif call.tool == "take_selfie" and data.get("status") == "started":
+        elif (call.tool in ("take_selfie", "show_picture")
+                and data.get("status") == "started"):
             # start-don't-await (§7.6): the render happens off-turn; the photo
             # arrives in the chat as a `message` event when it's done.
             if self.selfies is not None:

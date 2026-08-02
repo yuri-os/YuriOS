@@ -54,6 +54,11 @@ class Config(VoiceConfig):
     # another's face is the one failure a camera must never have.
     selfie_character: str = ""
     tool_rate_selfie: int = 2                   # calls/minute — images are expensive
+    # `show_picture` — the same camera pointed at anything that isn't her. Its
+    # own bucket rather than a share of the selfie one: they cost the same GPU
+    # but they are different urges, and spending her selfie budget on a photo of
+    # the rain shouldn't stop her sending you her face a minute later.
+    tool_rate_picture: int = 2
 
     # --- the local camera: SELFIE_BACKEND=diffusers (your GPU, no third party) ---
     # An SDXL .safetensors checkpoint loaded in-process (Illustrious-lineage

@@ -38,7 +38,7 @@ Python; the browser is a render-and-control client.
 |---|---|
 | `yurios/app` | the brain: the SOUL, the Vault, prompt assembly, memory, the provider seams |
 | `yurios/desktop` | the voice stack: STT/TTS/VAD backends, the turn controller, the latency budget, the native window |
-| `yurios/forge` | the image service behind `take_selfie`: character register, template library, backends, provenance |
+| `yurios/forge` | the image service behind her camera (`take_selfie`, `show_picture`): character register, template library, backends, provenance |
 | `yurios/world` | the body, the tools, the bus, the server, the channels, the host |
 | `yurios/mind` | the autonomy engine |
 | `yurios/characters` | the registry, the card parser/importer, connection profiles |

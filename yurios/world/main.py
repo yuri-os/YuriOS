@@ -92,6 +92,7 @@ class Runtime:
                  "get_weather": cfg.tool_rate_weather}
         if cfg.selfie_backend != "off":        # absent from the allowlist = no hand (§7.3)
             rates["take_selfie"] = cfg.tool_rate_selfie
+            rates["show_picture"] = cfg.tool_rate_picture
         self.guard = Guard(rates_per_min=rates,
                            log_dir=cfg.tool_log_dir, clock=self.clock)
         self.timers = TimerBoard(self.clock)

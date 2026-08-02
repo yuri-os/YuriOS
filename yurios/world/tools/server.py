@@ -129,8 +129,38 @@ def build_server(*, weather: WeatherProvider | None = None,
                     "scene": scene or None, "mood": mood or None,
                     "wardrobe": wardrobe or None, "framing": framing or None,
                     "lighting": lighting or None, "avoid": avoid or None,
+                    "kind": "selfie",
                     "status": "started",
                     "note": "the photo will appear in the chat shortly — "
+                            "no need to wait for it, and no need to ask again"}
+
+        # The same camera, pointed away from herself (§7.6). `take_selfie` can
+        # only ever answer "here is a picture of me", and a companion who is
+        # describing the street below, or a sketch she made, or the thing she
+        # keeps meaning to show you, has nothing to send. This is the other half
+        # of that: no library, no slots, no rotation — the subject is whatever
+        # she writes, because there is no menu that could anticipate it.
+        @mcp.tool()
+        def show_picture(subject: str, avoid: str = "") -> dict:
+            """Share a picture of something that ISN'T you — what you're looking
+            at, a place, an object, a drawing you made, anything you're
+            describing and would rather show. It appears in the chat a few
+            moments later. `subject` is the whole picture in your own words,
+            written the way you'd describe a photo rather than as keywords —
+            there are no options and nothing is chosen for you, so say as much
+            as you want about the thing, the light, the angle, the background.
+            You are not in this one; use `take_selfie` for pictures of yourself.
+            `avoid` is anything you specifically don't want in the shot. One call
+            is one picture — it is already on its way when this answers, so never
+            call it twice for the same picture."""
+            if not subject.strip():
+                raise ValueError("subject must say what the picture is of")
+            return {"id": uuid.uuid4().hex[:8],
+                    "kind": "picture",
+                    "subject": subject.strip(),
+                    "avoid": avoid.strip() or None,
+                    "status": "started",
+                    "note": "the picture will appear in the chat shortly — "
                             "no need to wait for it, and no need to ask again"}
 
     return mcp

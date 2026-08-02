@@ -166,6 +166,29 @@ class ImageForge:
         """Worldbuilding atlas render — no figure in frame (→ ch. 26)."""
         return self.generate(scene_prompt, include_character=False, label=label, save=save, **over)
 
+    def picture(self, subject: str, *, avoid: str = "", seed: Optional[int] = None,
+                save: bool = True, **over: Any) -> ImageResult:
+        """A picture of something that *isn't* her — what she's looking at, the
+        street below, a thing she's describing, a drawing she made.
+
+        It is `scenery()` with a companion's manners: her words are the whole
+        prompt (there is no library and no rotation here — a menu of five
+        framings could never anticipate what she might want to show you), her
+        `avoid` steers the same way it does on a selfie, and the chosen record
+        comes back shaped like a selfie's so the lab can announce either kind
+        without knowing which it got. Her likeness stays out of frame, which is
+        the entire difference: a photo of the rain should not have her in it
+        just because she is the one who took it.
+        """
+        result = self.scenery(
+            subject.strip(), label="picture", seed=seed, save=save,
+            negative_extra=avoid.strip(), **over)
+        chosen = {"look": subject.strip()}
+        if avoid.strip():
+            chosen["avoid"] = avoid.strip()
+        result.meta["template"] = chosen
+        return result
+
     def edit(self, image: str | Path, instruction: str, *, label: str = "edit",
              seed: Optional[int] = None, strength: float = 0.7,
              use_identity: bool = True, save: bool = True, **over: Any) -> ImageResult:

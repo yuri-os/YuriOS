@@ -5,7 +5,7 @@ the RFC-2119 sense.
 
 YuriOS is **one independent, self-contained project**: an always-on, local-first
 companion who lives on the user's own machine — a 3D body you can see, a real-time voice
-loop you can speak into, four tools she can reach for, one outbound event bus, and an
+loop you can speak into, five tools she can reach for, one outbound event bus, and an
 **always-on mind** that keeps running whether or not anyone is looking. Everything below
 is this project's own code, run as **one process, one origin** (`python -m yurios.world`,
 port **8768**). The Python packages are `yurios/app` (the brain), `yurios/desktop` (the
@@ -33,7 +33,7 @@ so nothing is ever renumbered.
 ## §1 — Goal and properties
 
 A browser-based 3D companion — a VRM body in the canonical sanctuary, a chat transcript
-beside her, a real-time voice loop, four tools over MCP, one event bus — driven by an
+beside her, a real-time voice loop, five tools over MCP, one event bus — driven by an
 **always-on autonomy engine**. She runs continuously: pursues small goals when the user
 is away, consolidates memory while they sleep, keeps her own promises, reads what lands on
 her shelf, and reaches out *first* when — and only when — a salience model says it is
@@ -496,10 +496,11 @@ to every new subscriber before its first live event. Malformed JSON is logged an
   | `set_timer` | `minutes` (0 < m ≤ `TIMER_MAX_MINUTES`), `label?` | `{id, label, seconds, due}` | host schedules the announcement (§7.5) |
   | `play_music` | `action`, `track?`, `volume?` | `{playing, track}` | `music` event to the stage (§4) |
   | `get_weather` | `city?` (default `WEATHER_CITY`) | `{city, temp_c, condition, wind_kmh}` | none |
-  | `take_selfie` | `scene?`, `mood?`, `wardrobe?` (template keys or free-form — carried verbatim, never refused; empty = her choice) | `{id, scene, mood, wardrobe, status:"started"}` | host renders off-turn, posts the photo (§7.6) |
+  | `take_selfie` | `look?` (the whole picture in her own words), `scene?`, `framing?`, `lighting?`, `mood?`, `wardrobe?`, `avoid?` (template keys or free-form — carried verbatim, never refused; unnamed slots are left unnamed, never rolled) | `{id, look, scene, framing, lighting, mood, wardrobe, avoid, kind:"selfie", status:"started"}` | host renders off-turn, posts the photo (§7.6) |
+  | `show_picture` | `subject` (required — the whole picture in her own words; no library, no slots), `avoid?` | `{id, subject, avoid, kind:"picture", status:"started"}` | host renders off-turn *without her likeness*, posts the picture (§7.6) |
 
   The surface **MUST NOT** grow a shell — the heavy, sandboxed hands are a named later rung
-  (§26). With `SELFIE_BACKEND=off` the fourth tool **MUST NOT** be advertised: no hand, not a
+  (§26). With `SELFIE_BACKEND=off` neither camera tool **MUST** be advertised: no hand, not a
   dead one.
 - §7.2 **A genuine MCP client.** The brain side **MUST** connect over MCP
   (`yurios/world/tools/client.py`, stdio, spawning `yurios.world.tools.server`), discover tools
@@ -528,18 +529,36 @@ to every new subscriber before its first live event. Malformed JSON is logged an
   `get_weather` **MUST** be a real HTTP lookup (Open-Meteo, keyless) behind a `WeatherProvider`
   seam with an offline fake. `play_music` drives the browser-side synthesized ambience (§6.2) —
   a generative pad, not a media library; the seam is the point.
-- §7.6 **Her camera: `take_selfie`, start-don't-await.** The fourth hand teaches the one lesson
-  the others can't: **a slow tool must not sit inside the turn.** A hosted render takes 10–30 s;
+- §7.6 **Her camera: `take_selfie` / `show_picture`, start-don't-await.** The two hands that
+  share a camera teach the one lesson the others can't: **a slow tool must not sit inside the turn.** A hosted render takes 10–30 s;
   dead air after her lead-in would read as a hang. So the tool follows the *start work, never
-  await it* rule: the MCP server carries `scene`/`mood`/`wardrobe` through — a named template key
+  await it* rule: the MCP server carries her ask through — `look` is the whole picture in her own
+  words and **MUST** lead, the library slots refine it, a named template key
   renders from the library, anything else passes through verbatim, the contract refuses nothing
   (its tool description **MUST** be built *from* the library — the same merged book the host
   renders from, overlay and its optional `tool_hint` line included — so the model's choices
   can't drift from the yaml) — and returns `{status:"started"}` immediately; the turn ends on
-  budget. The
+  budget. A slot she did *not* name **MUST NOT** be rolled for her: the library is optional
+  shorthand, and a rotation she never asked for is how one request became two different photos.
+  What she leaves unnamed **MAY** be filled from the live situation instead (the hour as light,
+  the weather on the glass — `render_visual_situation`), and that filling **MUST NOT** argue with
+  anything she did name: a picture she placed herself gets no context appended at all.
+  The
   shipped library stays in the everyday register; personal registers layer on from an optional
   user-supplied overlay file outside the repo (`SELFIE_TEMPLATES_EXTRA`, merged key-by-key —
-  forge/templates.py). The **host**
+  forge/templates.py).
+
+  `show_picture` is the same camera pointed away from her — the street below, a sketch, whatever
+  she is describing and would rather show. It has **no library, no slots and no rotation**: the
+  `subject` is the whole prompt, because no menu could anticipate what she might want to show
+  you. Her likeness **MUST** be left out of that frame (`include_character=False`) — a photo of
+  the rain does not have her in it just because she took it — and both tools **MUST** share one
+  lab, one VRAM loan and one announce path, differing only in what is in the picture.
+
+  Whose likeness `take_selfie` renders **MUST** come from the running character's own
+  `appearance.yaml` (§31.2, `SELFIE_CHARACTER`), never from whichever character the house
+  happens to ship; a character with no appearance file **MUST** render a neutral stand-in, because
+  a photo of the wrong person is worse than a photo of no one. The **host**
   realises the shot: `yurios/world/selfies.py`'s `SelfieLab` renders off-turn through the forge
   (`yurios/forge` — the locked art register, the selfie template library, provenance stripping),
   saves the PNG + a provenance sidecar under `SELFIE_DIR` (served at `/selfies/`), posts an
@@ -1024,7 +1043,7 @@ The host registry provides multi-character routing and rejects shared writable r
 yet provide process-level crash or credential isolation. **No affective state file** — the reflex
 pulses approximate warmth without a model of it.
 Conversation is observed by the loop, not generated by it (§15.3) — full one-loop unification lands
-with the two-tier split. And the mind never *initiates* tool calls (the four MCP hands stay
+with the two-tier split. And the mind never *initiates* tool calls (her MCP hands stay
 conversational); a tool-bearing autonomous act needs the broker that comes with the workshop.
 
 ## §27 — Tests (the hard gate)

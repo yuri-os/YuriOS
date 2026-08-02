@@ -23,11 +23,22 @@ SPECS = [
               "required": ["action"]}),
     ToolSpec("get_weather", "Look up the current weather.",
              {"properties": {"city": {"type": "string"}}, "required": []}),
-    ToolSpec("take_selfie", "Take a selfie of yourself to share in the chat.",
-             {"properties": {"scene": {"type": "string"},
+    ToolSpec("take_selfie", "Take a photo of yourself to share in the chat. "
+             "`look` describes the picture in your own words; the rest are "
+             "optional shorthands.",
+             {"properties": {"look": {"type": "string"},
+                             "scene": {"type": "string"},
                              "mood": {"type": "string"},
-                             "wardrobe": {"type": "string"}},
+                             "wardrobe": {"type": "string"},
+                             "framing": {"type": "string"},
+                             "lighting": {"type": "string"},
+                             "avoid": {"type": "string"}},
               "required": []}),
+    ToolSpec("show_picture", "Share a picture of something that isn't you — "
+             "what you're looking at, a place, a thing you're describing.",
+             {"properties": {"subject": {"type": "string"},
+                             "avoid": {"type": "string"}},
+              "required": ["subject"]}),
 ]
 
 
@@ -68,11 +79,21 @@ class FakeToolRunner:
                                "wind_kmh": 9.0})
         if tool == "take_selfie":
             return json.dumps({"id": f"fake{len(self.calls)}",
+                               "look": args.get("look") or None,
                                "scene": args.get("scene") or None,
                                "mood": args.get("mood") or None,
                                "wardrobe": args.get("wardrobe") or None,
-                               "status": "started",
+                               "framing": args.get("framing") or None,
+                               "lighting": args.get("lighting") or None,
+                               "avoid": args.get("avoid") or None,
+                               "kind": "selfie", "status": "started",
                                "note": "the photo will appear in the chat shortly"})
+        if tool == "show_picture":
+            return json.dumps({"id": f"fake{len(self.calls)}",
+                               "subject": (args.get("subject") or "").strip(),
+                               "avoid": args.get("avoid") or None,
+                               "kind": "picture", "status": "started",
+                               "note": "the picture will appear in the chat shortly"})
         raise RuntimeError(f"unknown tool: {tool}")
 
     async def close(self) -> None:

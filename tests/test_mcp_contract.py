@@ -24,11 +24,12 @@ def server():
                         default_city="Tokyo")
 
 
-async def test_list_tools_is_exactly_the_four_hands():
+async def test_list_tools_is_exactly_the_hands_she_has():
     async with create_connected_server_and_client_session(server()._mcp_server) as s:
         listed = await s.list_tools()
         assert sorted(t.name for t in listed.tools) == [
-            "get_weather", "play_music", "set_timer", "take_selfie"]
+            "get_weather", "play_music", "set_timer", "show_picture",
+            "take_selfie"]
         timer = next(t for t in listed.tools if t.name == "set_timer")
         assert "minutes" in timer.inputSchema["properties"]
         assert "minutes" in timer.inputSchema.get("required", [])
@@ -108,6 +109,42 @@ async def test_take_selfie_contract_and_freeform_passthrough():
         assert "`look`" in selfie.description
         assert set(selfie.inputSchema["properties"]) == {
             "look", "scene", "mood", "wardrobe", "framing", "lighting", "avoid"}
+
+
+async def test_show_picture_is_the_camera_pointed_away_from_her():
+    """The open-ended half of §7.6: no library, no slots, no rotation — the
+    subject is whatever she writes, because no menu could anticipate what she
+    might want to show you."""
+    async with create_connected_server_and_client_session(server()._mcp_server) as s:
+        r = await s.call_tool("show_picture", {
+            "subject": "the street below, wet and empty, one streetlight on",
+            "avoid": "people"})
+        assert not r.isError
+        data = json.loads(result_text(r))
+        assert data["status"] == "started" and data["id"]
+        assert data["kind"] == "picture"          # …so the host leaves her out
+        assert data["subject"].startswith("the street below")
+        assert data["avoid"] == "people"
+
+        # a picture of nothing is the one ask the contract can't carry — every
+        # other field on this tool is optional and nothing is chosen for her
+        r = await s.call_tool("show_picture", {"subject": "   "})
+        assert r.isError
+
+        listed = await s.list_tools()
+        pic = next(t for t in listed.tools if t.name == "show_picture")
+        assert set(pic.inputSchema["properties"]) == {"subject", "avoid"}
+        assert "subject" in pic.inputSchema.get("required", [])
+        assert "ISN'T you" in pic.description     # the whole point, said plainly
+        assert "take_selfie" in pic.description   # …and which hand is the other
+
+
+async def test_show_picture_is_off_when_the_camera_is():
+    """One camera, two hands: SELFIE_BACKEND=off takes both away rather than
+    leaving her one that can't render (§7.6)."""
+    srv = build_server(weather=FakeWeather(), selfies=False)
+    async with create_connected_server_and_client_session(srv._mcp_server) as s:
+        assert "show_picture" not in {t.name for t in (await s.list_tools()).tools}
 
 
 async def test_set_timer_returns_the_contract():

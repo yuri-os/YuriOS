@@ -1,6 +1,6 @@
 # Tools — her hands
 
-She has four tools, reached over a real **MCP** connection: an in-repo MCP server
+She has five tools, reached over a real **MCP** connection: an in-repo MCP server
 (`yurios/world/tools/server.py`, FastMCP over stdio) that the brain connects to as a genuine MCP
 client, discovering the tools with `list_tools` rather than hardcoding them.
 
@@ -17,14 +17,15 @@ TOOLS_BACKEND=mcp                 # mcp | fake | off
 If the SDK or the server fails, the build degrades to tools-off and keeps talking. `/api/health`
 reports the truth (`"mcp"` / `"fake"` / `"off"` / `"failed: …"`).
 
-## The four
+## The hands
 
 | Tool | Arguments | Effect |
 |---|---|---|
 | `set_timer` | `minutes` (0 < m ≤ `TIMER_MAX_MINUTES`), `label?` | the host schedules the announcement |
 | `play_music` | `action`, `track?`, `volume?` | drives the browser-side synthesized ambience |
 | `get_weather` | `city?` (default `WEATHER_CITY`) | a real lookup — Open-Meteo, keyless |
-| `take_selfie` | `scene?`, `mood?`, `wardrobe?` | starts a render off-turn — see [Selfies](selfies.md) |
+| `take_selfie` | `look?`, `scene?`, `framing?`, `lighting?`, `mood?`, `wardrobe?`, `avoid?` | starts a render off-turn — see [Selfies](selfies.md) |
+| `show_picture` | `subject`, `avoid?` | the same camera, pointed at something that isn't her |
 
 The surface doesn't grow a shell. Heavy sandboxed hands are a named later rung, not an omission
 to be patched around.
@@ -61,10 +62,11 @@ WEATHER_CITY=Seoul                # the default when she isn't told one
 TOOL_RATE_WEATHER=4
 ```
 
-### take_selfie
+### take_selfie and show_picture
 
-The fourth hand has its own page: [Selfies](selfies.md). With `SELFIE_BACKEND=off` it isn't
-advertised at all — `list_tools` returns three.
+Her camera has its own page: [Selfies](selfies.md). Two hands share it — `take_selfie` for a
+picture of her, `show_picture` for a picture of anything else — and with `SELFIE_BACKEND=off`
+neither is advertised at all: `list_tools` returns three.
 
 ## How a tool call actually happens
 
@@ -89,6 +91,10 @@ Barge-in cancels the continuation, and a barged-in tool turn persists nothing.
 Every call passes `yurios/world/tools/guard.py` first:
 
 - an **allowlist** — exactly the discovered tools; anything else is denied,
+- **one-per-turn dedupe** — the same hand with byte-identical arguments, twice in one reply, is
+  the model re-emitting a marker it already spent, not a second thing she meant. A
+  `status: "started"` result reads as "nothing happened" and invites exactly that; the repeat is
+  denied before the bucket, so it costs her no budget,
 - **per-tool rate limits** (token buckets on the injected clock),
 - a **per-turn call cap**,
 - a **per-call timeout**, and
@@ -120,6 +126,6 @@ log tab reads.
 
 ## The mind does not use tools
 
-Her always-on [mind](mind.md) never *initiates* tool calls — the four hands stay conversational. A
+Her always-on [mind](mind.md) never *initiates* tool calls — her hands stay conversational. A
 tool-bearing autonomous act needs the broker that comes with the sandboxed workshop, which is a
 named next rung rather than a thing quietly half-built.

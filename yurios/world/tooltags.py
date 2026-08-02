@@ -25,9 +25,9 @@ from dataclasses import dataclass, field
 
 log = logging.getLogger("world.tooltags")
 
-# A well-formed marker is a tool name + a small JSON object. Anything growing
-# past this is the model rambling inside double brackets — drop it (SPEC §7.4).
-MAX_MARKER_LEN = 400
+# Free-form tool arguments such as a detailed selfie `look` can legitimately be
+# long. Keep a bounded buffer, but leave enough room for the advertised schema.
+MAX_MARKER_LEN = 4096
 
 
 @dataclass

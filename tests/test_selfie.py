@@ -556,6 +556,40 @@ async def test_the_tool_loop_starts_the_lab(cfg, guard, timers, controller, cloc
     assert contract["scene"] == "window" and contract["status"] == "started"
 
 
+async def test_long_selfie_result_is_realised_before_model_truncation(
+        cfg, guard, timers, controller, clock):
+    """The continuation may get a bounded result, but host realization must
+    parse the complete JSON contract or a detailed `look` never starts."""
+    from yurios.world.tools.fakes import FakeToolRunner
+
+    class SpyLab:
+        def __init__(self):
+            self.started: list[dict] = []
+
+        def start(self, contract):
+            self.started.append(contract)
+
+    look = "Amethyst skin in soft afternoon rain light. " * 20
+    result = {"id": "long-look", "look": look, "status": "started",
+              "note": "the photo will appear in the chat shortly"}
+    guard._rates["take_selfie"] = 2
+    guard._buckets["take_selfie"] = {"tokens": 2.0, "at": clock.now()}
+    lab = SpyLab()
+    chat = ScriptedChat([
+        ['Here. [[take_selfie {"look": "soft rain"}]]'],
+        ["It is on its way."],
+    ])
+    brain = make_toolbrain(
+        cfg, guard, timers, controller, chat,
+        runner=FakeToolRunner(results={"take_selfie": result}), selfies=lab)
+
+    await collect(brain._stream_with_tools([], []))
+
+    (contract,) = lab.started
+    assert contract["look"] == look
+    assert "…" in chat.calls[1][-1]["content"]
+
+
 async def test_a_render_that_dies_still_hands_its_pipeline_back(cfg, clock):
     """The OOM that started this: the render raised, the teardown sat on the
     success path, and ~8 GiB of SDXL stayed on a 16 GiB card for the life of

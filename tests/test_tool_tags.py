@@ -1,6 +1,8 @@
 """The [[tool {json}]] marker parser (SPEC §7.4) — streaming-safe, junk-proof."""
 from __future__ import annotations
 
+import json
+
 from yurios.world.tooltags import MAX_MARKER_LEN, ToolTagParser
 
 
@@ -59,6 +61,19 @@ def test_bad_tool_name_dropped():
 def test_args_not_an_object_dropped():
     _, calls = push_all(ToolTagParser(), ['[[set_timer [1, 2]]]'])
     assert calls == []
+
+
+def test_detailed_freeform_selfie_look_is_not_treated_as_oversized():
+    look = "Amethyst skin in soft afternoon rain light. " * 20
+    marker = '[[take_selfie {"look": ' + json.dumps(look) + '}]]'
+
+    text, calls = push_all(ToolTagParser(), [marker])
+
+    assert text == ""
+    assert len(marker) > 400
+    assert [(call.tool, call.args) for call in calls] == [
+        ("take_selfie", {"look": look}),
+    ]
 
 
 def test_oversized_marker_dropped_never_spoken():

@@ -237,10 +237,15 @@ class ToolBrain(BrainAdapter):
             dt = (self.guard.clock.now() - t0) * 1000
             self.guard.audit(call.tool, call.args, "error", dt, str(e))
             return f"error ({e})"
-        text = self.guard.truncate(text)
+        # Host realization needs the complete machine-readable contract. A
+        # detailed selfie `look` can push that JSON beyond the model-facing
+        # result cap; truncating first makes it invalid JSON and silently skips
+        # SelfieLab.start(). Only the continuation/audit copy is bounded.
+        full_text = text
+        text = self.guard.truncate(full_text)
         dt = (self.guard.clock.now() - t0) * 1000
         self.guard.audit(call.tool, call.args, "ok", dt, text)
-        self._realise(call, text)
+        self._realise(call, full_text)
         return text
 
     def _realise(self, call: ToolCall, result: str) -> None:

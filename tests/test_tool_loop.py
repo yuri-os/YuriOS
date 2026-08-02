@@ -99,6 +99,22 @@ async def test_no_runner_marker_stripped_single_pass(cfg, guard, timers, control
     assert len(chat.calls) == 1                        # no continuation pass
 
 
+async def test_detailed_selfie_look_reaches_runner(cfg, guard, timers, controller,
+                                                   clock):
+    look = "Amethyst skin in soft afternoon rain light. " * 20
+    marker = '[[take_selfie {"look": ' + json.dumps(look) + '}]]'
+    chat = ScriptedChat([["Here. " + marker], ["It is on its way."]])
+    runner = FakeToolRunner()
+    guard._rates["take_selfie"] = 2
+    guard._buckets["take_selfie"] = {"tokens": 2.0, "at": clock.now()}
+    tb = make_toolbrain(cfg, guard, timers, controller, chat, runner=runner)
+
+    spoken = "".join(await collect(tb._stream_with_tools([], [])))
+
+    assert spoken == "Here. It is on its way."
+    assert runner.calls == [("take_selfie", {"look": look})]
+
+
 async def test_play_music_realised_on_the_controller(cfg, guard, timers, controller):
     chat = ScriptedChat([
         ['mm. [[play_music {"action": "play", "track": "night_piano"}]]'],

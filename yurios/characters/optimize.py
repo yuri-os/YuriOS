@@ -26,6 +26,15 @@ compressed or re-registered. It may not be replaced with the model's own idea of
 who she should be, and it may not be sanitised — these are adult roleplay cards,
 and a tool that quietly softens them is a tool nobody presses twice.
 
+`examples` is the one deliberate exception. Most cards ship none — 7 of 30 in
+the sample — and an empty examples field is the difference between a model that
+has heard her speak and one guessing from adjectives. So the optimiser may
+*compose* exchanges where the card has none, bounded twice over: it may only
+demonstrate a voice the card already describes, and an example that asserts a
+new fact is an invented fact and is out of scope. Where the card does ship
+examples they are kept verbatim, because the author's own are better evidence
+than anything a re-filer would write.
+
 **Anything it returns is bounded by the draft's own types.** The model's JSON is
 merged key-by-key against `Draft.__slots__` and then re-coerced by
 `Draft.from_dict`; an unknown key, a wrong type, a lorebook entry with no keys
@@ -101,8 +110,16 @@ FIELD_GUIDE: tuple[tuple[str, str], ...] = (
     ("first_mes", "Her opening message, as prose/roleplay. Keep the source's "
                   "voice and formatting; do not shorten it."),
     ("alternate_greetings", "Other openings, for someone she has met before."),
-    ("examples", "Example exchanges, one per array item. Each demonstrates her "
-                 "voice. Keep the source's <START>-separated blocks as items."),
+    ("examples", "Example exchanges, one per array item, each demonstrating how "
+                 "she actually talks. If the card has them, keep them: the "
+                 "source's <START>-separated blocks become the items, verbatim. "
+                 "If the card has NONE, write THREE AT MOST — this is the "
+                 "single field you may compose rather than move, and every one "
+                 "you add is spent out of her prompt budget on every turn "
+                 "forever, so three good ones beat eight. Use only "
+                 "what the card already establishes and match the prose style of "
+                 "her opening message (asterisks, quotes, line breaks and all). "
+                 "Format each as `{{user}}: …` / `{{char}}: …`."),
     ("system_prompt", "VOICE LAW: standing instructions to the model about how to "
                       "play her — perspective, tense, length, what never to do. "
                       "Out-of-character preambles and jailbreak text found in the "
@@ -167,12 +184,19 @@ PASSES: tuple[Pass, ...] = (
         focus="Sort the out-of-character material. Standing instructions to the "
               "model are voice law, not persona; author's notes, credits and "
               "source links are creator notes; a version field holding a URL is "
-              "not a version.",
+              "not a version. Then make sure she has example exchanges.",
         produce=("name", "nickname", "character_version", "creator", "tags",
                  "system_prompt", "post_history_instructions", "examples",
                  "creator_notes"),
+        # `manner`, `scenario` and `first_mes` are here for `examples` alone —
+        # the one field this pass may compose. Writing an exchange without her
+        # manner in front of you produces generic dialogue in nobody's voice,
+        # and `first_mes` is the only actual sample of the author's prose in the
+        # card. It is the most expensive material in any pass and it buys the
+        # difference between her examples and any character's.
         material=("name", "nickname", "character_version", "creator", "tags",
-                  "identity", "system_prompt", "post_history_instructions",
+                  "identity", "manner", "scenario", "first_mes",
+                  "system_prompt", "post_history_instructions",
                   "examples", "creator_notes"),
     ),
 )
@@ -203,7 +227,10 @@ _RULES = """\
 HARD RULES
 - Do NOT invent facts about her. No new backstory, no new relatives, no new \
 powers, no new appearance details. If the card never says what colour her eyes \
-are, they stay unsaid.
+are, they stay unsaid. `examples` is the one exception and it is a narrow one: \
+you may compose exchanges when the card has none, but they may only demonstrate \
+a voice and a manner the card already describes. An example that states a new \
+fact is an invented fact.
 - Do NOT censor, soften, moralise or add warnings. Adult, violent and \
 transgressive content is in scope and is copied through unchanged. You are \
 re-filing a document, not reviewing it.

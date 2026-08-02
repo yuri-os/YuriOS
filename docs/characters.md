@@ -173,6 +173,14 @@ either way; the box is for the character:
 An instruction like that is carried through every field it touches, because a card whose `manner`
 says devoted and whose `first_mes` still says wary reads as two different people.
 
+**It re-files; it doesn't invent.** No new backstory, no new relatives, no eye colour the card
+never gave her. The one exception is **example exchanges**: only 7 of the 30 sample cards ship
+any, and an empty examples field is the difference between a model that has heard her speak and
+one guessing from adjectives — so where a card has none, two or three are written, in her
+established manner and matching the prose style of her opening message. They may demonstrate a
+voice; they may not assert a fact the card doesn't already carry. Where a card *does* ship
+examples, the author's are kept verbatim.
+
 **Nothing is saved until you say so.** The model proposes; the dialog shows you a field-by-field
 diff of what moved, was filled in, or was emptied; **Apply** puts it in the form as an ordinary
 unsaved edit. That's deliberate — a character card is a file from the internet, and the most a

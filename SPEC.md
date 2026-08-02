@@ -1249,7 +1249,12 @@ changes; a runtime does not know it has neighbours.
   the internet, so the worst its text can do is propose an edit a human then declines. The
   model's answer **MUST** be merged against the draft's own types, never trusted as given, and a
   truncated answer **MUST** be salvaged down to the fields the model finished and reported as
-  partial rather than presented as a complete pass. `scripts/bench_cards.py` scores a folder of
+  partial rather than presented as a complete pass. The optimiser re-files; it **MUST NOT** invent
+  facts about the character. `examples` is the one exception, because most cards ship none and an
+  empty examples field is the difference between a model that has heard her speak and one guessing
+  from adjectives: where a card has no examples the optimiser **MAY** compose them, bounded to
+  demonstrating a voice the card already describes — an example asserting a new fact is an invented
+  fact — and where a card *has* examples they **MUST** be kept as the author wrote them. `scripts/bench_cards.py` scores a folder of
   real cards through the whole path, because "does the importer handle foreign layouts" is not a
   question one card can answer.
 - §30.7 **The optimiser runs in passes, because the reply voice thinks.** A reasoning model spends

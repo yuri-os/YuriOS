@@ -519,3 +519,48 @@ def test_a_client_that_does_not_ask_for_the_stream_still_gets_one_object(node, m
 
     assert response.headers["content-type"].startswith("application/json")
     assert response.json()["draft"]["manner"] == "Dry."
+
+
+# ------------------------------------------------------------------ examples
+
+def test_the_frame_pass_is_handed_her_voice_so_it_can_write_in_it():
+    """`examples` is the one field the optimiser may compose, and composing an
+    exchange without her manner in front of you produces dialogue in nobody's
+    voice. The pass that writes them therefore carries her voice as material,
+    even though it does not write any of those fields."""
+    frame = PASSES[-1]
+    assert "examples" in frame.produce
+    for field in ("manner", "scenario", "first_mes"):
+        assert field in frame.material
+        assert field not in frame.produce      # material only — it may not edit them
+
+    draft = Draft(name="V", identity="who", manner="Dry, and watching.",
+                  first_mes="*She does not look up.* You're late.")
+    material = json.loads(card_material(draft, frame.material))
+    assert material["manner"] == "Dry, and watching."
+    assert material["first_mes"].endswith("You're late.")
+
+
+def test_composing_examples_is_named_as_the_one_exception_to_inventing():
+    """The brief says 'do not invent facts' and then asks for written exchanges.
+    A model reading both has to be told which one wins, or it will decline."""
+    prompt = build_messages(Draft(name="V", identity="who"), "", PASSES[-1])[0]["content"]
+
+    assert "Do NOT invent facts about her" in prompt
+    assert "one exception" in prompt
+    assert "may compose exchanges when the card has none" in prompt
+    assert "an invented fact" in prompt
+
+
+def test_the_authors_own_examples_are_never_replaced_by_written_ones():
+    """A card that ships examples keeps them. The model is told to keep them,
+    and if it ignores that, the merge is still the author's call to make — so
+    this pins the instruction rather than a guardrail that does not exist."""
+    prompt = build_messages(
+        Draft(name="V", identity="who", examples=["{{user}}: Hi\n{{char}}: Hm."]),
+        "", PASSES[-1])
+    guide = prompt[0]["content"]
+
+    assert "If the card has them, keep them" in guide
+    assert "verbatim" in guide
+    assert "{{user}}: Hi" in prompt[1]["content"]    # handed back to it as material

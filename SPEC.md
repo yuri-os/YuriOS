@@ -1203,7 +1203,13 @@ changes; a runtime does not know it has neighbours.
   SillyTavern V2/V3 cards out of PNG `tEXt` chunks (`ccv3` preferred, `chara` accepted), and
   **MUST** bound everything before decoding it: file bytes, chunk bytes, chunk count, decoded
   metadata bytes, image width/height/pixels (`CardLimits`). A card is a file from the internet;
-  an invalid V3 chunk **MUST NOT** silently fall back to a V2 one.
+  an invalid V3 chunk **MUST NOT** silently fall back to a V2 one. A card that carries the same
+  keyword more than once — the shape an edited-and-re-uploaded card actually arrives in — is read
+  from the **first** payload in the file, and the parser **MUST** report the choice
+  (`ParsedCard.warnings`) rather than make it quietly; the importer **MUST** carry that sentence
+  into `NOTES.md`, where a reviewer reads, and **MUST NOT** let such a file import enabled however
+  native it claims to be, since the block vouching for it is one of the payloads in question. The
+  number of repeats is itself bounded (`max_card_chunks`).
 - §30.2 **Import is transactional.** The whole character — source card, `card.json`, a
   re-encoded portrait, a seeded Vault with her SOUL files written from the card's fields, the
   empty corpus/traces/tool-logs/selfies roots, and a `git init` of the Vault — is assembled in a
@@ -1227,6 +1233,43 @@ changes; a runtime does not know it has neighbours.
   `chara` (V2) and a `ccv3` (V3) chunk built from `card.json` — identity, persona, scenario, lore.
   It **MUST NOT** carry `USER.md`, relationship memory, the corpus, traces, tool audit, selfies
   or any credential. Sharing her is sharing who she is, not who you are.
+- §30.6 **A foreign card is re-filed on the way in, and may be re-filed again by a model.**
+  Every card site lays a character out differently and there is no schema to parse, so the
+  importer **MUST** make a mechanical best effort and the studio **MUST** offer a better one.
+  The mechanical half (`characters/cardsplit.py`) routes the card's `description` into the four
+  backbone sections by reading its section headers, and **MUST** be lossless: every line lands in
+  exactly one section, in its own words, and a layout it cannot read leaves everything under
+  `#Identity` — which is what the importer did before it existed. The model half
+  (`characters/optimize.py`, `POST /api/studio/optimize`) sends the whole draft to a
+  user-chosen model, which may move, split, merge and re-register any field, and takes a free-text
+  instruction from the user for the second job this serves — not repair but preference
+  (*"she is too guarded; make her devoted from the first line"*). It **MUST NOT** write:
+  the route returns a proposed draft plus a field-by-field diff, and only the ordinary studio
+  PATCH (§30.4) reaches the Vault. That is also the injection boundary — a card is a file from
+  the internet, so the worst its text can do is propose an edit a human then declines. The
+  model's answer **MUST** be merged against the draft's own types, never trusted as given, and a
+  truncated answer **MUST** be salvaged down to the fields the model finished and reported as
+  partial rather than presented as a complete pass. `scripts/bench_cards.py` scores a folder of
+  real cards through the whole path, because "does the importer handle foreign layouts" is not a
+  question one card can answer.
+- §30.7 **The optimiser runs in passes, because the reply voice thinks.** A reasoning model spends
+  its `<think>` tokens out of the same window as its answer, and a local model is routinely
+  *loaded* with a context far below what it supports. One call carrying a whole card is therefore
+  not a slower design, it is a broken one: measured on a 12B local model, the single-call form
+  spent every available token reasoning and returned an empty string. So the re-file **MUST** be
+  split into passes that each send only the material informing their own group and ask for only
+  that group, run sequentially over the accumulating draft; each pass's budget **MUST** carry a
+  flat reasoning allowance on top of its answer estimate; and a pass **MUST NOT** write outside its
+  own fields. A pass that fails **MUST NOT** discard the passes that succeeded. An answer that is
+  empty because the model reasoned until the window closed **MUST** be reported with the numbers
+  that identify it — the window it stopped at, the prompt's share of it, and the tokens spent
+  thinking — because the remedy is a setting the user can change and a shrug is not. A run of
+  several sequential model calls is minutes long, so the route **MUST** be able to report progress
+  as it happens — a line per pass start, retry, completion and failure — and the studio **MUST**
+  show it; a button that shows nothing for minutes is indistinguishable from a broken one. That
+  reporting **MUST** be decoration: a listener that fails, or a client that hangs up, **MUST NOT**
+  change the result of an optimisation, and the endpoint **MUST** still answer with a single
+  object for a caller that did not ask to watch.
 
 ## §31 — Connections and per-character bindings
 

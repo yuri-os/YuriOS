@@ -85,3 +85,49 @@ def test_file_chunk_and_metadata_limits_are_enforced():
         parse_png_card(png, limits=CardLimits(max_chunk_bytes=10))
     with pytest.raises(CardParseError, match="metadata exceeds"):
         parse_png_card(png, limits=CardLimits(max_metadata_bytes=4))
+
+
+def test_a_card_edited_in_place_reads_the_live_payload_and_says_so():
+    """Real cards off the sites carry the editor's leftovers.
+
+    Two `chara` chunks used to be a refusal — there was no way to tell which one
+    a reviewer would read. The file itself answers that: the first is the live
+    one and the rest are revisions the editor appended past. Choosing it is fine;
+    choosing it *quietly* is what §30.1 forbids, so the choice is reported."""
+    live = {"name": "Reiky", "first_mes": "The guild hall roars."}
+    stale = {"name": "Reiky", "first_mes": "later"}
+
+    parsed = parse_png_card(_card_png(("chara", live), ("chara", stale)))
+
+    assert parsed.data == live
+    assert len(parsed.warnings) == 1
+    assert "more than one chara payload" in parsed.warnings[0]
+    assert "ignored 1 later one" in parsed.warnings[0]
+
+
+def test_a_byte_identical_second_copy_is_not_worth_reporting():
+    same = {"name": "Twice"}
+
+    parsed = parse_png_card(_card_png(("chara", same), ("chara", same)))
+
+    assert parsed.data == same
+    assert parsed.warnings == ()
+
+
+def test_a_pile_of_card_payloads_is_still_refused():
+    png = _card_png(*(("chara", {"name": f"Copy {n}"}) for n in range(6)))
+
+    with pytest.raises(CardParseError, match="more than 4 chara card payloads"):
+        parse_png_card(png, limits=CardLimits(max_card_chunks=4))
+
+
+def test_the_preferred_keyword_still_wins_over_a_repeated_legacy_one():
+    """A file with two `chara` and one `ccv3` is read as v3 — and the count that
+    is reported is the v3 one's, not the legacy noise beside it."""
+    parsed = parse_png_card(_card_png(
+        ("chara", {"name": "Old"}), ("chara", {"name": "Older"}),
+        ("ccv3", {"spec": "chara_card_v3", "data": {"name": "Current"}})))
+
+    assert parsed.keyword == "ccv3"
+    assert parsed.data["data"]["name"] == "Current"
+    assert parsed.warnings == ()

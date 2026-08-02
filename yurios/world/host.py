@@ -19,7 +19,8 @@ import yaml
 from dotenv import dotenv_values
 
 from fastapi import FastAPI, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
+from fastapi.responses import (FileResponse, JSONResponse, RedirectResponse,
+                               Response, StreamingResponse)
 from starlette.staticfiles import StaticFiles
 
 from yurios.characters import (
@@ -30,7 +31,9 @@ from yurios.characters import studio as studio_model
 from yurios.characters.appearance import ensure_appearance, refine_appearance
 from yurios.characters.creator import create_character, template_draft
 from yurios.characters.exporter import ExportOptions, build_export, preview_export
+from yurios.characters.optimize import CardOptimizeError, optimize_draft
 from yurios.characters.privacy import CardExportError
+from yurios.app.providers.catalog import provider_models
 
 from . import rewire
 from .config import Config
@@ -596,6 +599,46 @@ def _close_reason(detail: str) -> str:
     return detail.encode("utf-8")[:_CLOSE_REASON_LIMIT - 3].decode("utf-8", "ignore") + "..."
 
 
+async def _optimize_events(utility, draft, *, model: str, instructions: str):
+    """`/api/studio/optimize` as NDJSON: one line per pass, then the result.
+
+    The run has to keep going while its lines go out, so it is a task feeding a
+    queue and this generator only drains. Two consequences are deliberate. The
+    status is 200 before the first pass has happened, so a failure arrives as a
+    final `{"event": "error"}` line rather than as an HTTP code — the dialog
+    reads the last line either way. And a client that closes the tab cancels the
+    task on the way out, because there is nobody left to hand the answer to.
+    """
+    queue: asyncio.Queue = asyncio.Queue()
+
+    async def run() -> None:
+        try:
+            result = await optimize_draft(utility, draft, model=model,
+                                          instructions=instructions,
+                                          on_progress=queue.put)
+            await queue.put({"event": "done", "result": result.to_dict()})
+        except CardOptimizeError as exc:
+            await queue.put({"event": "error", "message": str(exc)})
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:                       # pragma: no cover - defensive
+            log.exception("studio: optimize failed")
+            await queue.put({"event": "error",
+                             "message": f"the optimisation failed: {exc}"})
+        finally:
+            await queue.put(None)
+
+    task = asyncio.create_task(run())
+    try:
+        while True:
+            event = await queue.get()
+            if event is None:
+                break
+            yield json.dumps(event, ensure_ascii=False) + "\n"
+    finally:
+        task.cancel()
+
+
 class _RuntimeDispatcher:
     def __init__(self, host: CharacterHost, kind: str):
         self.host = host
@@ -849,6 +892,58 @@ def create_host_app(base: Config, registry: CharacterRegistry | None = None) -> 
                 "sections": [{"field": name, "ref": ref, "label": label}
                              for name, ref, label in studio_model.SECTION_FIELDS],
                 "constitution_fields": sorted(studio_model.CONSTITUTION_FIELDS)}
+
+    # ---- optimise with AI (SPEC §30.6) -----------------------------------
+    #
+    # Two routes, and neither of them writes anything. The optimiser hands back
+    # a draft and a diff; the studio shows the diff, and it is the ordinary
+    # PATCH above that saves — so a card from the internet can propose an edit
+    # to itself but never make one.
+
+    @app.get("/api/studio/models")
+    async def studio_models(provider: str = "", character: str = ""):
+        """What the chosen provider is serving, for the optimize dialog's picker.
+
+        Declared on the host rather than reached through the primary runtime's
+        `/api/models`, because the studio is a host surface: it opens for a
+        character under review, who by definition has no runtime yet."""
+        record = registry.get(character) if character else None
+        cfg = host.effective_config(record) if record else base
+        return await provider_models(cfg, provider)
+
+    @app.post("/api/studio/optimize")
+    async def studio_optimize(request: Request):
+        body = await request.json()
+        draft = studio_model.Draft.from_dict(body.get("draft") or {})
+        record = registry.get(str(body.get("character") or "")) or None
+        cfg = host.effective_config(record) if record else base
+        # A model named in the dialog is used as given — it is a full LiteLLM id,
+        # prefix and all, so the picker's provider choice is already in it. With
+        # none named she is optimised by whatever her own utility model is.
+        model = str(body.get("model") or "").strip() or cfg.utility_model
+        from yurios.app.main import model_api_base
+        from yurios.app.providers.openrouter import LiteLLMUtilityModel
+        utility = LiteLLMUtilityModel(
+            model, cfg.openrouter_api_key, thinking=cfg.utility_thinking,
+            api_base=model_api_base(cfg, model))
+        instructions = str(body.get("instructions") or "")
+        # Three sequential passes over a long card is minutes of nothing to look
+        # at. A client that asks for the stream gets one line per pass as it
+        # happens; everyone else gets the single JSON object this has always
+        # answered with, so a script does not have to learn a protocol to call it.
+        if "application/x-ndjson" not in (request.headers.get("accept") or ""):
+            try:
+                result = await optimize_draft(utility, draft, model=model,
+                                              instructions=instructions)
+            except CardOptimizeError as exc:
+                raise HTTPException(502, str(exc)) from exc
+            return result.to_dict()
+        return StreamingResponse(
+            _optimize_events(utility, draft, model=model, instructions=instructions),
+            media_type="application/x-ndjson",
+            # Nothing may sit on these lines: the whole point is that they arrive
+            # while the run is still going.
+            headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
 
     @app.post("/api/characters")
     async def create(request: Request):

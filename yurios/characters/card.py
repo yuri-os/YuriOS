@@ -31,7 +31,18 @@ class CardParseError(ValueError):
 class CardLimits:
     max_file_bytes: int = 32 * 1024 * 1024
     max_chunk_bytes: int = 16 * 1024 * 1024
-    max_chunks: int = 2048
+    # High enough to admit an honest card, low enough to bound the parse loop.
+    # A real 20 MB portrait off a card site arrives as ~5,000 small IDATs — the
+    # encoder's choice, not a signal of anything — so a tight ceiling here
+    # rejects perfectly good cards for how their PNG was written. The bound that
+    # actually matters is `max_file_bytes`; this one only stops a pathological
+    # file of empty chunks from spinning the loop.
+    max_chunks: int = 16384
+    # A card edited in place can end up carrying several `chara` payloads — the
+    # editor appends a new tEXt chunk and leaves the old one behind. The first is
+    # the live one; the rest are history. We read the first and say so (§30.1),
+    # but we will not sift an unbounded pile of them.
+    max_card_chunks: int = 8
     max_metadata_bytes: int = 4 * 1024 * 1024
     max_width: int = 8192
     max_height: int = 8192
@@ -42,6 +53,7 @@ class CardLimits:
             self.max_file_bytes,
             self.max_chunk_bytes,
             self.max_chunks,
+            self.max_card_chunks,
             self.max_metadata_bytes,
             self.max_width,
             self.max_height,
@@ -56,6 +68,9 @@ class ParsedCard:
     keyword: str
     width: int
     height: int
+    #: Things about the file the importer must not swallow — currently only
+    #: "this PNG held more than one card payload and here is the one I read".
+    warnings: tuple[str, ...] = ()
 
     @property
     def full_data(self) -> dict[str, Any]:
@@ -139,6 +154,8 @@ def parse_png_card(
     seen_ihdr = seen_plte = seen_idat = seen_iend = False
     idat_finished = False
     metadata: dict[str, bytes] = {}
+    copies: dict[str, int] = {}
+    superseded: dict[str, int] = {}
 
     while offset < len(png):
         chunks += 1
@@ -214,9 +231,15 @@ def parse_png_card(
             except UnicodeDecodeError as exc:
                 raise CardParseError("invalid PNG text keyword") from exc
             if key in ("ccv3", "chara"):
-                if key in metadata:
-                    raise CardParseError(f"duplicate {key} card metadata")
-                metadata[key] = text
+                copies[key] = copies.get(key, 0) + 1
+                if copies[key] > limits.max_card_chunks:
+                    raise CardParseError(
+                        f"PNG carries more than {limits.max_card_chunks} "
+                        f"{key} card payloads")
+                if key not in metadata:
+                    metadata[key] = text
+                elif text != metadata[key]:   # a byte-identical copy says nothing
+                    superseded[key] = superseded.get(key, 0) + 1
         elif chunk_type == b"IEND":
             if length or not seen_idat:
                 raise CardParseError("invalid IEND chunk")
@@ -233,11 +256,18 @@ def parse_png_card(
     keyword = "ccv3" if "ccv3" in metadata else "chara" if "chara" in metadata else ""
     if not keyword:
         raise CardParseError("PNG contains no ccv3 or chara card metadata")
+    stale = superseded.get(keyword, 0)
     return ParsedCard(
         data=_decode_card(metadata[keyword], limits),
         keyword=keyword,
         width=width,
         height=height,
+        warnings=((
+            f"this PNG carried more than one {keyword} payload. Read the first "
+            f"one in the file and ignored {stale} later "
+            f"{'one' if stale == 1 else 'ones'} that disagree with it — check "
+            "the imported fields against the card you expected.",
+        ) if stale else ()),
     )
 
 

@@ -67,6 +67,35 @@ visible with a single rename. A failure at any point leaves nothing behind. The 
 re-encoded from the PNG's pixels rather than copied, so nothing from the uploaded file's chunks
 survives into the served image.
 
+**Cards edited in place carry their own history.** A card that was revised on a site and
+re-uploaded often has two `chara` chunks: the current payload and whatever the editor appended
+past. The parser reads the first one — that is the live one, and on both of the real cards this
+was found on it is also the complete one — and then says so, in `NOTES.md` and in the log:
+
+> this PNG carried more than one chara payload. Read the first one in the file and ignored 1
+> later one that disagrees with it — check the imported fields against the card you expected.
+
+A file that needed disambiguating never starts on its own, even if it declares itself a YuriOS
+card: the block that vouches for it is one of the two payloads in question. More than eight
+payloads is still a refusal.
+
+### What happens to a foreign layout
+
+A YuriOS character keeps who she is in four places — `Identity`, `History`, `Appearance` and
+`Manner`. A card from a card site keeps all four in one `description` field, in whatever shape
+its author felt like: bracketed blocks, bold headers, bullet lists, ASCII rules, emoji section
+markers. There is no schema to parse, so the importer reads the card's own **section headers**
+and routes each block to where it belongs (`characters/cardsplit.py`).
+
+It is a router, not a rewriter. Every line lands in exactly one section, in the author's own
+words, and a layout it can't read leaves everything under `Identity` rather than guessing. Across
+the 28-card sample in `scripts/bench_cards.py`, it fills `Appearance` on 24 and `History` on 21
+where the old importer filled neither.
+
+What it can't do is notice that the `scenario` field is holding two pages of world-building, or
+that `character_version` is holding a URL, or write the one-line personality register the format
+wants. That's [Optimize with AI](#optimize-with-ai), one button away in the studio.
+
 ### The review state
 
 A card that doesn't declare itself a YuriOS card arrives **disabled**, marked `review_required`:
@@ -126,6 +155,85 @@ Two things there are worth knowing about:
 Creating a character opens on the shape of a working one (from `soul-src`) rather than eight
 empty boxes. Nothing exists on disk until you press create; after that she is enabled and
 autostarts, because you wrote her and there is nothing to review.
+
+## Optimize with AI
+
+The studio's second button. It sends the whole card to a model you choose and gets back the same
+character, re-filed into this format — the backstory out of the identity blob, the world-building
+out of the scenario and into lorebook entries, a personality register where the source left one
+empty, the jailbreak preamble moved from her persona to the voice law, the source URL out of the
+version field and into the notes.
+
+It also takes an instruction, which is the other half of what it's for. Formatting gets fixed
+either way; the box is for the character:
+
+> She's too guarded — make her openly devoted and warm to {{user}} from the first line, but keep
+> the sharp tongue and the raven-court backstory.
+
+An instruction like that is carried through every field it touches, because a card whose `manner`
+says devoted and whose `first_mes` still says wary reads as two different people.
+
+**Nothing is saved until you say so.** The model proposes; the dialog shows you a field-by-field
+diff of what moved, was filled in, or was emptied; **Apply** puts it in the form as an ordinary
+unsaved edit. That's deliberate — a character card is a file from the internet, and the most a
+hostile one can do here is propose an edit you then decline.
+
+**Picking the model.** The dialog has the same provider dropdown as the settings panel — LM
+Studio, Ollama, OpenRouter, or a raw LiteLLM id — with **browse** listing what that server is
+actually serving. Leave the box empty and she's optimised by her own utility model. The choice is
+remembered in your browser and never reaches her registry record: which model re-files one card
+says nothing about which model she should think with.
+
+### It runs in three passes
+
+*Who she is* (identity, history, appearance, manner, personality), then *where she is* (scenario,
+greetings, lorebook), then *how she's played* (voice law, hard limits, examples, notes, version,
+tags). Each pass sends only the fields that inform its own decisions and asks for only its own
+group, and each one sees the draft the previous one left behind.
+
+That structure is not tidiness — it's the only way this works on a model that thinks before it
+answers. A reasoning model spends its `<think>` tokens out of the same window as its reply, and
+one call carrying a whole card leaves it nothing to answer with. Measured on gemma-4-12b: a
+single-call attempt spent all 2,873 available tokens reasoning and returned an empty string. Split
+into passes, with a 32k window, all three land.
+
+If a pass fails, the ones that worked are still yours — the dialog shows the diff, and names the
+failed passes underneath with the reason.
+
+The dialog watches the run rather than sitting still: the route streams a line per pass, and you
+see which of the three is outstanding, what each one moved when it lands, and a clock that keeps
+ticking. A retry is named where you can see it, because it roughly doubles that pass and a timer
+that runs twice as long with no explanation is what makes people close the tab. Closing it *does*
+stop the run — there is no point burning tokens for a pane nobody is reading.
+
+### If it comes back empty
+
+Almost always the window, not the model. Local runners load a model with a per-model default
+context that's usually far below what the model supports — LM Studio's is often 8k — and the
+optimiser says so with the numbers:
+
+> the model thought for 6,293 tokens and had none left to answer with. It stopped at 8,192 tokens,
+> of which this card's prompt was 1,896 — that is the context window it was loaded with, not the
+> model's limit.
+
+Raise it (`CONTEXT_LENGTH` in the settings panel, or the model's own load config) and run again.
+A cut-off answer is salvaged down to the fields the model finished rather than thrown away, and
+the dialog tells you it was partial.
+
+Expect a few minutes on a local model — three passes, each thinking first. A hosted model is
+considerably faster.
+
+### Benchmarking it
+
+```
+python scripts/bench_cards.py ~/cards                       # the importer alone
+python scripts/bench_cards.py ~/cards --optimize --model openrouter/…
+```
+
+Runs a whole folder through the real import path and scores which fields came out filled, plus
+the house-style faults that survive (a scenario carrying world-building, a personality that is a
+paragraph, an identity that is still a wall). One card tells you nothing; thirty tell you that
+`Appearance` is empty on four of them.
 
 ## Exporting a character
 

@@ -37,6 +37,9 @@
     </div>
     <div class="topbar-actions">
       <a class="button button-quiet" href="/"><svg><use href="#i-back"></use></svg>Switchboard</a>
+      <button id="optimize-action" class="button button-quiet" type="button" title="Re-file this card into the studio's format with a model">
+        <svg><use href="#i-sparkle"></use></svg><span>Optimize with AI</span>
+      </button>
       <button id="primary-action" class="button button-primary" type="button">
         <svg><use href="#i-download"></use></svg><span>Export PNG</span>
       </button>
@@ -115,6 +118,75 @@
       <footer class="modal-actions">
         <button class="button button-quiet modal-close" type="button" value="cancel">Go back and edit</button>
         <button id="review-confirm" class="button button-primary" type="button">I've read them — export</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <!-- Optimize with AI (SPEC §30.6). Two panes in one dialog: the setup you
+       fill in, and the diff you have to read before anything is applied. The
+       model picker is the same provider/browse pattern as the settings panel,
+       pointed at the host's own /api/studio/models so it works for a character
+       who is still under review and has no runtime to ask. -->
+  <dialog id="optimize-dialog" class="modal modal-wide">
+    <form id="optimize-form" class="modal-card" method="dialog">
+      <header class="modal-head">
+        <div>
+          <p class="eyebrow"><svg><use href="#i-sparkle"></use></svg> Optimize with AI</p>
+          <h2>Re-file this card into our format</h2>
+        </div>
+        <button class="icon-button modal-close" type="button" value="cancel" aria-label="Close"><svg><use href="#i-close"></use></svg></button>
+      </header>
+
+      <div id="optimize-setup" class="opt-setup">
+        <p class="review-copy">Every card site lays a character out differently, so an imported card lands with its backstory, looks and manner in one blob and half the fields empty. A model reads the whole card and moves each part where it belongs — her words, her tone, just filed properly. Nothing is saved until you read the diff and press apply.</p>
+        <p class="form-note">It runs in three passes — who she is, where she is, how she's played — so each ask is small enough for a model that thinks before it answers. On a local model that's a few minutes.</p>
+
+        <label class="field field-textarea">
+          <span class="field-head"><span class="field-label">What should change?</span></span>
+          <small class="field-hint">Optional. Formatting is fixed either way — this is for the character. Say it plainly.</small>
+          <textarea id="optimize-instructions" rows="3" placeholder="She's too guarded — make her devoted and warm to {{user}} from the first line, but keep the sharp tongue and the raven-court backstory."></textarea>
+        </label>
+
+        <div class="field">
+          <span class="field-head"><span class="field-label">Model</span></span>
+          <small class="field-hint">Whichever machine you want to spend. Leave the box empty to use her own utility model.</small>
+          <div class="opt-model">
+            <div class="opt-model-row">
+              <select id="optimize-provider" class="opt-input opt-provider"></select>
+              <input id="optimize-model" class="opt-input opt-model-name" type="text" autocomplete="off" placeholder="model id (or click browse)">
+              <button id="optimize-browse" class="opt-browse" type="button">browse</button>
+            </div>
+            <div id="optimize-model-list" class="opt-model-list" hidden></div>
+            <span id="optimize-model-status" class="opt-model-status"></span>
+          </div>
+        </div>
+
+        <p id="optimize-error" class="notice error" role="status" hidden></p>
+      </div>
+
+      <div id="optimize-progress" class="opt-progress" hidden>
+        <p class="opt-progress-head">
+          <span id="optimize-stage">Sending the card…</span>
+          <span id="optimize-elapsed" class="opt-elapsed">0:00</span>
+        </p>
+        <ol id="optimize-steps" class="opt-steps" role="status" aria-live="polite"></ol>
+        <p class="form-note">Each pass is its own call. A model that thinks before it answers can spend a couple of minutes on one — leave this open.</p>
+      </div>
+
+      <div id="optimize-result" class="opt-result" hidden>
+        <p id="optimize-notes" class="review-copy"></p>
+        <p id="optimize-truncated" class="notice" hidden>The model ran out of room and stopped part-way. What's below is what it finished — apply it, then run again for the rest, or pick a model with a bigger output window.</p>
+        <ul id="optimize-failed" class="opt-failed" hidden></ul>
+        <ul id="optimize-changes" class="opt-changes"></ul>
+      </div>
+
+      <footer class="modal-actions">
+        <button class="button button-quiet modal-close" type="button" value="cancel">Cancel</button>
+        <button id="optimize-back" class="button button-quiet" type="button" hidden>Back</button>
+        <button id="optimize-run" class="button button-primary" type="button">
+          <svg><use href="#i-sparkle"></use></svg><span>Optimize</span>
+        </button>
+        <button id="optimize-apply" class="button button-primary" type="button" hidden>Apply these changes</button>
       </footer>
     </form>
   </dialog>

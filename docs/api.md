@@ -40,6 +40,8 @@ Websockets follow the same shape: `/ws/voice` and `/ws/characters/<id>/voice`.
 | `GET /api/characters/{id}/studio` | `{draft, provenance, grown, images, sections}` |
 | `PATCH /api/characters/{id}/studio` | save a draft into the SOUL; one commit; restarts her |
 | `POST /api/characters/{id}/studio/preview` | the card, report and privacy pane — no file |
+| `POST /api/studio/optimize` | re-file a card with a model: `{draft, instructions?, model?, character?}` → `{draft, changes, notes, model, truncated, failed}`. **Proposes only** — nothing is written until the PATCH above. 502 with a readable reason if the model can't be reached or answers with nothing usable. Send `Accept: application/x-ndjson` to watch it instead (below) |
+| `GET /api/studio/models?provider=&character=` | the optimize dialog's picker, same shape as `/api/models` but answered by the host, so it works for a character still under review |
 | `POST /api/characters/{id}/export` | the card PNG, with export options in the body |
 | `GET /api/characters/{id}/selfies` | `{selfies: [{name, url, bytes, taken_at}]}` |
 | `POST /api/characters/{id}/portrait` | adopt a face: `{selfie}` or `{image}` (base64) |
@@ -72,6 +74,26 @@ A character summary looks like:
   "activity": "engaged"
 }
 ```
+
+### Watching an optimisation
+
+`POST /api/studio/optimize` re-files a card in three sequential calls to a model,
+which on a local one is minutes. Send `Accept: application/x-ndjson` and it
+answers with one JSON object per line as the run happens:
+
+```
+{"event":"pass","state":"start","index":1,"total":3,"name":"persona","label":"who she is"}
+{"event":"pass","state":"retry","index":1,"total":3,"name":"persona","label":"who she is"}
+{"event":"pass","state":"done","index":1,"total":3,"name":"persona","label":"who she is","fields":["identity","history"]}
+…
+{"event":"done","result":{"draft":{…},"changes":[…],"notes":"…"}}
+```
+
+The last line is always `done` or `error`. The status is 200 before the first
+pass has run, so a failure arrives as `{"event":"error","message":…}` rather than
+as a code — the same sentence the JSON route would have put in `detail`. Closing
+the connection cancels the run. Everything else about the endpoint is unchanged:
+without that Accept header it answers with the single object above.
 
 Errors use a non-2xx status with `detail` in the body.
 

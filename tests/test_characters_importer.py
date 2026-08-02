@@ -165,3 +165,54 @@ def test_git_initialization_marks_mounted_vault_safe(tmp_path, monkeypatch):
     assert commands[2][5:7] == ["config", "--local"]
     assert commands[-2][5:] == ["add", "-A"]
     assert commands[-1][5:] == ["commit", "-q", "-m", "vault: import character card"]
+
+
+def _two_payload_card(live: dict, stale: dict) -> bytes:
+    """One PNG carrying two different `chara` payloads, the way a card that was
+    edited on a site and re-uploaded actually arrives."""
+    output = io.BytesIO()
+    Image.new("RGBA", (5, 4), (20, 40, 60, 100)).save(output, "PNG", pnginfo=None)
+    png = output.getvalue()
+    iend = png.rfind(b"\x00\x00\x00\x00IEND")
+    chunks = b"".join(
+        _chunk(b"tEXt", b"chara\x00" + base64.b64encode(
+            json.dumps(payload).encode("utf-8")))
+        for payload in (live, stale))
+    return png[:iend] + chunks + png[iend:]
+
+
+def test_a_card_with_two_payloads_imports_the_live_one_and_notes_it(tmp_path):
+    live = _card()["data"] | {"first_mes": "The guild hall roars."}
+    stale = {key: value for key, value in live.items() if key != "character_book"}
+    stale["first_mes"] = "later"
+
+    record = CharacterImporter(CharacterRegistry(tmp_path),
+                               initialize_git=False).import_card(
+        _two_payload_card({"spec": "chara_card_v2", "data": live},
+                          {"spec": "chara_card_v2", "data": stale}))
+
+    bootstrap = (record.paths.vault / "soul" / "BOOTSTRAP.md").read_text(encoding="utf-8")
+    assert "The guild hall roars." in bootstrap
+    assert "later" not in bootstrap
+    # The choice the parser made is in the file the reviewer opens, not only in a
+    # log line they will never see.
+    notes = (record.paths.vault / "soul" / "NOTES.md").read_text(encoding="utf-8")
+    assert "more than one chara payload" in notes
+
+
+def test_a_native_card_with_two_payloads_is_not_trusted_to_start(tmp_path):
+    """`extensions.yurios` normally means "this came from here, run it". A file
+    the parser had to disambiguate does not get that, however native it claims to
+    be — the payload that vouches for it is one of the two in question."""
+    live = _card(native=True)["data"]
+    stale = live | {"name": "Someone Else"}
+
+    record = CharacterImporter(CharacterRegistry(tmp_path),
+                               initialize_git=False).import_card(
+        _two_payload_card({"spec": "chara_card_v3", "data": live},
+                          {"spec": "chara_card_v3", "data": stale}),
+        enabled=True, autostart=True)
+
+    assert not record.lifecycle.enabled
+    assert not record.lifecycle.autostart
+    assert record.lifecycle.review_required

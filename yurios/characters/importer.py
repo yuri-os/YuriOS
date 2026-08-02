@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import logging
 import os
 import re
 import shutil
@@ -18,6 +19,7 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 
 from .appearance import mechanical_identity, write_appearance
 from .card import CardLimits, CardParseError, card_fields, parse_png_card
+from .cardsplit import clean_version, split_description
 from .privacy import PRIVATE_SOUL_FILES
 from .soulfiles import SoulReader
 from .models import (
@@ -33,6 +35,9 @@ from .models import (
     new_character_id,
 )
 from .registry import CharacterRegistry
+
+
+log = logging.getLogger(__name__)
 
 
 class CharacterImportError(ValueError):
@@ -240,7 +245,8 @@ def _restore_soul(soul: Path, files: Mapping[str, str], fields: Mapping[str, Any
     _write_partner_model(soul)
 
 
-def _create_soul(soul: Path, fields: Mapping[str, Any], name: str) -> None:
+def _create_soul(soul: Path, fields: Mapping[str, Any], name: str,
+                 warnings: tuple[str, ...] = ()) -> None:
     description = _text(fields.get("description"))
     personality = _text(fields.get("personality"))
     scenario = _text(fields.get("scenario"))
@@ -249,9 +255,26 @@ def _create_soul(soul: Path, fields: Mapping[str, Any], name: str) -> None:
     system_prompt = _text(fields.get("system_prompt"))
     post_history = _text(fields.get("post_history_instructions"))
     creator_notes = _text(fields.get("creator_notes"))
-    version = _text(fields.get("character_version")) or "1.0.0"
+    # A foreign card keeps all four backbone sections in one `description`, so
+    # the split has to be recovered rather than read (`cardsplit`). It is a
+    # router, not a rewriter: a card whose layout it cannot read comes out with
+    # everything under Identity, which is what this function always did.
+    sections = split_description(description)
+    version, misfiled_version = clean_version(_text(fields.get("character_version")))
+    if misfiled_version:
+        # A source URL or a "chat name" in `character_version` is worth keeping
+        # and is not a version — the notes are where whoever opens the card next
+        # actually looks for it.
+        creator_notes = (f"{creator_notes}\n\n" if creator_notes else "") + \
+            f"From the source card's version field:\n\n{misfiled_version}"
+    for warning in warnings:
+        # The parser resolved an ambiguity in the file. Resolving it quietly is
+        # what §30.1 forbids, so it lands where whoever reviews this import reads.
+        creator_notes = (f"{creator_notes}\n\n" if creator_notes else "") + \
+            f"**On import:** {warning}"
     if not alternates:
         alternates = [first_message or f"Hello, I am {name}."]
+    version = version or "1.0.0"
     alternate_refs = "\n".join(
         f"    - SCENARIO.md#Alternate greeting {index}"
         for index in range(1, len(alternates) + 1)
@@ -296,11 +319,11 @@ mutable: false
 
 ## Identity
 
-{description or '_(Not supplied by the card.)_'}
+{sections['identity'] or '_(Not supplied by the card.)_'}
 
 ## History
 
-_(No separate history was supplied by the card.)_
+{sections['history'] or '_(No separate history was supplied by the card.)_'}
 
 ## Hard limits
 
@@ -323,11 +346,11 @@ personality: {_yaml_string(personality)}
 
 ## Appearance
 
-_(The source card does not separate appearance from description.)_
+{sections['appearance'] or '_(The source card does not separate appearance from description.)_'}
 
 ## Manner
 
-{personality or '_(Not supplied by the card.)_'}
+{sections['manner'] or personality or '_(Not supplied by the card.)_'}
 """,
     )
     greeting_blocks = []
@@ -351,7 +374,8 @@ _(The source card does not separate appearance from description.)_
 
 
 def _create_vault(vault: Path, fields: Mapping[str, Any], name: str,
-                  soul_files: Mapping[str, str] | None = None) -> None:
+                  soul_files: Mapping[str, str] | None = None,
+                  warnings: tuple[str, ...] = ()) -> None:
     soul = vault / "soul"
     for directory in (
         vault / "memory" / "episodic",
@@ -364,7 +388,7 @@ def _create_vault(vault: Path, fields: Mapping[str, Any], name: str,
     if soul_files:
         _restore_soul(soul, soul_files, fields, name)
     else:
-        _create_soul(soul, fields, name)
+        _create_soul(soul, fields, name, warnings)
     _write(vault / ".gitignore", "memory/index/")
     _write(vault / "goals.md", "# Goals\n\n_(No goals yet.)_")
     _write(vault / "memory" / "summary.md", "# Conversation summary\n\n_(Empty.)_")
@@ -484,6 +508,8 @@ class CharacterImporter:
             parsed = parse_png_card(png, limits=self.limits)
         except CardParseError as exc:
             raise CharacterImportError(str(exc)) from exc
+        for warning in parsed.warnings:
+            log.warning("import: %s", warning)
         portrait = _sanitize_portrait(png, self.limits)
         fields = card_fields(parsed.data)
         name = _text(fields.get("name")).strip()
@@ -507,10 +533,13 @@ class CharacterImporter:
         native = _is_yurios_card(parsed.data, fields)
         block = _yurios_block(parsed.data, fields) if native else {}
         soul_files = _soul_payload(block) if native else None
+        # A file the parser had to disambiguate is never trusted enough to start
+        # on its own, however native it claims to be — a human reads it first.
+        trusted = native and not parsed.warnings
         lifecycle = LifecycleFlags(
-            enabled=(native if enabled is None else bool(enabled)) if native else False,
-            autostart=bool(autostart) if native else False,
-            review_required=not native,
+            enabled=(trusted if enabled is None else bool(enabled)) if trusted else False,
+            autostart=bool(autostart) if trusted else False,
+            review_required=not trusted,
         )
         record = CharacterRecord(
             id=character_id,
@@ -548,7 +577,7 @@ class CharacterImporter:
             # not leave her borrowing whoever is shipped in the repo.
             write_appearance(staged.appearance, name,
                              mechanical_identity(name, _text(fields.get("description"))))
-            _create_vault(staged.vault, fields, name, soul_files)
+            _create_vault(staged.vault, fields, name, soul_files, parsed.warnings)
             for directory in (staged.corpus, staged.traces, staged.tool_logs, staged.selfies):
                 directory.mkdir(parents=True, exist_ok=True)
             if self.initialize_git:

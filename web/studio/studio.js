@@ -1,5 +1,6 @@
 import { ApiError, studioApi } from "./api.js";
 import { BUDGETS, SECTIONS, description, equal, normalise, problems, tokens } from "./draft.js";
+import { createOptimizer } from "./optimize.js";
 
 const $ = (selector, root = document) => root.querySelector(selector);
 
@@ -26,6 +27,7 @@ const elements = {
   saveState: $("#save-state"),
   savePulse: $("#save-pulse"),
   primary: $("#primary-action"),
+  optimize: $("#optimize-action"),
   brandSub: $("#brand-sub"),
   title: $("#page-title"),
   eyebrow: $("#page-eyebrow"),
@@ -627,6 +629,28 @@ async function doCreate() {
   }
 }
 
+/* An accepted optimisation lands like a very large edit: straight into the
+   draft, then down the ordinary save path. It deliberately does NOT go through
+   `update()` — that takes one key, and this moves most of them — but it owes the
+   page everything `update()` would have done, including the rerender, since the
+   form's textareas hold the old text until they are rebuilt. */
+function applyOptimization(payload) {
+  state.draft = normalise(payload.draft);
+  renderForm();
+  renderPreviewPanels();
+  markDirty();
+  scheduleSave();
+  schedulePreview();
+  const count = payload.changes?.length || 0;
+  toast(`${count} field${count === 1 ? "" : "s"} re-filed${state.id ? " — saving" : ""}.`);
+}
+
+const optimizer = createOptimizer({
+  getDraft: () => state.draft,
+  getCharacterId: () => state.id,
+  onApply: applyOptimization,
+});
+
 // --------------------------------------------------------------------- boot
 
 async function boot() {
@@ -656,6 +680,7 @@ async function boot() {
       elements.primary.addEventListener("click", doCreate);
       setSaveState("not created yet");
     }
+    elements.optimize.addEventListener("click", () => optimizer.open());
     state.saved = structuredClone(state.draft);
     renderForm();
     renderGrown();

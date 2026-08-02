@@ -28,8 +28,9 @@ from __future__ import annotations
 import ipaddress
 from pathlib import Path
 
-import httpx
 from fastapi import APIRouter, HTTPException, Request
+
+from yurios.app.providers.catalog import provider_models
 
 from ..avatar_models import MODELS
 
@@ -262,42 +263,13 @@ def _update_env(path: Path, updates: dict[str, str]) -> list[str]:
     return list(updates)
 
 
-async def _fetch_json(url: str, headers: dict | None = None) -> dict:
-    async with httpx.AsyncClient(timeout=8.0) as client:
-        r = await client.get(url, headers=headers or {})
-        r.raise_for_status()
-        return r.json()
-
-
 @router.get("/api/models")
 async def list_models(request: Request, provider: str = ""):
     """The models a provider can actually serve right now, for the settings panel's
-    model picker. lm_studio + ollama hit the local server; openrouter hits its
-    public catalogue (the key, if set, is sent so private/BYOK models show too).
-    Any failure — server down, no such provider — comes back as an empty list plus
-    an `error` string the panel renders inline, never a 500 that breaks the dialog."""
+    model picker. The listing itself lives in `app/providers/catalog.py` because
+    the studio's optimize dialog asks the same question of the same servers."""
     _require_local(request)
-    cfg = request.app.state.rt.cfg
-    provider = (provider or "").lower()
-    try:
-        if provider in ("lmstudio", "lm_studio"):
-            base = cfg.lmstudio_base_url.rstrip("/")
-            data = await _fetch_json(f"{base}/models")
-            ids = [m.get("id", "") for m in data.get("data", [])]
-        elif provider == "ollama":
-            base = cfg.ollama_base_url.rstrip("/")
-            data = await _fetch_json(f"{base}/api/tags")
-            ids = [m.get("name", "") for m in data.get("models", [])]
-        elif provider == "openrouter":
-            headers = ({"Authorization": f"Bearer {cfg.openrouter_api_key}"}
-                       if cfg.openrouter_api_key else None)
-            data = await _fetch_json("https://openrouter.ai/api/v1/models", headers)
-            ids = [m.get("id", "") for m in data.get("data", [])]
-        else:
-            return {"models": [], "error": f"no live listing for '{provider}' — type the id"}
-    except Exception as e:                     # unreachable server, bad json, timeout…
-        return {"models": [], "error": f"couldn't reach {provider}: {str(e)[:120]}"}
-    return {"models": sorted({i for i in ids if i})}
+    return await provider_models(request.app.state.rt.cfg, provider)
 
 
 @router.get("/api/settings")

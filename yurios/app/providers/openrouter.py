@@ -152,10 +152,36 @@ class LiteLLMUtilityModel:
         self.thinking = thinking
 
     async def complete(self, messages: list[dict], **params) -> str:
-        extra = {}
+        text, _meta = await self.complete_detailed(messages, **params)
+        return text
+
+    async def complete_detailed(self, messages: list[dict],
+                                **params) -> tuple[str, dict]:
+        """`complete`, plus the numbers that explain a disappointing answer.
+
+        An empty string out of a reasoning model has two very different causes —
+        the model had nothing to say, or it thought until the window ran out and
+        never got to speak — and only the usage record tells them apart. The
+        second is the common one on a local model whose loaded context is
+        smaller than the model can actually do, and a caller that can see
+        `finish_reason="length"` next to `reasoning_tokens` can say so in words
+        instead of shrugging (see `characters/optimize.py`).
+
+        `reasoning_effort` rides in `extra_body` for the same reason `_no_think`
+        does: passed as a top-level argument LiteLLM rewrites it and the server
+        never sees it. Unlike `thinking=False` this *keeps* the reasoning pass —
+        it only asks for a shorter one, which is what a long structured answer
+        on a small window needs.
+        """
+        extra: dict = {}
+        body: dict = {}
         if not self.thinking:
             messages = _no_think_messages(messages)
-            extra["extra_body"] = _NO_THINK_BODY
+            body.update(_NO_THINK_BODY)
+        if params.get("reasoning_effort"):
+            body["reasoning_effort"] = params["reasoning_effort"]
+        if body:
+            extra["extra_body"] = body
         response = await litellm.acompletion(
             model=self.model,
             messages=messages,
@@ -166,4 +192,13 @@ class LiteLLMUtilityModel:
             **_attribution(self.model),
             **extra,
         )
-        return response.choices[0].message.content or ""
+        choice = response.choices[0]
+        usage = getattr(response, "usage", None)
+        details = getattr(usage, "completion_tokens_details", None)
+        return (choice.message.content or "", {
+            "finish_reason": getattr(choice, "finish_reason", "") or "",
+            "prompt_tokens": getattr(usage, "prompt_tokens", 0) or 0,
+            "completion_tokens": getattr(usage, "completion_tokens", 0) or 0,
+            "total_tokens": getattr(usage, "total_tokens", 0) or 0,
+            "reasoning_tokens": getattr(details, "reasoning_tokens", 0) or 0,
+        })

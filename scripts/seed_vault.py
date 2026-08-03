@@ -29,10 +29,7 @@ import yaml  # noqa: E402
 from yurios.app import vaultgit  # noqa: E402
 from yurios.app.core.soul import parse_md, split_sections  # noqa: E402
 
-VAULT_GITIGNORE = """\
-# derived, rebuildable — never committed (§4.1); scripts/reindex.py rebuilds it
-memory/index/
-"""
+VAULT_GITIGNORE = vaultgit.VAULT_GITIGNORE   # the one canonical list (§4.1)
 
 
 def seed(soul_src: Path, vault: Path) -> None:

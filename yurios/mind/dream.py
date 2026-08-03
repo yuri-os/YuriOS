@@ -12,8 +12,10 @@ Three disciplines make it safe to run unattended:
   * **Oldest-first and resumable.** Progress lives in
     `state/dream_progress.json`; a night that runs out of budget leaves a
     backlog, not an overrun, and the next DREAM tick picks up where it stopped.
-  * **Budget-capped per tick.** Consolidation is the biggest local-token job in
-    the system; each tick chews what its token budget allows and yields.
+  * **Budget-capped per tick, but always forward.** Consolidation is the biggest
+    local-token job in the system; each tick chews what its token budget allows
+    and yields — while always taking the oldest day, however big, so the backlog
+    can never wedge behind one outsized journal.
   * **Never today's live journal.** Only finished days consolidate — the file
     still being written is not a day yet.
 
@@ -85,7 +87,14 @@ class DreamConsolidator:
         for day in pending:                       # oldest first
             text = (self.episodic / f"{day}.md").read_text(encoding="utf-8")
             cost = max(64, len(text) // 4)
-            if spent + cost > token_budget:
+            # `spent` is 0 only on the first day, which always runs however big
+            # it is: a single day larger than the whole budget must still make
+            # progress, or the backlog wedges on it and every DREAM tick from
+            # then on re-breaks against the same file forever. The summariser
+            # truncates its prompt anyway, so an oversized day costs a bounded
+            # call, not a proportional one — the budget caps the *rest* of the
+            # night, it is not a veto on the oldest day.
+            if spent and spent + cost > token_budget:
                 report.exhausted_budget = True
                 break
             facts = await self._summarise_day(day, text)
@@ -109,8 +118,10 @@ class DreamConsolidator:
             report.days_processed.append(day)
             spent += cost
 
-        write_json(self.progress_path, {"consolidated_days": done_days})
-        self.vault.mark_dirty()
+        if report.days_processed:                 # a night that consolidated
+            write_json(self.progress_path,        # nothing leaves no trace and
+                       {"consolidated_days": done_days})   # no commit
+            self.vault.mark_dirty()
         return report
 
     async def _summarise_day(self, day: str, text: str) -> list[str]:

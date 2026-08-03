@@ -15,11 +15,22 @@ the two rules that make a self-modifying agent shippable rather than terrifying:
 Writes reuse the Build #1 atomic-write discipline, and the loop calls
 `commit_if_dirty()` once per tick: exactly one commit per tick that changed
 anything; an uneventful tick commits nothing, and that is not an error.
+
+"Changed anything" is meant literally. A write whose content matches what is
+already on disk is not a change — it is a glance — and it neither touches the
+file nor sets the dirty flag. Without that, any caller that re-saves unchanged
+state each tick (a world snapshot, a progress ledger) turns the loop into a
+commit-per-heartbeat machine: git sees no diff in the file that was rewritten,
+but the commit still fires and sweeps up whatever else happens to be in the
+working tree. Callers should therefore route state files through `write_json()`
+rather than saving them behind the vault's back and calling `mark_dirty()`.
 """
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
+from typing import Any
 
 from yurios.app import vaultgit
 
@@ -57,12 +68,22 @@ class MindVault:
 
     def write(self, rel: str, content: str, *, gate: bool = False) -> Path:
         p = self._check(rel, gate=gate)
+        if p.exists() and p.read_text(encoding="utf-8") == content:
+            return p                       # a glance, not a change
         vaultgit.atomic_write(p, content)
         self._dirty = True
         return p
 
+    def write_json(self, rel: str, obj: Any, *, gate: bool = False) -> Path:
+        """A state file, in the one JSON shape the Vault uses everywhere
+        (mind/util.write_json). Change-detecting, like every other write."""
+        return self.write(
+            rel, json.dumps(obj, ensure_ascii=False, indent=2) + "\n", gate=gate)
+
     def append(self, rel: str, content: str, *, gate: bool = False) -> Path:
         p = self._check(rel, gate=gate)
+        if not content:
+            return p                       # appending nothing is not a change
         vaultgit.atomic_append(p, content)
         self._dirty = True
         return p

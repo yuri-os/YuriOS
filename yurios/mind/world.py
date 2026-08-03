@@ -31,7 +31,7 @@ from yurios.world.situation import render_situation
 from yurios.world.tools.timers import TimerBoard
 
 from .signals import Signal
-from .util import iso_of, jsonl_append, jsonl_read, read_json, ts_of_iso, write_json
+from .util import iso_of, jsonl_append, jsonl_read, read_json, ts_of_iso
 from .vaultio import MindVault
 
 
@@ -71,8 +71,9 @@ class WorldModelStore:
         }
 
     def _save(self, st: dict) -> None:
-        write_json(self.state_path, st)
-        self.vault.mark_dirty()
+        # through the vault, so an observe() that changed nothing is a glance
+        # and not a commit — most signals leave this dict exactly as they found it
+        self.vault.write_json("world/state.json", st)
 
     # ---------------------------------------------------------------- observe
 

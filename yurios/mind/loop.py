@@ -326,11 +326,14 @@ class MindLoop:
                                             and bool(self.dream.backlog())),
                              budget_pressure=self.budget.pressure())
         self._body_reflexes(now)
-        self.vault.commit_if_dirty(
-            f"tick {self._tick_id}: {decided['intention'][:60]}")
+        # persist the cursor BEFORE the commit, not after: `git add -A` stages
+        # the whole tree, so a tick that persisted afterwards left its own state
+        # for the *next* commit to sweep up and mislabel
         self.offset = new_offset
         self.last_tick_ts = now
         self._persist()
+        self.vault.commit_if_dirty(
+            f"tick {self._tick_id}: {decided['intention'][:60]}")
         self.hub.publish("mind", {"state": self.activity.state,
                                   "tick": self._tick_id,
                                   "intention": decided["intention"]})

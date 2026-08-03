@@ -17,6 +17,8 @@ from typing import Any, Mapping
 import yaml
 from PIL import Image, ImageOps, UnidentifiedImageError
 
+from yurios.app import vaultgit
+
 from .appearance import mechanical_identity, write_appearance
 from .card import CardLimits, CardParseError, card_fields, parse_png_card
 from .cardsplit import clean_version, split_description
@@ -389,7 +391,7 @@ def _create_vault(vault: Path, fields: Mapping[str, Any], name: str,
         _restore_soul(soul, soul_files, fields, name)
     else:
         _create_soul(soul, fields, name, warnings)
-    _write(vault / ".gitignore", "memory/index/")
+    _write(vault / ".gitignore", vaultgit.VAULT_GITIGNORE)
     _write(vault / "goals.md", "# Goals\n\n_(No goals yet.)_")
     _write(vault / "memory" / "summary.md", "# Conversation summary\n\n_(Empty.)_")
     _write(vault / "memory" / "semantic" / "facts.md", "# Facts")

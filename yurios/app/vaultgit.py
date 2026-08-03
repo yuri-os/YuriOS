@@ -13,6 +13,19 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+VAULT_GITIGNORE = """\
+# derived, rebuildable — never committed (§4.1); scripts/reindex.py rebuilds it
+memory/index/
+
+# scheduler bookkeeping, not memory: a bus cursor and a heartbeat timestamp that
+# change on every tick, and the activity ladder's position. Committing these
+# turns `git log` into one entry per heartbeat and buries the diary in it.
+# Everything else under state/ (sessions, budget, quarantine, dream progress)
+# is durable and stays versioned.
+state/engine.json
+state/activity.json
+"""
+
 
 def atomic_write(path: Path, text: str) -> None:
     """Write-temp-then-rename in the same directory (rename is atomic on POSIX)."""

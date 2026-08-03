@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 import unicodedata
 from collections.abc import Collection
@@ -10,6 +11,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
+
+log = logging.getLogger("characters.models")
 
 _ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
 
@@ -85,9 +88,11 @@ class ConnectionBinding:
 
 @dataclass(slots=True)
 class ModelBinding:
+    # Two models, not three. The dream pass summarises with the utility model
+    # (mind/dream.py) — it has never had one of its own, and a `dream` field here
+    # only ever looked like a knob that did something.
     chat: str = ""
     utility: str = ""
-    dream: str = ""
     options: dict[str, Any] = field(default_factory=dict)
 
 
@@ -213,20 +218,33 @@ class CharacterRecord:
                 lifecycle=LifecycleFlags(**dict(value.get("lifecycle", {}))),
                 loops=LoopSwitches(**dict(value.get("loops", {}))),
                 connection=ConnectionBinding(
-                    **_binding_data(value.get("connection", {}))
+                    **_binding_data(ConnectionBinding, value.get("connection", {}))
                 ),
-                models=ModelBinding(**_binding_data(value.get("models", {}))),
-                voice=VoiceBinding(**_binding_data(value.get("voice", {}))),
-                body=BodyBinding(**_binding_data(value.get("body", {}))),
+                models=ModelBinding(**_binding_data(ModelBinding, value.get("models", {}))),
+                voice=VoiceBinding(**_binding_data(VoiceBinding, value.get("voice", {}))),
+                body=BodyBinding(**_binding_data(BodyBinding, value.get("body", {}))),
                 created_at=str(value.get("created_at", "")),
             )
         except (KeyError, TypeError) as exc:
             raise ValueError(f"invalid character record: {exc}") from exc
 
 
-def _binding_data(value: object) -> dict[str, Any]:
+def _binding_data(binding: type, value: object) -> dict[str, Any]:
+    """A persisted binding as constructor keywords for *binding*.
+
+    A registry written by an older build carries the keys that build had, and a
+    field this one has since retired — `models.dream`, which never reached the
+    dream pass — must not be the reason her record refuses to load. Unknown keys
+    are dropped with a warning (a hand-edited typo deserves to be *said*, not
+    swallowed) and the next save writes the file without them."""
     if not isinstance(value, Mapping):
         raise ValueError("character binding must be an object")
-    result = dict(value)
+    known = binding.__dataclass_fields__
+    result: dict[str, Any] = {}
+    for key, item in value.items():
+        if key in known:
+            result[key] = item
+        else:
+            log.warning("ignoring unknown %s field: %s", binding.__name__, key)
     result["options"] = _options(result.get("options"))
     return result

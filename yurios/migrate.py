@@ -356,7 +356,6 @@ def _record(
         models=ModelBinding(
             chat=chat,
             utility=utility,
-            dream=str(_value(config, "dream_model", utility) or utility),
             options=model_options,
         ),
         voice=VoiceBinding(

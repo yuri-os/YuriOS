@@ -74,7 +74,7 @@ class DreamConsolidator:
 
     # ------------------------------------------------------------ consolidate
 
-    async def consolidate(self, *, token_budget: int = 4000) -> ConsolidationReport:
+    async def consolidate(self, *, token_budget: int = 40000) -> ConsolidationReport:
         report = ConsolidationReport()
         pending = self.backlog()
         if not pending:

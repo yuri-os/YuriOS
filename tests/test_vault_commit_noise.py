@@ -90,7 +90,13 @@ class _Store:
 
 async def test_an_oversized_day_still_consolidates(cfg, seeded_vault, clock):
     """A day bigger than the whole budget must not wedge the backlog: the
-    oldest day always runs, or every DREAM tick forever re-breaks on it."""
+    oldest day always runs, or every DREAM tick forever re-breaks on it.
+
+    The budget is pinned here rather than taken from the default, so that
+    raising MIND_DREAM_TICK_TOKENS can never quietly stop this from being a
+    test of the oversized-day path.
+    """
+    budget = 1000
     vault = MindVault(seeded_vault)
     dream = DreamConsolidator(vault, _Store(), clock)
     yesterday = day_of(clock.now() - 86400)          # a finished day, not the live one
@@ -98,10 +104,10 @@ async def test_an_oversized_day_still_consolidates(cfg, seeded_vault, clock):
     (seeded_vault / "memory" / "episodic").mkdir(parents=True, exist_ok=True)
     (seeded_vault / "memory" / "episodic" / f"{yesterday}.md").write_text(
         huge, encoding="utf-8")
-    assert len(huge) // 4 > 4000, "the fixture must exceed the default budget"
+    assert len(huge) // 4 > budget, "the fixture must exceed the whole budget"
 
     assert dream.backlog() == [yesterday]
-    report = await dream.consolidate()
+    report = await dream.consolidate(token_budget=budget)
     assert report.days_processed == [yesterday]
     assert dream.backlog() == [], "the backlog must drain, not wedge"
 

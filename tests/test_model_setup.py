@@ -13,6 +13,7 @@ def test_defaults_have_no_language_model_connection():
 
     assert cfg.chat_model == cfg.utility_model == NONE
     assert cfg.embed_backend == "sentence_tf"
+    assert cfg.selfie_backend == "off"
     assert isinstance(build_chat_model(cfg), UnconfiguredChatModel)
 
 
@@ -121,6 +122,58 @@ def test_configure_openrouter_saves_the_prompted_key(tmp_path, monkeypatch):
     assert "OPENROUTER_API_KEY=secret" in saved
 
 
+def test_configure_openrouter_selfies_prompts_for_and_saves_its_key(tmp_path, monkeypatch):
+    from yurios import cli
+
+    monkeypatch.setattr(cli, "_root", lambda: tmp_path)
+    monkeypatch.setattr(cli.sys.stdin, "isatty", lambda: True)
+    prompts = []
+    monkeypatch.setattr(cli.getpass, "getpass",
+                        lambda prompt: prompts.append(prompt) or "secret")
+
+    assert cli.main(["configure", "--selfie-backend", "openrouter", "--selfie-model",
+                     "bytedance-seed/seedream-4.5"]) == 0
+
+    saved = (tmp_path / ".env").read_text(encoding="utf-8")
+    assert prompts == ["OpenRouter API key (Enter to keep configured key): "]
+    assert "SELFIE_BACKEND=openrouter" in saved
+    assert "SELFIE_MODEL=bytedance-seed/seedream-4.5" in saved
+    assert "OPENROUTER_API_KEY=secret" in saved
+
+
+def test_configure_diffusers_selfies_saves_an_existing_checkpoint(tmp_path, monkeypatch):
+    from yurios import cli
+
+    checkpoint = tmp_path / "oneObsession3D_v10Illustrious.safetensors"
+    checkpoint.write_bytes(b"checkpoint header")
+    monkeypatch.setattr(cli, "_root", lambda: tmp_path)
+
+    assert cli.main(["configure", "--selfie-backend", "diffusers", "--selfie-local-model",
+                     str(checkpoint)]) == 0
+
+    saved = (tmp_path / ".env").read_text(encoding="utf-8")
+    assert "SELFIE_BACKEND=diffusers" in saved
+    assert f"SELFIE_LOCAL_MODEL={checkpoint}" in saved
+
+
+def test_interactive_configure_selects_the_chat_model_then_selfie_route(tmp_path, monkeypatch):
+    from yurios import cli
+
+    monkeypatch.setattr(cli, "_root", lambda: tmp_path)
+    monkeypatch.setattr(cli.sys.stdin, "isatty", lambda: True)
+    answers = iter(("n", "2", "bytedance-seed/seedream-4.5"))
+    monkeypatch.setattr("builtins.input", lambda prompt: next(answers))
+    monkeypatch.setattr(cli.getpass, "getpass", lambda prompt: "secret")
+
+    assert cli.main(["configure"]) == 0
+
+    saved = (tmp_path / ".env").read_text(encoding="utf-8")
+    assert "CHAT_MODEL=NONE" in saved
+    assert "UTILITY_MODEL=NONE" in saved
+    assert "SELFIE_BACKEND=openrouter" in saved
+    assert "SELFIE_MODEL=bytedance-seed/seedream-4.5" in saved
+
+
 def test_configure_huggingface_default_downloads_the_suggested_gguf(tmp_path, monkeypatch):
     from argparse import Namespace
 
@@ -144,6 +197,7 @@ def test_configure_huggingface_default_downloads_the_suggested_gguf(tmp_path, mo
     assert "GGUF_CONTEXT_LENGTH=32768" in saved
     assert "GGUF_N_GPU_LAYERS=20" in saved
     assert "GGUF_FLASH_ATTN=true" in saved
+    assert "SELFIE_BACKEND=off" in saved
     assert downloaded == [model]
 
 
@@ -154,7 +208,7 @@ def test_configure_huggingface_custom_id_uses_direct_gguf_route(tmp_path, monkey
 
     monkeypatch.setattr(cli, "_root", lambda: tmp_path)
     monkeypatch.setattr(cli.sys.stdin, "isatty", lambda: True)
-    answers = iter(("1", "owner/custom-model"))
+    answers = iter(("1", "owner/custom-model", ""))
     monkeypatch.setattr("builtins.input", lambda prompt: next(answers))
     monkeypatch.setattr(cli, "gguf_connection_defaults", lambda: {
         "GGUF_CONTEXT_LENGTH": "32768", "GGUF_N_GPU_LAYERS": "20",
@@ -166,6 +220,7 @@ def test_configure_huggingface_custom_id_uses_direct_gguf_route(tmp_path, monkey
 
     saved = (tmp_path / ".env").read_text(encoding="utf-8")
     assert "CHAT_MODEL=gguf/owner/custom-model" in saved
+    assert "SELFIE_BACKEND=off" in saved
 
 
 def test_restart_stops_then_starts(monkeypatch):

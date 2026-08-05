@@ -38,7 +38,7 @@ class Config(VoiceConfig):
     # degrades openrouter → mock with one loud WARNING (the voice-fakes
     # philosophy). Default model: seedream — cheap enough for casual selfies;
     # sourceful/riverflow-v2.5-pro is the brand-art register (pricier, one knob).
-    selfie_backend: str = "openrouter"          # openrouter | diffusers | mock | off
+    selfie_backend: str = "off"                 # openrouter | diffusers | mock | off
     selfie_model: str = "bytedance-seed/seedream-4.5"
     selfie_dir: Path = Path("./selfies")        # saved shots, served at /selfies/
     # Optional overlay yaml merged over the shipped template library

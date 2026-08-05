@@ -76,7 +76,7 @@ def gguf_connection_defaults(*, gpu_memory_bytes: int | None = None) -> dict[str
     }
 
 
-def update_env(path: Path, updates: dict[str, str]) -> list[str]:
+def update_env(path: Path, updates: dict[str, str], *, section: str = "# --- model selected by YuriOS ---") -> list[str]:
     """Upsert values while leaving comments and unrelated user configuration alone."""
     lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
     remaining = dict(updates)
@@ -94,7 +94,7 @@ def update_env(path: Path, updates: dict[str, str]) -> list[str]:
     if remaining:
         if lines and lines[-1].strip():
             lines.append("")
-        lines.append("# --- model selected by YuriOS ---")
+        lines.append(section)
         lines.extend(f"{key}={value}" for key, value in remaining.items())
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return list(updates)

@@ -15,7 +15,7 @@ import httpx
 from yurios.models import (DEFAULT_HUGGINGFACE_MODEL, NONE, RECOMMENDED_MODELS,
                             download_gguf, gguf_connection_defaults,
                             huggingface_gguf_model, is_configured, normalize_model,
-                            save_model_choice, validate_model)
+                            save_model_choice, update_env, validate_model)
 from yurios.world.config import Config
 
 _PROVIDER_PREFIXES = {
@@ -23,6 +23,7 @@ _PROVIDER_PREFIXES = {
     "ollama": "ollama/",
     "openrouter": "openrouter/",
 }
+_SELFIE_BACKENDS = ("openrouter", "diffusers", "off")
 _START_TIMEOUT_SECONDS = 120.0
 _STOP_TIMEOUT_SECONDS = 10.0
 _POLL_INTERVAL_SECONDS = 0.25
@@ -124,12 +125,109 @@ def _interactive_choice() -> str:
     return input("Selection [1]: ").strip().lower() or "1"
 
 
+def _interactive_selfie_choice() -> str:
+    print("Choose a selfie camera:")
+    print("  1. OFF (no camera)")
+    print("  2. OpenRouter")
+    print("  3. Local Diffusers checkpoint")
+    return input("Selection [1]: ").strip() or "1"
+
+
+def command_configure_selfies(args, cfg: Config, root: Path) -> int:
+    """Save a camera route without loading a renderer or making an image request."""
+    backend = args.selfie_backend
+    interactive = sys.stdin.isatty()
+    selfie_model = getattr(args, "selfie_model", None)
+    local_model = getattr(args, "selfie_local_model", None)
+    if backend not in _SELFIE_BACKENDS:
+        print(f"Unsupported selfie backend: {backend}", file=sys.stderr)
+        return 2
+    updates = {"SELFIE_BACKEND": backend}
+
+    if backend == "openrouter":
+        if local_model:
+            print("--selfie-local-model is only valid with --selfie-backend diffusers.",
+                  file=sys.stderr)
+            return 2
+        key = args.api_key
+        if key is None and interactive:
+            entered = getpass.getpass("OpenRouter API key (Enter to keep configured key): ")
+            key = entered or cfg.openrouter_api_key
+        key = key if key is not None else cfg.openrouter_api_key
+        if not key:
+            print("OPENROUTER_API_KEY is required for the openrouter selfie backend.",
+                  file=sys.stderr)
+            return 2
+        updates["OPENROUTER_API_KEY"] = key
+        updates["SELFIE_MODEL"] = selfie_model or cfg.selfie_model
+    elif backend == "diffusers":
+        if selfie_model:
+            print("--selfie-model is only valid with --selfie-backend openrouter.",
+                  file=sys.stderr)
+            return 2
+        checkpoint = local_model or cfg.selfie_local_model
+        if not checkpoint:
+            print("--selfie-local-model is required for the diffusers selfie backend.",
+                  file=sys.stderr)
+            return 2
+        checkpoint_path = Path(checkpoint).expanduser()
+        if checkpoint_path.suffix.lower() != ".safetensors" or not checkpoint_path.is_file():
+            print(f"Diffusers checkpoint was not found: {checkpoint_path}", file=sys.stderr)
+            return 2
+        updates["SELFIE_LOCAL_MODEL"] = str(checkpoint_path)
+    elif selfie_model or local_model:
+        print("A selfie model can only be set for an active selfie backend.", file=sys.stderr)
+        return 2
+
+    update_env(_env_path(root), updates, section="# --- selfie settings selected by YuriOS ---")
+    if backend == "openrouter":
+        print(f"Saved OpenRouter selfies with model {updates['SELFIE_MODEL']}.")
+    elif backend == "diffusers":
+        print(f"Saved local Diffusers selfies with checkpoint {updates['SELFIE_LOCAL_MODEL']}.")
+    else:
+        print("Saved SELFIE_BACKEND=off.")
+    return 0
+
+
+def command_configure_selfies_interactively(args, cfg: Config, root: Path) -> int:
+    """Collect the settings for the camera selected during interactive setup."""
+    choice = _interactive_selfie_choice()
+    args.selfie_model = None
+    args.selfie_local_model = None
+    if choice == "1":
+        args.selfie_backend = "off"
+    elif choice == "2":
+        args.selfie_backend = "openrouter"
+        args.selfie_model = _prompt("OpenRouter selfie model", cfg.selfie_model)
+    elif choice == "3":
+        args.selfie_backend = "diffusers"
+        args.selfie_local_model = _prompt("Diffusers checkpoint (.safetensors)",
+                                         cfg.selfie_local_model)
+    else:
+        print("Invalid selection.", file=sys.stderr)
+        return 2
+    return command_configure_selfies(args, cfg, root)
+
+
 def command_configure(args) -> int:
     root = _root()
     cfg = _configured_cfg(root)
+    selfie_backend = getattr(args, "selfie_backend", None)
+    selfie_model = getattr(args, "selfie_model", None)
+    selfie_local_model = getattr(args, "selfie_local_model", None)
+    if selfie_backend or selfie_model or selfie_local_model:
+        if not selfie_backend:
+            print("--selfie-backend is required when configuring selfies.", file=sys.stderr)
+            return 2
+        if args.model or args.provider:
+            print("Configure a language model and selfie backend in separate commands.",
+                  file=sys.stderr)
+            return 2
+        return command_configure_selfies(args, cfg, root)
     model = args.model
     provider = args.provider
     interactive = sys.stdin.isatty()
+    configure_selfies = interactive and not model and not provider
     if not model and not provider:
         if not interactive:
             print("No model selected. Use `yurios configure --model <model-id>`.", file=sys.stderr)
@@ -207,6 +305,8 @@ def command_configure(args) -> int:
         print(f"GGUF ready: {path}")
     else:
         print(check.detail)
+    if configure_selfies:
+        return command_configure_selfies_interactively(args, cfg, root)
     return 0
 
 
@@ -369,12 +469,17 @@ def command_restart(args) -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="yurios")
     sub = parser.add_subparsers(dest="command")
-    configure = sub.add_parser("configure", help="choose and verify a language model")
+    configure = sub.add_parser("configure", help="choose a language model or selfie backend")
     configure.add_argument("--model", help="model id, or NONE")
     configure.add_argument("--provider", choices=tuple(_PROVIDER_PREFIXES),
                            help="connection to configure; interactive mode offers all providers")
     configure.add_argument("--base-url", help="LM Studio or Ollama endpoint URL")
     configure.add_argument("--api-key", help="OpenRouter API key (saved in .env)")
+    configure.add_argument("--selfie-backend", choices=_SELFIE_BACKENDS,
+                           help="configure the selfie route")
+    configure.add_argument("--selfie-model", help="OpenRouter image model")
+    configure.add_argument("--selfie-local-model",
+                           help="path to a local .safetensors checkpoint for Diffusers")
     configure.set_defaults(func=command_configure)
     download = sub.add_parser("download", help="download the selected GGUF model")
     download.add_argument("model", nargs="?", help="gguf/<Hugging Face repo>; defaults to CHAT_MODEL")

@@ -68,6 +68,16 @@ needed. Supported [LiteLLM](https://docs.litellm.ai/) routes include `ollama/…
 `lm_studio/…`, `openrouter/…`, `openai/…`, and `anthropic/…`. Memory keeps the bundled in-process
 embedder by default.
 
+For an OpenRouter connection, we recommend
+`HauhauCS/Gemma-4-E4B-Uncensored-HauhauCS-Aggressive`:
+`yurios configure --provider openrouter --model HauhauCS/Gemma-4-E4B-Uncensored-HauhauCS-Aggressive`.
+
+The selfie camera is off on a fresh install. Interactive `yurios configure` asks
+for the chat/utility model first, then the selfie route. Configure OpenRouter selfies with
+`yurios configure --selfie-backend openrouter --selfie-model bytedance-seed/seedream-4.5`;
+it prompts for the OpenRouter API key. For a local Diffusers checkpoint, use
+`yurios configure --selfie-backend diffusers --selfie-local-model /path/to/model.safetensors`.
+
 `./install.sh --thin` omits the voice stack; `--desktop` adds the native transparent
 window; `--gpu-voice` adds her designed voice. Everything is additive and
 re-runnable, and `python -m yurios.doctor` tells you what's actually wired.

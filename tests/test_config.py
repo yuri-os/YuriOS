@@ -50,6 +50,7 @@ def test_example_enables_flash_attention_for_direct_gguf():
     assert cfg.context_length == 32768
     assert cfg.gguf_context_length == 0
     assert cfg.gguf_flash_attn
+    assert cfg.selfie_backend == "off"
 
 
 def test_importing_yurios_quiets_the_libraries_that_phone_out():

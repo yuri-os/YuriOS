@@ -112,3 +112,24 @@ async def test_an_injected_model_is_the_callers_and_is_left_alone(cfg):
     assert result["applied"] == ["chat_model", "temperature"]
     assert rt.cfg.chat_model == "ollama/second"
     assert isinstance(rt.brain, FakeBrain)
+
+
+async def test_a_live_model_choice_retires_the_first_run_chooser(cfg, monkeypatch):
+    """A model set *live* from the switchboard lands through retune, and the
+    onboarding panel reads `model_configured` — a snapshot taken at boot. If the
+    retune does not move it, the sanctuary keeps asking her to choose a model
+    she already has (and a cleared override must bring the chooser back)."""
+    from types import SimpleNamespace
+
+    from yurios.world.main import Runtime, ToolBrain
+
+    monkeypatch.setattr(ToolBrain, "build",
+                        staticmethod(lambda cfg, **kw: SimpleNamespace(state=None)))
+    rt = Runtime(cfg, embedder=object())
+    assert not rt.model_configured                       # the fresh-install boot
+
+    chosen = await rt.retune({"chat_model": "ollama/qwen3"})
+    assert chosen["applied"] == ["chat_model"] and rt.model_configured
+
+    cleared = await rt.retune({"chat_model": "NONE"})
+    assert cleared["applied"] == ["chat_model"] and not rt.model_configured

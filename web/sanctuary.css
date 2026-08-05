@@ -74,6 +74,9 @@ svg{ width:1.1em; height:1.1em; fill:none; stroke:currentColor; stroke-width:1.7
 /* First-run model selection sits over the intentionally offline room. */
 .model-setup{ position:fixed; inset:0; z-index:30; display:grid; place-items:center; padding:20px;
   background:rgb(7 10 9 / .88); backdrop-filter:blur(10px); }
+/* author `display:grid` above beats the UA's `[hidden]{display:none}`, so the
+   attribute the JS toggles needs its own rule or the panel never goes away */
+.model-setup[hidden]{ display:none; }
 .model-setup-card{ width:min(100%,520px); padding:28px; border:1px solid var(--rule);
   background:var(--panel); box-shadow:var(--shadow); display:grid; gap:14px; }
 .model-setup-card .brand-mark{ margin-bottom:4px; }

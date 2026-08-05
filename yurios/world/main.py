@@ -34,6 +34,7 @@ from yurios.desktop.voice.fillers import FillerBank
 
 from yurios.mind.loop import MindLoop
 from yurios.mind.signals import SignalBus
+from yurios.models import is_configured
 
 from .avatar.controller import VrmController
 from .boot import BootBoard
@@ -67,7 +68,7 @@ class Runtime:
         # behind them; only a normal fresh runtime is intentionally unconfigured.
         self.model_configured = bool(
             chat_model is not None or brain is not None
-            or (cfg.chat_model and cfg.chat_model.upper() != "NONE"))
+            or is_configured(cfg.chat_model))
         self.clock = clock or Clock()
         # the one outbound bus (SPEC §10): chat, drafts, and the puppet channel
         # all fan out here; /api/events drains it. An injected controller (the
@@ -567,6 +568,12 @@ class Runtime:
         changes = rewire.differences(self.cfg, wanted)
         state = getattr(self.brain, "state", None) if self._owns_models else None
         applied = rewire.apply(state, self.cfg, changes, meter=self.context)
+        if applied and self._owns_models:
+            # The flag /api/onboarding and /api/health report is a snapshot
+            # taken at boot; a model chosen live (a switchboard override lands
+            # here, no restart) must retire the first-run chooser — and a
+            # cleared override must revive it.
+            self.model_configured = is_configured(self.cfg.chat_model)
         if applied and self.cfg.chat_model.startswith("lm_studio/"):
             task = asyncio.create_task(self._repin_lmstudio(), name="lmstudio-repin")
             self._tasks.append(task)           # cancelled with the rest on shutdown…

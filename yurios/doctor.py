@@ -1,12 +1,12 @@
 """`python -m yurios.doctor` — what your .env asks for vs what's installed.
 
-The install is deliberately thin: a bare `pip install -e .` is ~280 MB with no
-torch, no CUDA and no models, and every heavy backend is an opt-in extra behind a
-lazy import (see pyproject). The cost of that is a gap between what `.env`
-*selects* and what's actually importable — and the server, by design, degrades
-into the fakes rather than refusing to boot (§3, desktop/main._graceful). Quiet
-fakes are the right runtime behaviour and the wrong debugging experience: "why is
-she silent?" deserves an answer before you go looking in the log.
+The base install includes sentence-transformers for local memory. Voice, camera,
+and desktop backends remain opt-in extras behind lazy imports (see pyproject). The
+cost of that is a gap between what `.env` *selects* and what's actually importable
+— and the server, by design, degrades into fakes rather than refusing to boot (§3,
+desktop/main._graceful). Quiet fakes are the right runtime behaviour and the wrong
+debugging experience: "why is she silent?" deserves an answer before you go looking
+in the log.
 
 So this reads the same Config the server reads, tries the same imports the seams
 try, and prints one table plus the exact commands to close the gap. Nothing here
@@ -112,8 +112,8 @@ def collect(cfg) -> list[Check]:
               "silero_vad" if cfg.vad_backend == "silero" else "", "vad",
               "pulls torch"),
         Check("embeddings", "EMBED_BACKEND", cfg.embed_backend,
-              "sentence_transformers" if cfg.embed_backend == "sentence_tf" else "",
-              "local-embed", "pulls torch; lm_studio/ollama need no install"),
+               "sentence_transformers" if cfg.embed_backend == "sentence_tf" else "",
+               "", "sentence-transformers is a base dependency"),
         Check("hands (tools)", "TOOLS_BACKEND", getattr(cfg, "tools_backend", "mcp"),
               "mcp" if getattr(cfg, "tools_backend", "") == "mcp" else "",
               "", "mcp is a core dep — always installed"),
@@ -170,8 +170,7 @@ def _collapse(extras: list[str]) -> list[str]:
     three voice seams should be told `.[voice]`, not `.[stt,tts,vad]` — same install,
     but it matches how pyproject and the README name it. Longest cover first."""
     out = list(extras)
-    for umbrella, parts in (("all", {"stt", "tts", "vad", "local-embed"}),
-                            ("voice", {"stt", "tts", "vad"})):
+    for umbrella, parts in (("voice", {"stt", "tts", "vad"}),):
         if parts <= set(out):
             out = [umbrella] + [e for e in out if e not in parts]
             break
@@ -353,7 +352,7 @@ def report(checks: list[Check], *, network: list[str] | None = None, out=None) -
     if gap:
         print(f"\n{gap}\n", file=out)
     if extras and not gap:
-        torchy = {"tts", "vad", "local-embed", "tts-qwen", "voice", "all"} & set(extras)
+        torchy = {"tts", "vad", "tts-qwen", "voice", "all"} & set(extras)
         print(f"\nInstall them:\n\n  pip install -e \".[{','.join(extras)}]\"\n", file=out)
         if torchy and sys.platform.startswith("linux"):
             # Measured in an otherwise-empty venv: the default PyPI wheel is 4.5 GB on

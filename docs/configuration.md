@@ -73,9 +73,9 @@ Full explanation: [Models & connections](models.md).
 
 | Key | Default | |
 |---|---|---|
-| `EMBED_BACKEND` | `lm_studio` | `lm_studio` · `ollama` · `sentence_tf` (in-process) |
-| `EMBED_MODEL` | `text-embedding-nomic-embed-text-v1.5` | must match the backend |
-| `EMBED_DIM` | `768` | must equal the model's vector width |
+| `EMBED_BACKEND` | `sentence_tf` | `sentence_tf` (in-process) · `lm_studio` · `ollama`; OpenRouter embeddings are not supported |
+| `EMBED_MODEL` | `BAAI/bge-small-en-v1.5` | must match the backend |
+| `EMBED_DIM` | `384` | must equal the model's vector width |
 | `RAW_WINDOW_TURNS` | `6` | raw messages kept in-prompt |
 | `RETRIEVAL_K` | `6` | recalled memories injected |
 | `RETRIEVAL_MIN_SIM` | `0.25` | drop below this cosine similarity |
@@ -86,6 +86,8 @@ Full explanation: [Models & connections](models.md).
 | `SYSTEM_BUDGET_TOKENS` | `8000` | overflow ceiling for the system block |
 
 Changing the backend, model or dimension re-indexes the Vault from its `.md` files automatically.
+See [Models & connections](models.md#switching-embedding-backends) for compatible LM Studio and
+Ollama settings.
 
 ## Storage
 

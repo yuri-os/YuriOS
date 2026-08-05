@@ -81,7 +81,27 @@ def _default_embedder(cfg: Config):
     if cfg.embed_backend == "lm_studio":
         # same local LM Studio server as the chat model — one process, no Ollama
         from yurios.app.providers.lmstudio import LMStudioEmbedder
-        return LMStudioEmbedder(cfg.embed_model, cfg.embed_dim, cfg.lmstudio_base_url)
+        embedder = LMStudioEmbedder(cfg.embed_model, cfg.embed_dim, cfg.lmstudio_base_url)
+        try:
+            # Construction only records the endpoint; verify it before opening the
+            # index so a disconnected default server can use the local fallback.
+            embedder.embed(["YuriOS embedding backend availability check."])
+        except Exception as e:
+            from yurios.app.providers.sentence_tf import (
+                DEFAULT_DIM, DEFAULT_MODEL, SentenceTFEmbedder,
+            )
+
+            log.warning(
+                "LM Studio embeddings unavailable at %s (%s); falling back to "
+                "sentence-transformers",
+                cfg.lmstudio_base_url, e)
+            # The fallback's vectors occupy a different space and width. Store its
+            # effective configuration so index creation and provenance stay correct.
+            cfg.embed_backend = "sentence_tf"
+            cfg.embed_model = DEFAULT_MODEL
+            cfg.embed_dim = DEFAULT_DIM
+            return SentenceTFEmbedder(cfg.embed_model, cfg.embed_dim)
+        return embedder
     from yurios.app.providers.sentence_tf import SentenceTFEmbedder
     return SentenceTFEmbedder(cfg.embed_model, cfg.embed_dim)
 

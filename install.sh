@@ -8,15 +8,16 @@ MODE="host"
 INSTALL_DESKTOP=false
 SKIP_SYSTEM=false
 # The default install is exactly what .env.example selects, so a fresh checkout runs
-# as configured with no second step: base runtime + the local voice stack
+# as configured with no second step: base runtime + local embeddings + the local voice stack
 # (faster_whisper ears, kokoro voice, silero turn-taking). torch's build is the one
 # choice the script asks about when it can: the CPU-only wheel (~750 MB) keeps the
-# install lean and the voice is CPU-only anyway; the CUDA pair (~4.5 GB) is what
+# install lean; embeddings and the default voice are CPU-friendly. The CUDA pair (~4.5 GB) is what
 # makes local selfies (SELFIE_BACKEND=diffusers, --forge-local) and GPU voice fast.
-# Unattended runs keep the CPU default. --thin drops back to the ~280 MB base.
+# Unattended runs keep the CPU default. During an interactive install, a working
+# NVIDIA driver makes CUDA the preselected choice. --thin omits voice packages but
+# retains the local sentence-transformer embedder.
 INSTALL_VOICE=true
 INSTALL_THIN=false
-INSTALL_EMBED=false
 INSTALL_GPU_VOICE=false
 INSTALL_FORGE_LOCAL=false
 INSTALL_FORGE_KREA2=false
@@ -40,17 +41,16 @@ Set up YuriOS on WSL, native Linux, or macOS.
 With no options this installs everything the shipped .env.example selects, so
 she runs as configured out of the box: her body, brain, memory, MCP tools and
 text chat, plus her real voice — faster-whisper ears, the kokoro voice, silero
-turn-taking — on the CPU-only torch wheel. ~1.6 GB, no CUDA, and no model
-weights are downloaded at install time. Nothing needs a cloud key.
+turn-taking. A detected working NVIDIA driver preselects CUDA; otherwise the
+CPU-only torch wheel is used. No model weights are downloaded at install time.
+Nothing needs a cloud key.
 
 Options:
-  --thin         Base runtime only (~280 MB, no torch): body, brain, memory,
-                 tools, text chat. Her voice seams fall back to fakes and say
-                 so on startup; rerun without --thin to add them later
+  --thin         Base runtime without the voice stack: body, brain, local memory,
+                  tools, and text chat. Her voice seams fall back to fakes and say
+                  so on startup; rerun without --thin to add them later
   --voice        The local voice stack — already the default, kept so a rerun
                  can name it explicitly
-  --local-embed  Also install sentence-transformers, for EMBED_BACKEND=sentence_tf
-                 (not needed for the default LM Studio / Ollama embeddings)
   --forge-local  Also install the local camera (diffusers) for
                  SELFIE_BACKEND=diffusers — an SDXL checkpoint rendered
                  in-process. Wants the GPU torch build to be usable
@@ -71,10 +71,9 @@ Options:
                  — espeak-ng and libsndfile, which the voice needs)
   -h, --help     Show this help
 
-On Linux/WSL with a terminal attached, the installer ASKS which torch build to
-install whenever a torch consumer is selected (voice, embeddings, the local
-camera) and no --cpu-torch/--cuda-torch flag settled it. Piped or unattended
-runs keep the CPU default.
+On Linux/WSL with a terminal attached, the installer asks which Torch build to
+install because local embeddings always need it. A detected working NVIDIA driver
+preselects CUDA; otherwise, piped or unattended runs keep the CPU default.
 
 Everything is additive and re-runnable: install --thin now, rerun without it later.
 `python -m yurios.doctor` reports what your .env selects vs what's installed.
@@ -96,7 +95,6 @@ for arg in "$@"; do
         --desktop) INSTALL_DESKTOP=true ;;
         --voice) INSTALL_VOICE=true; VOICE_EXPLICIT=true ;;
         --thin|--no-voice) INSTALL_THIN=true ;;
-        --local-embed) INSTALL_EMBED=true ;;
         --forge-local) INSTALL_FORGE_LOCAL=true ;;
         --forge-krea2) INSTALL_FORGE_KREA2=true ;;
         --gpu-voice) INSTALL_GPU_VOICE=true; INSTALL_VOICE=true
@@ -116,13 +114,13 @@ fi
 
 # --thin is the opposite of the default, so asking for both is a contradiction worth
 # saying out loud rather than resolving by argument order. --forge-local is out too:
-# diffusers depends on torch, and --thin's whole promise is "no torch".
+# it is a GPU-oriented backend, while --thin only omits the voice stack.
 if [ "$INSTALL_THIN" = true ]; then
     if [ "$VOICE_EXPLICIT" = true ] || [ "$INSTALL_GPU_VOICE" = true ]; then
         fail "--thin cannot be combined with --voice or --gpu-voice; --thin is the no-voice install"
     fi
     if [ "$INSTALL_FORGE_LOCAL" = true ] || [ "$INSTALL_FORGE_KREA2" = true ]; then
-        fail "--thin cannot be combined with --forge-local/--forge-krea2; --thin is the no-torch install"
+        fail "--thin cannot be combined with --forge-local/--forge-krea2; --thin omits optional local backends"
     fi
     INSTALL_VOICE=false
 fi
@@ -137,9 +135,6 @@ if [ "$INSTALL_VOICE" = true ]; then
 fi
 if [ "$INSTALL_GPU_VOICE" = true ]; then
     EXTRAS="$EXTRAS,tts-qwen"
-fi
-if [ "$INSTALL_EMBED" = true ]; then
-    EXTRAS="$EXTRAS,local-embed"
 fi
 if [ "$INSTALL_FORGE_LOCAL" = true ]; then
     EXTRAS="$EXTRAS,forge-local"
@@ -184,27 +179,6 @@ prepare_local_state() {
     else
         log "Keeping existing .env"
     fi
-}
-
-configure_embeddings() {
-    # .env.example ships EMBED_BACKEND=lm_studio, which needs nothing installed — so
-    # the thin default boots out of the box. --local-embed asks for the in-process
-    # embedder instead, which is only useful if .env actually selects it.
-    #
-    # Only ever rewrite a .env this run created: silently editing the user's own
-    # config is not ours to do, and switching EMBED_* on a live Vault costs a reindex.
-    [ "$INSTALL_EMBED" = true ] || return 0
-    if [ "$ENV_CREATED" != true ]; then
-        log "Keeping your EMBED_BACKEND as-is — set EMBED_BACKEND=sentence_tf, EMBED_MODEL=BAAI/bge-small-en-v1.5, EMBED_DIM=384 in .env to use the local embedder"
-        return 0
-    fi
-    log "Pointing .env at the in-process embedder (EMBED_BACKEND=sentence_tf)"
-    # -i.bak + rm works on both GNU and BSD/macOS sed, where bare -i needs an arg.
-    sed -i.bak \
-        -e 's|^EMBED_BACKEND=.*|EMBED_BACKEND=sentence_tf|' \
-        -e 's|^EMBED_MODEL=.*|EMBED_MODEL=BAAI/bge-small-en-v1.5|' \
-        -e 's|^EMBED_DIM=.*|EMBED_DIM=384|' .env
-    rm -f .env.bak
 }
 
 configure_voice() {
@@ -279,48 +253,49 @@ configure_wsl_lmstudio() {
 
 select_torch_build() {
     # Ask which torch build to install — but only when all of these hold:
-    # a torch consumer was selected (voice, embeddings, the local camera), the
+    # the always-installed local embedder or another torch consumer needs it, the
     # platform has two real builds to choose between (macOS wheels are CPU-only),
     # no flag settled it, and someone is actually there to answer. Anything less
     # and the CPU default stands — unattended runs must never block on a prompt.
     [ "$TORCH_EXPLICIT" = false ] || return 0
     { [ "$PLATFORM" = "linux" ] || [ "$PLATFORM" = "wsl" ]; } || return 0
-    { [ "$INSTALL_VOICE" = true ] || [ "$INSTALL_EMBED" = true ] \
-        || [ "$INSTALL_FORGE_LOCAL" = true ] \
-        || [ "$INSTALL_FORGE_KREA2" = true ]; } || return 0
     [ -t 0 ] || return 0
 
-    local gpu_note=""
+    local default_choice="cpu" gpu_note=""
     if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi -L >/dev/null 2>&1; then
         gpu_note=" (NVIDIA GPU detected: $(nvidia-smi -L | head -1 | cut -d: -f2- | sed 's/^ //'))"
+        default_choice="cuda"
     fi
     printf '\n==> Which torch build?%s\n' "$gpu_note" >&2
     printf '    [1] CPU  (~750 MB)  — voice and embeddings run fine on CPU; local\n' >&2
     printf '        selfies (SELFIE_BACKEND=diffusers) will crawl\n' >&2
     printf '    [2] CUDA (~4.5 GB)  — fast local selfies and GPU voice, on your NVIDIA GPU\n' >&2
     local answer=""
-    read -r -p "    Choose [1/2] (default 1): " answer || true
+    local default_number=1
+    [ "$default_choice" = "cuda" ] && default_number=2
+    read -r -p "    Choose [1/2] (default $default_number): " answer || true
     case "$answer" in
         2|cuda|gpu|CUDA|GPU) TORCH_CHOICE="cuda" ;;
-        *) TORCH_CHOICE="cpu" ;;
+        1|cpu|CPU) TORCH_CHOICE="cpu" ;;
+        *) TORCH_CHOICE="$default_choice" ;;
     esac
     log "torch build: $TORCH_CHOICE"
 }
 
 install_torch() {
-    # torch + torchaudio, always as a PAIR from the same index. kokoro and
-    # silero-vad load torchaudio's C++ extension, and a mismatched pair dies
-    # with "libcudart.so.13: cannot open shared object file" while pip and the
-    # doctor's find_spec both report a fine install — both voice seams fall
-    # back to fakes and she is silent. The CPU pair comes from whl/cpu (747 MB
-    # vs 4.5 GB); the CUDA pair is PyPI's default Linux build, which is already
-    # matched to itself. Switching builds on a rerun needs --reinstall: an
-    # installed torch satisfies the requirement, so uv would keep the old build.
+    # sentence-transformers needs torch. When voice is installed, torchaudio must
+    # come from the same index: kokoro and silero-vad load its C++ extension, and a
+    # mismatched pair dies with "libcudart.so.13: cannot open shared object file"
+    # while pip and the doctor's find_spec both report a fine install. The CPU pair
+    # comes from whl/cpu (747 MB vs 4.5 GB); the CUDA pair is PyPI's default Linux
+    # build, which is already matched to itself. Switching builds on a rerun needs
+    # --reinstall: an installed torch satisfies the requirement, so uv keeps it.
     [ "$PLATFORM" != "macos" ] || return 0     # macOS wheels are CPU-only anyway
-    { [ "$INSTALL_VOICE" = true ] || [ "$INSTALL_EMBED" = true ] \
-        || [ "$INSTALL_FORGE_LOCAL" = true ] \
-        || [ "$INSTALL_FORGE_KREA2" = true ]; } || return 0
 
+    local packages=(torch)
+    if [ "$INSTALL_VOICE" = true ]; then
+        packages+=(torchaudio)
+    fi
     local current="none"
     if [ -x "$PYTHON" ]; then
         current="$("$PYTHON" -c 'import torch; print("cuda" if torch.version.cuda else "cpu")' \
@@ -344,14 +319,17 @@ install_torch() {
     local reinstall=()
     if [ "$current" != "none" ]; then
         log "Switching torch from the $current build to $TORCH_CHOICE"
-        reinstall=(--reinstall-package torch --reinstall-package torchaudio)
+        reinstall=(--reinstall-package torch)
+        if [ "$INSTALL_VOICE" = true ]; then
+            reinstall+=(--reinstall-package torchaudio)
+        fi
     fi
     if [ "$TORCH_CHOICE" = "cuda" ]; then
-        log "Installing the CUDA torch + torchaudio pair (~4.5 GB; fast local selfies and GPU voice)"
-        uv pip install --python "$PYTHON" "${reinstall[@]}" torch torchaudio
+        log "Installing the CUDA ${packages[*]} build (~4.5 GB; fast local selfies and GPU voice)"
+        uv pip install --python "$PYTHON" "${reinstall[@]}" "${packages[@]}"
     else
-        log "Installing the CPU-only torch + torchaudio wheels (skips ~3.8 GB of unused CUDA; --cuda-torch to opt out)"
-        uv pip install --python "$PYTHON" "${reinstall[@]}" torch torchaudio \
+        log "Installing the CPU-only ${packages[*]} wheels (skips ~3.8 GB of unused CUDA; --cuda-torch to opt out)"
+        uv pip install --python "$PYTHON" "${reinstall[@]}" "${packages[@]}" \
             --index-url https://download.pytorch.org/whl/cpu
     fi
 }
@@ -572,17 +550,11 @@ if [ -d yurios.egg-info ]; then
 fi
 
 log "Installing YuriOS with Python $($PYTHON --version 2>&1)"
-# torch first, as a matched torch+torchaudio pair: kokoro, silero-vad and
-# sentence-transformers all depend on torch, and PyPI's LINUX torch wheel bundles
-# CUDA (4.5 GB vs 747 MB for whl/cpu). Which build is the user's call — asked
-# interactively when possible, CPU by default, --cuda-torch/--cpu-torch to skip
-# the question. See select_torch_build/install_torch above for the pairing rule.
 select_torch_build
 install_torch
 uv pip install --python "$PYTHON" -e ".[$EXTRAS]"
 
 prepare_local_state
-configure_embeddings
 configure_voice
 configure_wsl_lmstudio
 # seed_vault.py refuses to overwrite a seeded Vault (it is her mind, and re-seeding

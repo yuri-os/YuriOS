@@ -40,7 +40,7 @@ Linux, macOS, or Windows via WSL.
 
 ```bash
 cd YuriOS
-./install.sh                       # ~1.6 GB: body, brain, memory, tools, and her real voice
+./install.sh                       # body, brain, local memory, tools, and her real voice
 source .venv/bin/activate
 python -m yurios.world             # → http://localhost:8768
 ```
@@ -51,15 +51,15 @@ Then give her a brain — the one part that isn't pip-installable. Any
 
 ```bash
 lms get HauhauCS/Gemma-4-E4B-Uncensored-HauhauCS-Aggressive   # her thinking
-lms get text-embedding-nomic-embed-text-v1.5                  # her memory's embeddings
 ```
 
 An uncensored model on purpose: she's a companion, not an assistant, and a
-refusal-trained model plays her badly. Prefer Ollama or a hosted model? Point
+refusal-trained model plays her badly. Memory uses the bundled in-process embedder by default;
+you can instead point it at LM Studio or Ollama. Prefer Ollama or a hosted model? Point
 `CHAT_MODEL` at `ollama/…` or `openrouter/…` — a one-line swap.
 
-`./install.sh --thin` is the 280 MB text-only install; `--desktop` adds the native
-transparent window; `--gpu-voice` adds her designed voice. Everything is additive and
+`./install.sh --thin` omits the voice stack; `--desktop` adds the native transparent
+window; `--gpu-voice` adds her designed voice. Everything is additive and
 re-runnable, and `python -m yurios.doctor` tells you what's actually wired.
 
 **→ [Getting started](docs/getting-started.md)** · [Installation](docs/installation.md) ·

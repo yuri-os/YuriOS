@@ -10,7 +10,7 @@ Vault and the web build, then tells you what it wired up.
 
 ```bash
 cd YuriOS
-./install.sh                       # ~1.6 GB: everything .env.example selects, no CUDA
+./install.sh                       # everything .env.example selects, no CUDA required
 source .venv/bin/activate
 ```
 
@@ -20,8 +20,8 @@ follow-up step; the script installs exactly what the `.env` it writes selects. H
 download themselves the first time a client opens the voice connection (for example, when you
 unmute her or start listening), and after that she is offline.
 
-Want her without the voice stack? `./install.sh --thin` is a 280 MB text-only install. Everything
-is additive and re-runnable, so you can add the voice later. See [Installation](installation.md)
+Want her without the voice stack? `./install.sh --thin` keeps the local embedder but omits the
+voice packages. Everything is additive and re-runnable, so you can add the voice later. See [Installation](installation.md)
 for every flag, the extras table with measured sizes, and the manual step-by-step if you'd rather
 no script touched your system.
 
@@ -33,15 +33,15 @@ Server, or `lms server start`):
 
 ```bash
 lms get HauhauCS/Gemma-4-E4B-Uncensored-HauhauCS-Aggressive   # her thinking (chat + utility)
-lms get text-embedding-nomic-embed-text-v1.5                  # her memory's embeddings
 ```
 
 An uncensored model on purpose: she's a companion, not an assistant, and a refusal-trained model
 plays her badly — it breaks character to decline, which is the one thing a person in the room
 never does.
 
-Prefer Ollama, OpenRouter, or something else? It's a one-line swap — see
-[Models & connections](models.md).
+Prefer Ollama, OpenRouter, or something else? It's a one-line chat-model swap. Memory uses the
+bundled local embedder by default and can switch to LM Studio or Ollama; OpenRouter embeddings are
+not supported. See [Models & connections](models.md).
 
 ## 3. Run her
 

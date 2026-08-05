@@ -8,16 +8,19 @@ from __future__ import annotations
 
 
 _INSTALL_HINT = (
-    "EMBED_BACKEND=sentence_tf needs sentence-transformers, which isn't installed. "
-    "Either install it — `pip install -e '.[local-embed]'`, and on Linux fetch the "
+    "EMBED_BACKEND=sentence_tf needs sentence-transformers, which should be installed "
+    "with YuriOS. Reinstall it with `pip install -e .`; on Linux fetch the "
     "CPU torch build first to skip ~4 GB of CUDA you won't use: `pip install torch "
     "--index-url https://download.pytorch.org/whl/cpu` — or embed against a server "
     "you're already running and install nothing: EMBED_BACKEND=lm_studio (the "
     "default) or EMBED_BACKEND=ollama.")
 
+DEFAULT_MODEL = "BAAI/bge-small-en-v1.5"
+DEFAULT_DIM = 384
+
 
 class SentenceTFEmbedder:
-    def __init__(self, model_name: str = "BAAI/bge-small-en-v1.5", dim: int = 384):
+    def __init__(self, model_name: str = DEFAULT_MODEL, dim: int = DEFAULT_DIM):
         # Lazy import: torch is heavy; tests use a fake Embedder instead. This is the
         # one heavy backend with no fake to degrade into — her memory can't silently
         # run on nothing — so it fails loudly, and says how to fix it both ways.

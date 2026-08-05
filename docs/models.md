@@ -28,7 +28,7 @@ There are three model roles:
 The chat and utility models are usually the same id. They don't have to be — a small fast model
 for the voice and a larger one for consolidation is a reasonable split.
 
-## LM Studio (the shipped default)
+## LM Studio
 
 Start the server (Developer tab → **Start Server**, or `lms server start`), then:
 
@@ -104,7 +104,8 @@ Requests carry YuriOS's app-attribution headers so the spend lands on the projec
 page rather than nowhere; local routes send no such headers. Note that a hosted chat model means
 her conversation leaves your machine — the local routes above are the default for a reason.
 
-Embeddings never go to OpenRouter: keep `EMBED_BACKEND` on `lm_studio`, `ollama` or `sentence_tf`.
+Embeddings never go to OpenRouter: YuriOS has no OpenRouter embedding backend. Keep
+`EMBED_BACKEND` on `lm_studio`, `ollama` or `sentence_tf` so the memory index stays local.
 
 ## Any other provider (custom / self-hosted)
 
@@ -136,12 +137,34 @@ Her memory's vectors are always computed locally. Three backends:
 
 | `EMBED_BACKEND` | Where it runs | Needs |
 |---|---|---|
-| `lm_studio` *(default)* | the same LM Studio server as the chat model | nothing beyond the base install |
+| `sentence_tf` *(default)* | **in-process**, via sentence-transformers | included with YuriOS; model weights download once |
+| `lm_studio` | the same LM Studio server as the chat model | a running server with an embedding model loaded |
 | `ollama` | a local Ollama server | nothing beyond the base install |
-| `sentence_tf` | **in-process**, via sentence-transformers | `pip install -e ".[local-embed]"` — the fully standalone option |
 
 `EMBED_MODEL` and `EMBED_DIM` must match the backend — a mismatch fails at reindex. Common pairs:
 `text-embedding-nomic-embed-text-v1.5` @ 768, `BAAI/bge-small-en-v1.5` @ 384.
+
+### Switching embedding backends
+
+The default is fully local and requires no server:
+
+```ini
+EMBED_BACKEND=sentence_tf
+EMBED_MODEL=BAAI/bge-small-en-v1.5
+EMBED_DIM=384
+```
+
+To reuse an LM Studio embedding model, start its server, load the model, then set:
+
+```ini
+EMBED_BACKEND=lm_studio
+EMBED_MODEL=text-embedding-nomic-embed-text-v1.5
+EMBED_DIM=768
+```
+
+For Ollama, pull `nomic-embed-text` and set `EMBED_BACKEND=ollama`,
+`EMBED_MODEL=nomic-embed-text`, and `EMBED_DIM=768`. There is no OpenRouter embedding option:
+OpenRouter can power chat, but memory vectors always remain local.
 
 Changing any of the three re-indexes the Vault from its `.md` files automatically (there's a
 fingerprint check), so switching later is safe — it just costs one reindex. You can force one

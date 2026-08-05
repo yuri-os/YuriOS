@@ -90,12 +90,12 @@ Human-readable, greppable, diffable, revertable. Moving her is copying a folder.
 
 ## Seams and fakes
 
-Every heavy backend is a lazy import behind a seam, and **every seam has a fake**. A missing
-dependency is never a hard failure: the seam falls back and logs the exact command that fixes it.
+Optional heavy backends are lazy imports behind seams, and every optional runtime seam has a fake.
+The local sentence-transformer embedder is a core dependency, so memory works without an embedding
+server; model weights still load only when it starts.
 
 That's not politeness — it's what makes the suite runnable. The whole test suite is green on a
-machine with no torch, no CUDA and nothing downloaded, which is also why a thin install is a
-*testable* install.
+machine with no model loaded or CUDA, which is also why a thin install is a *testable* install.
 
 ## Running the tests
 

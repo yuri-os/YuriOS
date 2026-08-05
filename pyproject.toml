@@ -16,11 +16,9 @@ dependencies = [
     # (yurios/desktop), the image service (yurios/forge), the body + mind — all
     # first-party and maintained here. These are their deps too. Copy, install, run.
     #
-    # Everything here is pure-Python-ish and small: a bare `pip install -e .` is
-    # ~280 MB and pulls NO torch, NO CUDA, NO models. That is a complete, working
-    # YuriOS — her body, brain, memory, tools and text chat. The heavy local voice
-    # and embedding backends are opt-in extras, and every one of them is a lazy
-    # import behind a seam that degrades with a printed install hint (§3).
+    # The base install includes the in-process embedding fallback, so memory keeps
+    # working when no LM Studio or Ollama server is running. It pulls torch but no
+    # model weights; sentence-transformers remains a lazy import at runtime.
     "fastapi",
     "uvicorn[standard]",      # [standard] pulls the websockets impl for /ws/voice
     "litellm",                # the model-router seam (B1 §3.1) — local or hosted
@@ -42,6 +40,7 @@ dependencies = [
     "mcp>=1.2,<2",            # >=1.2 is where FastMCP landed in the official SDK
     "Pillow",                 # her camera (§7.6): the vendored forge's mock backend + provenance
     "python-multipart",       # bounded character-card uploads in the local dashboard
+    "sentence-transformers",  # local embedding default and LM Studio fallback
 ]
 
 [project.optional-dependencies]
@@ -49,17 +48,16 @@ dependencies = [
 # none installed, so `pytest` is green on a machine with no models or GPU — the full
 # 185-test suite passes on a bare `pip install -e ".[test]"`.
 #
-# Each extra is ONE backend, so you pay only for what your .env actually selects.
+# Each extra is ONE optional backend beyond the always-available local embedder.
 # Measured venv size on disk (Linux, py3.12, CPU torch where torch is involved — with
 # PyPI's CUDA torch instead, add ~3.8 GB to every torch row; see CPU TORCH below):
 #
-#   [test]         280 MB   body + brain + memory + tools + text chat, + pytest
+#   [test]         base + pytest, including local sentence-transformers
 #   [stt]          564 MB   faster-whisper — CTranslate2, no torch at all
 #   [tts]          1.3 GB   kokoro → torch (747 MB of it is torch itself)
 #   [vad]            —      silero-vad → torch, shared with [tts]
-#   [test,voice]   1.6 GB   stt + tts + vad — what ./install.sh installs by default,
-#                           because it is what .env.example selects
-#   [all]          1.8 GB   voice + local-embed
+#   [test,voice]   stt + tts + vad — what ./install.sh installs by default
+#   [all]          voice stack (the local embedder is already in the base install)
 #   [tts-sovits]    +2 MB   just soundfile — the model lives in a server you run
 #   [voice,tts-qwen] 2.1 GB transformers, accelerate, librosa, gradio, pandas
 #   [desktop]      798 MB   pywebview + Qt (QtWebEngine)
@@ -68,7 +66,6 @@ dependencies = [
 stt = ["faster-whisper"]                     # ears (B2 §3.2) — CTranslate2, torch-free
 tts = ["kokoro", "soundfile"]                # the DEFAULT voice: CPU, GPU-free, fast
 vad = ["silero-vad"]                         # turn-taking (B2 §3.4)
-local-embed = ["sentence-transformers"]      # EMBED_BACKEND=sentence_tf (else LM Studio/Ollama)
 # TTS_BACKEND=qwen3_tts — the designed persona voice, and the only extra that really
 # wants a CUDA GPU (QWEN_DEVICE=cuda:0). Deliberately NOT in [voice] or [all]: it
 # drags transformers + accelerate + gradio + pandas for a backend nothing defaults to.
@@ -112,17 +109,18 @@ forge-krea2 = ["diffusers", "transformers", "accelerate", "safetensors",
 # The default local voice stack, GPU-free: ears + the kokoro voice + turn-taking.
 # This is what "install the real voice" means; `pip install -e ".[voice,test]"`.
 voice = ["faster-whisper", "kokoro", "soundfile", "silero-vad"]
-# Every local backend the defaults can select, plus local embeddings. Still NO qwen
-# and NO Qt — `all` used to mean "6.2 GB including a CUDA build you don't run".
-all = ["faster-whisper", "kokoro", "soundfile", "silero-vad", "sentence-transformers"]
+# Every optional local backend the defaults can select. Still NO qwen and NO Qt —
+# `all` used to mean "6.2 GB including a CUDA build you don't run".
+all = ["faster-whisper", "kokoro", "soundfile", "silero-vad"]
 # Genuinely everything, GPU voice and desktop window included. Opt in by name.
-gpu = ["faster-whisper", "kokoro", "soundfile", "silero-vad", "sentence-transformers",
+gpu = ["faster-whisper", "kokoro", "soundfile", "silero-vad",
        "qwen-tts", "numba>=0.61",          # the floor matters here too — see [tts-qwen]
        "pywebview", "qtpy", "PyQt6", "PyQt6-WebEngine"]
 
 # --- CPU TORCH -------------------------------------------------------------------
-# kokoro, silero-vad and sentence-transformers all depend on torch, and on Linux the
-# default PyPI torch wheel bundles CUDA. Measured, in a venv with nothing else in it:
+# sentence-transformers is a base dependency, and kokoro/silero-vad also depend on
+# torch. On Linux the default PyPI torch wheel bundles CUDA. Measured in a venv with
+# nothing else in it:
 #
 #   torch (default PyPI wheel)   4.5 GB on disk   2.73 GB download, 23 CUDA packages
 #   torch (whl/cpu index)        747 MB on disk   ~195 MB download

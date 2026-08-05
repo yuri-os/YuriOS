@@ -36,12 +36,12 @@ class Config(BrainConfig):
     # (post-turn fact extraction + summarisation), so it can afford to reason for
     # better quality (§2.5). A non-reasoning local model ignores both. Overridden in .env.
     chat_thinking: bool = False
-    # Embeddings stay local (§2.4): the same LM Studio server as the chat model, so a
-    # single process backs the mind and its memory. Switching to Ollama's nomic at the
-    # same 768-d width auto-reindexes from the .md files (fingerprint check, §2.4).
-    embed_backend: str = "lm_studio"           # keep the whole mind on-device
-    embed_model: str = "text-embedding-nomic-embed-text-v1.5"
-    embed_dim: int = 768
+    # Embeddings stay local (§2.4): sentence-transformers runs in-process by default,
+    # so memory needs no local server. LM Studio and Ollama remain one-line swaps;
+    # changing backend/model/dimension automatically reindexes the Vault.
+    embed_backend: str = "sentence_tf"
+    embed_model: str = "BAAI/bge-small-en-v1.5"
+    embed_dim: int = 384
     vault_dir: Path = Path("./vault")          # own Vault; seed it once (scripts/seed_vault.py)
     soul_src: Path = Path("./soul-src")        # SOUL, for seeding
 

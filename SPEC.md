@@ -248,10 +248,11 @@ The same headers carry a composite `User-Agent` — `YuriOS/<version> <client>/<
 which affects no attribution and exists so a provider's logs name her, not just her plumbing.
 `python -m yurios.doctor` prints what a given `.env` actually puts on the wire.
 
-The default stack is **local and needs no key**: an LM Studio model backs the mind, and an
-LM Studio embedder (`EMBED_BACKEND=lm_studio`) reuses the same server for memory — one local
-process behind both. Embeddings are always local and ownable. A failed backend **MUST**
-degrade gracefully (keep talking, log the truth) rather than crash.
+The default stack is **local and needs no key**: an LM Studio model backs the mind, while the
+in-process sentence-transformers embedder (`EMBED_BACKEND=sentence_tf`) owns memory without a
+second server. An LM Studio embedder may instead reuse the chat server when explicitly selected.
+Embeddings are always local and ownable. A failed backend **MUST** degrade gracefully (keep
+talking, log the truth) rather than crash.
 
 **Model residency.** Sharing one server has a cost that is not obvious: LM Studio JIT-loads
 whatever model a request names, and by default unloads the previously JIT-loaded one to do it.

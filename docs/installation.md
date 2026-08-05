@@ -1,8 +1,9 @@
 # Installation
 
-YuriOS runs on Linux, macOS, and Windows via WSL. Everything heavy is optional: the base install
-carries no torch, no CUDA and no model weights, and each backend you actually select brings
-exactly one extra with it.
+YuriOS runs on Linux, macOS, and Windows via WSL. The base install includes
+sentence-transformers so local memory works without an embedding server. It pulls Torch but no
+CUDA is required and no model weights are downloaded until the embedder first starts; each optional
+voice, camera, or desktop backend is still an extra.
 
 ## The script
 
@@ -14,10 +15,10 @@ python -m yurios.world             # → http://localhost:8768
 ```
 
 With no options this installs everything the shipped `.env.example` selects, so she runs as
-configured out of the box: her body, brain, memory, MCP tools and text chat, plus her real voice
-(faster-whisper ears, the kokoro voice, silero turn-taking) on the CPU-only torch wheel. ~1.6 GB,
-no CUDA, and no model weights are downloaded at install time; they download the first time a client
-opens the voice connection. Nothing needs a cloud key.
+configured out of the box: her body, brain, local memory, MCP tools and text chat, plus her real
+voice (faster-whisper ears, the kokoro voice, silero turn-taking). A detected working NVIDIA driver
+preselects CUDA; otherwise the CPU-only Torch wheel is used. No model weights download until the
+local embedder or voice first starts. Nothing needs a cloud key.
 
 The script installs system packages, [`uv`](https://docs.astral.sh/uv/), Node, the venv, her
 Vault and the web build — and finishes by running the doctor, which should come back with nothing
@@ -27,9 +28,8 @@ to do.
 
 | Flag | What it does |
 |---|---|
-| `--thin` | Base runtime only (~280 MB, no torch). Her voice seams fall back to fakes and say so on startup |
+| `--thin` | Omits the voice stack. Local embeddings remain available; voice seams fall back to fakes and say so on startup |
 | `--voice` | The local voice stack — already the default; kept so a rerun can name it |
-| `--local-embed` | Adds sentence-transformers, for `EMBED_BACKEND=sentence_tf` |
 | `--forge-local` | Adds the local camera (diffusers) for `SELFIE_BACKEND=diffusers` — an SDXL checkpoint rendered in-process |
 | `--forge-krea2` | The same camera for a Krea 2 checkpoint (INT4, via comfy-kitchen) |
 | `--gpu-voice` | Adds qwen3_tts, the designed voice — needs a CUDA GPU (and selects the GPU torch build) |
@@ -41,9 +41,9 @@ to do.
 | `--docker` | Build a Docker Compose setup instead of a host environment. Needs a `compose.yaml`, which this checkout does not ship — the flag is for distributions that add one |
 | `-h`, `--help` | The same table, from the script |
 
-On Linux/WSL with a terminal attached, the installer **asks** which torch build to install
-whenever a torch consumer is selected (voice, embeddings, the local camera) and no
-`--cpu-torch`/`--cuda-torch` flag settled it. Piped or unattended runs keep the CPU default.
+On Linux/WSL with a terminal attached, the installer **asks** which Torch build to install unless
+`--cpu-torch` or `--cuda-torch` already settled it. When a working NVIDIA driver is detected,
+CUDA is preselected; otherwise, piped or unattended runs keep the CPU default.
 
 Contradictions are refused rather than resolved by argument order: `--thin` cannot be combined
 with `--voice`, `--gpu-voice`, `--forge-local` or `--forge-krea2`, and `--desktop` cannot be
@@ -69,8 +69,8 @@ the fake rather than take the server down with it.
 # 1. a venv on a supported Python
 python3.12 -m venv .venv && source .venv/bin/activate
 
-# 2. YuriOS + everything .env.example selects: body, brain, memory, MCP tools,
-#    text chat, her ears, her voice, turn-taking. Drop `,voice` for text only.
+# 2. YuriOS + everything .env.example selects: body, brain, local embeddings,
+#    MCP tools, text chat, her ears, her voice, turn-taking. Drop `,voice` for no voice.
 pip install -e ".[test,voice]"
 
 # 3. her config. The defaults are local-first and need no cloud key. Without the
@@ -89,24 +89,25 @@ python -m yurios.doctor            # what .env selects vs what's installed
 python -m yurios.world             # → http://localhost:8768
 ```
 
-## The extras — pay only for the backends you select
+## Optional extras
 
-Every heavy backend is a lazy import behind a seam, so the base install carries none of them and
-each extra installs exactly one. Missing deps are **not** a hard failure: the seam falls back to
-its fake and logs the command that fixes it.
+The base install includes the local sentence-transformer embedder. Every other heavy backend is a
+lazy import behind a seam, so each extra installs exactly one. Missing optional deps are **not** a
+hard failure: the seam falls back to its fake and logs the command that fixes it.
 
-`./install.sh` installs `[test,voice]` — the row in bold — because that is what `.env.example`
-selects. Sizes are **measured on disk** (Linux, Python 3.12, venv total — not deltas):
+`./install.sh` installs `[test,voice]` because that is what the voice defaults select. The base
+dependency set already includes sentence-transformers; the model weights download only on first
+use. Sizes below are additive guidance rather than an exact total because Torch wheels differ by
+platform and selected CPU/CUDA build:
 
 | Install | Adds | On disk |
 | --- | --- | --- |
-| `pip install -e ".[test]"` | body, brain, memory, MCP tools, text chat, pytest | 280 MB |
+| `pip install -e ".[test]"` | body, brain, local embeddings, MCP tools, text chat, pytest | includes Torch + sentence-transformers |
 | `.[stt]` | her ears: faster-whisper — CTranslate2, **no torch** | 564 MB |
 | `.[tts]` | her voice: kokoro — the CPU default, needs `espeak-ng` | 1.3 GB |
 | `.[vad]` | turn-taking: silero-vad — torch, shared with `tts` | — |
-| `.[test,voice]` | `stt` + `tts` + `vad`: **the default install** | **1.6 GB** |
-| `.[local-embed]` | `EMBED_BACKEND=sentence_tf` — no LM Studio/Ollama needed | — |
-| `.[all]` | `voice` + `local-embed` | 1.8 GB |
+| `.[test,voice]` | `stt` + `tts` + `vad`: **the default install** | local embeddings included |
+| `.[all]` | all non-GPU voice backends | local embeddings included |
 | `.[tts-sovits]` | `TTS_BACKEND=gpt_sovits` — client for a server you run | +2 MB |
 | `.[forge-local]` | `SELFIE_BACKEND=diffusers` — local SDXL in-process, **wants CUDA**; checkpoint (~7 GB) is user-supplied | +0.1 GB |
 | `.[forge-krea2]` | the same camera for a Krea 2 checkpoint (INT4, **wants CUDA**); also needs HF access to the gated `krea/Krea-2-Raw` | +40 MB |
@@ -124,9 +125,9 @@ torch wheel bundles CUDA:
 | torch (default PyPI) | 4.5 GB | 2.73 GB, 23 CUDA packages |
 | torch (`whl/cpu` index) | 747 MB | ~195 MB |
 
-None of that CUDA runs for the default stack: kokoro is CPU-only and the GPU belongs to your LLM
-anyway. Install the CPU build first and the extras reuse it. `./install.sh` does this for you
-unless you ask for a GPU backend; by hand it is:
+None of that CUDA runs for the default stack: sentence-transformers and kokoro are CPU-friendly,
+and the GPU belongs to your LLM anyway. Install the CPU build first and YuriOS reuses it.
+`./install.sh` does this for you unless you ask for a GPU backend; by hand it is:
 
 ```bash
 pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
@@ -145,8 +146,8 @@ python -m yurios.doctor            # or: python -m yurios.world --check
 
 It reads the same `.env` the server reads, checks each selected backend against what's
 importable, and prints the exact install command for anything missing — plus the `.env` change
-that avoids the download altogether where one exists (`EMBED_BACKEND=lm_studio` needs no torch at
-all). It checks her ears, her voice, turn-taking, embeddings, the hands, the camera, and —
+that avoids an embedding server where one exists (`EMBED_BACKEND=sentence_tf` is built in). It
+checks her ears, her voice, turn-taking, embeddings, the hands, the camera, and —
 advisory, since it's a run-time choice rather than a config one — the desktop window.
 
 `./install.sh` runs it as its last step. If you forgot to activate the venv, it says so by name.
@@ -158,8 +159,8 @@ pip install -e ".[test]"           # nothing else — the suite runs against the
 pytest                             # offline, no GPU
 ```
 
-That is the contract the seams buy you: every heavy backend has a fake, so the whole suite is
-green on a machine with no torch, no CUDA and nothing downloaded — which is also why a thin
+That is the contract the optional seams buy you: voice, camera, and desktop backends have fakes,
+so the whole suite is green without loading a model or requiring CUDA — which is also why a thin
 install is a *testable* install.
 
 It runs with fake models on a `VirtualClock`, so **days of an always-on mind run in

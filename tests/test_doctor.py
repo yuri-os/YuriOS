@@ -1,10 +1,10 @@
 """The dependency doctor (`python -m yurios.doctor`).
 
-The install is thin on purpose — a bare `pip install -e .` carries no torch, no
-CUDA and no models — and every heavy backend is a lazy import behind a seam that
-degrades to its fake (SPEC §3). The doctor is what keeps that from being a silent
-trap: it reads the same Config the server reads and says which selected backends
-aren't installed, plus the extra that installs each one.
+The base install carries the local sentence-transformer embedder; optional heavy
+backends remain lazy imports behind seams that degrade to fakes (SPEC §3). The
+doctor is what keeps those optional seams from becoming a silent trap: it reads
+the same Config the server reads and says which selected backends aren't installed,
+plus the extra that installs each one.
 
 Two things can rot here, and both of them look fine until someone follows the
 advice: the extra names printed to the user can drift out of `pyproject.toml`,
@@ -55,13 +55,14 @@ def test_tts_extras_match_the_backend_hints():
         assert voice.extra == extra, f"{backend}: doctor says {voice.extra}"
 
 
-def test_heavy_extras_are_not_in_the_base_dependencies():
-    """The whole point: none of the model backends may be a core dependency."""
+def test_only_the_local_embedder_is_a_model_base_dependency():
+    """Memory must work without a server; other model backends stay optional."""
     with PYPROJECT.open("rb") as fh:
         project = tomllib.load(fh)["project"]
     core = " ".join(project["dependencies"]).lower()
+    assert "sentence-transformers" in core
     for heavy in ("torch", "faster-whisper", "kokoro", "qwen-tts", "silero",
-                  "sentence-transformers", "pyqt", "pywebview"):
+                   "pyqt", "pywebview"):
         assert heavy not in core, f"{heavy} crept into [project.dependencies]"
 
 
@@ -125,7 +126,6 @@ def test_missing_voice_seams_collapse_to_the_voice_extra(capsys):
     """Three separate extras for one obvious install is worse advice than the name
     pyproject and the README both use."""
     assert _collapse(["stt", "tts", "vad"]) == ["voice"]
-    assert _collapse(["local-embed", "stt", "tts", "vad"]) == ["all"]
     assert _collapse(["stt", "tts", "vad", "desktop"]) == ["voice", "desktop"]
     assert _collapse(["stt"]) == ["stt"]                      # nothing to collapse
     assert _collapse(["tts", "vad"]) == ["tts", "vad"]        # not the full set
@@ -155,6 +155,11 @@ def test_the_cpu_torch_recipe_takes_torchaudio_from_the_same_index(monkeypatch, 
     recipes += [p for p in sorted((root / "yurios").rglob("*.py"))
                 if any(dep in p.read_text() for dep in ("kokoro", "silero"))]
     for path in recipes:
+        if path.name == "install.sh":
+            source = path.read_text()
+            assert 'packages+=(torchaudio)' in source, (
+                "install.sh must install torchaudio with torch when the voice stack is selected")
+            continue
         # install.sh wraps the command over a shell continuation, so fold those first
         # or the second half looks like a torch-less install.
         for line in path.read_text().replace("\\\n", " ").splitlines():
@@ -169,7 +174,7 @@ def test_the_cpu_torch_recipe_takes_torchaudio_from_the_same_index(monkeypatch, 
     assert "whl/cpu" in doctor.torch_pair_mismatch()
 
     # …and it is printed even when every seam checks out, which is the whole point.
-    report([Check("embeddings", "EMBED_BACKEND", "lm_studio", "", "local-embed")])
+    report([Check("embeddings", "EMBED_BACKEND", "lm_studio", "", "")])
     assert "torchaudio 2.11.0 came from PyPI" in capsys.readouterr().out
 
     for pair in (("2.13.0+cpu", "2.11.0+cpu"),      # both from pytorch.org — correct
@@ -213,7 +218,7 @@ def test_the_mcp_cap_matches_the_module_the_tool_server_imports(monkeypatch, cap
     assert "mcp 2.0.0" in doctor.mcp_api_mismatch()
 
     # …and, like the torch pair, it is printed even when every row checks out.
-    report([Check("embeddings", "EMBED_BACKEND", "lm_studio", "", "local-embed")])
+    report([Check("embeddings", "EMBED_BACKEND", "lm_studio", "", "")])
     out = capsys.readouterr().out
     assert "mcp 2.0.0" in out and "Fix what's flagged above" in out
 
@@ -247,13 +252,24 @@ def test_install_sh_default_installs_what_env_example_selects():
     ).stdout.strip()
     assert thin == "test", f"--thin resolved to [{thin}], which isn't a thin install"
 
+    removed = subprocess.run(
+        ["bash", str(root / "install.sh"), "--local-embed", "--print-extras"],
+        capture_output=True, text=True,
+    )
+    assert removed.returncode != 0
+    assert "unknown option: --local-embed" in removed.stderr
 
-def test_env_example_embeddings_need_no_extra():
-    """The shipped .env.example must select an embedder the BASE install provides.
 
-    Embeddings are the one seam with no fake to degrade into, so an .env pointing at
-    sentence_tf turns `./install.sh --thin` into a hard boot failure rather than a quiet
-    one. Every other backend in the file can fall back; this one has to be free."""
+def test_install_sh_prefers_cuda_when_nvidia_is_detected():
+    """Interactive GPU-capable installs should not silently choose the CPU wheel."""
+    installer = (Path(__file__).resolve().parent.parent / "install.sh").read_text()
+    assert 'local default_choice="cpu" gpu_note=""' in installer
+    assert 'default_choice="cuda"' in installer
+    assert 'TORCH_CHOICE="$default_choice"' in installer
+
+
+def test_env_example_selects_the_base_sentence_transformer_embedder():
+    """The shipped .env.example must select the local embedder every install provides."""
     env = Path(__file__).resolve().parent.parent / ".env.example"
     settings: dict[str, str] = {}
     for raw in env.read_text().splitlines():
@@ -263,9 +279,7 @@ def test_env_example_embeddings_need_no_extra():
         key, _, value = raw.partition("=")
         settings[key.strip()] = value.split("#")[0].strip()
 
-    assert settings.get("EMBED_BACKEND") in {"lm_studio", "ollama"}, (
-        f"EMBED_BACKEND={settings.get('EMBED_BACKEND')} in .env.example needs an "
-        f"extra installed, and embeddings have no fake — a base install would not boot")
+    assert settings.get("EMBED_BACKEND") == "sentence_tf"
 
     cfg = Config(_env_file=str(env))
     embed = next(c for c in collect(cfg) if c.knob == "EMBED_BACKEND")

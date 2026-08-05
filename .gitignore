@@ -5,6 +5,8 @@
 __pycache__/
 *.egg-info/
 .pytest_cache/
+build/
+dist/
 
 # her mind — seeded locally, its own git repo, never nested in this one
 vault/
@@ -16,6 +18,7 @@ data/
 traces/
 corpus/
 tool-logs/
+models/
 
 # the fetched Live2D runtime + rigs (proprietary/free-material — never committed;
 # populate with `python scripts/fetch_live2d.py`, B2 §8.2's rule)

@@ -23,7 +23,11 @@ _FLOORS = {"diffusers": DiffusersBackend.RESIDENT_FREE_GIB,
 
 
 def make_parker(cfg, free, **over):
-    cfg = cfg.model_copy(update={"selfie_backend": "diffusers", **over})
+    # Fresh YuriOS installs intentionally have no LLM. These parking tests need
+    # the explicit LM Studio configuration whose residency they exercise.
+    cfg = cfg.model_copy(update={"chat_model": "lm_studio/HauhauCS/Gemma-4-E4B-Uncensored-HauhauCS-Aggressive",
+                                 "utility_model": "lm_studio/HauhauCS/Gemma-4-E4B-Uncensored-HauhauCS-Aggressive",
+                                 "selfie_backend": "diffusers", **over})
     return LLMParker(cfg, free_probe=lambda: free,
                      resident_free_gib=_FLOORS.get(cfg.selfie_backend))
 

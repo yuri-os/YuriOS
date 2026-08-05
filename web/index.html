@@ -60,6 +60,26 @@
     </div>
   </div>
 
+  <!-- A new installation deliberately has no chat connection. This panel is
+       shown before entering the room and uses the same local-only server API as
+       settings; selecting a GGUF starts its cache download immediately. -->
+  <div id="model-setup" class="model-setup" hidden>
+    <div class="model-setup-card">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <p class="eyebrow">First-run setup</p>
+      <h1>Choose her language model</h1>
+      <p class="model-setup-copy">YuriOS has not connected to an LLM. Pick a local
+        recommendation or enter any LiteLLM model id.</p>
+      <div id="model-recommendations" class="model-recommendations"></div>
+      <label class="model-custom-label" for="model-custom">Another model id</label>
+      <div class="model-custom-row">
+        <input id="model-custom" placeholder="ollama/qwen3 or openrouter/vendor/model">
+        <button id="model-custom-save" class="button">Use model</button>
+      </div>
+      <p id="model-setup-status" class="model-setup-status" aria-live="polite"></p>
+    </div>
+  </div>
+
   <header class="masthead hud">
     <!-- back to the switchboard (host.py serves the dashboard at /): the same
          quiet button the board uses, not a floating pill over her head -->
@@ -170,6 +190,7 @@
        audio graph; it owns the buttons and what they remember -->
   <script type="module" src="js/controls.js"></script>
   <script type="module" src="js/boot.js"></script>
+  <script type="module" src="js/model-setup.js"></script>
   <script type="module" src="js/chat.js"></script>
   <script type="module" src="js/mind.js"></script>
   <script type="module" src="js/main.js"></script>

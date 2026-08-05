@@ -27,29 +27,30 @@ no script touched your system.
 
 ## 2. Give her a brain
 
-The one part that isn't pip-installable is the model. Any [LiteLLM](https://docs.litellm.ai/)
-route works; the shipped `.env` points at a local **LM Studio** on `:1234` (Developer tab → Start
-Server, or `lms server start`):
+The one part that isn't pip-installable is the model. A new install intentionally selects `NONE`,
+so it does not connect to any LLM until you choose one. The first dashboard load asks; the terminal
+equivalent is:
 
 ```bash
-lms get HauhauCS/Gemma-4-E4B-Uncensored-HauhauCS-Aggressive   # her thinking (chat + utility)
+yurios configure
 ```
 
 An uncensored model on purpose: she's a companion, not an assistant, and a refusal-trained model
 plays her badly — it breaks character to decline, which is the one thing a person in the room
 never does.
 
-Prefer Ollama, OpenRouter, or something else? It's a one-line chat-model swap. Memory uses the
-bundled local embedder by default and can switch to LM Studio or Ollama; OpenRouter embeddings are
-not supported. See [Models & connections](models.md).
+The current recommendation is the local `gguf/mradermacher/Qwen3-14B-Uncensored-GGUF`; it downloads
+automatically on selection. Ollama, LM Studio, OpenRouter, and any other LiteLLM route also work.
+Memory uses the bundled local embedder by default and can switch to LM Studio or Ollama; OpenRouter
+embeddings are not supported. See [Models & connections](models.md).
 
 ## 3. Run her
 
 ```bash
-python -m yurios.world             # → http://localhost:8768
+yurios status                      # → http://localhost:8768
 ```
 
-That address opens the **character switchboard**. Select a card to enter her sanctuary; leaving
+The installer has already started the daemon. That address opens the **character switchboard**. Select a card to enter her sanctuary; leaving
 the room returns to the switchboard *without* stopping that character's background life.
 
 On the first 0.2 start, an existing 0.1 install's `vault/`, `corpus/`, `traces/`, `tool-logs/`

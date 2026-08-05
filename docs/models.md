@@ -1,8 +1,13 @@
 # Models & connections
 
-Her brain is the one part that isn't pip-installable. YuriOS talks to models through
-[LiteLLM](https://docs.litellm.ai/), so **the model id's prefix picks the provider** and swapping
-provider is a one-line change.
+YuriOS talks to models through [LiteLLM](https://docs.litellm.ai/) or its bundled direct llama.cpp
+provider. **The model id's prefix picks the provider** and swapping provider is a one-line change.
+Fresh installs set both chat roles to `NONE`, which deliberately makes no connection until the first
+dashboard load or `yurios configure` chooses a model.
+
+The terminal configurator has guided choices for direct GGUF, LM Studio, Ollama, and OpenRouter.
+For local servers it records the endpoint and checks that the named model is available; for
+OpenRouter it asks for the API key without echoing it and verifies the key before saving.
 
 ```
 CHAT_MODEL=lm_studio/HauhauCS/Gemma-4-E4B-Uncensored-HauhauCS-Aggressive
@@ -12,10 +17,12 @@ CHAT_MODEL=lm_studio/HauhauCS/Gemma-4-E4B-Uncensored-HauhauCS-Aggressive
 | Prefix | Goes to | Endpoint knob |
 |---|---|---|
 | `lm_studio/…` | a local LM Studio server (OpenAI-compatible) | `LMSTUDIO_BASE_URL` (default `http://localhost:1234/v1`) |
+| `gguf/owner/repo` | a local GGUF through llama.cpp | `GGUF_*` |
 | `ollama/…` | a local Ollama server | `OLLAMA_BASE_URL` (default `http://localhost:11434`) |
 | `openrouter/…` | hosted OpenRouter | `OPENROUTER_API_KEY` |
 | `openai/…`, `anthropic/…`, … | any other LiteLLM route | that provider's own env vars |
 | *(no prefix)* | assumed OpenRouter — the prefix is added for you | `OPENROUTER_API_KEY` |
+| `NONE` | no language-model connection | choose one with `yurios configure` |
 
 There are three model roles:
 
@@ -60,6 +67,26 @@ JIT-loaded model to serve the next request: without pinning, every turn evicts o
 the other and pays the reload — seconds per turn, forever. Nothing in your LM Studio config is
 touched; this is the Load button over HTTP. `LMSTUDIO_LOAD_TIMEOUT_S` (600) only has to cover a
 cold load off disk.
+
+### Direct GGUF, no LM Studio
+
+The first-run picker and `yurios configure` currently recommend this GGUF repository:
+
+```ini
+CHAT_MODEL=gguf/mradermacher/Qwen3-14B-Uncensored-GGUF
+UTILITY_MODEL=gguf/mradermacher/Qwen3-14B-Uncensored-GGUF
+GGUF_QUANT=Q4_K_M
+```
+
+YuriOS resolves the matching `*.Q4_K_M.gguf` file in that Hugging Face repository, downloads it
+once to the ignored `./models` Hugging Face cache, and runs it directly with llama.cpp. Chat and
+utility work share one loaded context. The default installer includes this runtime; a manual install needs
+`pip install -e ".[llm]"`.
+
+For another GGUF source, make `CHAT_MODEL` and `UTILITY_MODEL` its `gguf/<Hugging Face repo>` name.
+If its model id is not its Hugging Face repository, set `GGUF_REPO=owner/repository`.
+`GGUF_N_GPU_LAYERS=-1` uses all layers only when `llama-cpp-python` was installed with CUDA or
+Metal support; its standard wheel is CPU-first.
 
 ### Context length
 

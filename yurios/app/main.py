@@ -13,8 +13,11 @@ handlers against fakes — no API key, no model download (§13.3).
 from __future__ import annotations
 
 import asyncio
+import importlib.util
 import logging
 from dataclasses import dataclass, field
+
+import httpx
 
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
@@ -154,9 +157,70 @@ def model_api_base(cfg: Config, model: str) -> str:
     return ""
 
 
+def _lmstudio_available(cfg: Config) -> bool:
+    """Can the configured OpenAI-compatible LM Studio endpoint answer requests?
+
+    This deliberately checks only the server, not whether a particular model is
+    already loaded: LM Studio's normal JIT/preload flow owns model residency. A
+    dead server is the case where the direct GGUF fallback is useful.
+    """
+    try:
+        with httpx.Client(timeout=2.0) as client:
+            response = client.get(f"{cfg.lmstudio_base_url.rstrip('/')}/models")
+            response.raise_for_status()
+        return True
+    except httpx.HTTPError as e:
+        log.warning("LM Studio unavailable at %s (%s); using direct GGUF fallback",
+                    cfg.lmstudio_base_url, e)
+        return False
+
+
+def _use_gguf_fallback(cfg: Config, model: str) -> bool:
+    # Keep a minimal `pip install -e .` usable with its existing LiteLLM route.
+    # install.sh includes this optional runtime, while source/test installs need
+    # not compile or download llama.cpp merely by constructing a provider.
+    return (cfg.gguf_fallback and importlib.util.find_spec("llama_cpp") is not None
+            and model.startswith("lm_studio/")
+            and not _lmstudio_available(cfg))
+
+
+def _uses_direct_gguf(model: str) -> bool:
+    return model.startswith("gguf/")
+
+
+class UnconfiguredChatModel:
+    """A deliberate offline seam until first-run model selection is complete."""
+
+    def __init__(self, cfg, *, meter=None):
+        # Match the normal provider's small inspection surface so live settings can
+        # still be changed before a model is selected.
+        self.model = "NONE"
+        self.thinking = cfg.chat_thinking
+        self.meter = meter
+
+    async def stream(self, messages, **params):
+        raise RuntimeError("No chat model is configured. Open YuriOS and choose a model first.")
+        yield ""  # pragma: no cover - keeps this an async generator for the protocol
+
+
+class UnconfiguredUtilityModel:
+    def __init__(self, cfg):
+        self.model = "NONE"
+        self.thinking = cfg.utility_thinking
+        self.max_tokens = cfg.utility_max_tokens
+
+    async def complete(self, messages, **params):
+        raise RuntimeError("No utility model is configured. Choose a model first.")
+
+
 def build_chat_model(cfg: Config, *, meter=None):
     """Her reply voice, from config alone. One construction path, so a model
     swapped at runtime (world/rewire.py) is built exactly like the boot one."""
+    if not cfg.chat_model or cfg.chat_model.upper() == "NONE":
+        return UnconfiguredChatModel(cfg, meter=meter)
+    if _uses_direct_gguf(cfg.chat_model) or _use_gguf_fallback(cfg, cfg.chat_model):
+        from yurios.app.providers.gguf import GGUFChatModel
+        return GGUFChatModel(cfg.chat_model, cfg, temperature=cfg.temperature, meter=meter)
     from yurios.app.providers.openrouter import LiteLLMChatModel
     return LiteLLMChatModel(cfg.chat_model, cfg.openrouter_api_key, cfg.temperature,
                             api_base=model_api_base(cfg, cfg.chat_model),
@@ -167,6 +231,12 @@ def build_utility_model(cfg: Config):
     """The extraction/summary model, or None when utility work is off."""
     if not cfg.utility_enabled:
         return None
+    if not cfg.utility_model or cfg.utility_model.upper() == "NONE":
+        return UnconfiguredUtilityModel(cfg)
+    if _uses_direct_gguf(cfg.utility_model) or _use_gguf_fallback(cfg, cfg.utility_model):
+        from yurios.app.providers.gguf import GGUFUtilityModel
+        return GGUFUtilityModel(cfg.utility_model, cfg, max_tokens=cfg.utility_max_tokens,
+                                thinking=cfg.utility_thinking)
     from yurios.app.providers.openrouter import LiteLLMUtilityModel
     return LiteLLMUtilityModel(cfg.utility_model, cfg.openrouter_api_key,
                                max_tokens=cfg.utility_max_tokens,

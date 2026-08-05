@@ -335,6 +335,12 @@ def _record(
 ) -> CharacterRecord:
     chat = str(_value(config, "chat_model", "") or "")
     utility = str(_value(config, "utility_model", "") or "")
+    # A blank binding inherits the house .env. Do not turn an unconfigured
+    # legacy install into a per-character NONE override.
+    if chat.upper() == "NONE":
+        chat = ""
+    if utility.upper() == "NONE":
+        utility = ""
     model_options = {
         name: _value(config, name)
         for name in ("context_length", "chat_thinking", "utility_thinking")
@@ -368,6 +374,30 @@ def _record(
             model=str(_value(config, "avatar_model", "") or ""),
         ),
     )
+
+
+def _repair_legacy_model_bindings(
+    registry: CharacterRegistry, marker: Mapping[str, object], marker_path: Path
+) -> None:
+    """Convert pre-fix migrated NONE bindings into inherited house settings once."""
+    migration = marker.get("migration")
+    if not isinstance(migration, Mapping) or migration.get("name") != MIGRATION_NAME:
+        return
+    if marker.get("model_binding_inheritance_repaired"):
+        return
+    character_id = migration.get("character_id")
+    record = registry.get(str(character_id)) if character_id else None
+    if record is not None:
+        changed = False
+        for field in ("chat", "utility"):
+            if getattr(record.models, field).upper() == "NONE":
+                setattr(record.models, field, "")
+                changed = True
+        if changed:
+            registry.upsert(record)
+    updated_marker = dict(marker)
+    updated_marker["model_binding_inheritance_repaired"] = True
+    atomic_write_json(marker_path, updated_marker)
 
 
 def _copy_sources(sources: tuple[_Source, ...], staged: CharacterPaths) -> None:
@@ -527,6 +557,7 @@ def migrate_legacy_data(
         result = _current_result(marker, target_registry, target)
         if not (check or dry_run):
             _backfill_default_portrait(target_registry, result.character_id)
+            _repair_legacy_model_bindings(target_registry, marker, marker_path)
         return result
 
     sources = _sources(config)

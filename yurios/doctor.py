@@ -236,12 +236,14 @@ def mcp_api_mismatch() -> str:
 # ollama/… and lm_studio/… are somebody's own machine. Reimplemented rather than
 # imported because that module imports litellm, and running the doctor has to stay
 # free (tests/test_doctor.py pins this against the real router).
-_LOCAL_PREFIXES = ("ollama/", "lm_studio/")
+_LOCAL_PREFIXES = ("ollama/", "lm_studio/", "gguf/")
 _OTHER_HOSTS = ("openai/", "anthropic/")
 
 
 def _hosted_on_openrouter(model: str) -> bool:
-    return not model.startswith(_LOCAL_PREFIXES + _OTHER_HOSTS)
+    # NONE is the first-run offline state, not LiteLLM's bare-model shorthand.
+    return bool(model and model.upper() != "NONE"
+                and not model.startswith(_LOCAL_PREFIXES + _OTHER_HOSTS))
 
 
 def _on(value: str) -> bool:

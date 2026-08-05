@@ -71,6 +71,26 @@ svg{ width:1.1em; height:1.1em; fill:none; stroke:currentColor; stroke-width:1.7
 }
 .icon-button:hover,.icon-button:focus-visible{ border-color:var(--soft); color:var(--ink); }
 
+/* First-run model selection sits over the intentionally offline room. */
+.model-setup{ position:fixed; inset:0; z-index:30; display:grid; place-items:center; padding:20px;
+  background:rgb(7 10 9 / .88); backdrop-filter:blur(10px); }
+.model-setup-card{ width:min(100%,520px); padding:28px; border:1px solid var(--rule);
+  background:var(--panel); box-shadow:var(--shadow); display:grid; gap:14px; }
+.model-setup-card .brand-mark{ margin-bottom:4px; }
+.model-setup-card h1{ font-size:22px; font-weight:540; }
+.model-setup-copy{ color:var(--soft); line-height:1.55; }
+.model-recommendations{ display:grid; gap:8px; }
+.model-recommendation{ display:grid; gap:5px; text-align:left; padding:13px; cursor:pointer;
+  border:1px solid var(--rule); background:var(--ground); color:var(--ink); }
+.model-recommendation:hover,.model-recommendation:focus-visible{ border-color:var(--acid); }
+.model-recommendation b{ font:12px var(--font-mono); }
+.model-recommendation small,.model-custom-label{ color:var(--soft); font:10px var(--font-mono); }
+.model-custom-row{ display:flex; gap:8px; }
+.model-custom-row input{ min-width:0; flex:1; padding:10px; color:var(--ink); border:1px solid var(--rule);
+  background:var(--ground); }
+.model-setup-status{ min-height:1.4em; color:var(--mint); font:11px/1.45 var(--font-mono); }
+.model-setup-status.error{ color:var(--red); }
+
 /* the room fills the window left of the chat; the renderer's canvas mounts here.
    touch-action:none because there is nothing to gesture at in here — a drag over
    the room is a drag over a fixed canvas, and left alone a mobile browser answers

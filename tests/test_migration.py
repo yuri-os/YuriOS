@@ -127,6 +127,33 @@ def test_migration_gives_yuri_the_packaged_portrait(tmp_path):
     assert portrait.read_bytes() == b"\x89PNG\r\n\x1a\nmine"
 
 
+def test_unconfigured_legacy_models_inherit_the_house_setting(tmp_path):
+    config = _config(tmp_path)
+    config.chat_model = config.utility_model = "NONE"
+    data = tmp_path / "data"
+
+    migrate_legacy_data(config, data)
+
+    record = CharacterRegistry(data).require("yuri")
+    assert record.models.chat == record.models.utility == ""
+
+
+def test_repair_clears_none_bindings_written_by_an_older_migration(tmp_path):
+    config = _config(tmp_path)
+    data = tmp_path / "data"
+    migrate_legacy_data(config, data)
+    registry = CharacterRegistry(data)
+    record = registry.require("yuri")
+    record.models.chat = record.models.utility = "NONE"
+    registry.upsert(record)
+
+    migrate_legacy_data(config, data)
+
+    repaired = CharacterRegistry(data).require("yuri")
+    assert repaired.models.chat == repaired.models.utility == ""
+    assert json.loads((data / "layout.json").read_text())["model_binding_inheritance_repaired"]
+
+
 def test_already_migrated_data_backfills_the_missing_portrait(tmp_path):
     config = _config(tmp_path)
     data = tmp_path / "data"

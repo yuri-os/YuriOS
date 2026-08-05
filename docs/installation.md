@@ -10,19 +10,39 @@ voice, camera, or desktop backend is still an extra.
 ```bash
 cd YuriOS
 ./install.sh
-source .venv/bin/activate
-python -m yurios.world             # → http://localhost:8768
+yurios status                      # → http://localhost:8768
 ```
 
-With no options this installs everything the shipped `.env.example` selects, so she runs as
-configured out of the box: her body, brain, local memory, MCP tools and text chat, plus her real
-voice (faster-whisper ears, the kokoro voice, silero turn-taking). A detected working NVIDIA driver
-preselects CUDA; otherwise the CPU-only Torch wheel is used. No model weights download until the
-local embedder or voice first starts. Nothing needs a cloud key.
+With no options this installs her body, local memory, MCP tools and real voice (faster-whisper ears,
+the kokoro voice, silero turn-taking), then starts YuriOS as a background daemon. Its initial model
+setting is `NONE`: it makes no LLM connection until the first dashboard load or `yurios configure`
+chooses one. Selecting the current direct GGUF recommendation downloads its Q4_K_M model automatically.
+A detected working NVIDIA driver preselects CUDA; otherwise the CPU-only Torch wheel is used.
+Nothing needs a cloud key.
+
+The installer links `~/.local/bin/yurios` to this installation's isolated virtual
+environment. You do not need to activate `.venv`; open a new terminal if
+`~/.local/bin` was not already on your `PATH`.
 
 The script installs system packages, [`uv`](https://docs.astral.sh/uv/), Node, the venv, her
 Vault and the web build — and finishes by running the doctor, which should come back with nothing
 to do.
+
+## Uninstall
+
+Run this from the YuriOS project directory to stop the daemon and remove the global
+`~/.local/bin/yurios` launcher plus this project's `.venv`:
+
+```bash
+yurios uninstall
+```
+
+Confirm the prompt, or use `yurios uninstall --yes` for an unattended uninstall. The command
+first waits for the daemon process and its health endpoint to stop; it refuses to remove anything
+while YuriOS is still serving requests. It only removes the launcher installed by YuriOS when it
+points at this project's virtual environment; it refuses to remove another `yurios` command or
+environment. It preserves the checkout, `.env`, `.yurios/`, logs, downloaded models, Vault, and
+all other local data. Re-run `./install.sh` later to recreate the virtual environment and launcher.
 
 ### Options
 
@@ -86,7 +106,7 @@ python scripts/seed_vault.py
 
 # 6. go
 python -m yurios.doctor            # what .env selects vs what's installed
-python -m yurios.world             # → http://localhost:8768
+yurios start                       # background daemon → http://localhost:8768
 ```
 
 ## Optional extras
@@ -111,6 +131,7 @@ platform and selected CPU/CUDA build:
 | `.[tts-sovits]` | `TTS_BACKEND=gpt_sovits` — client for a server you run | +2 MB |
 | `.[forge-local]` | `SELFIE_BACKEND=diffusers` — local SDXL in-process, **wants CUDA**; checkpoint (~7 GB) is user-supplied | +0.1 GB |
 | `.[forge-krea2]` | the same camera for a Krea 2 checkpoint (INT4, **wants CUDA**); also needs HF access to the gated `krea/Krea-2-Raw` | +40 MB |
+| `.[llm]` | direct llama.cpp fallback for unavailable LM Studio; downloads the selected Q4_K_M GGUF on first use | platform-dependent |
 | `.[voice,tts-qwen]` | `TTS_BACKEND=qwen3_tts` — the designed voice, **wants CUDA** | 2.1 GB |
 | `.[desktop]` | `--window`: pywebview + Qt (QtWebEngine) | 798 MB |
 | `.[gpu]` | genuinely everything: GPU voice and Qt, on CUDA torch | 6.4 GB |

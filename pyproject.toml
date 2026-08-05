@@ -106,16 +106,23 @@ forge-local = ["diffusers", "transformers", "accelerate", "safetensors"]
 # then `huggingface-cli login`. See .env.example's SELFIE_LOCAL_* block.
 forge-krea2 = ["diffusers", "transformers", "accelerate", "safetensors",
                "comfy-kitchen", "huggingface-hub"]
+# Direct GGUF fallback for a local `lm_studio/...` chat route. llama-cpp-python's
+# wheel is CPU-first; users who build it with CUDA/Metal can expose layers through
+# GGUF_N_GPU_LAYERS without changing YuriOS.
+llm = ["llama-cpp-python", "huggingface-hub"]
 # The default local voice stack, GPU-free: ears + the kokoro voice + turn-taking.
 # This is what "install the real voice" means; `pip install -e ".[voice,test]"`.
 voice = ["faster-whisper", "kokoro", "soundfile", "silero-vad"]
 # Every optional local backend the defaults can select. Still NO qwen and NO Qt —
 # `all` used to mean "6.2 GB including a CUDA build you don't run".
-all = ["faster-whisper", "kokoro", "soundfile", "silero-vad"]
+all = ["faster-whisper", "kokoro", "soundfile", "silero-vad", "llama-cpp-python", "huggingface-hub"]
 # Genuinely everything, GPU voice and desktop window included. Opt in by name.
 gpu = ["faster-whisper", "kokoro", "soundfile", "silero-vad",
        "qwen-tts", "numba>=0.61",          # the floor matters here too — see [tts-qwen]
-       "pywebview", "qtpy", "PyQt6", "PyQt6-WebEngine"]
+        "pywebview", "qtpy", "PyQt6", "PyQt6-WebEngine", "llama-cpp-python", "huggingface-hub"]
+
+[project.scripts]
+yurios = "yurios.cli:main"
 
 # --- CPU TORCH -------------------------------------------------------------------
 # sentence-transformers is a base dependency, and kokoro/silero-vad also depend on

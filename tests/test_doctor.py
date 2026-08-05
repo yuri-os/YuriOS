@@ -250,7 +250,7 @@ def test_install_sh_default_installs_what_env_example_selects():
         ["bash", str(root / "install.sh"), "--thin", "--print-extras"],
         capture_output=True, text=True, check=True,
     ).stdout.strip()
-    assert thin == "test", f"--thin resolved to [{thin}], which isn't a thin install"
+    assert thin == "test,llm", f"--thin resolved to [{thin}], which isn't a thin install"
 
     removed = subprocess.run(
         ["bash", str(root / "install.sh"), "--local-embed", "--print-extras"],

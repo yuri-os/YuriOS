@@ -45,7 +45,7 @@ def _warn_missing(cfg) -> None:
                 seams, knobs, ",".join(extras))
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(prog="python -m yurios.world")
     ap.add_argument("--window", action="store_true",
                     help="float her on the desktop in a native transparent window (§6.5)")
@@ -53,7 +53,7 @@ def main() -> None:
                     help="which body --window floats (§6.6; default: DESKTOP_BODY)")
     ap.add_argument("--check", action="store_true",
                     help="print the dependency check (yurios.doctor) and exit")
-    args = ap.parse_args()
+    args = ap.parse_args(argv)
 
     logging.basicConfig(
         level=logging.INFO,

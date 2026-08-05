@@ -7,8 +7,9 @@ NODE_VERSION="22"
 MODE="host"
 INSTALL_DESKTOP=false
 SKIP_SYSTEM=false
-# The default install is exactly what .env.example selects, so a fresh checkout runs
-# as configured with no second step: base runtime + local embeddings + the local voice stack
+# The default install includes the local embeddings and voice stack. A fresh checkout
+# deliberately starts with no LLM selected; the first web load or `yurios configure`
+# asks for one, so installation never makes an unchosen model connection.
 # (faster_whisper ears, kokoro voice, silero turn-taking). torch's build is the one
 # choice the script asks about when it can: the CPU-only wheel (~750 MB) keeps the
 # install lean; embeddings and the default voice are CPU-friendly. The CUDA pair (~4.5 GB) is what
@@ -38,12 +39,11 @@ Usage: ./install.sh [options]
 
 Set up YuriOS on WSL, native Linux, or macOS.
 
-With no options this installs everything the shipped .env.example selects, so
-she runs as configured out of the box: her body, brain, memory, MCP tools and
-text chat, plus her real voice — faster-whisper ears, the kokoro voice, silero
-turn-taking. A detected working NVIDIA driver preselects CUDA; otherwise the
-CPU-only torch wheel is used. No model weights are downloaded at install time.
-Nothing needs a cloud key.
+With no options this installs YuriOS's body, local memory, MCP tools, and real
+voice — faster-whisper ears, the kokoro voice, silero turn-taking. It starts as
+a background daemon with no LLM connection selected; open the dashboard or run
+`yurios configure` to choose one. A detected working NVIDIA driver preselects
+CUDA; otherwise the CPU-only torch wheel is used. Nothing needs a cloud key.
 
 Options:
   --thin         Base runtime without the voice stack: body, brain, local memory,
@@ -129,7 +129,7 @@ fi
 # actually asked for rather than the union of every backend that exists. Resolved here,
 # up front, because it depends on nothing but the flags — which lets --print-extras be
 # a real dry run (tests/test_doctor.py pins the default against .env.example with it).
-EXTRAS="test"
+EXTRAS="test,llm"
 if [ "$INSTALL_VOICE" = true ]; then
     EXTRAS="$EXTRAS,voice"
 fi
@@ -534,6 +534,35 @@ prepare_venv() {
     fi
 }
 
+install_launcher() {
+    # Keep the project dependencies isolated, but expose its console command from
+    # any terminal. A symlink means upgrades keep using the same project venv and
+    # never require `source .venv/bin/activate`.
+    local user_bin="$HOME/.local/bin"
+    local launcher="$user_bin/yurios"
+    mkdir -p "$user_bin"
+    if [ -e "$launcher" ] && [ ! -L "$launcher" ]; then
+        fail "$launcher already exists and is not a YuriOS launcher; move it aside, then rerun the installer"
+    fi
+    ln -sfn "$VENV_DIR/bin/yurios" "$launcher"
+
+    case "${SHELL##*/}" in
+        bash) local profile="$HOME/.bashrc" ;;
+        zsh) local profile="$HOME/.zshrc" ;;
+        *)
+            log "Installed $launcher (add $user_bin to PATH for your shell)"
+            return
+            ;;
+    esac
+    if [[ ":$PATH:" != *":$user_bin:"* ]] && ! grep -Fq 'YuriOS command launcher' "$profile" 2>/dev/null; then
+        {
+            printf '\n# YuriOS command launcher\n'
+            printf 'export PATH="$HOME/.local/bin:$PATH"\n'
+        } >> "$profile"
+        log "Added $user_bin to PATH in $profile (open a new terminal to use yurios)"
+    fi
+}
+
 if [ "$SKIP_SYSTEM" = false ]; then
     install_system_packages
 fi
@@ -553,6 +582,7 @@ log "Installing YuriOS with Python $($PYTHON --version 2>&1)"
 select_torch_build
 install_torch
 uv pip install --python "$PYTHON" -e ".[$EXTRAS]"
+install_launcher
 
 prepare_local_state
 configure_voice
@@ -579,23 +609,27 @@ log "Checking which backends your .env selects"
 # legitimate state (thin install + fakes), so don't let it kill a `set -e` script.
 "$PYTHON" -m yurios.doctor || true
 
-cat <<EOF
+log "Starting YuriOS daemon"
+# The daemon command never needs installer input. Detach stdin explicitly so a
+# terminal's pending input/read state cannot make the final install step appear to wait.
+"$HOME/.local/bin/yurios" start </dev/null
 
-YuriOS setup is complete (extras: $EXTRAS).
+printf '\nYuriOS setup is complete (extras: %s).\n' "$EXTRAS"
+cat <<'EOF'
 
-Activate the environment:
-  source ${VENV_DIR#$ROOT_DIR/}/bin/activate
-
-Start YuriOS:
-  python -m yurios.world
+YuriOS is running as a background daemon:
+  yurios status
+  yurios stop
+  yurios start                 # starts it again after a stop
+  yurios restart               # reload settings saved in .env
+  yurios start --foreground    # keep logs in this terminal
 
 Then open http://localhost:8768.
 
-Her brain is the one thing this script can't install: .env points CHAT_MODEL at a
-local LM Studio on :1234. Start its server and load the two models it names —
-  HauhauCS/Gemma-4-E4B-Uncensored-HauhauCS-Aggressive   (chat + utility)
-  text-embedding-nomic-embed-text-v1.5                  (her memory)
-— or point CHAT_MODEL/EMBED_BACKEND at Ollama or OpenRouter instead.
+The first dashboard load asks you to choose a language model. `yurios configure`
+offers the same choice in a terminal; selecting a gguf/ model automatically
+downloads its matching Q4_K_M GGUF before it is used. The default
+sentence-transformer embedder also downloads its small local model on first startup.
 EOF
 
 if [ "$INSTALL_VOICE" = true ]; then

@@ -41,22 +41,31 @@ Linux, macOS, or Windows via WSL.
 ```bash
 cd YuriOS
 ./install.sh                       # body, brain, local memory, tools, and her real voice
-source .venv/bin/activate
-python -m yurios.world             # → http://localhost:8768
+yurios status                      # → http://localhost:8768
 ```
 
-Then give her a brain — the one part that isn't pip-installable. Any
-[LiteLLM](https://docs.litellm.ai/) route works; the shipped `.env` points at a local
-**LM Studio** on `:1234`:
+The installer starts YuriOS as a background daemon with **no LLM connection**.
+It exposes `yurios` through `~/.local/bin`, so no project virtual environment
+activation is needed; open a new terminal if that directory was not already on your `PATH`.
+The first dashboard load asks you to choose one. You can do the same in a terminal:
 
 ```bash
-lms get HauhauCS/Gemma-4-E4B-Uncensored-HauhauCS-Aggressive   # her thinking
+yurios configure
+yurios download                    # retry/download the selected GGUF
+yurios restart                     # activate a changed model selection
 ```
 
-An uncensored model on purpose: she's a companion, not an assistant, and a
-refusal-trained model plays her badly. Memory uses the bundled in-process embedder by default;
-you can instead point it at LM Studio or Ollama. Prefer Ollama or a hosted model? Point
-`CHAT_MODEL` at `ollama/…` or `openrouter/…` — a one-line swap.
+`yurios configure` also offers **LM Studio**, **Ollama**, and **OpenRouter**. It asks for the
+endpoint and model name for local servers, verifies that the chosen model is available, and asks for
+an OpenRouter API key without echoing it. Scripted setup can use, for example,
+`yurios configure --provider ollama --model qwen3` or
+`yurios configure --provider lmstudio --model publisher/model --base-url http://localhost:1234/v1`.
+
+The current local recommendation is `gguf/mradermacher/Qwen3-14B-Uncensored-GGUF`.
+It downloads the Q4_K_M GGUF automatically and runs in-process; LM Studio is not
+needed. Any [LiteLLM](https://docs.litellm.ai/) route works too, including
+`ollama/…`, `lm_studio/…`, or `openrouter/…`. Memory keeps the bundled in-process
+embedder by default.
 
 `./install.sh --thin` omits the voice stack; `--desktop` adds the native transparent
 window; `--gpu-voice` adds her designed voice. Everything is additive and

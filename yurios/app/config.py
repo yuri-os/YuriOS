@@ -15,11 +15,11 @@ class Config(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     # model access (via LiteLLM — the router seam, §3.1). The model id's PREFIX
-    # picks the route (openrouter/… hosted, ollama/… or lm_studio/… local); a bare
-    # id is assumed OpenRouter. The openrouter/ prefix is added in the provider.
+    # picks the route (openrouter/… hosted; ollama/…, lm_studio/…, or gguf/… local);
+    # a bare id is assumed OpenRouter. The openrouter/ prefix is added in the provider.
     openrouter_api_key: str = ""
-    chat_model: str = "lm_studio/HauhauCS/Gemma-4-E4B-Uncensored-HauhauCS-Aggressive"
-    utility_model: str = "lm_studio/HauhauCS/Gemma-4-E4B-Uncensored-HauhauCS-Aggressive"
+    chat_model: str = "NONE"
+    utility_model: str = "NONE"
     # Base url for a local LM Studio server (used only for lm_studio/… model ids;
     # OpenAI-compatible, so this is its /v1 endpoint).
     lmstudio_base_url: str = "http://localhost:1234/v1"
@@ -29,6 +29,18 @@ class Config(BaseSettings):
     # turn. The timeout only has to cover a cold load off disk.
     lmstudio_preload: bool = True
     lmstudio_load_timeout_s: float = 600.0
+    # When an lm_studio/ route cannot reach LM Studio, run its matching GGUF
+    # directly through llama.cpp instead. The configured model id after
+    # `lm_studio/` is its Hugging Face repo unless gguf_repo overrides it.
+    # The matching Q4_K_M file is downloaded into Hugging Face's normal cache on
+    # first fallback use, so an ordinary install needs no LM Studio application.
+    gguf_fallback: bool = True
+    gguf_repo: str = ""
+    gguf_quant: str = "Q4_K_M"
+    gguf_cache_dir: str = "./models"
+    gguf_context_length: int = 0
+    gguf_n_gpu_layers: int = 0
+    gguf_n_threads: int = 0
     # The context window to run her in, in tokens. 0 = don't ask for one: the
     # provider serves whatever it defaults to (for LM Studio, the per-model
     # config its own UI would load with — often far smaller than the model can

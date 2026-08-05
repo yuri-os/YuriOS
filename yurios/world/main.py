@@ -63,6 +63,11 @@ class Runtime:
                  clock: Clock | None = None,
                  controller: VrmController | None = None):
         self.cfg = cfg
+        # Injected models/brains are test and embedding seams with a working model
+        # behind them; only a normal fresh runtime is intentionally unconfigured.
+        self.model_configured = bool(
+            chat_model is not None or brain is not None
+            or (cfg.chat_model and cfg.chat_model.upper() != "NONE"))
         self.clock = clock or Clock()
         # the one outbound bus (SPEC §10): chat, drafts, and the puppet channel
         # all fan out here; /api/events drains it. An injected controller (the
@@ -142,6 +147,9 @@ class Runtime:
             self.brain = brain                 # injected (tests): no embedder loads
         else:
             self._pin_lmstudio_models(cfg, chat_model, utility_model, embedder)
+            if not self.model_configured:
+                self.boot.declare("models", "mind · language model", state="skipped",
+                                  detail="choose a model to connect")
             self.boot.declare("embed", "memory · embedding model")
             if embedder is None:
                 from yurios.app.main import _default_embedder
@@ -480,7 +488,10 @@ class Runtime:
         # the mind (SPEC §15): built over the real brain's stores. An injected
         # test brain (no AppState) leaves her mindless but talking — the route
         # suites exercise the wires without the loop.
-        if self.cfg.mind_enabled and hasattr(self.brain, "state"):
+        if self.cfg.mind_enabled and not self.model_configured:
+            self.mind_status = "waiting for model selection"
+            self.boot.done("mind", state="skipped", detail="choose a language model")
+        elif self.cfg.mind_enabled and hasattr(self.brain, "state"):
             try:
                 self.mind = MindLoop(self.cfg, self.clock, bus=self.signals,
                                      brain=self.brain, controller=self.controller,
@@ -711,7 +722,9 @@ def create_app(cfg: Config | None = None, *, brain=None, chat_model=None,
     from yurios.desktop.routes import settings as b2_settings
 
     from .routes import channels, chat, events, health, live2d, mind, voice_ws
+    from .routes import onboarding
     app.include_router(health.router)
+    app.include_router(onboarding.router)
     app.include_router(events.router)
     app.include_router(voice_ws.router)
     # the sanctuary's channel switches (SPEC §10.5): the telegram sending

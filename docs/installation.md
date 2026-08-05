@@ -14,9 +14,10 @@ yurios status                      # → http://localhost:8768
 ```
 
 With no options this installs her body, local memory, MCP tools and real voice (faster-whisper ears,
-the kokoro voice, silero turn-taking), then starts YuriOS as a background daemon. Its initial model
-setting is `NONE`: it makes no LLM connection until the first dashboard load or `yurios configure`
-chooses one. Selecting the current direct GGUF recommendation downloads its Q4_K_M model automatically.
+the kokoro voice, silero turn-taking), then starts YuriOS as a background daemon. On a fresh install,
+its model setting is `NONE`: it makes no LLM connection until the first dashboard load or `yurios configure`
+chooses one. Reruns preserve the existing `.env` and its model choice. Selecting the current direct GGUF
+recommendation downloads its Q4_K_M model automatically.
 A detected working NVIDIA driver preselects CUDA; otherwise the CPU-only Torch wheel is used.
 Nothing needs a cloud key.
 
@@ -48,7 +49,7 @@ all other local data. Re-run `./install.sh` later to recreate the virtual enviro
 
 | Flag | What it does |
 |---|---|
-| `--thin` | Omits the voice stack. Local embeddings remain available; voice seams fall back to fakes and say so on startup |
+| `--thin` | Omits the voice stack. On a newly created `.env`, selects fake voice backends; an existing `.env` is preserved, so set its voice backends to `fake` yourself for a text-only setup |
 | `--voice` | The local voice stack — already the default; kept so a rerun can name it |
 | `--forge-local` | Adds the local camera (diffusers) for `SELFIE_BACKEND=diffusers` — an SDXL checkpoint rendered in-process |
 | `--forge-krea2` | The same camera for a Krea 2 checkpoint (INT4, via comfy-kitchen) |
@@ -89,9 +90,10 @@ the fake rather than take the server down with it.
 # 1. a venv on a supported Python
 python3.12 -m venv .venv && source .venv/bin/activate
 
-# 2. YuriOS + everything .env.example selects: body, brain, local embeddings,
-#    MCP tools, text chat, her ears, her voice, turn-taking. Drop `,voice` for no voice.
-pip install -e ".[test,voice]"
+# 2. YuriOS + everything .env.example selects: body, brain, direct GGUF runtime,
+#    local embeddings, MCP tools, text chat, her ears, her voice, turn-taking.
+#    Drop `,voice` for no voice.
+pip install -e ".[test,llm,voice]"
 
 # 3. her config. The defaults are local-first and need no cloud key. Without the
 #    voice extra, set STT_BACKEND / TTS_BACKEND / VAD_BACKEND to `fake` in it.
@@ -115,9 +117,9 @@ The base install includes the local sentence-transformer embedder. Every other h
 lazy import behind a seam, so each extra installs exactly one. Missing optional deps are **not** a
 hard failure: the seam falls back to its fake and logs the command that fixes it.
 
-`./install.sh` installs `[test,voice]` because that is what the voice defaults select. The base
-dependency set already includes sentence-transformers; the model weights download only on first
-use. Sizes below are additive guidance rather than an exact total because Torch wheels differ by
+`./install.sh` installs `[test,llm,voice]`: the test/runtime dependencies, direct GGUF runtime,
+and the voice stack that the defaults select. The base dependency set already includes
+sentence-transformers; model weights download only on first use. Sizes below are additive guidance rather than an exact total because Torch wheels differ by
 platform and selected CPU/CUDA build:
 
 | Install | Adds | On disk |
@@ -126,7 +128,7 @@ platform and selected CPU/CUDA build:
 | `.[stt]` | her ears: faster-whisper — CTranslate2, **no torch** | 564 MB |
 | `.[tts]` | her voice: kokoro — the CPU default, needs `espeak-ng` | 1.3 GB |
 | `.[vad]` | turn-taking: silero-vad — torch, shared with `tts` | — |
-| `.[test,voice]` | `stt` + `tts` + `vad`: **the default install** | local embeddings included |
+| `.[test,llm,voice]` | direct GGUF runtime plus `stt` + `tts` + `vad`: **the default install** | local embeddings included |
 | `.[all]` | all non-GPU voice backends | local embeddings included |
 | `.[tts-sovits]` | `TTS_BACKEND=gpt_sovits` — client for a server you run | +2 MB |
 | `.[forge-local]` | `SELFIE_BACKEND=diffusers` — local SDXL in-process, **wants CUDA**; checkpoint (~7 GB) is user-supplied | +0.1 GB |
@@ -152,7 +154,7 @@ and the GPU belongs to your LLM anyway. Install the CPU build first and YuriOS r
 
 ```bash
 pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
-pip install -e ".[test,voice]"
+pip install -e ".[test,llm,voice]"
 ```
 
 Install **both** packages from that index. Taking torch from `whl/cpu` and letting the extras pull

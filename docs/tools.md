@@ -35,7 +35,8 @@ to be patched around.
 The MCP server is the *contract and audit point* — it validates and records — but the **host**
 schedules the wake, because only the host owns her voice. When a timer elapses she announces it
 aloud through the ambient seam, queued until it's deliverable: if nobody is there to hear it, it
-waits rather than being lost.
+waits rather than being lost. Timer announcements are delivered by the mind loop, so they are not
+announced while `MIND_ENABLED=false` or while no model is configured.
 
 ```ini
 TIMER_MAX_MINUTES=180

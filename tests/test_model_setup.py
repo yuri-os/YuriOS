@@ -2,8 +2,9 @@
 from __future__ import annotations
 
 from yurios.app.main import UnconfiguredChatModel, build_chat_model
-from yurios.models import (NONE, ModelCheck, RECOMMENDED_MODELS, save_model_choice,
-                           validate_model)
+from yurios.models import (DEFAULT_HUGGINGFACE_MODEL, NONE, ModelCheck,
+                            RECOMMENDED_MODELS, gguf_connection_defaults,
+                            save_model_choice, validate_model)
 from yurios.world.config import Config
 
 
@@ -35,6 +36,16 @@ def test_gguf_recommendation_is_valid_without_contacting_a_remote_server():
 
     assert model.startswith("gguf/")
     assert check.ok and "download" in check.detail.lower()
+
+
+def test_gguf_connection_defaults_choose_a_16_gb_profile():
+    profile = gguf_connection_defaults(gpu_memory_bytes=16 * 1024 ** 3)
+
+    assert profile == {
+        "GGUF_CONTEXT_LENGTH": "32768",
+        "GGUF_N_GPU_LAYERS": "20",
+        "GGUF_FLASH_ATTN": "true",
+    }
 
 
 def test_first_run_endpoint_exposes_recommendation_and_saves_none(cfg, tmp_path, monkeypatch):
@@ -108,6 +119,53 @@ def test_configure_openrouter_saves_the_prompted_key(tmp_path, monkeypatch):
     saved = (tmp_path / ".env").read_text(encoding="utf-8")
     assert "CHAT_MODEL=openrouter/vendor/model" in saved
     assert "OPENROUTER_API_KEY=secret" in saved
+
+
+def test_configure_huggingface_default_downloads_the_suggested_gguf(tmp_path, monkeypatch):
+    from argparse import Namespace
+
+    from yurios import cli
+
+    monkeypatch.setattr(cli, "_root", lambda: tmp_path)
+    monkeypatch.setattr(cli.sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr("builtins.input", lambda prompt: "" if "Selection" in prompt else "")
+    monkeypatch.setattr(cli, "gguf_connection_defaults", lambda: {
+        "GGUF_CONTEXT_LENGTH": "32768", "GGUF_N_GPU_LAYERS": "20",
+        "GGUF_FLASH_ATTN": "true"})
+    downloaded = []
+    monkeypatch.setattr(cli, "download_gguf", lambda cfg, model: downloaded.append(model) or tmp_path / "model.gguf")
+    args = Namespace(model=None, provider=None, base_url=None, api_key=None)
+
+    assert cli.command_configure(args) == 0
+
+    model = f"gguf/{DEFAULT_HUGGINGFACE_MODEL}"
+    saved = (tmp_path / ".env").read_text(encoding="utf-8")
+    assert f"CHAT_MODEL={model}" in saved
+    assert "GGUF_CONTEXT_LENGTH=32768" in saved
+    assert "GGUF_N_GPU_LAYERS=20" in saved
+    assert "GGUF_FLASH_ATTN=true" in saved
+    assert downloaded == [model]
+
+
+def test_configure_huggingface_custom_id_uses_direct_gguf_route(tmp_path, monkeypatch):
+    from argparse import Namespace
+
+    from yurios import cli
+
+    monkeypatch.setattr(cli, "_root", lambda: tmp_path)
+    monkeypatch.setattr(cli.sys.stdin, "isatty", lambda: True)
+    answers = iter(("1", "owner/custom-model"))
+    monkeypatch.setattr("builtins.input", lambda prompt: next(answers))
+    monkeypatch.setattr(cli, "gguf_connection_defaults", lambda: {
+        "GGUF_CONTEXT_LENGTH": "32768", "GGUF_N_GPU_LAYERS": "20",
+        "GGUF_FLASH_ATTN": "true"})
+    monkeypatch.setattr(cli, "download_gguf", lambda cfg, model: tmp_path / "model.gguf")
+    args = Namespace(model=None, provider=None, base_url=None, api_key=None)
+
+    assert cli.command_configure(args) == 0
+
+    saved = (tmp_path / ".env").read_text(encoding="utf-8")
+    assert "CHAT_MODEL=gguf/owner/custom-model" in saved
 
 
 def test_restart_stops_then_starts(monkeypatch):

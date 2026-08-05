@@ -41,6 +41,9 @@ class Config(BaseSettings):
     gguf_context_length: int = 0
     gguf_n_gpu_layers: int = 0
     gguf_n_threads: int = 0
+    # Gemma 4's mixed V-cache dimensions are impractical at a long context
+    # without Flash Attention, especially when the model is fully offloaded.
+    gguf_flash_attn: bool = True
     # The context window to run her in, in tokens. 0 = don't ask for one: the
     # provider serves whatever it defaults to (for LM Studio, the per-model
     # config its own UI would load with — often far smaller than the model can

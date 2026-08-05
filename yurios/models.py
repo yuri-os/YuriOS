@@ -7,6 +7,7 @@ from pathlib import Path
 import httpx
 
 NONE = "NONE"
+DEFAULT_HUGGINGFACE_MODEL = "HauhauCS/Gemma4-12B-QAT-Uncensored-HauhauCS-Balanced"
 
 # Keep this data separate from the UI so later recommendations can be added without
 # changing the CLI or first-run route. The first entry is intentionally the only
@@ -34,6 +35,45 @@ def is_configured(model: str) -> bool:
 def normalize_model(model: str) -> str:
     model = (model or "").strip()
     return NONE if not model or model.upper() == NONE else model
+
+
+def huggingface_gguf_model(model: str) -> str:
+    """Turn a Hugging Face repository ID into YuriOS's direct-GGUF route."""
+    model = (model or "").strip().removeprefix("gguf/")
+    return f"gguf/{model}" if model else ""
+
+
+def gguf_connection_defaults(*, gpu_memory_bytes: int | None = None) -> dict[str, str]:
+    """Choose a direct-GGUF profile that leaves VRAM for its KV cache.
+
+    A model repository says nothing about the memory left for its context cache.
+    Pick a conservative profile from the detected CUDA card so selecting a model
+    never requires learning llama.cpp's offload controls. The saved values remain
+    ordinary `.env` settings for people who need to tune an unusual setup.
+    """
+    if gpu_memory_bytes is None:
+        try:
+            import torch
+
+            gpu_memory_bytes = (torch.cuda.get_device_properties(0).total_memory
+                                if torch.cuda.is_available() else 0)
+        except Exception:
+            gpu_memory_bytes = 0
+
+    gib = 1024 ** 3
+    if gpu_memory_bytes >= 15 * gib:
+        context_length, gpu_layers = 32768, 20
+    elif gpu_memory_bytes >= 11 * gib:
+        context_length, gpu_layers = 16384, 12
+    elif gpu_memory_bytes >= 7 * gib:
+        context_length, gpu_layers = 8192, 8
+    else:
+        context_length, gpu_layers = 8192, 0
+    return {
+        "GGUF_CONTEXT_LENGTH": str(context_length),
+        "GGUF_N_GPU_LAYERS": str(gpu_layers),
+        "GGUF_FLASH_ATTN": "true",
+    }
 
 
 def update_env(path: Path, updates: dict[str, str]) -> list[str]:

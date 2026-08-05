@@ -62,6 +62,8 @@ Websockets follow the same shape: `/ws/voice` and `/ws/characters/<id>/voice`.
 | `GET /api/characters/{id}/context-history` | `{context, history}` |
 | `POST /api/characters/{id}/archive` | stop + move her root to `data/archives/` |
 | `DELETE /api/characters/{id}/purge?confirm=` | delete; `confirm` must match her id or name |
+| `GET /api/onboarding` | loopback-only first-run model state: `{configured, model, recommendations, download}` |
+| `POST /api/onboarding` | loopback-only model choice: `{"model": "…"}`; saves the house selection, starts a GGUF download when applicable, and returns `restart_required: true` |
 
 A character summary looks like:
 
@@ -138,7 +140,7 @@ detach posts `user_absent`.
 
 | Event | Payload |
 |---|---|
-| `hello` | her name |
+| `hello` | `{character: "<name>"}` |
 | `message` | a chat entry — including `image_url` selfies and the originating `channel` |
 | `draft` / `draft_cancel` | streaming sentence drafts |
 | `avatar` | expression, gaze, posture, visemes, `rain`, `music` — the puppet lane |

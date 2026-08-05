@@ -353,6 +353,18 @@ def test_a_mismatched_digest_is_rejected(tmp_path):
     assert (record.paths.vault / "soul" / "NOTES.md").read_text() != "notes\n"
 
 
+def test_a_digest_for_an_unknown_file_is_rejected(tmp_path):
+    card = wrapper(card_data(extensions={"yurios": {
+        "schema_version": 1,
+        "soul": {"files": GOOD_FILES, "encoding": "utf-8",
+                 "sha256": {"unknown.md": "0" * 64}}}}))
+    registry = CharacterRegistry(tmp_path / "data")
+    record = CharacterImporter(registry, initialize_git=False).import_card(
+        png_card(card), character_id="planted")
+
+    assert (record.paths.vault / "soul" / "NOTES.md").read_text() != "notes\n"
+
+
 def test_a_payload_whose_manifest_does_not_resolve_is_rejected(tmp_path):
     files = {key: value for key, value in GOOD_FILES.items() if key != "WORLD.md"}
     registry = CharacterRegistry(tmp_path / "data")

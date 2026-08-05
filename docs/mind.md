@@ -5,8 +5,9 @@ The **mind** is what runs the rest of the time: a loop that ticks whether or not
 looking, pursues small goals, keeps the promises she made, reads what lands on her shelf,
 consolidates memory while you sleep, and now and then decides to reach out first.
 
-It's additive. `MIND_ENABLED=false` gives you exactly the reactive companion minus ambient life,
-and conversation never depends on it.
+It's additive. `MIND_ENABLED=false` gives you the reactive companion minus ambient life, and
+conversation never depends on it. Timer expiries currently use the mind loop for delivery, so
+enable the mind and select a model if they must be announced or queued.
 
 Normative detail: [`SPEC.md` §15–§25](../SPEC.md).
 
@@ -257,7 +258,7 @@ MIND_INTERRUPT_THRESHOLD=0.75     # gate 2 — YOUR dial
 MIND_MAX_INTERRUPTS_PER_DAY=3     # the hard daily cap
 MIND_CONSIDER_COOLDOWN_S=3600     # minimum gap between re-chewing one goal
 MIND_DAILY_TOKENS=200000
-MIND_DREAM_TICK_TOKENS=4000
+MIND_DREAM_TICK_TOKENS=40000
 MIND_TRACE_MAX_BYTES=2000000       # rotate traces/ticks.jsonl to ticks.jsonl.1 at this size
 MIND_ENGAGED_CADENCE_S=10
 MIND_IDLE_CADENCE_S=60

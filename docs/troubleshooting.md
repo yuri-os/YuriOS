@@ -69,6 +69,15 @@ Check `/api/health`'s `voice` block first.
 its per-model config defaults to, often far below what the model can do. Set it and the model is
 pinned at that size *and* the masthead shows prompt tokens against it.
 
+**A direct GGUF model used to stop the whole daemon while loading** — llama.cpp can reject a
+CPU/GPU split with a native `GGML_ASSERT`/`SIGABRT`, which Python cannot catch in-process. YuriOS
+now preflights each GGUF in a child process and falls back from partial GPU offload to full GPU,
+then CPU, then safer Flash Attention/context settings. Check `yurios log` for a line beginning
+`did not load with …; using … instead` to see which profile was chosen. If every preflight fails,
+the log keeps all candidate errors and the daemon stays up; try `GGUF_N_GPU_LAYERS=0` and
+`GGUF_CONTEXT_LENGTH=8192`, or update `llama-cpp-python` to a build containing llama.cpp's dynamic
+split-input fix.
+
 **Every turn is slow, with a reload each time** — `LMSTUDIO_PRELOAD=false`, or a non-LM-Studio
 server. LM Studio's JIT loader unloads the last JIT-loaded model to serve the next request, so
 without pinning, chat and embeddings evict each other every turn. Set `LMSTUDIO_PRELOAD=true`.
@@ -80,7 +89,7 @@ without pinning, chat and embeddings evict each other every turn. Set `LMSTUDIO_
 the budget and the reply comes back empty.
 
 **A hosted model refuses to stay in character** — that's the model, not the runtime. See the note
-about refusal-trained models in [Models](models.md#lm-studio-the-shipped-default).
+about refusal-trained models in [Models → LM Studio](models.md#lm-studio).
 
 ## The room is black, or the body doesn't load
 

@@ -6,8 +6,10 @@ off the one event bus, and nothing talks to the brain directly.
 
 Two seams make any medium a frontend — a shared text-turn runner inbound, and an `EventHub`
 subscription outbound. Committed messages carry the channel they came from, so an adapter can
-filter its own echoes. And because the mind's proactive lines land as `proactive` messages on that
-same bus, **every channel receives her initiative for free**.
+filter its own echoes. A channel that delivers proactive `message` events can receive the mind's
+initiative without a separate protocol. Telegram delivers Telegram-originated replies by default;
+forwarding web, voice, CLI, API, and proactive messages to it requires
+`TELEGRAM_SEND_NON_TELEGRAM=true`.
 
 A failed channel is one degraded medium, never a down host. `/api/health` and the boot board say
 which are up.

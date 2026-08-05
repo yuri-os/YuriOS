@@ -10,7 +10,7 @@ plain language. Where the two disagree, the SPEC wins — and that is a bug wort
 |---|---|
 | [Getting started](getting-started.md) | Install, first run, and the first ten minutes with her |
 | [Installation](installation.md) | Every install path, the extras table, the doctor, WSL and Docker |
-| [Models & connections](models.md) | LM Studio, Ollama, OpenRouter, any LiteLLM route, embeddings, context |
+| [Models & connections](models.md) | Direct GGUF, LM Studio, Ollama, OpenRouter, supported LiteLLM routes, embeddings, context |
 | [Configuration](configuration.md) | The complete `.env` reference, group by group, and the settings panel |
 
 ## Features

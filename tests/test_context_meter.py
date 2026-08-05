@@ -199,6 +199,19 @@ def test_the_meter_is_wired_to_the_chat_provider(cfg):
     assert brain.state.chat.meter is rt.context
 
 
+def test_direct_gguf_window_replaces_the_inherited_context_length(cfg):
+    """GGUF_CONTEXT_LENGTH is the n_ctx llama.cpp receives, so it is the ceiling."""
+    class MeteredChat:
+        meter = None
+        context_limit = 8192
+
+    brain = type("B", (), {"state": type("S", (), {"chat": MeteredChat()})()})()
+    rt = create_app(cfg.model_copy(update={"context_length": 32768}), brain=brain).state.rt
+
+    assert rt.context.snapshot()["limit"] == 8192
+    assert rt.context.snapshot()["limit_source"] == "direct gguf"
+
+
 def test_a_brain_with_no_such_seam_is_left_alone(cfg):
     """An injected test brain (no AppState) must not be a boot failure — the
     gauge just stays at zero."""

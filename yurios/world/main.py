@@ -81,8 +81,8 @@ class Runtime:
         self.transcript: list[dict] = []
         # how full her context window is (SPEC §11): the masthead readout, fed by
         # the chat provider on every model pass and published as a sticky
-        # `context` event. CONTEXT_LENGTH names the ceiling; unset, the LM Studio
-        # probe below fills it in, and a hosted route leaves it unknown.
+        # `context` event. CONTEXT_LENGTH names the initial ceiling; a direct GGUF
+        # provider or LM Studio probe replaces it with the window actually in use.
         self.context = ContextMeter(self.hub, limit=cfg.context_length,
                                     reserve=cfg.max_reply_tokens,
                                     trace_dir=cfg.trace_dir,
@@ -278,6 +278,9 @@ class Runtime:
         chat = getattr(getattr(self.brain, "state", None), "chat", None)
         if chat is not None and hasattr(chat, "meter"):
             chat.meter = self.context
+            direct_limit = getattr(chat, "context_limit", 0)
+            if direct_limit:
+                self.context.set_limit(direct_limit, "direct gguf")
 
     def _probe_context_window(self, cfg) -> str:
         """Ask LM Studio how big the window her chat model is loaded with is.

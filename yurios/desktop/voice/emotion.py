@@ -18,7 +18,10 @@ module does three jobs, all on the hot path:
      habit. Prompting (SPOKEN_STYLE_DIRECTIVE) asks the model not to narrate;
      this is the belt-and-suspenders that catches what leaks anyway.
 
-  3b. A chat model also narrates *inside brackets* — `[She goes still, a long
+    3b. A reasoning model may ignore its no-think setting and emit a
+      `<think>…</think>` block. This is private model work, never speech, so it
+      is dropped even when its tags arrive in separate stream chunks.
+   3c. A chat model also narrates *inside brackets* — `[She goes still, a long
      breath.]` — reusing the same brackets it was told to use for expression tags.
      A real tag is one short palette word; anything longer in brackets is a stage
      direction and is dropped to the closing `]`, never spoken (this is what TTS
@@ -34,6 +37,7 @@ into her speech (SPEC §6.2, tolerant by contract).
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 
 # A real expression tag is a single short palette word; the longest ("surprised")
@@ -42,6 +46,10 @@ from dataclasses import dataclass, field
 # and in a spoken exchange that must be dropped, never spoken. The margin over 9
 # leaves room for a stray space/casing without swallowing multi-word directions.
 _MAX_TAG_LEN = 14
+_REASONING_TAG = re.compile(
+    r"<\s*(?P<close>/)?\s*(?P<name>think|thought|thinking|reasoning|scratchpad)\s*>",
+    re.IGNORECASE,
+)
 
 # The palette the model is told to use (SPEC §6.1). Names only — the *mapping*
 # from name → Live2D parameters lives in web/avatar.js, so the brain stays
@@ -100,6 +108,8 @@ class EmotionParser:
     _in_tag: bool = False
     _in_narr: bool = False                           # inside a *…* narration span
     _drop_bracket: bool = False                      # inside an over-long […] span
+    _angle_buf: str = ""                             # a possible reasoning tag
+    _reasoning_tag: str = ""                         # tag whose contents are private
 
     def push(self, token: str) -> str:
         """Consume one model token; return the newly-speakable clean text.
@@ -108,7 +118,13 @@ class EmotionParser:
         that closes partway through this token sees the correct `at_char` offset."""
         start = len(self.clean)
         for ch in token:
-            if self._in_narr:
+            if self._reasoning_tag:
+                self._push_reasoning(ch)
+            elif self._angle_buf:
+                self._push_angle(ch)
+            elif ch == "<":
+                self._angle_buf = ch
+            elif self._in_narr:
                 # inside *…* narration — drop every char until the closing '*'.
                 # Nothing here reaches self.clean, so it is never spoken (job 3).
                 if ch == "*":
@@ -141,16 +157,54 @@ class EmotionParser:
                 self.clean += ch
         return self.clean[start:]
 
+    def _push_reasoning(self, ch: str) -> None:
+        """Discard a reasoning block until its matching closing tag arrives."""
+        if self._angle_buf:
+            self._angle_buf += ch
+            if ch == ">":
+                match = _REASONING_TAG.fullmatch(self._angle_buf)
+                if (match and match.group("close")
+                        and match.group("name").lower() == self._reasoning_tag):
+                    self._reasoning_tag = ""
+                self._angle_buf = ""
+        elif ch == "<":
+            self._angle_buf = ch
+
+    def _push_angle(self, ch: str) -> None:
+        """Recognise a reasoning tag without swallowing ordinary angle-bracket text."""
+        self._angle_buf += ch
+        if ch != ">":
+            if len(self._angle_buf) > 64:
+                self.clean += self._angle_buf
+                self._angle_buf = ""
+            return
+        match = _REASONING_TAG.fullmatch(self._angle_buf)
+        if match:
+            if not match.group("close"):
+                self._reasoning_tag = match.group("name").lower()
+            # A stray closer is model markup too, so it is never shown.
+        else:
+            self.clean += self._angle_buf
+        self._angle_buf = ""
+
     def finish(self) -> str:
-        """End of stream: flush a dangling half-open *tag* as literal text.
+        """End of stream: flush a dangling half-open bracket tag as literal text.
 
         A dangling `[` is usually real text (a price, a citation), so we flush it.
         A dangling `*`, by contrast, is almost always narration the model was still
         writing when it hit the token limit — so we *drop* it rather than speak a
         stray asterisk and half a stage direction."""
+        if self._reasoning_tag:
+            self._reasoning_tag, self._angle_buf = "", ""
+            return ""
         if self._in_tag:
             tail = "[" + self._buf
             self._in_tag, self._buf = False, ""
+            self.clean += tail
+            return tail
+        if self._angle_buf:
+            tail = self._angle_buf
+            self._angle_buf = ""
             self.clean += tail
             return tail
         self._in_narr = False                       # drop any unclosed *…* narration

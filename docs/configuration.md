@@ -9,8 +9,9 @@ you need:
 cp .env.example .env
 ```
 
-Every knob has a default, and **the default stack needs no cloud key**: pull the network cable and
-she still runs.
+Every knob has a default, and **the default stack needs no cloud key**. After local model weights
+have downloaded and cached, it can run offline; a fresh install still needs network access for
+first-use Hugging Face and model downloads.
 
 Config is read once, so a change takes effect on the next restart. The settings panel says so out
 loud after a save rather than pretending to hot-apply.
@@ -53,8 +54,8 @@ name of the variable holding it. The same fields are on the switchboard's profil
 
 | Key | Default | |
 |---|---|---|
-| `CHAT_MODEL` | `lm_studio/HauhauCS/Gemma-4-E4B-Uncensored-HauhauCS-Aggressive` | her reply voice; the prefix picks the provider |
-| `UTILITY_MODEL` | same | summaries, extraction, DREAM — off the hot path |
+| `CHAT_MODEL` | `NONE` | her reply voice; select a model through onboarding or `yurios configure` |
+| `UTILITY_MODEL` | `NONE` | summaries, extraction, DREAM — the configurator normally sets it to the selected chat model |
 | `LMSTUDIO_BASE_URL` | `http://localhost:1234/v1` | any OpenAI-compatible endpoint |
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | routes `ollama/…` and lists your pulled models |
 | `OPENROUTER_API_KEY` | *(empty)* | needed for `openrouter/…` routes and hosted selfies |
@@ -66,6 +67,19 @@ name of the variable holding it. The same fields are on the switchboard's profil
 | `UTILITY_MAX_TOKENS` | `2048` | room for the `<think>` block *and* the JSON answer |
 | `MAX_REPLY_TOKENS` | `1600` | a roomy ceiling, not a target |
 | `TEMPERATURE` | `0.9` | |
+
+### Direct GGUF
+
+| Key | Default | |
+|---|---|---|
+| `GGUF_FALLBACK` | `true` | use llama.cpp for an unavailable `lm_studio/…` route |
+| `GGUF_REPO` | *(empty)* | override the Hugging Face repository for an `lm_studio/…` fallback or a serving-model id |
+| `GGUF_QUANT` | `Q4_K_M` | matching GGUF filename suffix |
+| `GGUF_CACHE_DIR` | `./models` | Hugging Face cache directory for direct GGUF files |
+| `GGUF_CONTEXT_LENGTH` | `0` | inherit `CONTEXT_LENGTH`; llama.cpp otherwise uses 8192 |
+| `GGUF_N_GPU_LAYERS` | `0` | CPU-first; `-1` uses all layers with a CUDA or Metal build |
+| `GGUF_N_THREADS` | `0` | let llama.cpp choose automatically |
+| `GGUF_FLASH_ATTN` | `true` | efficient KV cache; required for Gemma 4 at a long context |
 
 Full explanation: [Models & connections](models.md).
 

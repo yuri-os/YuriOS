@@ -159,6 +159,9 @@ def rebuild(state, cfg, *, meter=None) -> None:
     # old model. Told one, use it; told none, keep whatever the outgoing one had.
     meter = meter if meter is not None else getattr(state.chat, "meter", None)
     state.chat = build_chat_model(cfg, meter=meter)
+    direct_limit = getattr(state.chat, "context_limit", 0)
+    if meter is not None and direct_limit:
+        meter.set_limit(direct_limit, "direct gguf")
     utility = build_utility_model(cfg) if state.utility is not None else None
     if utility is not None:
         state.utility = utility

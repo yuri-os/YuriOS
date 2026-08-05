@@ -138,8 +138,10 @@ def _soul_payload(block: Mapping[str, Any]) -> dict[str, str] | None:
     digests = payload.get("sha256")
     if isinstance(digests, Mapping):
         for name, expected in digests.items():
+            if not isinstance(name, str) or name not in files or not isinstance(expected, str):
+                return None
             actual = hashlib.sha256(files[name].encode("utf-8")).hexdigest()
-            if name in files and isinstance(expected, str) and expected != actual:
+            if expected != actual:
                 return None
 
     if "soul.yaml" not in files:

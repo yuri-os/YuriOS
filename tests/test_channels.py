@@ -63,6 +63,22 @@ def test_api_chat_runs_one_committed_turn(cfg):
         assert ("turn_committed", "cli") in signal_types(rt)
 
 
+def test_api_chat_hides_reasoning_blocks_from_the_message(cfg):
+    class ThinkyBrain(FakeBrain):
+        async def stream_reply(self, session_id, text):
+            yield "<thi"
+            yield "nk>private model work</think>"
+            yield "[happy] I'm glad you're here."
+
+    brain = ThinkyBrain()
+    with TestClient(make_app(cfg, brain)) as c:
+        entry = c.post("/api/chat", json={"text": "hi"}).json()["message"]
+
+    assert entry["text"] == "I'm glad you're here."
+    assert brain.persisted is not None
+    assert "<think>private model work</think>" in brain.persisted[2]
+
+
 def test_api_chat_session_continues_and_rejects_noise(cfg):
     app = make_app(cfg)
     with TestClient(app) as c:

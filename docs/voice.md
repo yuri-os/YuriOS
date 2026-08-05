@@ -181,9 +181,10 @@ TTS_BACKEND=fake
 VAD_BACKEND=fake
 ```
 
-That's what `./install.sh --thin` writes. She's silent and says so; the chat column, the tools,
-the bodies and the whole mind work exactly as before. Rerun `./install.sh` to add the real
-backends later — everything is additive.
+On a newly created `.env`, `./install.sh --thin` writes those values. It preserves an existing
+`.env`, so set them yourself when converting an existing install to text-only. She's silent and
+says so; the chat column, the tools, the bodies and the whole mind work exactly as before. Rerun
+`./install.sh` to add the real backends later — everything is additive.
 
 ## Checking what's actually loaded
 

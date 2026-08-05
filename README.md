@@ -44,7 +44,8 @@ cd YuriOS
 yurios status                      # → http://localhost:8768
 ```
 
-The installer starts YuriOS as a background daemon with **no LLM connection**.
+On a fresh install, YuriOS starts as a background daemon with **no LLM connection**.
+On a rerun, the installer preserves the existing `.env` and uses its configured model settings.
 It exposes `yurios` through `~/.local/bin`, so no project virtual environment
 activation is needed; open a new terminal if that directory was not already on your `PATH`.
 The first dashboard load asks you to choose one. You can do the same in a terminal:
@@ -63,8 +64,8 @@ an OpenRouter API key without echoing it. Scripted setup can use, for example,
 
 The current local recommendation is `gguf/mradermacher/Qwen3-14B-Uncensored-GGUF`.
 It downloads the Q4_K_M GGUF automatically and runs in-process; LM Studio is not
-needed. Any [LiteLLM](https://docs.litellm.ai/) route works too, including
-`ollama/…`, `lm_studio/…`, or `openrouter/…`. Memory keeps the bundled in-process
+needed. Supported [LiteLLM](https://docs.litellm.ai/) routes include `ollama/…`,
+`lm_studio/…`, `openrouter/…`, `openai/…`, and `anthropic/…`. Memory keeps the bundled in-process
 embedder by default.
 
 `./install.sh --thin` omits the voice stack; `--desktop` adds the native transparent
@@ -89,7 +90,7 @@ second tab, **inner life**, for what happens when you *stop* talking.
 | **[A body](docs/bodies.md)** | A VRM body in a procedural cyberpunk sanctuary, with visemes, gaze and expression — or a Live2D body, or just her, floating transparently on your desktop |
 | **[A voice](docs/voice.md)** | A real-time loop with barge-in: faster-whisper ears, the kokoro voice, silero turn-taking — all CPU-only, all local |
 | **[A mind](docs/mind.md)** | SENSE → APPRAISE → DECIDE → ACT → REFLECT → REGULATE, forever. Activity states, a budget governor, two salience gates, DREAM consolidation, goals with provenance, gated self-edits |
-| **[Hands](docs/tools.md)** | Four tools over real MCP — timer, music, weather, camera — behind an allowlist, rate limits and a JSONL audit of every call |
+| **[Hands](docs/tools.md)** | Five tools over real MCP — timer, music, weather, `take_selfie`, and `show_picture` — behind an allowlist, rate limits and a JSONL audit of every call |
 | **[A camera](docs/selfies.md)** | Selfies through a hosted route, or on your own GPU with an SDXL or Krea 2 checkpoint, from a composable template library |
 | **[A house](docs/characters.md)** | Multiple companions, each with her own Vault, memory, models, bot and journal. Import SillyTavern V2/V3 cards; export her as one |
 | **[Any medium](docs/channels.md)** | The web page, a terminal client, Telegram. One conversation, one event bus, thin views |
@@ -102,7 +103,7 @@ acts and yours, one journal, two authors) · `memory/semantic/` (grown by DREAM)
 
 ## Try the loop end to end
 
-- **Drop a document** into her `vault/knowledge/reference/` — within a heartbeat she
+- **Drop a document** into her `data/characters/<id>/vault/knowledge/reference/` — within a heartbeat she
   reads it, indexes it, journals "read and shelved …", and can answer from it *with a
   citation*, without it touching what she remembers about *you*.
 - **Let her make a promise** — "remind me to call mom tomorrow", or get an "I'll look
@@ -111,8 +112,8 @@ acts and yours, one journal, two authors) · `memory/semantic/` (grown by DREAM)
   about it; chose not to interrupt" in the journal.
 - **Leave her alone overnight** — DORMANT ticks every 15 minutes, and in the small hours
   DREAM folds yesterday into her semantic memory. She wakes changed by yesterday.
-- **Watch her think** — `tail -f traces/ticks.jsonl` is one structured record per
-  heartbeat: sensed, appraised, decided (with runners-up), acted. `git -C vault log` is
+- **Watch her think** — `tail -f data/characters/<id>/traces/ticks.jsonl` is one structured record per
+  heartbeat: sensed, appraised, decided (with runners-up), acted. `git -C data/characters/<id>/vault log` is
   the diary of how she grows.
 
 ## Documentation

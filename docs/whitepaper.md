@@ -171,9 +171,10 @@ timer to a deliberating mind.
 
 YuriOS is the product of a sequence of recorded architecture decisions. Five are load-bearing.
 
-**P1 — Local-first and sovereign.** Chat, utility, and embedding models default to local
-backends (LM Studio / Ollama) routed through a single provider seam; a hosted model is a
-one-line change, never a requirement. The user owns the hardware, the files, and the compute.
+**P1 — Local-first and sovereign.** Chat and utility roles start unconfigured (`NONE`) until the
+user selects a model. The default embedder runs in-process through sentence-transformers; users
+can choose direct GGUF, LM Studio, Ollama, or hosted routes for chat and utility work. The user
+owns the hardware, the files, and the compute.
 
 **P2 — The brain is a folder.** The mind is a git-backed *Vault* of human-readable files. A
 derived vector index makes them searchable but is a rebuildable cache, never the source of
@@ -184,14 +185,16 @@ reversibility (`git revert`) all fall out of this one decision for free.
 reactive, turn-driven loop; a companion that must run *between* turns is incompatible with that
 default. YuriOS therefore builds its own always-on engine and treats external agent frameworks
 as, at most, *distribution* layers beside the engine — never the brain under it. Reactive
-tool-calling uses a thin typed library inside the ACT phase; heavy, sandboxed capability is
-delegated to a swappable embedded coding harness (future work, §7).
+tool-calling uses an in-stream MCP tool loop in the conversation path; the autonomous mind does
+not initiate tool calls. Heavy, sandboxed capability remains future work behind a broker/workshop
+boundary (§7).
 
 **P4 — Transparency over restriction.** The runtime answers the risks of an always-on,
 memory-holding agent with *visibility*, not amputation: peekable state, a readable journal, a
-full per-decision trace, co-authored memory, and one-click rollback of any self-edit. The
-constitution of the persona is read-only even to the companion herself; edits to identity are
-proposed, queued, and gated on explicit user approval.
+full per-decision trace and co-authored memory. Applied self-edits are Git commits and can be
+rolled back with `git revert`; the inner-life UI offers one-click approval or rejection for pending
+edits. The constitution of the persona is read-only even to the companion herself; edits to
+identity are proposed, queued, and gated on explicit user approval.
 
 **P5 — Separation of cognitive surfaces.** Memory (past), knowledge (documents), and the world
 model (present) are distinct stores with distinct contracts and distinct citation shapes
@@ -419,7 +422,7 @@ keys)` stores a checkable belief about what comes next; an observation that arri
 ### 5.6 Knowledge, DREAM, goals, and self-edits
 
 **Knowledge (drop-folder RAG).** `KnowledgeStore` is a sibling of memory, never folded in.
-A markdown or text file dropped into `vault/knowledge/reference/` is noticed by a cheap file
+A markdown or text file dropped into `data/characters/<id>/vault/knowledge/reference/` is noticed by a cheap file
 scan, chunked, contextually blurbed, embedded, hybrid-indexed (vector + keyword), and
 journaled ("read and shelved…"). Every retrieved chunk carries a `doc + span` citation the
 companion can show. Re-ingest replaces a document's chunks; a file that fails to ingest is marked
@@ -451,7 +454,7 @@ identity drift is never silent and any of it can be reverted.
 
 Autonomy is only acceptable if it is legible. The mind's autonomous acts are written into the
 **same episodic day files as the conversation** as `[she]` lines — one journal, two authors —
-and published on the bus. A full **tick trace** (`traces/ticks.jsonl`) records, per tick, what
+and published on the bus. A full **tick trace** (`data/characters/<id>/traces/ticks.jsonl`) records, per tick, what
 was sensed, how each candidate was appraised, what was decided (with runners-up), what was
 acted, and the complete interrupt decision with its factors; the "why did she…" answer is always
 in this file. A browser **inner-life panel** renders current state and budget, goals with

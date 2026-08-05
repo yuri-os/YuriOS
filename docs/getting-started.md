@@ -11,7 +11,6 @@ Vault and the web build, then tells you what it wired up.
 ```bash
 cd YuriOS
 ./install.sh                       # everything .env.example selects, no CUDA required
-source .venv/bin/activate
 ```
 
 That is the full install: her body, brain, memory, MCP tools, text chat **and her real voice**
@@ -33,14 +32,19 @@ equivalent is:
 
 ```bash
 yurios configure
+yurios restart                     # load the selected house-default model
 ```
+
+`yurios configure` saves the selection to `.env`; restart the daemon before it can use the
+new house-default model. The dashboard saves the same selection and tells you when a restart is
+required.
 
 An uncensored model on purpose: she's a companion, not an assistant, and a refusal-trained model
 plays her badly — it breaks character to decline, which is the one thing a person in the room
 never does.
 
 The current recommendation is the local `gguf/mradermacher/Qwen3-14B-Uncensored-GGUF`; it downloads
-automatically on selection. Ollama, LM Studio, OpenRouter, and any other LiteLLM route also work.
+automatically on selection. Ollama, LM Studio, OpenRouter, OpenAI, and Anthropic routes also work.
 Memory uses the bundled local embedder by default and can switch to LM Studio or Ollama; OpenRouter
 embeddings are not supported. See [Models & connections](models.md).
 
@@ -69,7 +73,7 @@ Now talk, or type to her in the chat column.
 
 Then try the loop end to end:
 
-- **Drop a document** (`.md`/`.txt`) into her `vault/knowledge/reference/` — within a heartbeat
+- **Drop a document** (`.md`/`.txt`) into her `data/characters/<id>/vault/knowledge/reference/` — within a heartbeat
   she reads it, indexes it, journals "read and shelved …", and can answer from it *with a
   citation* (doc + character span), without it touching what she remembers about *you*.
 - **Let her make a promise** — say "remind me to call mom tomorrow", or get an "I'll look into

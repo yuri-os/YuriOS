@@ -20,7 +20,7 @@ CHAT_MODEL=lm_studio/HauhauCS/Gemma-4-E4B-Uncensored-HauhauCS-Aggressive
 | `gguf/owner/repo` | a local GGUF through llama.cpp | `GGUF_*` |
 | `ollama/…` | a local Ollama server | `OLLAMA_BASE_URL` (default `http://localhost:11434`) |
 | `openrouter/…` | hosted OpenRouter | `OPENROUTER_API_KEY` |
-| `openai/…`, `anthropic/…`, … | any other LiteLLM route | that provider's own env vars |
+| `openai/…`, `anthropic/…` | their LiteLLM routes | that provider's own env vars |
 | *(no prefix)* | assumed OpenRouter — the prefix is added for you | `OPENROUTER_API_KEY` |
 | `NONE` | no language-model connection | choose one with `yurios configure` |
 
@@ -80,17 +80,32 @@ GGUF_QUANT=Q4_K_M
 
 YuriOS resolves the matching `*.Q4_K_M.gguf` file in that Hugging Face repository, downloads it
 once to the ignored `./models` Hugging Face cache, and runs it directly with llama.cpp. Chat and
-utility work share one loaded context. The default installer includes this runtime; a manual install needs
-`pip install -e ".[llm]"`.
+utility work share one loaded context. Before the daemon loads the file, YuriOS checks the GGUF
+header and creates a llama context in a sacrificial child process. A native llama.cpp failure —
+including an offload assertion that Python cannot catch — therefore fails one preflight instead of
+killing the server. The loader then falls back in order from the requested profile to full GPU
+offload, CPU, Flash Attention off, and finally an 8192-token window; the first passing profile is
+what the daemon loads and reports on the context gauge. The default installer includes this runtime;
+a manual install needs `pip install -e ".[llm]"`.
 
 For another GGUF source, make `CHAT_MODEL` and `UTILITY_MODEL` its `gguf/<Hugging Face repo>` name.
 If its model id is not its Hugging Face repository, set `GGUF_REPO=owner/repository`.
 `GGUF_N_GPU_LAYERS=-1` uses all layers only when `llama-cpp-python` was installed with CUDA or
 Metal support; its standard wheel is CPU-first.
 
+When selected through `yurios configure`, YuriOS detects CUDA VRAM and writes a direct-GGUF
+profile automatically: 32K context and partial GPU offload on a 16 GB card, smaller contexts and
+offload counts on smaller cards, plus Flash Attention. Those values are a performance starting
+point, not a promise that every model architecture can split a graph that way. The runtime
+preflight keeps the requested profile when it works and substitutes the fastest passing fallback
+when it does not; the `GGUF_*` variables remain available when you need to pin an unusual setup.
+
 ### Context length
 
-`CONTEXT_LENGTH` is her context window in tokens. `0` means "whatever the provider defaults to" —
+`CONTEXT_LENGTH` is her context window in tokens. `GGUF_FLASH_ATTN=true` is enabled by
+default for direct GGUF models; it is required for Gemma 4 to use a long context efficiently.
+Set `GGUF_CONTEXT_LENGTH=0` to inherit `CONTEXT_LENGTH`. `CONTEXT_LENGTH=0` means
+"whatever the provider defaults to" —
 for LM Studio that's the per-model config its own UI would load with, often far below what the
 model can do, which is how a good long conversation ends in *"Context size has been exceeded"*
 and a lost reply.
@@ -134,11 +149,13 @@ her conversation leaves your machine — the local routes above are the default 
 Embeddings never go to OpenRouter: YuriOS has no OpenRouter embedding backend. Keep
 `EMBED_BACKEND` on `lm_studio`, `ollama` or `sentence_tf` so the memory index stays local.
 
-## Any other provider (custom / self-hosted)
+## Other providers and servers
 
-Anything LiteLLM can route, YuriOS can use. Two shapes:
+YuriOS passes `openai/…` and `anthropic/…` model ids through to LiteLLM. Other OpenAI-compatible
+servers use the `lm_studio/` route, whose name describes the protocol rather than requiring the LM
+Studio application:
 
-**A named LiteLLM provider.** Use its prefix and set its environment variable:
+**Supported named LiteLLM providers.** Use the prefix and set its environment variable:
 
 ```ini
 CHAT_MODEL=openai/gpt-4o-mini        # OPENAI_API_KEY in the environment
@@ -157,6 +174,7 @@ LMSTUDIO_PRELOAD=false               # the pin/evict API is LM Studio's own
 
 Turn `LMSTUDIO_PRELOAD` off for a non-LM-Studio server: the preload path speaks LM Studio's model
 management API, which other servers don't implement. The chat path itself is plain OpenAI.
+Additional LiteLLM provider prefixes are not currently passed through unchanged.
 
 ## Embeddings
 

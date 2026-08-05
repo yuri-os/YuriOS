@@ -93,8 +93,9 @@ is a perfectly ordinary V3 card that still imports — just through the lossy pa
 card uses.
 
 **Caps, and how they degrade.** Over 256 KB, one file is dropped from the payload. Over 512 KB
-total, the payload is dropped whole and `"soul_omitted": "size"` is set. Over 1 MB of card, the
-same. Over 3 MB, the export refuses. A typical soul is 8–40 KB, so none of this fires in
+total, the payload is dropped whole and `"soul_omitted": "size"` is set. Over 1 MB of serialized
+card JSON, the same. Over 3 MB of serialized card JSON, the export refuses. These thresholds do
+not include the rendered portrait PNG bytes. A typical soul is 8–40 KB, so none of this fires in
 practice; it exists so that when it does, the card still opens.
 
 **Reading a payload from a stranger.** It is a map of filename → contents, which is a file-write
@@ -154,7 +155,9 @@ Default on, and confined to fields no client puts in the prompt:
 It never touches `description`, `personality`, `scenario`, `first_mes`, `system_prompt` or
 `post_history_instructions`. Writing marketing copy into someone's companion's persona — prose
 that defines who she is and costs tokens on every turn in every client — would be the runtime
-editing the character. One toggle removes all of it.
+editing the character. The attribution toggle removes the `creator_notes` paragraph and the
+`yurios` tag. The V3 `source` array always retains `https://yurios.org`, as V3 treats it as
+append-only provenance.
 
 ## Timestamps
 

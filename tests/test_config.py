@@ -44,6 +44,14 @@ def test_env_overrides(monkeypatch):
     assert cfg.telegram_send_non_telegram
 
 
+def test_example_enables_flash_attention_for_direct_gguf():
+    cfg = Config(_env_file=".env.example")
+
+    assert cfg.context_length == 32768
+    assert cfg.gguf_context_length == 0
+    assert cfg.gguf_flash_attn
+
+
 def test_importing_yurios_quiets_the_libraries_that_phone_out():
     """§3: `import litellm` otherwise GETs a 1.67 MB price map from GitHub at every
     start, and Hugging Face downloads report your torch build and AI harness. The

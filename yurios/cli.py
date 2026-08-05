@@ -12,8 +12,10 @@ from pathlib import Path
 
 import httpx
 
-from yurios.models import (NONE, RECOMMENDED_MODELS, download_gguf, is_configured,
-                           normalize_model, save_model_choice, validate_model)
+from yurios.models import (DEFAULT_HUGGINGFACE_MODEL, NONE, RECOMMENDED_MODELS,
+                            download_gguf, gguf_connection_defaults,
+                            huggingface_gguf_model, is_configured, normalize_model,
+                            save_model_choice, validate_model)
 from yurios.world.config import Config
 
 _PROVIDER_PREFIXES = {
@@ -111,7 +113,8 @@ def _provider_model(provider: str, model: str) -> str:
 
 def _interactive_choice() -> str:
     print("Choose a language model connection:")
-    for index, item in enumerate(RECOMMENDED_MODELS, start=1):
+    print("  1. Download a Hugging Face GGUF model")
+    for index, item in enumerate(RECOMMENDED_MODELS, start=2):
         print(f"  {index}. {item['label']} [{item['hardware']}]")
     print("  l. LM Studio")
     print("  o. Ollama")
@@ -132,8 +135,11 @@ def command_configure(args) -> int:
             print("No model selected. Use `yurios configure --model <model-id>`.", file=sys.stderr)
             return 2
         choice = _interactive_choice()
-        if choice.isdigit() and 1 <= int(choice) <= len(RECOMMENDED_MODELS):
-            model = RECOMMENDED_MODELS[int(choice) - 1]["id"]
+        if choice == "1":
+            model = huggingface_gguf_model(_prompt(
+                "Hugging Face GGUF model id", DEFAULT_HUGGINGFACE_MODEL))
+        elif choice.isdigit() and 2 <= int(choice) <= len(RECOMMENDED_MODELS) + 1:
+            model = RECOMMENDED_MODELS[int(choice) - 2]["id"]
         elif choice == "n":
             model = NONE
         elif choice == "l":
@@ -180,6 +186,8 @@ def command_configure(args) -> int:
                 connection["OPENROUTER_API_KEY"] = key
             cfg = cfg.model_copy(update={"openrouter_api_key": key})
     model = normalize_model(model)
+    if model.startswith("gguf/"):
+        connection.update(gguf_connection_defaults())
     check = validate_model(cfg, model)
     if not check.ok:
         print(f"Model was not saved: {check.detail}", file=sys.stderr)
@@ -187,6 +195,9 @@ def command_configure(args) -> int:
     save_model_choice(_env_path(root), model, connection=connection)
     print(f"Saved CHAT_MODEL and UTILITY_MODEL as {model}.")
     if model.startswith("gguf/"):
+        print("Configured direct GGUF runtime: "
+              f"{connection['GGUF_CONTEXT_LENGTH']} tokens, "
+              f"{connection['GGUF_N_GPU_LAYERS']} GPU layers, Flash Attention enabled.")
         print("Downloading the selected GGUF if it is not already cached…")
         try:
             path = download_gguf(_configured_cfg(root), model)

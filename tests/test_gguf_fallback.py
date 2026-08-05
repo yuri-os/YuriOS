@@ -74,7 +74,7 @@ def test_direct_gguf_download_accepts_a_dash_before_the_quantization(tmp_path, m
 
     class HfApi:
         def list_repo_files(self, **kwargs):
-            return ["Gemma4-12B-QAT-Uncensored-Balanced-Q4_K_M.gguf"]
+            return ["Gemma-4-E4B-Uncensored-HauhauCS-Aggressive-Q4_K_M.gguf"]
 
     def download(**kwargs):
         downloaded.update(kwargs)
@@ -84,10 +84,11 @@ def test_direct_gguf_download_accepts_a_dash_before_the_quantization(tmp_path, m
         HfApi=HfApi, hf_hub_download=download))
     cfg = Config(_env_file=None, gguf_cache_dir=str(tmp_path))
 
-    path = gguf.resolve_model_file("gguf/HauhauCS/Gemma4-12B-QAT-Uncensored-HauhauCS-Balanced", cfg)
+    path = gguf.resolve_model_file(
+        "gguf/HauhauCS/Gemma-4-E4B-Uncensored-HauhauCS-Aggressive", cfg)
 
-    assert path == tmp_path / "Gemma4-12B-QAT-Uncensored-Balanced-Q4_K_M.gguf"
-    assert downloaded["filename"] == "Gemma4-12B-QAT-Uncensored-Balanced-Q4_K_M.gguf"
+    assert path == tmp_path / "Gemma-4-E4B-Uncensored-HauhauCS-Aggressive-Q4_K_M.gguf"
+    assert downloaded["filename"] == "Gemma-4-E4B-Uncensored-HauhauCS-Aggressive-Q4_K_M.gguf"
 
 
 def test_direct_gguf_enables_flash_attention_by_default(monkeypatch, tmp_path):

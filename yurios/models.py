@@ -7,7 +7,7 @@ from pathlib import Path
 import httpx
 
 NONE = "NONE"
-DEFAULT_HUGGINGFACE_MODEL = "HauhauCS/Gemma4-12B-QAT-Uncensored-HauhauCS-Balanced"
+DEFAULT_HUGGINGFACE_MODEL = "HauhauCS/Gemma-4-E4B-Uncensored-HauhauCS-Aggressive"
 
 # Keep this data separate from the UI so later recommendations can be added without
 # changing the CLI or first-run route. The first entry is intentionally the only

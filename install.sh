@@ -7,21 +7,23 @@ NODE_VERSION="22"
 MODE="host"
 INSTALL_DESKTOP=false
 SKIP_SYSTEM=false
-# The default install includes the local embeddings and voice stack. A fresh checkout
-# deliberately starts with no LLM selected; the first web load or `yurios configure`
-# asks for one, so installation never makes an unchosen model connection.
+# The default install includes the local embeddings, voice stack, and Diffusers camera.
+# A fresh checkout deliberately starts with no LLM or camera selected; the first web
+# load or `yurios configure` asks for them, so installation never makes an unchosen
+# model connection or downloads a checkpoint.
 # (faster_whisper ears, kokoro voice, silero turn-taking). torch's build is the one
 # choice the script asks about when it can: the CPU-only wheel (~750 MB) keeps the
 # install lean; embeddings and the default voice are CPU-friendly. The CUDA pair (~4.5 GB) is what
-# makes local selfies (SELFIE_BACKEND=diffusers, --forge-local) and GPU voice fast.
+# makes local selfies (SELFIE_BACKEND=diffusers) and GPU voice fast.
 # Unattended runs keep the CPU default. During an interactive install, a working
-# NVIDIA driver makes CUDA the preselected choice. --thin omits voice packages but
-# retains the local sentence-transformer embedder.
+# NVIDIA driver makes CUDA the preselected choice. --thin omits voice and local-camera
+# packages but retains the local sentence-transformer embedder.
 INSTALL_VOICE=true
 INSTALL_THIN=false
 INSTALL_GPU_VOICE=false
-INSTALL_FORGE_LOCAL=false
+INSTALL_FORGE_LOCAL=true
 INSTALL_FORGE_KREA2=false
+FORGE_LOCAL_EXPLICIT=false
 # Which torch build to install: cpu (the historic default — cheap, and the
 # default voice is CPU-only) or cuda (fast local selfies via SELFIE_BACKEND=
 # diffusers, GPU voice). Empty = not chosen yet: the script asks when it can,
@@ -40,20 +42,20 @@ Usage: ./install.sh [options]
 Set up YuriOS on WSL, native Linux, or macOS.
 
 With no options this installs YuriOS's body, local memory, MCP tools, and real
-voice — faster-whisper ears, the kokoro voice, silero turn-taking. It starts as
-a background daemon with no LLM connection selected; open the dashboard or run
-`yurios configure` to choose one. A detected working NVIDIA driver preselects
-CUDA; otherwise the CPU-only torch wheel is used. Nothing needs a cloud key.
+voice — faster-whisper ears, the kokoro voice, silero turn-taking — plus the
+local Diffusers camera runtime. It starts as a background daemon with no LLM or
+camera selected; open the dashboard or run `yurios configure` to choose them. A
+detected working NVIDIA driver preselects CUDA; otherwise the CPU-only torch
+wheel is used. Nothing needs a cloud key.
 
 Options:
-  --thin         Base runtime without the voice stack: body, brain, local memory,
-                  tools, and text chat. Her voice seams fall back to fakes and say
-                  so on startup; rerun without --thin to add them later
+  --thin         Base runtime without the voice or local-camera stacks: body, brain,
+                  local memory, tools, and text chat. Those seams fall back to fakes
+                  and say so on startup; rerun without --thin to add them later
   --voice        The local voice stack — already the default, kept so a rerun
                  can name it explicitly
-  --forge-local  Also install the local camera (diffusers) for
-                 SELFIE_BACKEND=diffusers — an SDXL checkpoint rendered
-                 in-process. Wants the GPU torch build to be usable
+  --forge-local  The local camera (diffusers), already installed by default; kept so
+                  a rerun can name it explicitly. Wants the GPU torch build to be fast
   --forge-krea2  The same camera for a Krea 2 checkpoint (INT4, via
                  comfy-kitchen). Also needs Hugging Face access to the
                  gated krea/Krea-2-Raw for its text encoder + VAE
@@ -95,7 +97,7 @@ for arg in "$@"; do
         --desktop) INSTALL_DESKTOP=true ;;
         --voice) INSTALL_VOICE=true; VOICE_EXPLICIT=true ;;
         --thin|--no-voice) INSTALL_THIN=true ;;
-        --forge-local) INSTALL_FORGE_LOCAL=true ;;
+        --forge-local) INSTALL_FORGE_LOCAL=true; FORGE_LOCAL_EXPLICIT=true ;;
         --forge-krea2) INSTALL_FORGE_KREA2=true ;;
         --gpu-voice) INSTALL_GPU_VOICE=true; INSTALL_VOICE=true
                      TORCH_CHOICE="cuda"; TORCH_EXPLICIT=true ;;
@@ -113,16 +115,17 @@ if [ "$MODE" = "docker" ] && [ "$INSTALL_DESKTOP" = true ]; then
 fi
 
 # --thin is the opposite of the default, so asking for both is a contradiction worth
-# saying out loud rather than resolving by argument order. --forge-local is out too:
-# it is a GPU-oriented backend, while --thin only omits the voice stack.
+# saying out loud rather than resolving by argument order. --thin drops the default
+# local camera too, while an explicit --forge-local/--forge-krea2 remains contradictory.
 if [ "$INSTALL_THIN" = true ]; then
     if [ "$VOICE_EXPLICIT" = true ] || [ "$INSTALL_GPU_VOICE" = true ]; then
         fail "--thin cannot be combined with --voice or --gpu-voice; --thin is the no-voice install"
     fi
-    if [ "$INSTALL_FORGE_LOCAL" = true ] || [ "$INSTALL_FORGE_KREA2" = true ]; then
+    if [ "$FORGE_LOCAL_EXPLICIT" = true ] || [ "$INSTALL_FORGE_KREA2" = true ]; then
         fail "--thin cannot be combined with --forge-local/--forge-krea2; --thin omits optional local backends"
     fi
     INSTALL_VOICE=false
+    INSTALL_FORGE_LOCAL=false
 fi
 
 # One extra per backend (pyproject.toml), so the install cost tracks what the user

@@ -236,6 +236,7 @@ def test_install_sh_default_installs_what_env_example_selects():
         ["bash", str(root / "install.sh"), "--print-extras"],
         capture_output=True, text=True, check=True,
     ).stdout.strip().split(","))
+    assert "forge-local" in installed, "the default install must include the Diffusers camera"
 
     cfg = Config(_env_file=str(root / ".env.example"))
     wanted = {c.extra for c in collect(cfg)

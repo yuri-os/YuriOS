@@ -62,7 +62,7 @@ an OpenRouter API key without echoing it. Scripted setup can use, for example,
 `yurios configure --provider ollama --model qwen3` or
 `yurios configure --provider lmstudio --model publisher/model --base-url http://localhost:1234/v1`.
 
-The current local recommendation is `gguf/mradermacher/Qwen3-14B-Uncensored-GGUF`.
+The default local option is `gguf/HauhauCS/Gemma-4-E4B-Uncensored-HauhauCS-Aggressive`.
 It downloads the Q4_K_M GGUF automatically and runs in-process; LM Studio is not
 needed. Supported [LiteLLM](https://docs.litellm.ai/) routes include `ollama/…`,
 `lm_studio/…`, `openrouter/…`, `openai/…`, and `anthropic/…`. Memory keeps the bundled in-process
@@ -75,10 +75,11 @@ For an OpenRouter connection, we recommend
 The selfie camera is off on a fresh install. Interactive `yurios configure` asks
 for the chat/utility model first, then the selfie route. Configure OpenRouter selfies with
 `yurios configure --selfie-backend openrouter --selfie-model bytedance-seed/seedream-4.5`;
-it prompts for the OpenRouter API key. For a local Diffusers checkpoint, use
+it prompts for the OpenRouter API key. The local Diffusers runtime is installed by
+default; for a local checkpoint, use
 `yurios configure --selfie-backend diffusers --selfie-local-model /path/to/model.safetensors`.
 
-`./install.sh --thin` omits the voice stack; `--desktop` adds the native transparent
+`./install.sh --thin` omits the voice and local Diffusers stacks; `--desktop` adds the native transparent
 window; `--gpu-voice` adds her designed voice. Everything is additive and
 re-runnable, and `python -m yurios.doctor` tells you what's actually wired.
 

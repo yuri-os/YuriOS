@@ -12,6 +12,7 @@ def test_defaults_have_no_language_model_connection():
     cfg = Config(_env_file=None)
 
     assert cfg.chat_model == cfg.utility_model == NONE
+    assert DEFAULT_HUGGINGFACE_MODEL == "HauhauCS/Gemma-4-E4B-Uncensored-HauhauCS-Aggressive"
     assert cfg.embed_backend == "sentence_tf"
     assert cfg.selfie_backend == "off"
     assert isinstance(build_chat_model(cfg), UnconfiguredChatModel)

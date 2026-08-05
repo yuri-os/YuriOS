@@ -189,7 +189,7 @@ says so; the chat column, the tools, the bodies and the whole mind work exactly 
 ## Checking what's actually loaded
 
 ```bash
-python -m yurios.doctor            # what .env selects vs what's installed
+yurios doctor                      # what .env selects vs what's installed
 curl localhost:8768/api/health     # {"voice": {"loaded", "listeners", "stt", "tts", "vad"}, …}
 ```
 

@@ -86,6 +86,14 @@ def test_installer_exposes_the_cli_without_activating_the_venv():
     assert "source ${VENV_DIR#$ROOT_DIR}/bin/activate" not in installer
 
 
+def test_doctor_runs_through_the_yurios_command(monkeypatch):
+    from yurios import cli, doctor
+
+    monkeypatch.setattr(doctor, "main", lambda: 1)
+
+    assert cli.main(["doctor"]) == 1
+
+
 def test_configure_ollama_saves_model_and_endpoint(tmp_path, monkeypatch):
     from argparse import Namespace
 

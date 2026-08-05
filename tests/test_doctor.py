@@ -1,4 +1,4 @@
-"""The dependency doctor (`python -m yurios.doctor`).
+"""The dependency doctor (`yurios doctor`).
 
 The base install carries the local sentence-transformer embedder; optional heavy
 backends remain lazy imports behind seams that degrade to fakes (SPEC §3). The

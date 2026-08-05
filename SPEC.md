@@ -246,7 +246,7 @@ URL, so all callers **MUST** send the same one or the usage splits in two; local
 none. Reads that cost nothing (the model listing behind the settings page) need no headers.
 The same headers carry a composite `User-Agent` — `YuriOS/<version> <client>/<version>` —
 which affects no attribution and exists so a provider's logs name her, not just her plumbing.
-`python -m yurios.doctor` prints what a given `.env` actually puts on the wire.
+`yurios doctor` prints what a given `.env` actually puts on the wire.
 
 The default stack is **local and needs no key**: an LM Studio model backs the mind, while the
 in-process sentence-transformers embedder (`EMBED_BACKEND=sentence_tf`) owns memory without a

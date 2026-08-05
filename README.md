@@ -69,8 +69,8 @@ needed. Supported [LiteLLM](https://docs.litellm.ai/) routes include `ollama/…
 embedder by default.
 
 For an OpenRouter connection, we recommend
-`HauhauCS/Gemma-4-E4B-Uncensored-HauhauCS-Aggressive`:
-`yurios configure --provider openrouter --model HauhauCS/Gemma-4-E4B-Uncensored-HauhauCS-Aggressive`.
+`z-ai/glm-5.2`:
+`yurios configure --provider openrouter --model z-ai/glm-5.2`.
 
 The selfie camera is off on a fresh install. Interactive `yurios configure` asks
 for the chat/utility model first, then the selfie route. Configure OpenRouter selfies with
@@ -81,7 +81,7 @@ default; for a local checkpoint, use
 
 `./install.sh --thin` omits the voice and local Diffusers stacks; `--desktop` adds the native transparent
 window; `--gpu-voice` adds her designed voice. Everything is additive and
-re-runnable, and `python -m yurios.doctor` tells you what's actually wired.
+re-runnable, and `yurios doctor` tells you what's actually wired.
 
 **→ [Getting started](docs/getting-started.md)** · [Installation](docs/installation.md) ·
 [Models & connections](docs/models.md)

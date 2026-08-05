@@ -41,7 +41,7 @@ def _warn_missing(cfg) -> None:
         return
     extras = sorted({c.extra for c in missing if c.extra})
     log.warning("%s not installed (%s) — those seams fall back to the fakes. "
-                "Fix: pip install -e \".[%s]\"  ·  details: python -m yurios.doctor",
+                "Fix: pip install -e \".[%s]\"  ·  details: yurios doctor",
                 seams, knobs, ",".join(extras))
 
 

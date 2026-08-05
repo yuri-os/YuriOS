@@ -3,7 +3,7 @@
 Two commands answer most questions:
 
 ```bash
-python -m yurios.doctor            # what .env selects vs what's actually installed
+yurios doctor                      # what .env selects vs what's actually installed
 curl localhost:8768/api/health     # what's actually running right now
 ```
 

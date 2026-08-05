@@ -1,4 +1,4 @@
-"""`python -m yurios.doctor` — what your .env asks for vs what's installed.
+"""`yurios doctor` — what your .env asks for vs what's installed.
 
 The base install includes sentence-transformers for local memory. Voice, camera,
 and desktop backends remain opt-in extras behind lazy imports (see pyproject). The
@@ -12,7 +12,7 @@ So this reads the same Config the server reads, tries the same imports the seams
 try, and prints one table plus the exact commands to close the gap. Nothing here
 imports a heavy dep unless it's already installed — running the doctor is free.
 
-    python -m yurios.doctor          # → table, exit 0 if every seam is real
+    yurios doctor                    # → table, exit 0 if every seam is real
 """
 from __future__ import annotations
 

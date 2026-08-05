@@ -78,7 +78,7 @@ install because local embeddings always need it. A detected working NVIDIA drive
 preselects CUDA; otherwise, piped or unattended runs keep the CPU default.
 
 Everything is additive and re-runnable: install --thin now, rerun without it later.
-`python -m yurios.doctor` reports what your .env selects vs what's installed.
+`yurios doctor` reports what your .env selects vs what's installed.
 EOF
 }
 

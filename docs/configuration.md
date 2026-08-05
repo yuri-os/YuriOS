@@ -224,7 +224,7 @@ setting itself, because a typed config field would arrive too late. They're list
 | `LITELLM_LOCAL_MODEL_COST_MAP` | `True` | `False` re-enables a 1.67 MB price map litellm GETs from GitHub on every start — nothing here reads it, and litellm ships the same file in the wheel |
 | `HF_HUB_DISABLE_TELEMETRY` | `1` | `0` lets Hugging Face model downloads report your torch build and which AI harness is running |
 
-Neither disables anything of hers. `python -m yurios.doctor` prints what this section and your
+Neither disables anything of hers. `yurios doctor` prints what this section and your
 model choices add up to on the wire.
 
 ## Per-character overrides

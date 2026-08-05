@@ -359,6 +359,13 @@ def command_log(args) -> int:
     return 0
 
 
+def command_doctor(args) -> int:
+    """Report whether the configured optional backends are installed."""
+    from yurios.doctor import main
+
+    return main()
+
+
 def command_uninstall(args) -> int:
     """Remove the launcher and venv created by install.sh, but not project data."""
     root = _root().resolve()
@@ -488,6 +495,8 @@ def main(argv: list[str] | None = None) -> int:
     status.set_defaults(func=command_status)
     log = sub.add_parser("log", help="print the daemon log")
     log.set_defaults(func=command_log)
+    doctor = sub.add_parser("doctor", help="check configured backends and dependencies")
+    doctor.set_defaults(func=command_doctor)
     uninstall = sub.add_parser("uninstall", help="remove the global launcher and virtual environment")
     uninstall.add_argument("--yes", action="store_true", help="remove without prompting")
     uninstall.set_defaults(func=command_uninstall)

@@ -249,6 +249,6 @@ does not cost you the companion.
 ## Checking what's wired
 
 ```bash
-python -m yurios.doctor            # what .env selects vs what's installed
+yurios doctor                      # what .env selects vs what's installed
 curl localhost:8768/api/health     # what's actually running right now
 ```

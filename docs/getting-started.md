@@ -61,7 +61,7 @@ On the first 0.2 start, an existing 0.1 install's `vault/`, `corpus/`, `traces/`
 and `selfies/` are copied into a registered `yuri` character before any mind wakes. The old
 directories stay untouched as a backup. See [Characters](characters.md#migrating-from-01).
 
-Wondering what's actually wired? `python -m yurios.doctor` reads your `.env` and says.
+Wondering what's actually wired? `yurios doctor` reads your `.env` and says.
 
 ## 4. The first ten minutes
 

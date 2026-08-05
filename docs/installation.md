@@ -107,7 +107,7 @@ python scripts/seed_vault.py
 (cd web && npm ci && npm run build)
 
 # 6. go
-python -m yurios.doctor            # what .env selects vs what's installed
+yurios doctor                      # what .env selects vs what's installed
 yurios start                       # background daemon → http://localhost:8768
 ```
 
@@ -159,12 +159,12 @@ pip install -e ".[test,llm,voice]"
 
 Install **both** packages from that index. Taking torch from `whl/cpu` and letting the extras pull
 torchaudio from PyPI is a silent-voice install: kokoro and silero-vad die on `libcudart.so.13` and
-fall back to fakes. `python -m yurios.doctor` spots that mismatched pair and prints the fix.
+fall back to fakes. `yurios doctor` spots that mismatched pair and prints the fix.
 
 ## Which backends is she actually using?
 
 ```bash
-python -m yurios.doctor            # or: python -m yurios.world --check
+yurios doctor                      # or: python -m yurios.world --check
 ```
 
 It reads the same `.env` the server reads, checks each selected backend against what's

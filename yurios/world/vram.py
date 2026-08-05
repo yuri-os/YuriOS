@@ -1,13 +1,18 @@
 """Parking the LLM for the local camera — the VRAM lender (§7.6's neighbour).
 
-A resident chat model in LM Studio (~5 GiB) and a resident local render
-pipeline (~11 GiB for SDXL; a Krea 2 transformer plus its text encoder is
-bigger still) do not fit one 16 GB card at once, and the naive fixes are bad:
-CPU-offload renders cost a minute, dropping the LLM costs her brain. So when a
-local render is requested and the free VRAM won't hold a resident pipeline, the
-LLM is *parked* — evicted from LM Studio for the duration of the render, then
-re-pinned through the same `ensure_resident` the boot path uses. The card
-briefly belongs to her camera, then goes back to her mind.
+A resident chat model (~5 GiB) and a resident local render pipeline (~11 GiB
+for SDXL; a Krea 2 transformer plus its text encoder is bigger still) do not
+fit one 16 GB card at once, and the naive fixes are bad: CPU-offload renders
+cost a minute, dropping the LLM costs her brain. So when a local render is
+requested and the free VRAM won't hold a resident pipeline, the LLM is *parked*
+for the duration of the render, then brought back. The card briefly belongs to
+her camera, then goes back to her mind. Two shapes of brain, one loan each:
+
+  - **LM Studio** (`lm_studio/…` ids): evicted over its developer REST API,
+    then re-pinned through the same `ensure_resident` the boot path uses.
+  - **Direct GGUF** (`gguf/…` ids, llama.cpp in this process): her contexts
+    are closed in place by `providers/gguf.park()` and reloaded by `unpark()`
+    — no server to ask, so the loan happens where the weights live.
 
 Three rules, learned from the failure log:
 
@@ -172,16 +177,27 @@ class LLMParker:
 
     def _ids(self) -> list[str]:
         """Her LM Studio models, as the server names them (empty list when her
-        brain is Ollama/OpenRouter/… — then there is nothing here to park)."""
+        brain doesn't touch that server)."""
         from yurios.app.main import _lmstudio_ids
         ids = _lmstudio_ids(self.cfg, chat=True, embed=True)
         return list(dict.fromkeys(ids))      # chat and utility are often one model
+
+    def _gguf_resident(self) -> int:
+        """Her in-process llama.cpp contexts — the direct gguf/ route, direct
+        or reached through the LM-Studio-down fallback. 0 when her brain lives
+        entirely elsewhere (Ollama/OpenRouter/…), or when nothing has loaded
+        yet — then there is nothing here to park."""
+        try:
+            from yurios.app.providers import gguf
+            return gguf.resident_count()
+        except Exception:
+            return 0
 
     def applicable(self) -> bool:
         """Is there anything to park, for a backend that benefits from it?"""
         return (getattr(self.cfg, "selfie_llm_park", False)
                 and self.floor is not None
-                and bool(self._ids()))
+                and (bool(self._ids()) or self._gguf_resident() > 0))
 
     def needs_park(self) -> bool:
         """Free VRAM below the resident floor → parking buys a fast render."""
@@ -229,27 +245,39 @@ class LLMParker:
             return
         with self._lock:
             from yurios.app.providers.lmstudio import ensure_resident, evict
+            from yurios.app.providers import gguf
             cfg = self.cfg
             ids = self._ids()
             before = self._free() or 0.0
-            log.info("park: evicting %s from LM Studio for one render "
-                     "(%.1f GiB free, floor %.0f)", ids, before, self.floor)
+            log.info("park: lending the GPU to one render — LM Studio %s, "
+                     "%d in-process GGUF (%.1f GiB free, floor %.0f)",
+                     ids, self._gguf_resident(), before, self.floor)
             self.gate.close()        # usually already shut by the lab; idempotent
-            evict(cfg.lmstudio_base_url, ids)
+            if ids:
+                evict(cfg.lmstudio_base_url, ids)
+            # Also runs with nothing resident: it drops the in-process load
+            # gate for the whole render window, so no turn or mind tick can
+            # start loading her brain onto the card the render is filling.
+            handles = gguf.park()
             self._await_free(before)
             try:
                 yield True
             finally:
                 # Her brain comes back even if the render died — and the reload
                 # is the same pinned, TTL-free residency the boot path builds.
-                log.info("park: restoring %s to LM Studio", ids)
+                log.info("park: restoring her brain (LM Studio %s, %d GGUF)",
+                         ids, len(handles))
                 try:
-                    ensure_resident(
-                        cfg.lmstudio_base_url, ids,
-                        context_length=getattr(cfg, "context_length", 0),
-                        timeout=getattr(cfg, "lmstudio_load_timeout_s", 600.0))
+                    if ids:
+                        ensure_resident(
+                            cfg.lmstudio_base_url, ids,
+                            context_length=getattr(cfg, "context_length", 0),
+                            timeout=getattr(cfg, "lmstudio_load_timeout_s", 600.0))
                 finally:
-                    # Even a failed restore opens the door: LM Studio will
-                    # JIT-load her on the next turn, which is the fallback the
-                    # gate exists to postpone, not to prevent.
-                    self.gate.open()
+                    try:
+                        gguf.unpark(handles)
+                    finally:
+                        # Even a failed restore opens the door: the next turn
+                        # reloads her (LM Studio's JIT, gguf's lazy _load) —
+                        # the fallback the gate exists to postpone, not prevent.
+                        self.gate.open()

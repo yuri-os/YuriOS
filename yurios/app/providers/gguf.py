@@ -4,10 +4,16 @@ The configured ``gguf/<repo>`` name doubles as the Hugging Face repository. We
 resolve its Q4_K_M (or configured) GGUF on first use, preflight the llama.cpp
 options out of process so a native assertion cannot kill the daemon, then keep
 one context per file/options tuple for both chat and utility work.
+
+Because those contexts live in THIS process, a local selfie render that needs
+their VRAM can't evict them over HTTP the way it does LM Studio's models —
+`park()` / `unpark()` below close and reload them in place (world/vram.py's
+in-process half of the loan).
 """
 from __future__ import annotations
 
 import asyncio
+import gc
 import logging
 import os
 import re
@@ -16,6 +22,7 @@ import subprocess
 import sys
 import threading
 import time
+import weakref
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import AsyncIterator
@@ -26,6 +33,20 @@ _models: dict[tuple[Path, int, int, int, bool], "_LoadedModel"] = {}
 _models_lock = threading.Lock()
 _PROBE_TIMEOUT_SECONDS = 600
 _SAFE_CONTEXT_LENGTH = 8192
+
+# --- parking the in-process brain for a local render (world/vram.py's mirror) ----
+#
+# A resident llama.cpp context holds gigabytes of VRAM that a local selfie
+# pipeline needs for its duration. LM Studio models are evicted over HTTP; the
+# direct route's contexts live in THIS process, so parking them means closing
+# the contexts here. `_load_gate` is the door: cleared for the render's whole
+# window, so a mind tick or a turn that slips past the ParkGate queues its load
+# instead of putting her brain back onto the card the render is filling.
+_providers: weakref.WeakSet = weakref.WeakSet()      # live chat/utility providers
+_registry: dict[tuple, tuple[str, object]] = {}      # key → (model, cfg), for reload
+_probed: dict[tuple, "_Options"] = {}                # key → preflight that passed
+_load_gate = threading.Event()                       # clear = parked; loads wait
+_load_gate.set()
 _THINKING_CONDITION = re.compile(
     r"enable_thinking\s+is\s+defined\s+and\s+enable_thinking\s+is\s+false")
 
@@ -250,27 +271,116 @@ class _LoadedModel:
         self.llama = _load_llama(path, self.options)
         self.no_think_handler = _no_think_handler(self.llama)
         self.lock = threading.Lock()
+        self.closed = False             # parked out from under a stale holder
 
 
 def _context_length(cfg) -> int:
     return cfg.gguf_context_length or cfg.context_length or 8192
 
 
+def _key_for(path: Path, cfg) -> tuple:
+    return (path, _context_length(cfg), cfg.gguf_n_gpu_layers, cfg.gguf_n_threads,
+            cfg.gguf_flash_attn)
+
+
 def get_model(model: str, cfg) -> _LoadedModel:
+    # Outside the cache lock: a parked render holds this gate for its whole
+    # window, and a load that queues here must not freeze every other reader.
+    _load_gate.wait()
     path = resolve_model_file(model, cfg)
-    key = (path, _context_length(cfg), cfg.gguf_n_gpu_layers, cfg.gguf_n_threads,
-           cfg.gguf_flash_attn)
+    key = _key_for(path, cfg)
     with _models_lock:
+        _registry[key] = (model, cfg)
         loaded = _models.get(key)
         if loaded is None:
             requested = _Options(context_length=key[1], gpu_layers=key[2],
                                  threads=key[3], flash_attn=key[4])
-            options = _probe_model(path, requested)
+            # A reload after a park skips the sacrificial-process preflight:
+            # this exact tuple already proved it loads, earlier this run.
+            options = _probed.get(key)
+            if options is None:
+                options = _probe_model(path, requested)
+                _probed[key] = options
             loaded = _LoadedModel(path, context_length=options.context_length,
                                   gpu_layers=options.gpu_layers, threads=options.threads,
                                   flash_attn=options.flash_attn)
             _models[key] = loaded
         return loaded
+
+
+# ---- parking: lend the LLM's VRAM to a local render, then take it back -------
+
+def resident_count() -> int:
+    """How many llama contexts this process is holding right now."""
+    with _models_lock:
+        return len(_models)
+
+
+def park() -> list[tuple[str, object]]:
+    """Close every resident llama context so the card belongs to the camera.
+
+    The in-process half of world/vram.py's loan: LM Studio models are evicted
+    over HTTP, these are closed here. The load gate drops FIRST and stays down
+    for the whole render window, so no completion — a turn that slipped the
+    ParkGate, a mind tick — can start loading her brain back onto the card the
+    render is filling. Each context's own lock waits out a generation already
+    in flight before its weights are freed.
+
+    Returns the (model, cfg) registrations `unpark()` reloads. Never raises:
+    a context that will not close cleanly is dropped all the same, and the
+    render keeps its offload fallback.
+    """
+    _load_gate.clear()
+    with _models_lock:
+        snapshot = list(_models.items())
+        _models.clear()
+    for provider in list(_providers):
+        provider._loaded = None
+    handles = []
+    for key, loaded in snapshot:
+        try:
+            with loaded.lock:            # wait out an in-flight completion
+                loaded.closed = True     # stale holders reload instead of crashing
+                close = getattr(loaded.llama, "close", None)
+                if callable(close):
+                    close()
+                loaded.llama = None
+        except Exception as e:
+            log.warning("GGUF park: %s would not close cleanly (%s)", key[0].name, e)
+        handle = _registry.get(key)
+        if handle is not None:
+            handles.append(handle)
+    gc.collect()
+    try:                                 # release torch's cached blocks too;
+        import torch                     # never required — best effort only
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except Exception:
+        pass
+    if handles:
+        log.info("GGUF park: closed %d context(s) — the card belongs to the "
+                 "camera for one render", len(handles))
+    return handles
+
+
+def unpark(handles: list[tuple[str, object]]) -> None:
+    """Bring her brain back after the render: reopen the door, reload what
+    `park()` closed. Best-effort like the LM Studio mirror — a context that
+    will not reload drops its cached preflight, so the next turn re-probes and
+    can fall back to fewer GPU layers; the gate opens either way, so a failed
+    restore never leaves her mute."""
+    _load_gate.set()
+    for model, cfg in handles:
+        try:
+            get_model(model, cfg)
+            log.info("GGUF unpark: %s is resident again", model)
+        except Exception as e:
+            log.warning("GGUF unpark: %s would not reload (%s) — the next turn "
+                        "retries with a fresh preflight", model, e)
+            try:
+                _probed.pop(_key_for(resolve_model_file(model, cfg), cfg), None)
+            except Exception:
+                pass
 
 
 def _without_thinking(messages: list[dict]) -> list[dict]:
@@ -295,6 +405,22 @@ def _stream_content(chunk: dict) -> str:
     return delta.get("content") or ""
 
 
+async def _acquire_current(provider) -> _LoadedModel:
+    """The resident context with its lock held, riding out a mid-park swap.
+
+    The gap between `_load()` and `lock.acquire()` is exactly where a park can
+    close the context under us: take the lock, and if the model died on the way
+    in, let it go and load again — the reload queues at the load gate until the
+    render gives her brain back, then returns a live context.
+    """
+    while True:
+        loaded = await asyncio.to_thread(provider._load)
+        await asyncio.to_thread(loaded.lock.acquire)
+        if not loaded.closed:
+            return loaded
+        loaded.lock.release()
+
+
 class GGUFChatModel:
     def __init__(self, model: str, cfg, *, temperature: float, meter=None):
         self.model = model
@@ -303,6 +429,7 @@ class GGUFChatModel:
         self.meter = meter
         self._loaded: _LoadedModel | None = None
         self.thinking = cfg.chat_thinking
+        _providers.add(self)
 
     @property
     def context_limit(self) -> int:
@@ -310,7 +437,7 @@ class GGUFChatModel:
         return self._loaded.context_length if self._loaded else _context_length(self._cfg)
 
     def _load(self) -> _LoadedModel:
-        if self._loaded is None:
+        if self._loaded is None or self._loaded.closed:
             self._loaded = get_model(self.model, self._cfg)
         return self._loaded
 
@@ -319,11 +446,10 @@ class GGUFChatModel:
             messages = _without_thinking(messages)
         if self.meter is not None:
             self.meter.note_prompt(messages)
-        loaded = await asyncio.to_thread(self._load)
+        loaded = await _acquire_current(self)
         set_limit = getattr(self.meter, "set_limit", None)
         if callable(set_limit):
             set_limit(loaded.context_length, "direct gguf")
-        await asyncio.to_thread(loaded.lock.acquire)
         try:
             args = {"messages": messages,
                     "temperature": params.get("temperature", self.temperature),
@@ -352,9 +478,10 @@ class GGUFUtilityModel:
         self.max_tokens = max_tokens
         self.thinking = thinking
         self._loaded: _LoadedModel | None = None
+        _providers.add(self)
 
     def _load(self) -> _LoadedModel:
-        if self._loaded is None:
+        if self._loaded is None or self._loaded.closed:
             self._loaded = get_model(self.model, self._cfg)
         return self._loaded
 
@@ -365,15 +492,17 @@ class GGUFUtilityModel:
     async def complete_detailed(self, messages: list[dict], **params) -> tuple[str, dict]:
         if not self.thinking:
             messages = _without_thinking(messages)
-        loaded = await asyncio.to_thread(self._load)
+        loaded = await _acquire_current(self)
 
         def run():
-            with loaded.lock:
-                return loaded.llama.create_chat_completion(
-                    messages=messages, temperature=params.get("temperature", 0.2),
-                    max_tokens=params.get("max_tokens", self.max_tokens), stream=False)
+            return loaded.llama.create_chat_completion(
+                messages=messages, temperature=params.get("temperature", 0.2),
+                max_tokens=params.get("max_tokens", self.max_tokens), stream=False)
 
-        response = await asyncio.to_thread(run)
+        try:
+            response = await asyncio.to_thread(run)
+        finally:
+            loaded.lock.release()
         choices = response.get("choices") or []
         message = choices[0].get("message") if choices else {}
         usage = response.get("usage") or {}

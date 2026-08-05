@@ -217,7 +217,7 @@ class Runtime:
         # OutEvent stream work exactly as they do for a real turn.
         self._ambient: dict[str, object] = {}
         # in-flight turn count + its idle gate (§7.6): the selfie lab's parker
-        # must never evict her LM Studio models while a turn streams from them.
+        # must never unload her LLM while a turn streams from it.
         self._turns_in_flight = 0
         self.turns_idle = asyncio.Event()
         self.turns_idle.set()
@@ -428,10 +428,10 @@ class Runtime:
 
     async def wait_turns_idle(self) -> None:
         """Block until no turn is in flight. The selfie lab's VRAM parker is
-        the one caller (§7.6): evicting her LM Studio models while a turn is
-        still streaming from them kills that stream mid-reply — the draft
-        vanishes from the chat as if the turn were cancelled. A parked render
-        always waits for a quiet moment first."""
+        the one caller (§7.6): unloading her LLM while a turn is still
+        streaming from it kills that stream mid-reply — the draft vanishes
+        from the chat as if the turn were cancelled. A parked render always
+        waits for a quiet moment first."""
         await self.turns_idle.wait()
 
     # ---- async lifecycle (runs on the server's event loop) ----

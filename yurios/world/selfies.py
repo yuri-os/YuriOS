@@ -198,9 +198,10 @@ class SelfieLab:
 
     def _render(self, kind: str = "selfie", **kw):
         """One render, borrowing the LLM's VRAM when the card needs it: the
-        parker evicts her LM Studio models for the render's duration and
-        re-pins them after (finally — a failed render never strands her brain).
-        A no-op context when no parker is wired (tests, hosted backends).
+        parker unloads her models (LM Studio's over HTTP, direct-GGUF's in
+        process) for the render's duration and brings them back after
+        (finally — a failed render never strands her brain). A no-op context
+        when no parker is wired (tests, hosted backends).
 
         When the loan happened, the render pipeline is released BEFORE the
         restore: the cached pipeline and the re-pinning chat model are the two
@@ -334,8 +335,8 @@ class SelfieLab:
             kw = {"look": look, "scene": scene, "mood": mood, "wardrobe": wardrobe,
                   "framing": framing, "lighting": lighting, "avoid": avoid,
                   "situation": self._situation()}
-        # A parked render evicts her LM Studio brain — never while a turn is
-        # still streaming from it (the eviction kills that stream mid-reply
+        # A parked render unloads her LLM — never while a turn is still
+        # streaming from it (killing the model kills that stream mid-reply
         # and the draft vanishes from the chat). start-don't-await means the
         # turn that asked is exactly the turn in flight right now, so wait
         # for a quiet moment first. Only a park needs this: a render that

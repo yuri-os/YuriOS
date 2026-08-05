@@ -82,10 +82,11 @@ class Config(VoiceConfig):
     selfie_krea2_steps: int = 0
     selfie_krea2_cfg: float = -1.0
     # When a local render is requested and free VRAM won't hold the resident
-    # pipeline, park her LM Studio models for the render's duration (evict →
-    # render resident → re-pin via the boot path's ensure_resident). Seconds of
+    # pipeline, park her LLM for the render's duration: LM Studio models are
+    # evicted and re-pinned via the boot path's ensure_resident; direct gguf/
+    # contexts (llama.cpp, in-process) are closed and reloaded. Seconds of
     # render instead of a minute of offload; her brain is always restored, even
-    # on a failed render. Only applies with an lm_studio/ chat route.
+    # on a failed render.
     selfie_llm_park: bool = True
 
     # --- her voice, on demand (SPEC §9.9 — world/voicestack.py) ---

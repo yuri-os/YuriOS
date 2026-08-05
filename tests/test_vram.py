@@ -9,7 +9,7 @@ import asyncio
 
 import pytest
 
-from yurios.app.providers import lmstudio
+from yurios.app.providers import gguf, lmstudio
 from yurios.forge.backends.diffusers import DiffusersBackend
 from yurios.forge.backends.krea2 import Krea2Backend
 from yurios.world.vram import LLMParker, ParkGate, _DEFAULT_FLOOR_GIB
@@ -52,6 +52,78 @@ def test_not_applicable_when_her_brain_is_elsewhere(cfg):
                     embed_backend="ollama")
     assert p._ids() == []
     assert p.applicable() is False
+
+
+# ---- the direct-GGUF brain: llama.cpp contexts in this process ----
+
+def make_gguf_parker(cfg, free, resident=1, **over):
+    # A gguf/ chat route with `resident` llama contexts already in process.
+    cfg = cfg.model_copy(update={"chat_model": "gguf/HauhauCS/Gemma-4-E4B-GGUF",
+                                 "utility_model": "gguf/HauhauCS/Gemma-4-E4B-GGUF",
+                                 "selfie_backend": "diffusers", **over})
+    return LLMParker(cfg, free_probe=lambda: free,
+                     resident_free_gib=_FLOORS.get(cfg.selfie_backend))
+
+
+@pytest.fixture
+def gguf_spied(monkeypatch):
+    from types import SimpleNamespace
+
+    state = SimpleNamespace(calls=[], resident=1)
+    monkeypatch.setattr(gguf, "resident_count", lambda: state.resident)
+    monkeypatch.setattr(gguf, "park",
+                        lambda: state.calls.append(("gguf-park",)) or [("m", "cfg")])
+    monkeypatch.setattr(gguf, "unpark",
+                        lambda handles: state.calls.append(
+                            ("gguf-unpark", tuple(handles))))
+    return state
+
+
+def test_applicable_for_a_local_camera_on_a_gguf_brain(cfg, gguf_spied):
+    assert make_gguf_parker(cfg, 5.0).applicable() is True
+
+
+def test_not_applicable_when_no_gguf_context_is_resident(cfg, gguf_spied):
+    gguf_spied.resident = 0                     # nothing loaded yet, nothing to park
+    p = make_gguf_parker(cfg, 5.0)
+    assert p._ids() == []
+    assert p.applicable() is False
+
+
+def test_a_short_card_parks_the_gguf_brain_and_restores_it(cfg, gguf_spied,
+                                                           monkeypatch):
+    p = make_gguf_parker(cfg, 5.0)
+    monkeypatch.setattr(p, "_await_free", lambda before: None)
+
+    with p.parked() as borrowed:
+        gguf_spied.calls.append(("render",))
+    assert borrowed is True
+    assert gguf_spied.calls == [("gguf-park",), ("render",),
+                                ("gguf-unpark", (("m", "cfg"),))]
+
+
+def test_a_failed_render_still_restores_the_gguf_brain(cfg, gguf_spied, monkeypatch):
+    p = make_gguf_parker(cfg, 5.0)
+    monkeypatch.setattr(p, "_await_free", lambda before: None)
+
+    with pytest.raises(RuntimeError, match="render exploded"):
+        with p.parked():
+            raise RuntimeError("render exploded")
+    assert gguf_spied.calls == [("gguf-park",), ("gguf-unpark", (("m", "cfg"),))]
+    assert p.gate._open.is_set() is True
+
+
+def test_an_lmstudio_and_gguf_brain_are_parked_together(cfg, spied, gguf_spied,
+                                                        monkeypatch):
+    # lm_studio/ ids that landed in-process via the LM-Studio-down fallback:
+    # both loans go out, both come back.
+    p = make_parker(cfg, 5.0)
+    monkeypatch.setattr(p, "_await_free", lambda before: None)
+
+    with p.parked():
+        spied.append(("render",))
+    kinds = [c[0] for c in spied] + [c[0] for c in gguf_spied.calls]
+    assert kinds == ["evict", "render", "restore", "gguf-park", "gguf-unpark"]
 
 
 # ---- the decision: park only when it buys a resident render ----

@@ -32,6 +32,7 @@ class _Loaded:
 
         self.lock = threading.Lock()
         self.llama = _Llama()
+        self.closed = False
 
 
 def _gguf_file(path):
@@ -291,3 +292,105 @@ def test_unreachable_lmstudio_is_not_a_boot_failure(monkeypatch):
     monkeypatch.setattr(main.httpx, "Client", lambda **kwargs: RefusingClient())
 
     assert main._lmstudio_available(Config(_env_file=None)) is False
+
+
+# ---- parking the in-process brain for a render (world/vram.py's mirror) ------
+
+@pytest.fixture
+def gguf_state(monkeypatch, tmp_path):
+    """Isolated module state + a load path that never touches llama.cpp."""
+    monkeypatch.setattr(gguf, "_models", {})
+    monkeypatch.setattr(gguf, "_registry", {})
+    monkeypatch.setattr(gguf, "_probed", {})
+    gguf._load_gate.set()
+    path = _gguf_file(tmp_path / "model.gguf")
+    monkeypatch.setattr(gguf, "resolve_model_file", lambda *_args: path)
+    probes = []
+    monkeypatch.setattr(gguf, "_probe_model",
+                        lambda _path, requested: probes.append(requested) or requested)
+    llamas = []
+
+    def load_llama(_path, _options):
+        llama = _Llama()
+        llama.closed_calls = 0
+
+        def close():
+            llama.closed_calls += 1
+
+        llama.close = close
+        llamas.append(llama)
+        return llama
+
+    monkeypatch.setattr(gguf, "_load_llama", load_llama)
+    yield SimpleNamespace(probes=probes, llamas=llamas)
+    gguf._load_gate.set()
+
+
+def test_park_closes_resident_contexts_and_unpark_reloads_them(gguf_state):
+    cfg = Config(_env_file=None, chat_model="gguf/example/model-GGUF")
+    chat = gguf.GGUFChatModel(cfg.chat_model, cfg, temperature=0.8)
+    loaded = chat._load()
+    assert gguf.resident_count() == 1
+
+    handles = gguf.park()
+
+    assert gguf.resident_count() == 0
+    assert loaded.closed is True                 # stale holders reload, not crash
+    assert gguf_state.llamas[0].closed_calls == 1
+    assert chat._loaded is None                  # the provider lets the weights go
+    assert handles == [(cfg.chat_model, cfg)]
+
+    gguf.unpark(handles)
+
+    assert gguf.resident_count() == 1
+    assert len(gguf_state.llamas) == 2           # reloaded fresh, not resurrected
+    assert len(gguf_state.probes) == 1           # preflight cached — no re-probe
+    assert chat._load() is not loaded
+
+
+def test_a_load_waits_out_the_park_window(gguf_state):
+    import threading
+
+    cfg = Config(_env_file=None, chat_model="gguf/example/model-GGUF")
+    chat = gguf.GGUFChatModel(cfg.chat_model, cfg, temperature=0.8)
+    chat._load()
+    handles = gguf.park()
+    assert not gguf._load_gate.is_set()
+
+    got = []
+    loader = threading.Thread(target=lambda: got.append(chat._load()))
+    loader.start()
+    loader.join(0.2)
+    assert loader.is_alive() and not got         # queued at the gate, not loading
+    assert gguf.resident_count() == 0            # …and no context crept back in
+
+    gguf.unpark(handles)
+    loader.join(5)
+    assert not loader.is_alive()
+    assert len(got) == 1 and not got[0].closed
+
+
+def test_a_completion_parked_mid_acquire_reloads_and_answers(gguf_state, monkeypatch):
+    closed, fresh = _Loaded(), _Loaded()
+    closed.closed = True                         # park() closed it under us
+    loads = iter([closed, fresh])
+    monkeypatch.setattr(gguf, "get_model", lambda *args: next(loads))
+    cfg = Config(_env_file=None, chat_model="gguf/example/model-GGUF")
+    chat = gguf.GGUFChatModel(cfg.chat_model, cfg, temperature=0.8)
+
+    async def scenario():
+        return [part async for part in chat.stream([{"role": "user", "content": "hi"}])]
+
+    import asyncio
+    assert "".join(asyncio.run(scenario())) == "hello Yuri"
+    assert chat._loaded is fresh
+
+
+def test_park_with_nothing_resident_still_gates_loads(gguf_state):
+    # The whole render window must be load-free, not just the contexts that
+    # happened to be resident: a first load mid-render is the OOM either way.
+    assert gguf.resident_count() == 0
+    assert gguf.park() == []
+    assert not gguf._load_gate.is_set()
+    gguf.unpark([])
+    assert gguf._load_gate.is_set()

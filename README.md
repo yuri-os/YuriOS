@@ -23,6 +23,8 @@ read, so "what did you do while I was gone?" is a page you open, not a vibe.
 
 ![The sanctuary in the browser: Yuri's VRM body in her room, the chat column beside her.](docs/img/browser-mode.png)
 
+![The desktop variant: the same companion floating transparently on your desktop.](docs/img/desktop-mode.png)
+
 ## What she is
 
 | | |

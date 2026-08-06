@@ -318,20 +318,35 @@ def _set_frontmatter(path: Path, key: str, value: str) -> None:
 
 
 def _replace_numbered(path: Path, prefix: str, values: list[str], *,
-                      header: str) -> None:
-    """Rewrite every `## <prefix> N` block, dropping the ones that went away."""
+                      header: str) -> int:
+    """Rewrite every `## <prefix> …` block; return how many were written.
+
+    The heading match is deliberately looser than the headings this writes.
+    Authored souls title their blocks — `## Alternate greeting — evening`,
+    `## Example — comfort` — and a pattern that only recognised the numbered
+    form left those in place, appended a renumbered set beside them, and pointed
+    the manifest at the new ones: the old prose stayed in the file, dead, and
+    shipped again inside the card's verbatim soul payload.
+
+    Blanks are dropped *before* numbering, and the count comes back so
+    `_sync_greeting_refs` can name exactly the blocks that exist. Numbering the
+    unfiltered list instead left a gap — `1`, `3` — and a manifest reference to
+    a `## … 2` that was never written, which `_resolve_list` swallows by
+    returning no greetings at all.
+    """
     text = path.read_text(encoding="utf-8") if path.is_file() else header
-    pattern = re.compile(rf"(?m)^##\s+{re.escape(prefix)}\s*\d*\s*$")
+    pattern = re.compile(rf"(?m)^##\s+{re.escape(prefix)}(?:\s.*)?$")
     matches = list(pattern.finditer(text))
     if matches:
         following = re.search(r"(?m)^##\s+", text[matches[-1].end():])
         end = matches[-1].end() + following.start() if following else len(text)
         text = text[:matches[0].start()] + text[end:]
-    blocks = "\n\n".join(f"## {prefix} {index}\n\n{value.strip()}"
-                         for index, value in enumerate(values, start=1)
-                         if value.strip())
+    kept = [value.strip() for value in values if value.strip()]
+    blocks = "\n\n".join(f"## {prefix} {index}\n\n{value}"
+                         for index, value in enumerate(kept, start=1))
     text = text.rstrip() + ("\n\n" + blocks if blocks else "") + "\n"
     path.write_text(text, encoding="utf-8")
+    return len(kept)
 
 
 def _write_lorebook(path: Path, lorebook: Mapping[str, Any], name: str) -> None:
@@ -348,18 +363,42 @@ def _write_lorebook(path: Path, lorebook: Mapping[str, Any], name: str) -> None:
     path.write_text(f"---\n{rendered}\n---\n\n# World\n\n{body}\n", encoding="utf-8")
 
 
+def _block_end(text: str, start: int) -> int:
+    """Where a top-level key stops owning the file. *start* begins the line
+    after its `key:` line.
+
+    A key's value is not always on that line: `tags:` may be followed by an
+    indented block sequence, and a credit by a folded scalar. Replacing only the
+    `key:` line then strands those continuation lines under a scalar, which is
+    not a cosmetic problem — it is invalid YAML, and `read_soul` refuses the
+    character from then on. So a rewrite consumes the whole block: every
+    following line that is blank or indented, minus the blank lines at the tail,
+    which are the separator before whatever comes next and stay put.
+    """
+    end = trailing = start
+    for line in text[start:].splitlines(keepends=True):
+        if line.strip() and not line[:1].isspace():
+            break                              # a new top-level key or comment
+        end += len(line)
+        if line.strip():
+            trailing = end                     # the last line that is really ours
+    return trailing
+
+
 def _set_manifest(path: Path, values: Mapping[str, Any]) -> None:
     text = path.read_text(encoding="utf-8")
     for key, value in values.items():
-        rendered = json.dumps(value, ensure_ascii=False) if isinstance(value, str) \
-            else json.dumps(value, ensure_ascii=False)
-        line = f"{key}: {rendered}"
-        text, count = re.subn(rf"(?m)^{re.escape(key)}\s*:.*$", lambda _m: line, text, count=1)
-        if not count:
+        line = f"{key}: {json.dumps(value, ensure_ascii=False)}\n"
+        match = re.search(rf"(?m)^{re.escape(key)}\s*:.*$", text)
+        if match is None:
             # Keep new keys above `fields:` so the manifest stays readable.
             marker = re.search(r"(?m)^fields\s*:", text)
             insert = marker.start() if marker else len(text)
-            text = text[:insert] + line + "\n" + text[insert:]
+            text = text[:insert] + line + text[insert:]
+            continue
+        # …from the start of the next line, so the key's own newline survives.
+        after = match.end() + (1 if text[match.end():match.end() + 1] == "\n" else 0)
+        text = text[:match.start()] + line + text[_block_end(text, after):]
     path.write_text(text, encoding="utf-8")
 
 
@@ -404,9 +443,9 @@ def write_soul(soul: Path, draft: Draft) -> list[str]:
     section("PERSONA.md", "Manner", draft.manner)
     _set_frontmatter(soul / "PERSONA.md", "personality", draft.personality)
     section("SCENARIO.md", "Scenario", draft.scenario)
-    _replace_numbered(soul / "SCENARIO.md", "Alternate greeting",
-                      draft.alternate_greetings,
-                      header="---\nsoul: scenario\n---\n\n# Scenario and greetings\n")
+    greetings = _replace_numbered(
+        soul / "SCENARIO.md", "Alternate greeting", draft.alternate_greetings,
+        header="---\nsoul: scenario\n---\n\n# Scenario and greetings\n")
     touched.add("SCENARIO.md")
 
     # The cold open is written back where it currently lives: the live bootstrap
@@ -444,9 +483,10 @@ def write_soul(soul: Path, draft: Draft) -> list[str]:
     _set_manifest(soul / "soul.yaml", manifest)
     touched.add("soul.yaml")
 
-    # The manifest's greeting references have to match the blocks just written,
-    # or the next load fails on a section that is no longer there.
-    _sync_greeting_refs(soul / "soul.yaml", len(draft.alternate_greetings))
+    # The manifest's greeting references have to match the blocks just written —
+    # the count `_replace_numbered` reports, not the length of the draft list,
+    # which may have held blanks it dropped.
+    _sync_greeting_refs(soul / "soul.yaml", greetings)
     return sorted(touched)
 
 

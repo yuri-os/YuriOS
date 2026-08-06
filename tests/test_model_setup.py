@@ -75,6 +75,62 @@ def test_first_run_endpoint_exposes_recommendation_and_saves_none(cfg, tmp_path,
     assert "CHAT_MODEL=NONE" in env.read_text(encoding="utf-8")
 
 
+def test_first_run_endpoint_saves_the_same_gguf_profile_the_cli_does(
+        cfg, tmp_path, monkeypatch):
+    """A GGUF id says nothing about the card it runs on, so the browser panel
+    has to write the offload profile too. Without it the same model chosen in
+    the browser ran on the CPU at the fallback window while the terminal's
+    choice got the GPU — a divergence whose only symptom is "she is slow"."""
+    from starlette.testclient import TestClient
+
+    from yurios.desktop.voice.backends.fakes import FakeBrain
+    from yurios.world.main import create_app
+    from yurios.world.routes import onboarding
+
+    env = tmp_path / ".env"
+    env.write_text("EMBED_BACKEND=sentence_tf\n", encoding="utf-8")
+    monkeypatch.setattr(onboarding, "ENV_PATH", env)
+    monkeypatch.setattr(onboarding, "gguf_connection_defaults", lambda: {
+        "GGUF_CONTEXT_LENGTH": "32768", "GGUF_N_GPU_LAYERS": "20",
+        "GGUF_FLASH_ATTN": "true"})
+    monkeypatch.setattr(onboarding, "download_gguf",
+                        lambda cfg, model: tmp_path / "model.gguf")
+    app = create_app(cfg, brain=FakeBrain())
+    app.state.rt.model_configured = False
+
+    model = f"gguf/{DEFAULT_HUGGINGFACE_MODEL}"
+    with TestClient(app, client=("127.0.0.1", 5555)) as client:
+        assert client.post("/api/onboarding", json={"model": model}).json()["ok"]
+
+    saved = env.read_text(encoding="utf-8")
+    assert f"CHAT_MODEL={model}" in saved
+    assert "GGUF_CONTEXT_LENGTH=32768" in saved
+    assert "GGUF_N_GPU_LAYERS=20" in saved
+    assert "GGUF_FLASH_ATTN=true" in saved
+
+
+def test_first_run_endpoint_writes_no_gguf_profile_for_a_hosted_model(
+        cfg, tmp_path, monkeypatch):
+    from starlette.testclient import TestClient
+
+    from yurios.desktop.voice.backends.fakes import FakeBrain
+    from yurios.world.main import create_app
+    from yurios.world.routes import onboarding
+
+    env = tmp_path / ".env"
+    env.write_text("EMBED_BACKEND=sentence_tf\n", encoding="utf-8")
+    monkeypatch.setattr(onboarding, "ENV_PATH", env)
+    monkeypatch.setattr(onboarding, "validate_model",
+                        lambda cfg, model: ModelCheck(True, "connection verified"))
+    app = create_app(cfg, brain=FakeBrain())
+    app.state.rt.model_configured = False
+
+    with TestClient(app, client=("127.0.0.1", 5555)) as client:
+        client.post("/api/onboarding", json={"model": "ollama/qwen3"})
+
+    assert "GGUF_N_GPU_LAYERS" not in env.read_text(encoding="utf-8")
+
+
 def test_installer_exposes_the_cli_without_activating_the_venv():
     from pathlib import Path
 

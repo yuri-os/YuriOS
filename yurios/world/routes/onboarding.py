@@ -5,7 +5,8 @@ import threading
 
 from fastapi import APIRouter, HTTPException, Request
 
-from yurios.models import (NONE, RECOMMENDED_MODELS, download_gguf, is_configured,
+from yurios.models import (NONE, RECOMMENDED_MODELS, download_gguf,
+                           gguf_connection_defaults, is_configured,
                            normalize_model, save_model_choice, validate_model)
 from yurios.desktop.routes.settings import ENV_PATH, _require_local
 
@@ -42,7 +43,14 @@ async def choose_model(request: Request):
     check = validate_model(cfg, model)
     if not check.ok:
         raise HTTPException(status_code=400, detail=check.detail)
-    save_model_choice(ENV_PATH, model)
+    # A GGUF id says nothing about the card it has to run on, so the same
+    # conservative offload/context profile the CLI writes is written here too
+    # (`yurios/cli.py`'s configure). Without it the browser's first-run panel
+    # saves a model that then runs entirely on the CPU at the fallback window,
+    # while the identical choice made from the terminal gets the GPU — the kind
+    # of divergence that surfaces only as "why is she so slow".
+    connection = gguf_connection_defaults() if model.startswith("gguf/") else None
+    save_model_choice(ENV_PATH, model, connection=connection)
     state = _state(request)
     if model == NONE:
         state.update(state="idle", detail="No language model selected")

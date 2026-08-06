@@ -39,6 +39,8 @@ from typing import Any, Mapping
 
 import yaml
 
+from .soulfiles import parse_md, split_sections
+
 log = logging.getLogger("characters.appearance")
 
 # The character shipped with the repo. Only reachable by a character who has no
@@ -220,47 +222,134 @@ def card_fields(card: Mapping[str, Any]) -> tuple[str, str, str]:
             str(data.get("personality", "") or ""))
 
 
+def soul_material(record) -> tuple[str, str]:
+    """(name, appearance prose) read straight out of her SOUL folder.
+
+    The fallback for a character with no `card.json` — which is every install
+    promoted from the pre-registry layout, because `yurios/migrate.py` moves the
+    Vault and never writes a card. Her looks are in `PERSONA.md#Appearance`
+    where they have always been, so there is no reason to guess at them.
+    """
+    soul = Path(record.paths.vault) / "soul"
+    name = ""
+    manifest = soul / "soul.yaml"
+    if manifest.is_file():
+        try:
+            loaded = yaml.safe_load(manifest.read_text(encoding="utf-8")) or {}
+            name = str((loaded or {}).get("name") or "") if isinstance(loaded, Mapping) else ""
+        except (OSError, yaml.YAMLError):
+            name = ""
+    parts: list[str] = []
+    for filename, headings in (("PERSONA.md", ("Appearance",)),
+                               ("CONSTITUTION.md", ("Identity",))):
+        path = soul / filename
+        if not path.is_file():
+            continue
+        try:
+            _front, body = parse_md(path)
+        except (OSError, ValueError, yaml.YAMLError):
+            continue
+        sections = split_sections(body)
+        parts.extend(sections[h] for h in headings if sections.get(h))
+    return name, "\n\n".join(parts)
+
+
+def _shipped_house_character(name: str) -> bool:
+    """Whether *name* is the character the shipped appearance file describes.
+
+    The one honest reason to hand somebody else's file to a character: she has
+    no card and no soul because she predates all of this, and she is literally
+    the companion this repo ships. Anyone else must not inherit that face —
+    `world/selfies.py::_identity` says why, and it is the exact bug (a renamed
+    legacy companion rendering with Yuri's cat ears and Yuri's name in the
+    provenance sidecar) that skipping this check reintroduced.
+    """
+    if not name.strip() or not HOUSE_CHARACTER.is_file():
+        return False
+    try:
+        shipped = yaml.safe_load(HOUSE_CHARACTER.read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError):
+        return False
+    return _clean(name).casefold() == _clean(
+        (shipped or {}).get("name", "") if isinstance(shipped, Mapping) else "").casefold()
+
+
+def _borrowed_house_face(record, path: Path) -> bool:
+    """Whether this file is the shipped character's, worn by somebody else.
+
+    A repair, not a rule. An earlier `ensure_appearance` copied the shipped
+    appearance file to *any* character with no card, so installs already exist
+    where a renamed legacy companion renders as Yuri — and because that copy
+    carries no `render_yaml` marker, `refine_appearance` reads it as
+    hand-edited and will never replace it. Detecting the verbatim copy is what
+    lets one restart put her own face back.
+    """
+    try:
+        if path.read_text(encoding="utf-8") != HOUSE_CHARACTER.read_text(encoding="utf-8"):
+            return False
+    except OSError:
+        return False
+    soul_name, _prose = soul_material(record)
+    if _shipped_house_character(soul_name or record.display.name):
+        return False                           # it really is her file
+    log.warning("appearance: %s was wearing the shipped character's appearance "
+                "file — deriving her own instead", record.id)
+    return True
+
+
 def ensure_appearance(record) -> Path | None:
-    """Make sure this character has a face of her own before her camera is
+    """Make sure this character has a face of her *own* before her camera is
     built. Cheap, synchronous, and safe to call on every start.
 
-    Three cases, in order:
+    Four cases, in order:
 
     1. She already has an appearance file — hers, untouched.
     2. She has a card — derive from it mechanically, right now. Every character
        who arrived through import or the creator has one, so this is the path
        almost everyone takes; the utility model improves on it later.
-    3. She has neither — she predates the registry, which in practice means she
-       *is* the character shipped with the repo, so the shipped file is hers.
-       (Nobody else can reach here: import and the creator both write a card.)
+    3. No card, but a SOUL — derive from `PERSONA.md#Appearance`. This is the
+       migrated pre-registry install, and her looks are already written down.
+    4. Neither, and she is the companion this repo ships — the shipped file is
+       genuinely hers, verbatim, register and wardrobe tiers included.
 
-    Returns the path in use, or None if none could be established — the caller
-    then renders the neutral stand-in rather than someone else's face.
+    A character who is none of those gets None, and the caller renders the
+    neutral stand-in: a photo of no one beats a photo of the wrong person.
     """
     path = Path(record.paths.appearance)
-    if path.is_file():
+    display = record.display.name
+    if path.is_file() and not _borrowed_house_face(record, path):
         return path
     card_path = Path(record.paths.card_json)
     if card_path.is_file():
         try:
             card = json.loads(card_path.read_text(encoding="utf-8"))
             name, description, _ = card_fields(card)
-            return write_appearance(path, name or record.display.name,
-                                    mechanical_identity(name or record.display.name,
-                                                        description))
+            return write_appearance(path, name or display,
+                                    mechanical_identity(name or display, description))
         except (OSError, ValueError):
             log.exception("appearance: couldn't read %s's card", record.id)
             return None
-    shipped = HOUSE_CHARACTER
-    if shipped.is_file():
+    soul_name, prose = soul_material(record)
+    name = soul_name or display
+    if prose.strip():
+        log.info("appearance: %s has no card — deriving her likeness from her "
+                 "own PERSONA.md", record.id)
+        return write_appearance(path, name, mechanical_identity(name, prose))
+    if _shipped_house_character(name):
         log.info("appearance: %s predates the character registry — seeding her "
-                 "appearance from the shipped %s", record.id, shipped.name)
+                 "appearance from the shipped %s", record.id, HOUSE_CHARACTER.name)
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(shipped.read_text(encoding="utf-8"), encoding="utf-8")
+            path.write_text(HOUSE_CHARACTER.read_text(encoding="utf-8"),
+                            encoding="utf-8")
             return path
         except OSError:
             log.exception("appearance: couldn't seed %s's appearance", record.id)
+            return None
+    log.warning("appearance: %s has no card and no appearance prose in her SOUL "
+                "— leaving her without a likeness rather than lending her "
+                "another character's. Write vault/soul/PERSONA.md#Appearance, "
+                "or her appearance.yaml directly.", record.id)
     return None
 
 

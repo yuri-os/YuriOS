@@ -14,8 +14,9 @@ import pytest
 import yaml
 
 from yurios.characters.appearance import (
-    APPEARANCE_SYSTEM, derive_identity, ensure_appearance, mechanical_identity,
-    refine_appearance, render_yaml, visual_excerpt, write_appearance)
+    APPEARANCE_SYSTEM, HOUSE_CHARACTER, derive_identity, ensure_appearance,
+    mechanical_identity, refine_appearance, render_yaml, visual_excerpt,
+    write_appearance)
 from yurios.characters.models import CharacterPaths, DisplayMetadata, CharacterRecord
 from yurios.forge.character import Character
 
@@ -158,6 +159,77 @@ def test_a_character_with_no_card_gets_the_shipped_house_face(tmp_path):
     path = ensure_appearance(record)
     assert path is not None
     assert "cat ears" in yaml.safe_load(path.read_text())["identity"]
+
+
+def _seed_soul(record, *, name: str, appearance: str = "") -> None:
+    soul = record.paths.vault / "soul"
+    soul.mkdir(parents=True, exist_ok=True)
+    (soul / "soul.yaml").write_text(f"name: {name}\nfields: {{}}\n", encoding="utf-8")
+    if appearance:
+        (soul / "PERSONA.md").write_text(
+            f"---\nsoul: persona\n---\n\n## Appearance\n\n{appearance}\n",
+            encoding="utf-8")
+
+
+def test_a_renamed_legacy_character_derives_from_her_own_soul(tmp_path):
+    """`migrate.py` moves a pre-registry Vault and never writes a `card.json`,
+    so every legacy install lands in the no-card branch — including one whose
+    companion was renamed. Handing her the shipped file there is the exact bug
+    this module exists to prevent, wearing a different hat."""
+    record = _record(tmp_path / "lumina")
+    _seed_soul(record, name="Lumina",
+               appearance="a petite pale woman with long silver-white hair")
+    path = ensure_appearance(record)
+    assert path is not None
+    body = yaml.safe_load(path.read_text())
+    assert body["name"] == "Lumina"
+    assert "silver-white hair" in body["identity"]
+    assert "cat ears" not in body["identity"]
+
+
+async def test_a_soul_derived_likeness_is_still_the_machine_s_to_improve(tmp_path):
+    """…and it must carry the derived marker, or `refine_appearance` reads it as
+    hand-written and the wrong face becomes permanent."""
+    record = _record(tmp_path / "lumina")
+    _seed_soul(record, name="Lumina", appearance="a pale woman, silver hair")
+    ensure_appearance(record)
+    record.paths.card_json.write_text(json.dumps(
+        {"data": {"name": "Lumina", "description": CARD_DESCRIPTION}}))
+    assert await refine_appearance(record, FakeUtility(
+        '{"identity": "a petite young woman with silver-white hair", "negative": ""}')) is True
+
+
+def test_a_character_with_neither_card_nor_soul_prose_gets_no_likeness(tmp_path):
+    """A photo of no one beats a photo of the wrong person: the caller renders
+    the neutral stand-in rather than lending her somebody else's face."""
+    record = _record(tmp_path / "mara", name="Mara")
+    _seed_soul(record, name="Mara")
+    assert ensure_appearance(record) is None
+
+
+def test_a_borrowed_house_face_is_repaired_on_the_next_start(tmp_path):
+    """Installs already exist where an earlier `ensure_appearance` copied the
+    shipped file onto somebody else — and because that copy has no marker,
+    `refine_appearance` will not touch it. Detecting the verbatim copy is what
+    lets one restart put her own face back."""
+    record = _record(tmp_path / "lumina")
+    _seed_soul(record, name="Lumina", appearance="a pale woman with silver hair")
+    record.paths.appearance.parent.mkdir(parents=True, exist_ok=True)
+    record.paths.appearance.write_text(
+        HOUSE_CHARACTER.read_text(encoding="utf-8"), encoding="utf-8")
+    ensure_appearance(record)
+    body = yaml.safe_load(record.paths.appearance.read_text())
+    assert body["name"] == "Lumina" and "cat ears" not in body["identity"]
+
+
+def test_the_repair_does_not_touch_the_character_the_file_belongs_to(tmp_path):
+    record = _record(tmp_path / "yuri", name="Yuri")
+    _seed_soul(record, name="Yuri")
+    record.paths.appearance.parent.mkdir(parents=True, exist_ok=True)
+    record.paths.appearance.write_text(
+        HOUSE_CHARACTER.read_text(encoding="utf-8"), encoding="utf-8")
+    ensure_appearance(record)
+    assert "cat ears" in yaml.safe_load(record.paths.appearance.read_text())["identity"]
 
 
 def test_the_neutral_stand_in_is_nobody_in_particular():

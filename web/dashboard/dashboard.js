@@ -39,6 +39,7 @@ const elements = {
   reviewDialogError: $("#review-dialog-error"),
   importDialog: $("#import-dialog"),
   settingsDialog: $("#settings-dialog"),
+  brainDialog: $("#brain-dialog"),
   archiveDialog: $("#archive-dialog"),
   toastRegion: $("#toast-region"),
 };
@@ -564,6 +565,25 @@ async function submitImport(event) {
   }
 }
 
+// What the profile form held once it finished loading — the baseline that says
+// whether leaving it for the brain panel would throw anything away.
+let settingsBaseline = {};
+
+function settingsValues() {
+  const form = $("#settings-form");
+  // The checkboxes have to be read off the elements: FormData drops an
+  // unchecked box entirely, so unticking one would look like no change at all.
+  return {
+    ...Object.fromEntries(new FormData(form).entries()),
+    ...Object.fromEntries(["mind", "utility", "dream"].map(
+      (key) => [key, form.elements[key].checked])),
+  };
+}
+
+function snapshotSettings() {
+  settingsBaseline = settingsValues();
+}
+
 async function openSettings() {
   const character = selectedCharacter();
   if (!character) return;
@@ -581,6 +601,8 @@ async function openSettings() {
   for (const name of ["personality", "scenario", "first_mes"]) form.elements[name].value = "";
   for (const key of ["mind", "utility", "dream"]) form.elements[key].checked = character.loops[key];
   $("#settings-error").textContent = "";
+  brainState.confirmSwitch = false;
+  snapshotSettings();
   openModal(elements.settingsDialog);
   try {
     const payload = await charactersApi.settings(character.id);
@@ -594,6 +616,7 @@ async function openSettings() {
     for (const key of ["mind", "utility", "dream"]) {
       if (settings[key] != null) form.elements[key].checked = Boolean(settings[key]);
     }
+    snapshotSettings();          // the loaded record, not the registry summary
   } catch (error) {
     if (error.name !== "AbortError") $("#settings-error").textContent = `Using registry values. ${errorMessage(error)}`;
   }
@@ -631,6 +654,138 @@ async function submitSettings(event) {
   } finally {
     setBusy(button, false, "Saving...");
   }
+}
+
+/* ---- her brain -------------------------------------------------------------
+ *
+ * A second scope on the same registry record. The profile form above writes
+ * her model, endpoint and key too, so these two panels are deliberately never
+ * open together: "Her brain" closes the profile and "Back to profile" reopens
+ * it, which re-reads /profile and so can never save a stale copy over a brain
+ * change. What this panel adds is the thing a plain text box cannot say —
+ * every field is tri-state, and an empty one names the .env value it inherits
+ * — plus the four knobs (thinking, temperature, reply ceiling, context length)
+ * the profile form has no row for at all. */
+
+const brainState = { fields: [], initial: {}, read: {}, confirmSwitch: false, saved: false };
+
+function brainControl(field) {
+  const shown = field.value == null ? "" : String(field.value);
+  const inherits = field.inherited === "" || field.inherited == null
+    ? "inherit the node default" : `inherit — ${field.inherited}`;
+  if (field.type === "bool") {
+    // A checkbox has two states and this has three; "inherit" is not "off".
+    const select = element("select", { attrs: { name: field.key } },
+      element("option", { text: `inherit (${field.inherited ? "on" : "off"})`, attrs: { value: "" } }),
+      element("option", { text: "on", attrs: { value: "true" } }),
+      element("option", { text: "off", attrs: { value: "false" } }));
+    select.value = shown;
+    return { node: select, read: () => select.value };
+  }
+  const input = element("input", { attrs: {
+    name: field.key, type: field.type === "number" ? "number" : "text",
+    value: shown, placeholder: inherits, autocomplete: "off",
+    ...(field.step ? { step: field.step } : {}),
+    ...(field.type === "text" ? { maxlength: "240" } : {}),
+  } });
+  return { node: input, read: () => input.value.trim() };
+}
+
+function brainRow(field) {
+  const control = brainControl(field);
+  brainState.read[field.key] = control.read;
+  brainState.initial[field.key] = control.read();
+  const label = element("label", { className: field.type === "model" ? "field-wide" : "" },
+    element("span", { text: field.key.replace(/_/g, " ") }), control.node);
+  if (field.help) label.append(element("small", { className: "field-help", text: field.help }));
+  return label;
+}
+
+function renderBrain(data) {
+  brainState.fields = data.fields || [];
+  brainState.read = {};
+  brainState.initial = {};
+  $("#brain-name").textContent = data.name ? `${data.name}'s` : "Her";
+  $("#brain-scope").textContent = data.running
+    ? "She is running — a save here reaches this conversation at once, no restart."
+    : "She is not running — these apply the moment she starts.";
+  const body = $("#brain-body");
+  body.replaceChildren(...brainState.fields.map(brainRow));
+  const key = data.effective?.api_key_env;
+  if (key && !data.key_configured) {
+    body.append(element("p", { className: "field-wide form-warn",
+      text: `${key} is not set on this node — a hosted model will refuse her calls until it is.` }));
+  }
+}
+
+async function openBrain() {
+  const character = selectedCharacter();
+  if (!character) return;
+  closeModal(elements.settingsDialog);
+  $("#brain-error").textContent = "";
+  $("#brain-body").replaceChildren(element("p", { className: "form-note", text: "Reading her record..." }));
+  openModal(elements.brainDialog);
+  try {
+    renderBrain(await charactersApi.brain(character.id));
+  } catch (error) {
+    $("#brain-body").replaceChildren();
+    $("#brain-error").textContent = errorMessage(error);
+  }
+}
+
+async function submitBrain(event) {
+  event.preventDefault();
+  const character = selectedCharacter();
+  if (!character) return;
+  // Only what moved: an untouched field must not be written back, or "inherit"
+  // would be saved as the value it was merely displaying.
+  const diff = {};
+  for (const [key, read] of Object.entries(brainState.read)) {
+    const value = read();
+    if (value !== brainState.initial[key]) diff[key] = value;
+  }
+  const button = $("#brain-submit");
+  const error = $("#brain-error");
+  error.textContent = "";
+  if (!Object.keys(diff).length) {
+    closeModal(elements.brainDialog);
+    openSettings();
+    return;
+  }
+  setBusy(button, true, "Saving...");
+  try {
+    const response = await charactersApi.saveBrain(character.id, diff);
+    brainState.saved = true;
+    closeModal(elements.brainDialog);
+    const applied = response?.applied || [];
+    const chat = response?.effective?.chat_model;
+    toast(applied.includes("chat_model") && chat
+      ? `${character.name} is now speaking through ${chat} — no restart.`
+      : applied.length
+        ? `${character.name}'s brain saved and applied live.`
+        : `${character.name}'s brain saved.`);
+    await loadCharacters({ quiet: true });
+  } catch (apiError) {
+    error.textContent = errorMessage(apiError);
+  } finally {
+    setBusy(button, false, "Saving...");
+  }
+}
+
+/** Leaving the profile panel discards whatever is typed in it, so say so once
+ *  and let the second press mean it. */
+function leaveForBrain() {
+  const now = settingsValues();
+  const dirty = Object.keys(now).some(
+    (name) => String(now[name]) !== String(settingsBaseline[name] ?? ""));
+  if (dirty && !brainState.confirmSwitch) {
+    brainState.confirmSwitch = true;
+    $("#settings-error").textContent =
+      "Unsaved profile edits — save them first, or press Her brain again to discard them.";
+    return;
+  }
+  brainState.confirmSwitch = false;
+  openBrain();
 }
 
 async function approveCharacter(id, { button, errorSlot, goTo = null } = {}) {
@@ -760,6 +915,17 @@ function wireEvents() {
     goTo: state.pendingRoom }));
   $("#settings-open").addEventListener("click", openSettings);
   $("#settings-form").addEventListener("submit", submitSettings);
+  $("#brain-open").addEventListener("click", leaveForBrain);
+  $("#brain-form").addEventListener("submit", submitBrain);
+  // Every way out of the brain panel goes back where it came from — including
+  // Esc, which fires `close` without passing through either button.
+  $("#brain-cancel").addEventListener("click", () => closeModal(elements.brainDialog));
+  elements.brainDialog.addEventListener("close", () => {
+    // Backing out returns you where you started; a completed save doesn't —
+    // reopening the panel you just finished with reads as a failed save.
+    if (brainState.saved) brainState.saved = false;
+    else if (!elements.settingsDialog.open) openSettings();
+  });
   $("#archive-open").addEventListener("click", () => {
     const character = selectedCharacter();
     if (!character) return;

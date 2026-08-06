@@ -29,6 +29,11 @@ export const charactersApi = Object.freeze({
     method: "PATCH",
     body: JSON.stringify(settings),
   }),
+  brain: (id, { signal } = {}) => request(characterPath(id, "/brain"), { signal }),
+  saveBrain: (id, overrides) => request(characterPath(id, "/brain"), {
+    method: "PATCH",
+    body: JSON.stringify(overrides),
+  }),
   approve: (id) => request(characterPath(id, "/approve"), { method: "POST" }),
   archive: (id) => request(characterPath(id, "/archive"), { method: "POST" }),
   importPng: (file) => {

@@ -97,6 +97,17 @@ routes are also served unprefixed as `/api/brain` for the primary character,
 which is what the gear panel in a single-companion install calls. The API key is
 never sent or accepted — only the name of the variable holding it.
 
+The dashboard reaches it from **Her brain** in the settings dialog's footer. The
+two panels are deliberately never open at once: the profile `PATCH` writes her
+model, endpoint and key rows too, so leaving one closes it and coming back
+reopens it with a fresh `GET /profile` — a stale copy can never be saved over a
+brain change. Leaving with unsaved profile edits takes two presses, the first of
+which says what would be lost. What the brain panel adds over the profile form
+is the thing a plain text box cannot say — every field is tri-state, and an
+empty one names the value it inherits — plus `chat_thinking`,
+`utility_thinking`, `temperature`, `max_reply_tokens` and `context_length`,
+which the profile form has no row for. Only changed fields are sent.
+
 ## PNG import
 
 `POST /api/characters/import` accepts `multipart/form-data` with the character PNG

@@ -347,10 +347,13 @@ def _growth(record: CharacterRecord, snapshot: SoulSnapshot,
     everything about the runtime and discloses nothing about the relationship."""
     vault = Path(record.paths.vault)
     commits = vcs.log(vault, limit=500)
-    changed = sorted({
+    # One `git log --name-only` for the whole folder rather than one per file:
+    # a file with more than the commit that seeded it has been edited since.
+    touched = vcs.commit_counts(vault, "soul", limit=500)
+    changed = sorted(
         name for name in snapshot.files
-        if name != "soul.yaml" and vcs.log(vault, f"soul/{name}", limit=4)[1:]
-    })
+        if name != "soul.yaml" and touched.get(f"soul/{name}", 0) > 1
+    )
     growth: dict[str, Any] = {
         "vault_commits": vcs.count_commits(vault),
         "self_edits_applied": sum(1 for c in commits if c.author == "her"),

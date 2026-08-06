@@ -90,6 +90,31 @@ def log(vault: Path, *paths: str, limit: int = 50) -> list[Commit]:
     return [commit for commit in (_parse(line) for line in out.splitlines()) if commit]
 
 
+def commit_counts(vault: Path, *paths: str, limit: int = 500) -> dict[str, int]:
+    """How many of the last *limit* commits touched each path, in ONE git call.
+
+    The batched answer to "which of these files has ever been edited". Asking it
+    per file is a subprocess per soul file on every export *and* every preview of
+    one, which is a dozen `git log` spawns to render a page.
+
+    Paths come back exactly as git prints them — repo-relative — so callers
+    compare against the same prefix they passed. No `--follow`: it is
+    incompatible with multiple paths, and a rename shows up here as two names
+    with a commit each, which answers the question just as well.
+    """
+    args = ["log", f"-{max(1, limit)}", "--name-only", "--pretty=format:%x1e"]
+    if paths:
+        args += ["--", *paths]
+    out = _git(vault, *args)
+    if not out:
+        return {}
+    counts: dict[str, int] = {}
+    for chunk in out.split("\x1e"):
+        for name in {line.strip() for line in chunk.splitlines() if line.strip()}:
+            counts[name] = counts.get(name, 0) + 1
+    return counts
+
+
 def first_commit(vault: Path) -> Commit | None:
     """The commit the Vault begins at — a character's date of birth."""
     out = _git(vault, "log", "--reverse", "--pretty=%h%x1f%at%x1f%s")

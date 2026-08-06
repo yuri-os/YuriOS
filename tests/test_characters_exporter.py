@@ -112,6 +112,37 @@ def test_growth_carries_counts_and_never_content(tmp_path):
     assert "a person with a name" not in json.dumps(growth)
 
 
+def test_growth_names_the_soul_files_that_actually_moved(tmp_path):
+    """The list is built from one batched `git log --name-only` rather than a
+    subprocess per soul file — a dozen spawns on every export *and* every
+    preview of one. Same answer, so pin the answer."""
+    import subprocess
+
+    from yurios.characters import vcs
+
+    record = make(tmp_path, git=True)
+    vault = record.paths.vault
+    (vault / "soul" / "PERSONA.md").write_text(
+        "---\nsoul: persona\npersonality: quieter now\n---\n\n"
+        "## Appearance\n\nshe has changed\n\n## Manner\n\nslower\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(vault), "add", "-A"], check=True,
+                   capture_output=True)
+    subprocess.run(["git", "-C", str(vault), "commit", "-m", "selfedit: persona"],
+                   check=True, capture_output=True)
+
+    growth = build_export(record).card["data"]["extensions"]["yurios"]["growth"]
+    assert growth["soul_files_changed"] == ["PERSONA.md"]
+
+    counts = vcs.commit_counts(vault, "soul")
+    assert counts["soul/PERSONA.md"] == 2 and counts["soul/CONSTITUTION.md"] == 1
+
+
+def test_commit_counts_answers_nothing_for_a_vault_with_no_git(tmp_path):
+    from yurios.characters import vcs
+
+    assert vcs.commit_counts(make(tmp_path).paths.vault, "soul") == {}
+
+
 def test_consumed_bootstrap_falls_back_to_a_return_greeting(tmp_path):
     """Every character you have actually met has no BOOTSTRAP.md (§5.4), and
     soul.yaml points `first_mes` straight at it."""

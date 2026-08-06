@@ -1,0 +1,86 @@
+/*
+ * The sign over the door.
+ *
+ * ONE stylesheet, linked as /shared/neon.css by every page that has a title
+ * worth lighting — the switchboard's "your characters" and the mind page's
+ * section head today. Same deal as /shared/settings.css: the two say the same
+ * thing in the same voice because they read the same file, not because someone
+ * kept two copies in step. Vite hoists it into a chunk both entries load, so it
+ * is fetched and cached once; the /shared mount still serves it by name for any
+ * page outside the bundle.
+ *
+ * A real tube burns near-white and all of the colour is in the air around it,
+ * so the glass here is warm ink and the accent lives entirely in the shadow
+ * stack — a tinted core just looks like coloured text. Five shadows, tight to
+ * wide, so the letterforms stay crisp inside the haze.
+ *
+ * The page supplies the parameters and nothing else:
+ *   --sign-size   the type size (a clamp is fine)          default 25→42px
+ *   --acid        the tube's colour                        default #d7ff58
+ *   --mint        the far bloom, one step off the tube      default #76e8bd
+ *   --font-mono   the face                                 default the stack below
+ */
+
+.neon-sign {
+  display: flex;
+  align-items: center;
+  gap: clamp(14px, 2vw, 26px);
+  font-family: var(--font-mono, "IBM Plex Mono", "SFMono-Regular", Consolas, monospace);
+  font-size: var(--sign-size, clamp(25px, 3vw, 42px));
+  font-weight: 500;
+  line-height: 1.15;
+  letter-spacing: .155em;
+  text-transform: uppercase;
+}
+.neon-tube {
+  /* a flex item will not shrink below its text by default; a long section name
+     on a narrow screen has to wrap rather than run off the side */
+  min-width: 0;
+  color: var(--sign-glass, #f6ffe4);
+  text-shadow:
+    0 0 1px rgb(255 255 255 / .9),
+    0 0 5px color-mix(in srgb, var(--acid, #d7ff58) 72%, transparent),
+    0 0 16px color-mix(in srgb, var(--acid, #d7ff58) 44%, transparent),
+    0 0 40px color-mix(in srgb, var(--mint, #76e8bd) 28%, transparent),
+    0 0 82px color-mix(in srgb, var(--acid, #d7ff58) 15%, transparent);
+  animation: tube-flicker 11s linear infinite;
+}
+/* the cursor is a lit segment, so it glows from box-shadow — text-shadow does
+   nothing for a filled block */
+.neon-tube::after {
+  content: "";
+  display: inline-block;
+  width: .09em;
+  height: .76em;
+  margin-left: .22em;
+  vertical-align: -.02em;
+  background: var(--acid, #d7ff58);
+  box-shadow:
+    0 0 8px color-mix(in srgb, var(--acid, #d7ff58) 75%, transparent),
+    0 0 20px color-mix(in srgb, var(--acid, #d7ff58) 40%, transparent);
+  animation: tube-blink 1.15s steps(1, end) infinite;
+}
+/* the bar it would be mounted on, running out to the edge of the column */
+.neon-rail {
+  flex: 1;
+  min-width: 24px;
+  height: 1px;
+  background: linear-gradient(90deg,
+    color-mix(in srgb, var(--acid, #d7ff58) 50%, transparent),
+    transparent);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--acid, #d7ff58) 30%, transparent);
+}
+
+/* mains hum: long steady stretches, two short stumbles — a sign that wants its
+   ballast replaced, not a strobe */
+@keyframes tube-flicker {
+  0%, 40.8%, 42%, 43.2%, 44.4%, 76%, 77.2%, 100% { opacity: 1; }
+  41.4%, 43.8%, 76.6% { opacity: .72; }
+}
+@keyframes tube-blink {
+  0%, 55% { opacity: 1; }
+  55.01%, 100% { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .neon-tube, .neon-tube::after { animation: none; }
+}

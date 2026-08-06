@@ -91,7 +91,10 @@ svg { width: 1.1em; height: 1.1em; fill: none; stroke: currentColor; stroke-widt
 
 .stage { min-width: 0; padding: 26px clamp(18px, 3vw, 40px) 80px; }
 .stage-head { margin-bottom: 20px; }
-.stage-head h1 { margin: 0; font-size: 21px; font-weight: 600; letter-spacing: -.01em; }
+/* the same sign the switchboard hangs (/shared/neon.css), burning smaller: this
+   page is a wall of records and the title names the section rather than the
+   room, so it lights the head without lighting up the data underneath */
+.stage-head h1 { --sign-size: clamp(19px, 2vw, 27px); margin: 0; }
 .stage-note { margin: 5px 0 0; max-width: 68ch; color: var(--dim); font-size: 12.5px; line-height: 1.55; }
 .stage-body { display: flex; flex-direction: column; gap: 18px; }
 

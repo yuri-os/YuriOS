@@ -7,6 +7,7 @@
   <meta name="description" content="YuriOS mind debug — her state, her reasoning, her memory and her hands, read straight off disk">
   <title>YuriOS / Mind debug</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><circle cx='8' cy='8' r='5.5' fill='none' stroke='%23d7ff58' stroke-width='1.6'/><path d='M8 2.5v11' stroke='%23d7ff58' stroke-width='1.2'/></svg>">
+  <link rel="stylesheet" href="/shared/neon.css">
   <link rel="stylesheet" href="./mind.css">
   <script src="/shared/runtime.js"></script>
 </head>
@@ -64,7 +65,9 @@
 
     <section class="stage">
       <div class="stage-head">
-        <h1 id="section-title">Overview</h1>
+        <!-- the id sits on the tube, not the sign: mind.js writes the section
+             name straight into it and would otherwise wipe the rail out -->
+        <h1 class="neon-sign"><span id="section-title" class="neon-tube">Overview</span><span class="neon-rail" aria-hidden="true"></span></h1>
         <p id="section-note" class="stage-note"></p>
       </div>
       <div id="stage-body" class="stage-body" aria-live="polite"></div>

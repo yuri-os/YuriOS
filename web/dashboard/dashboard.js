@@ -377,8 +377,8 @@ function renderDetail(tab, payload) {
   const list = element("ol", { className: "timeline" });
   for (const item of items) {
     const row = element("li", {},
-      item.time ? element("time", { text: formatDetailTime(item.time) }) : null,
-      element("strong", { text: item.title }),
+      item.time ? element("time", { text: formatDetailTimeRange(item.time, item.timeEnd) }) : null,
+      element("strong", { text: item.count > 1 ? `${item.title} ×${item.count}` : item.title }),
       item.body ? element("p", { text: item.body }) : null);
     if (/error|failed|reject/i.test(item.tone)) row.style.setProperty("--event-color", "var(--red)");
     list.append(row);
@@ -409,6 +409,18 @@ function contextChart(history) {
     text: `${history.length} samples / latest ${values.at(-1).toFixed(1)}%`,
   }));
   return wrap;
+}
+
+function formatDetailTimeRange(start, end) {
+  if (!end || end === start) return formatDetailTime(start);
+  const startDate = new Date(start);
+  const endDate = new Date(end);
+  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) return formatDetailTime(start);
+  const sameDay = startDate.toDateString() === endDate.toDateString();
+  const endLabel = sameDay
+    ? endDate.toLocaleTimeString(undefined, { timeStyle: "short" })
+    : formatDetailTime(end);
+  return `${formatDetailTime(start)} – ${endLabel}`;
 }
 
 function formatDetailTime(value) {

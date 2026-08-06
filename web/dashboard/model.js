@@ -146,12 +146,30 @@ function normalizeLogRow(row, index) {
   };
 }
 
+// A tick fires every few seconds, so an idle stretch is dozens of identical
+// "REST / rest" rows in a row — fold consecutive rows with the same
+// title+body into one line spanning the whole stretch, rather than
+// spelling out every tick.
+function collapseRepeatedLogRows(items) {
+  const collapsed = [];
+  for (const item of items) {
+    const last = collapsed[collapsed.length - 1];
+    if (last && last.title === item.title && last.body === item.body) {
+      last.timeEnd = item.time;
+      last.count += 1;
+    } else {
+      collapsed.push({ ...item, timeEnd: item.time, count: 1 });
+    }
+  }
+  return collapsed;
+}
+
 export function normalizeDetailItems(kind, payload) {
   const rows = kind === "journal"
     ? flattenJournal(payload)
     : (Array.isArray(payload) ? payload : payload?.entries ?? payload?.logs ?? payload?.events ?? payload?.items ?? []);
   if (!Array.isArray(rows)) return [];
-  return rows.map((item, index) => {
+  const items = rows.map((item, index) => {
     if (typeof item === "string") return { id: `${kind}-${index}`, title: kind === "journal" ? "Journal entry" : "Event", body: item, time: "" };
     const row = item && typeof item === "object" ? item : {};
     if (kind === "log") return normalizeLogRow(row, index);
@@ -163,6 +181,7 @@ export function normalizeDetailItems(kind, payload) {
       tone: text(row.level ?? row.tone ?? row.role),
     };
   });
+  return kind === "log" ? collapseRepeatedLogRows(items) : items;
 }
 
 export function contextEntries(payload) {

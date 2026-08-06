@@ -126,13 +126,48 @@ function logTimestamp(ts) {
   return text(ts);
 }
 
+// A tool result is a JSON-serialized dict (`brain.py`'s _execute), then cut
+// off mid-string by the audit's 200-char cap — so it usually arrives as
+// invalid, unterminated JSON. Render it as readable "key: value" lines
+// instead of a raw brace-and-quote blob, tolerating the truncation.
+function friendlyToolResult(raw) {
+  const value = text(raw);
+  const trimmed = value.trim();
+  if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return value;
+  try {
+    return formatResultValue(JSON.parse(trimmed));
+  } catch {
+    return formatTruncatedResultFields(trimmed);
+  }
+}
+
+function formatResultValue(parsed) {
+  if (Array.isArray(parsed)) return parsed.map((entry) => text(entry)).join(", ");
+  if (!parsed || typeof parsed !== "object") return text(parsed);
+  return Object.entries(parsed)
+    .filter(([, fieldValue]) => fieldValue !== null && fieldValue !== undefined && fieldValue !== "")
+    .map(([key, fieldValue]) => `${key}: ${typeof fieldValue === "object" ? JSON.stringify(fieldValue) : fieldValue}`)
+    .join("\n");
+}
+
+function formatTruncatedResultFields(trimmed) {
+  const lines = [];
+  const pairPattern = /"([^"]+)":\s*"([^"]*)("|$)/g;
+  let match;
+  while ((match = pairPattern.exec(trimmed))) {
+    const [, key, fieldValue, closed] = match;
+    lines.push(closed ? `${key}: ${fieldValue}` : `${key}: ${fieldValue}…`);
+  }
+  return lines.length ? lines.join("\n") : trimmed.replace(/[{}[\]"]/g, "").trim();
+}
+
 function normalizeLogRow(row, index) {
   const isToolCall = "tool" in row;
   if (isToolCall) {
     return {
       id: text(row.id, `log-${index}`),
       title: row.verdict && row.verdict !== "ok" ? `${text(row.tool, "tool call")} — ${row.verdict}` : text(row.tool, "tool call"),
-      body: text(row.result),
+      body: friendlyToolResult(row.result),
       time: logTimestamp(row.ts),
       tone: text(row.verdict),
     };

@@ -48,6 +48,14 @@ TOOL_RATE_TIMER=6                 # calls per minute
 Drives a generative ambient pad synthesized in the browser — not a media library. The seam is the
 point: it proves an effector that reaches the frontend, and it costs nothing to run.
 
+Because it is a synthesizer and not a library, `track` is a closed set — `warm_pad` and
+`night_piano` are the two generators `web/js/music.js` actually implements. It is annotated as a
+`Literal`, so the catalog reaches the model as an `enum` in the tool schema rather than as prose in
+the description; a description alone gets a made-up track name back. This is the opposite of
+`take_selfie`, where the library is deliberately a starting point and anything off-menu passes
+through — the difference is that a selfie prompt is free text all the way down, and a track name
+has to match a generator that exists.
+
 ```ini
 TOOL_RATE_MUSIC=6
 ```

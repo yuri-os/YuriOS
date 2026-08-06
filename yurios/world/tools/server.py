@@ -16,12 +16,21 @@ from __future__ import annotations
 import os
 import time
 import uuid
+from typing import Literal, get_args
 
 from mcp.server.fastmcp import FastMCP
 
 from .weather import FakeWeather, OpenMeteoProvider, WeatherProvider
 
-MUSIC_TRACKS = ("warm_pad", "night_piano")
+# The catalog lives in the *type*, not in prose: an annotated Literal becomes an
+# `enum` in the tool's JSON schema, which is the only form of the list a model
+# reliably obeys. A description that merely names the tracks is a suggestion —
+# she invented `ambient_rain_lullaby` against one. Everything else derives from
+# here, so the schema, the docstring and the error can never disagree.
+MusicAction = Literal["play", "stop"]
+MusicTrack = Literal["warm_pad", "night_piano"]
+MUSIC_ACTIONS: tuple[str, ...] = get_args(MusicAction)
+MUSIC_TRACKS: tuple[str, ...] = get_args(MusicTrack)
 
 
 def build_server(*, weather: WeatherProvider | None = None,
@@ -50,12 +59,23 @@ def build_server(*, weather: WeatherProvider | None = None,
         return {"id": uuid.uuid4().hex[:8], "label": label or "your timer",
                 "seconds": seconds, "due": time.time() + seconds}
 
-    @mcp.tool()
-    def play_music(action: str, track: str = "warm_pad", volume: float = 0.4) -> dict:
-        """Start or stop the room's ambient music. `action` is "play" or "stop";
-        `track` is one of: warm_pad, night_piano; `volume` is 0..1."""
-        if action not in ("play", "stop"):
-            raise ValueError('action must be "play" or "stop"')
+    # Description BUILT from the catalog, the same way take_selfie's is built
+    # from the library below — the prose can't drift from the enum, and it says
+    # plainly that these two are the whole list (unlike the selfie book, this
+    # one IS a limit: only the frontend's two generators exist).
+    @mcp.tool(description=(
+        "Start or stop the room's ambient music. `action` is "
+        + " or ".join(f'"{a}"' for a in MUSIC_ACTIONS)
+        + f"; `track` is one of exactly these {len(MUSIC_TRACKS)} — "
+        + ", ".join(MUSIC_TRACKS)
+        + " — and no other track exists, so pick the nearer of the two rather "
+          "than naming one you'd prefer; `volume` is 0..1."))
+    def play_music(action: MusicAction, track: MusicTrack = "warm_pad",
+                   volume: float = 0.4) -> dict:
+        # The Literals are enforced by the schema before we get here; these keep
+        # the same answer for a direct in-process call (brain.py, tests).
+        if action not in MUSIC_ACTIONS:
+            raise ValueError(f"unknown action: {action} (have: {', '.join(MUSIC_ACTIONS)})")
         if track not in MUSIC_TRACKS:
             raise ValueError(f"unknown track: {track} (have: {', '.join(MUSIC_TRACKS)})")
         if not (0.0 <= volume <= 1.0):

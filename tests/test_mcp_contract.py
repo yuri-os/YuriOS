@@ -15,7 +15,7 @@ pytest.importorskip("mcp")
 from mcp.shared.memory import create_connected_server_and_client_session  # noqa: E402
 
 from yurios.world.tools.client import result_text  # noqa: E402
-from yurios.world.tools.server import build_server  # noqa: E402
+from yurios.world.tools.server import MUSIC_TRACKS, build_server  # noqa: E402
 from yurios.world.tools.weather import FakeWeather  # noqa: E402
 
 
@@ -179,6 +179,41 @@ async def test_play_music_validates_action_track_volume():
                                   {"action": "play", "track": "dubstep"})).isError
         assert (await s.call_tool("play_music",
                                   {"action": "play", "volume": 3.0})).isError
+
+
+async def test_play_music_puts_the_track_list_in_the_schema():
+    """A description that merely names the tracks is a suggestion — she invented
+    `ambient_rain_lullaby` against one. The catalog has to reach the model as an
+    `enum` on the parameter, and the prose has to be built from the same tuple
+    so the two can never drift."""
+    async with create_connected_server_and_client_session(server()._mcp_server) as s:
+        music = next(t for t in (await s.list_tools()).tools if t.name == "play_music")
+        props = music.inputSchema["properties"]
+        assert enum_of(music.inputSchema, props["track"]) == list(MUSIC_TRACKS)
+        assert enum_of(music.inputSchema, props["action"]) == ["play", "stop"]
+        for name in MUSIC_TRACKS:
+            assert name in music.description
+
+
+def enum_of(schema, prop):
+    """Pydantic hoists a Literal into $defs and leaves a $ref behind, and wraps
+    a defaulted one in allOf/anyOf — follow whichever shape we got."""
+    if "$ref" in prop:
+        return schema["$defs"][prop["$ref"].rsplit("/", 1)[-1]]["enum"]
+    for key in ("allOf", "anyOf"):
+        for member in prop.get(key, []):
+            found = enum_of(schema, member)
+            if found:
+                return found
+    return prop.get("enum")
+
+
+def test_the_frontend_and_the_tool_agree_on_the_catalog():
+    """Three copies of the track list exist — the tool's, the controller's, and
+    web/js/music.js's TRACKS. The first two are importable, so pin them; a
+    silent split there is a tool that validates a track her room can't play."""
+    from yurios.world.avatar.controller import MUSIC_TRACKS as BODY_TRACKS
+    assert tuple(BODY_TRACKS) == tuple(MUSIC_TRACKS)
 
 
 async def test_get_weather_uses_the_default_city():

@@ -428,6 +428,7 @@ svg{ width:1.1em; height:1.1em; fill:none; stroke:currentColor; stroke-width:1.7
   display:block; margin-bottom:5px; color:var(--dim); font:8px var(--font-mono);
   letter-spacing:.1em; font-variant-numeric:tabular-nums;
 }
+.il-x{ color:var(--soft); letter-spacing:0; }
 .il-goals li{ margin:0 0 10px; color:var(--soft); }
 .il-goals .g-abandoned{ color:var(--dim); text-decoration:line-through; }
 .il-prov{ font:9px var(--font-mono); letter-spacing:.04em; }

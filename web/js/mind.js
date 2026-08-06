@@ -34,6 +34,32 @@
     return `<section class="il-sec"><h3>${title}</h3>${bodyHtml}</section>`;
   }
 
+  // A quiet stretch writes the same line every time she wakes — "thought about
+  // X; chose not to interrupt" four times in an hour is four true entries and
+  // one fact. Fold consecutive entries with identical text into one, spanning
+  // the stretch. Runs AFTER the `hers` filter, so an entry this panel doesn't
+  // show can't break a run the reader sees as continuous. Day files are
+  // chronological, so `time` is the first and `until` the last.
+  function collapse(entries) {
+    const out = [];
+    for (const e of entries) {
+      const last = out[out.length - 1];
+      if (last && last.text === e.text) {
+        last.until = e.time;
+        last.count += 1;
+      } else {
+        out.push({ ...e, until: e.time, count: 1 });
+      }
+    }
+    return out;
+  }
+
+  function journalLine(e) {
+    const when = e.count > 1 ? `${esc(e.time)} – ${esc(e.until)}` : esc(e.time);
+    const times = e.count > 1 ? ` <span class="il-x">×${e.count}</span>` : '';
+    return `<li><span class="il-t">${when}${times}</span> ${esc(e.text)}</li>`;
+  }
+
   async function render() {
     await runtimeReady;
     let state, journal;
@@ -89,9 +115,7 @@
     html += section('the journal',
       (journal.days || []).map(d =>
         `<h4>${esc(d.day)}</h4><ul class="il-journal">` +
-        d.entries.filter(e => e.hers).map(e =>
-          `<li><span class="il-t">${esc(e.time)}</span> ${esc(e.text)}</li>`
-        ).join('') + '</ul>'
+        collapse(d.entries.filter(e => e.hers)).map(journalLine).join('') + '</ul>'
       ).join('') || '<p class="il-off">nothing yet — she hasn’t been ' +
         'alone with her thoughts long enough</p>');
 

@@ -27,6 +27,7 @@ from yurios.characters import (
     CharacterImporter, CharacterRecord, CharacterRegistry,
     ConnectionProfile, ConnectionProfiles,
 )
+from yurios.characters import selfiebook
 from yurios.characters import studio as studio_model
 from yurios.characters.appearance import ensure_appearance, refine_appearance
 from yurios.characters.creator import create_character, template_draft
@@ -290,6 +291,7 @@ def config_for_character(base: Config, record: CharacterRecord,
         "tool_log_dir": record.paths.tool_logs,
         "selfie_dir": record.paths.selfies,
         "selfie_character": str(record.paths.appearance),
+        "selfie_templates": str(record.paths.selfie_templates),
         "mind_enabled": record.loops.mind,
         "utility_enabled": record.loops.utility,
         "dream_enabled": record.loops.dream,
@@ -1040,6 +1042,60 @@ def create_host_app(base: Config, registry: CharacterRegistry | None = None) -> 
     @app.get("/api/characters/{character_id}/selfies")
     async def list_selfies(character_id: str):
         return {"selfies": _images(require(character_id))["selfies"]}
+
+    async def _reload_camera(character_id: str) -> None:
+        """Pick a saved selfie library up. The forge is built once at runtime
+        start and the `take_selfie` description once at tool-server start, so a
+        library nobody restarted for is a page telling you about scenes she
+        cannot name."""
+        if host.runtime(character_id) is not None:
+            await host.restart(character_id)
+
+    # Her camera's vocabulary (§7.6) — a whole library per character, not an
+    # overlay: hers *replaces* the shipped book, because the shipped one is one
+    # character's world down to the tail in half its scenes and an overlay can
+    # only ever add to that. The three verbs are the whole lifecycle: read hers
+    # (or ours, until she has one), write hers, throw hers away.
+    @app.get("/api/characters/{character_id}/selfie-templates")
+    async def selfie_templates(character_id: str):
+        record = require(character_id)
+        book, source = selfiebook.read_for(record)
+        return {
+            "id": record.id,
+            "book": book,
+            "source": source,
+            "slots": [{"key": name, "label": label, "hint": hint}
+                      for name, label, hint in selfiebook.SLOTS],
+            "shipped": selfiebook.shipped(),
+        }
+
+    @app.put("/api/characters/{character_id}/selfie-templates")
+    async def save_selfie_templates(character_id: str, request: Request):
+        record = require(character_id)
+        body = await request.json()
+        book = selfiebook.normalise(body.get("book") if isinstance(body, Mapping)
+                                    else None)
+        if not any(book["slots"].values()):
+            # Every slot empty is not a library, it is a camera with no words:
+            # `compose` would fall through to free-form only and an unprompted
+            # shot would have nothing at all to rotate in. Deleting is how you
+            # say "use the shipped one" — this is how you say it by accident.
+            raise HTTPException(400, "a selfie library needs at least one row — "
+                                     "delete it to go back to the shipped one")
+        try:
+            selfiebook.write(record.paths.selfie_templates, book,
+                             record.display.name)
+        except OSError as exc:
+            raise HTTPException(500, f"could not write her selfie library: {exc}") from exc
+        await _reload_camera(character_id)
+        return {"book": book, "source": "character"}
+
+    @app.delete("/api/characters/{character_id}/selfie-templates")
+    async def reset_selfie_templates(character_id: str):
+        record = require(character_id)
+        Path(record.paths.selfie_templates).unlink(missing_ok=True)
+        await _reload_camera(character_id)
+        return {"book": selfiebook.shipped(), "source": "shipped"}
 
     @app.post("/api/characters/{character_id}/portrait")
     async def set_portrait(character_id: str, request: Request):

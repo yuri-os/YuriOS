@@ -335,3 +335,70 @@ def test_a_retired_cold_open_still_ships_as_the_cards_first_message(node):
     assert fields["first_mes"].strip()
     assert fields["first_mes"] not in fields["alternate_greetings"]
     assert not [w for w in result.warnings if w.code == "bootstrap_consumed"]
+
+
+# ------------------------------------------- her selfie library (SPEC §7.6)
+
+def test_the_selfie_library_starts_as_ours_and_forks_on_the_first_save(node):
+    """Until she has a file of her own the studio shows the shipped library, so
+    there is always somewhere to start; saving writes *her* book, and from then
+    on it replaces ours outright rather than merging over it."""
+    from yurios.characters import selfiebook
+
+    client, registry = node
+    record = registry.require("subject")
+
+    payload = client.get("/api/characters/subject/selfie-templates").json()
+    assert payload["source"] == "shipped"
+    assert [slot["key"] for slot in payload["slots"]] == list(selfiebook.SLOT_NAMES)
+    assert not record.paths.selfie_templates.exists()
+
+    book = payload["book"]
+    book["tool_hint"] = "she lives in a lighthouse, not a tower"
+    book["slots"]["scenes"] = [{"key": "lamp room", "prompt": "SCENE-lamp",
+                                "negative": "", "pinned": False}]
+    book["slots"]["wardrobe"].append({"key": "oilskin", "prompt": "WARDROBE-oilskin",
+                                      "negative": "NEG-silk", "pinned": True})
+    saved = client.put("/api/characters/subject/selfie-templates", json={"book": book})
+    assert saved.status_code == 200
+    assert saved.json()["source"] == "character"
+
+    again = client.get("/api/characters/subject/selfie-templates").json()
+    assert again["source"] == "character"
+    assert [row["key"] for row in again["book"]["slots"]["scenes"]] == ["lamp room"]
+    assert again["book"]["tool_hint"] == "she lives in a lighthouse, not a tower"
+    oilskin = next(row for row in again["book"]["slots"]["wardrobe"]
+                   if row["key"] == "oilskin")
+    assert oilskin["negative"] == "NEG-silk" and oilskin["pinned"] is True
+
+    # the file the camera actually loads, not just what the page echoes back
+    from yurios.forge import SelfieBook
+    loaded = SelfieBook.load(record.paths.selfie_templates)
+    assert set(loaded.scenes) == {"lamp room"}
+    assert loaded.compose(wardrobe="oilskin")[2] == "NEG-silk"
+    # …and the shipped one is still there for whoever hasn't forked it
+    assert "sanctuary" in SelfieBook.load(selfiebook.SHIPPED).scenes
+
+
+def test_an_empty_selfie_library_is_refused_and_delete_is_the_way_back(node):
+    """Every slot empty is a camera with no words, and it is far more likely to
+    be a page mid-edit than an intention. Deleting is how you say "use ours"."""
+    client, registry = node
+    record = registry.require("subject")
+
+    blank = {"tool_hint": "", "slots": {name: [] for name in
+                                        ("scenes", "framings", "lighting",
+                                         "moods", "wardrobe")}}
+    assert client.put("/api/characters/subject/selfie-templates",
+                      json={"book": blank}).status_code == 400
+    assert not record.paths.selfie_templates.exists()
+
+    book = client.get("/api/characters/subject/selfie-templates").json()["book"]
+    client.put("/api/characters/subject/selfie-templates", json={"book": book})
+    assert record.paths.selfie_templates.is_file()
+
+    gone = client.delete("/api/characters/subject/selfie-templates")
+    assert gone.status_code == 200 and gone.json()["source"] == "shipped"
+    assert not record.paths.selfie_templates.exists()
+    assert client.get("/api/characters/subject/selfie-templates").json()["source"] \
+        == "shipped"

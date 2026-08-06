@@ -62,6 +62,13 @@ export const studioApi = Object.freeze({
     method: "POST", body: JSON.stringify({ draft, portrait }),
   }),
   selfies: (id) => request(at(id, "/selfies")),
+  // Her camera's library — a whole book per character, which *replaces* the
+  // shipped one rather than merging over it. DELETE is how you go back.
+  selfieBook: (id) => request(at(id, "/selfie-templates")),
+  saveSelfieBook: (id, book) => request(at(id, "/selfie-templates"), {
+    method: "PUT", body: JSON.stringify({ book }),
+  }),
+  resetSelfieBook: (id) => request(at(id, "/selfie-templates"), { method: "DELETE" }),
   setPortrait: (id, body) => request(at(id, "/portrait"), {
     method: "POST", body: JSON.stringify(body),
   }),

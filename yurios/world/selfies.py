@@ -38,6 +38,24 @@ from .clock import Clock
 log = logging.getLogger("world.selfies")
 
 FORGE_DIR = Path(__file__).resolve().parent.parent / "forge"
+#: The house library, and the fallback for every character with no book of her own.
+SHIPPED_BOOK = FORGE_DIR / "templates" / "selfie.yaml"
+
+
+def book_path(own: str | Path | None) -> Path:
+    """Which library the camera composes from — hers, or the house's.
+
+    A character's own `selfie.yaml` *replaces* the shipped book rather than
+    merging over it (characters/selfiebook.py): the shipped one describes one
+    character's world down to the tail in half its scenes, and an overlay can
+    add rows to that but can never take them back out. No file — which is every
+    character until somebody edits her library — means the shipped defaults,
+    unchanged. Absence is the normal case and is not worth a warning; the
+    env-level overlay still layers on top of whichever base wins.
+    """
+    if own and Path(own).is_file():
+        return Path(own)
+    return SHIPPED_BOOK
 
 # the announce cue (§8.3): spoken only if she's free, through the ambient seam.
 # Two words for two cameras — "the selfie you just took" is a strange thing to
@@ -95,8 +113,11 @@ def build_forge(cfg) -> tuple[object, str]:
         else:
             log.warning("selfies: SELFIE_TEMPLATES_EXTRA points at %s, which "
                         "doesn't exist — using the shipped library alone", extra)
-    book = SelfieBook.load(FORGE_DIR / "templates" / "selfie.yaml",
-                           overlays=overlays)
+    base = book_path(cfg.selfie_templates)
+    if base != SHIPPED_BOOK:
+        log.info("selfies: composing from %s's own template library (%s)",
+                 getattr(cfg, "companion_name", "this character"), base)
+    book = SelfieBook.load(base, overlays=overlays)
 
     name, status = cfg.selfie_backend, cfg.selfie_backend
     if name == "openrouter":

@@ -53,6 +53,24 @@ async def test_description_carries_the_overlay_and_its_hint(tmp_path, monkeypatc
         assert "hint: name the tier that matches the ask." in selfie.description
 
 
+async def test_description_is_built_from_her_own_library_when_she_has_one(tmp_path,
+                                                                          monkeypatch):
+    """A character with her own book (SELFIE_TEMPLATES) replaces the shipped
+    library outright, and the tool description has to follow: offering her our
+    scenes would be describing a room she does not live in."""
+    import yaml
+    hers = tmp_path / "selfie.yaml"
+    hers.write_text(yaml.safe_dump({
+        "scenes": {"lamp room": "SCENE-lamp"},
+        "wardrobe": {"oilskin": "WARDROBE-oilskin"}}))
+    monkeypatch.setenv("SELFIE_TEMPLATES", str(hers))
+    async with create_connected_server_and_client_session(server()._mcp_server) as s:
+        selfie = next(t for t in (await s.list_tools()).tools
+                      if t.name == "take_selfie")
+        assert "lamp room" in selfie.description and "oilskin" in selfie.description
+        assert "sanctuary" not in selfie.description   # ours are not hers
+
+
 async def test_selfies_off_is_not_advertised():
     """SELFIE_BACKEND=off: the tool doesn't exist — no hand, not a dead one (§7.6)."""
     srv = build_server(weather=FakeWeather(), selfies=False)

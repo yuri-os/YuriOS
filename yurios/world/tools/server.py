@@ -101,11 +101,15 @@ def build_server(*, weather: WeatherProvider | None = None,
         # the backend's call, never the contract's). The book is the SAME one
         # the host renders from — overlay included (world/selfies.py) — so the
         # choices she sees can never drift from what the forge would compose.
-        from ..selfies import FORGE_DIR
+        from ..selfies import book_path
         from yurios.forge import SelfieBook
         overlays = [os.environ["SELFIE_TEMPLATES_EXTRA"]] \
             if os.environ.get("SELFIE_TEMPLATES_EXTRA") else []
-        book = SelfieBook.load(FORGE_DIR / "templates" / "selfie.yaml",
+        # …base included: a character with her own library (SELFIE_TEMPLATES,
+        # → characters/selfiebook.py) replaces the shipped book, and the tool
+        # description has to name *her* rows or she is offered scenes her
+        # camera would never compose.
+        book = SelfieBook.load(book_path(os.environ.get("SELFIE_TEMPLATES")),
                                overlays=overlays)
         desc = ("Take a photo of yourself to share in the chat — it appears "
                 "there a few moments later. "

@@ -195,6 +195,30 @@ Two mechanics make a tier real rather than decorative. **Per-tier negatives** fi
 tier's look collides with the generator's default and the positive words alone lose to the model's
 prior. **Pinned tiers** are named-asks-only: never rotated into an unprompted shot.
 
+## A library of her own
+
+An overlay can only ever *add* to the shipped library, and the shipped library is one
+character's world — a sanctuary above a rainy megacity, and a tail in half its scenes. A
+different character needs those rows **gone**, not buried, and a house running four of them has
+only one `SELFIE_TEMPLATES_EXTRA` to share between them.
+
+So a character may carry her own **`data/characters/<id>/selfie.yaml`**, beside her
+`appearance.yaml`. When she does, it *replaces* the shipped book outright — same schema, same
+loader, same `tool_hint`, and the `take_selfie` description is built from her rows so she is
+never offered a scene her camera would not compose. No file means the shipped defaults,
+unchanged, which is where every character starts. `SELFIE_TEMPLATES_EXTRA` still merges over
+whichever base wins, so a house-wide register keeps working for characters who never forked.
+
+Edit it in the **card studio** (`/studio/?character=<id>` → *Selfies*): the section shows the
+shipped library until she has one of her own, and the first save forks it into hers. Each row is
+a key, the fragment it composes, and optionally the `negative` its look needs and a `pinned` flag
+for named-asks-only tiers. *Back to the shipped library* deletes her file. Saving restarts her
+runtime — the forge and the tool description are both built once at start.
+
+The studio owns the file: it regenerates it from its rows on every save, so hand-written comments
+in it will not survive a save from the page. Notes she should actually read belong in `tool_hint`.
+Her library stays on this machine — it is not part of an exported card.
+
 ## Whose face the camera renders
 
 Her visual identity — her appearance, the quality preamble, the structural negatives — lives in

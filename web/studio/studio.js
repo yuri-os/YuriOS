@@ -12,6 +12,15 @@ const state = {
   provenance: {},
   grown: [],
   images: { portrait: false, selfies: [] },
+  // Her selfie library, loaded and saved on its own (the card draft is a SOUL;
+  // this is the camera's vocabulary). `bookSource` is "character" once she has
+  // a file of her own, "shipped" while she is still looking at ours.
+  book: null,
+  bookSource: "shipped",
+  bookSlots: [],
+  bookError: "",
+  bookSaving: false,
+  bookResetArmed: false,
   options: { spec: "v3", include_soul: true, image: "portrait", fit: "contain",
              attribution: true, timestamps: true, acknowledged: false },
   preview: null,
@@ -292,6 +301,131 @@ function imageControl() {
   return wrap;
 }
 
+/* Her selfie library (SPEC §7.6) — the one part of this page that edits a file
+   the *camera* reads rather than the card. It saves on its own debounce, to its
+   own endpoint, because writing it restarts her runtime: the forge builds the
+   book once at start, and the `take_selfie` description is built from the same
+   book, so a saved row nobody restarted for is a page describing scenes she
+   cannot name. */
+function selfieBookControl() {
+  const wrap = element("div", { className: "field field-selfiebook" });
+  if (!state.id) {
+    wrap.append(element("p", { className: "form-note",
+      text: "Create her first — a library is a file that lives beside her." }));
+    return wrap;
+  }
+  if (!state.book) {
+    wrap.append(element("p", { className: "form-note",
+      text: state.bookError || "Reading her library…" }));
+    return wrap;
+  }
+
+  const own = state.bookSource === "character";
+  const head = element("div", { className: "book-head" },
+    element("span", { className: `book-badge${own ? " own" : ""}`,
+      text: own ? "her own library" : "the shipped library" }),
+    element("small", { className: "field-hint", text: own
+      ? "This file is hers and replaces ours completely. Delete a row and she stops being offered it."
+      : "These are the house defaults, shown so you have somewhere to start. The first edit forks them into a library of her own." }));
+  if (own) {
+    const reset = element("button", {
+      className: `button button-quiet book-reset${state.bookResetArmed ? " armed" : ""}`,
+      attrs: { type: "button" },
+    }, icon("back"), element("span", { text: state.bookResetArmed
+      ? "Discard her library — sure?" : "Back to the shipped library" }));
+    reset.addEventListener("click", () => {
+      if (!state.bookResetArmed) {
+        state.bookResetArmed = true;
+        renderForm();
+        return;
+      }
+      resetSelfieBook();
+    });
+    head.append(reset);
+  }
+  wrap.append(head);
+
+  const hint = element("label", { className: "field field-textarea" },
+    element("span", { className: "field-head" },
+      element("span", { className: "field-label", text: "Tool hint" })),
+    element("small", { className: "field-hint",
+      text: "One line the take_selfie tool description carries verbatim — how this library explains its own register to her. Leave it empty and the description stands on the rows alone." }));
+  const hintBox = element("textarea", { attrs: { rows: 2,
+    placeholder: "Prefer the rooftop scenes in the evening." } });
+  hintBox.value = state.book.tool_hint;
+  hintBox.addEventListener("input", () =>
+    updateBook((book) => { book.tool_hint = hintBox.value; }));
+  hint.append(hintBox);
+  wrap.append(hint);
+
+  for (const slot of state.bookSlots) wrap.append(slotControl(slot));
+  return wrap;
+}
+
+function slotControl(slot) {
+  const rows = state.book.slots[slot.key] || [];
+  const block = element("div", { className: "book-slot" });
+  block.append(element("div", { className: "field-head" },
+    element("span", { className: "field-label", text: slot.label }),
+    element("span", { className: "book-count", text: `${rows.length}` })));
+  block.append(element("small", { className: "field-hint", text: slot.hint }));
+
+  rows.forEach((row, index) => {
+    const card = element("div", { className: "lore-entry book-row" });
+    const key = element("input", { className: "book-key",
+      attrs: { type: "text", placeholder: "key — one word she can name" } });
+    key.value = row.key;
+    key.addEventListener("input", () => patchRow(slot.key, index, { key: key.value }));
+    const remove = element("button", { className: "icon-button danger",
+      attrs: { type: "button", "aria-label": `Remove ${slot.label} ${index + 1}` } }, icon("trash"));
+    remove.addEventListener("click", () => updateBook((book) => {
+      book.slots[slot.key] = book.slots[slot.key].filter((_r, i) => i !== index);
+    }, { rerender: true }));
+    const prompt = element("textarea", { attrs: { rows: 2,
+      placeholder: "the fragment composed into the picture" } });
+    prompt.value = row.prompt;
+    prompt.addEventListener("input", () =>
+      patchRow(slot.key, index, { prompt: prompt.value }));
+
+    // The two mechanics that make a row real rather than decorative, kept on
+    // one quiet line: most rows want neither, and a form that asks for three
+    // fields per scene is a form nobody fills in.
+    const negative = element("input", { className: "book-negative",
+      attrs: { type: "text", placeholder: "negative — what must not appear (optional)" } });
+    negative.value = row.negative;
+    negative.addEventListener("input", () =>
+      patchRow(slot.key, index, { negative: negative.value }));
+    const pinned = element("input", { attrs: { type: "checkbox" } });
+    pinned.checked = row.pinned;
+    pinned.addEventListener("change", () =>
+      patchRow(slot.key, index, { pinned: pinned.checked }));
+    const pin = element("label", { className: "book-pin",
+      attrs: { title: "Never rotated into an unprompted shot — a named ask only" } },
+      pinned, element("span", { text: "named asks only" }));
+
+    card.append(element("div", { className: "lore-head" }, key, remove), prompt,
+      element("div", { className: "book-extra" }, negative, pin));
+    block.append(card);
+  });
+
+  const add = element("button", { className: "button button-quiet add",
+    attrs: { type: "button" } }, icon("plus"),
+    element("span", { text: `Add ${slot.label.toLowerCase().replace(/s$/, "")}` }));
+  add.addEventListener("click", () => updateBook((book) => {
+    book.slots[slot.key] = [...book.slots[slot.key],
+      { key: "", prompt: "", negative: "", pinned: false }];
+  }, { rerender: true }));
+  block.append(add);
+  return block;
+}
+
+function patchRow(slot, index, patch) {
+  updateBook((book) => {
+    book.slots[slot] = book.slots[slot].map((row, i) =>
+      i === index ? { ...row, ...patch } : row);
+  });
+}
+
 function exportControl() {
   const wrap = element("div", { className: "field field-export" });
   const toggle = (key, label, hint) => {
@@ -343,6 +477,7 @@ function renderForm() {
       if (field.type === "list") grid.append(listControl(field));
       else if (field.type === "lorebook") grid.append(lorebookControl());
       else if (field.type === "image") grid.append(imageControl());
+      else if (field.type === "selfiebook") grid.append(selfieBookControl());
       else if (field.type === "export") grid.append(exportControl());
       else grid.append(fieldControl(field));
     }
@@ -491,6 +626,60 @@ function update(key, value, { rerender = false } = {}) {
   markDirty();
   scheduleSave();
   schedulePreview();
+}
+
+/* The library's own `update()`. It never touches the card draft — a scene row
+   is not a card field and must not make the card look unsaved — and it keeps
+   the same "only structural edits rerender" rule, for the same reason: a
+   rebuild from an `input` handler tears out the box being typed into. */
+function updateBook(mutate, { rerender = false } = {}) {
+  if (!state.book) return;
+  mutate(state.book);
+  state.bookResetArmed = false;
+  if (rerender) renderForm();
+  scheduleBookSave();
+}
+
+const scheduleBookSave = debounce(async () => {
+  if (!state.id || !state.book || state.bookSaving) return;
+  if (!Object.values(state.book.slots).some((rows) =>
+        rows.some((row) => row.key.trim() && row.prompt.trim()))) {
+    // An empty library is not a library — the server refuses it, and saying so
+    // here beats a red toast for a half-typed row on the way to a full one.
+    setSaveState("library needs a row");
+    return;
+  }
+  state.bookSaving = true;
+  setSaveState("saving her library", true);
+  try {
+    const payload = await studioApi.saveSelfieBook(state.id, state.book);
+    const forked = state.bookSource !== "character";
+    state.bookSource = payload.source || "character";
+    setSaveState("saved");
+    notice("");
+    if (forked) {
+      renderForm();
+      toast("She has her own selfie library now.");
+    }
+  } catch (error) {
+    setSaveState("library not saved");
+    notice(error.message || "Could not save her selfie library.");
+  } finally {
+    state.bookSaving = false;
+  }
+}, 1500);
+
+async function resetSelfieBook() {
+  try {
+    const payload = await studioApi.resetSelfieBook(state.id);
+    state.book = payload.book;
+    state.bookSource = payload.source || "shipped";
+    state.bookResetArmed = false;
+    renderForm();
+    toast("Her library is gone — she's back on the shipped one.");
+  } catch (error) {
+    toast(error.message || "Could not reset her library.", "error");
+  }
 }
 
 function markDirty() {
@@ -653,6 +842,22 @@ const optimizer = createOptimizer({
 
 // --------------------------------------------------------------------- boot
 
+/* Fetched after the page is already usable: the library is one section down and
+   a slow read of it must not hold up the card. A failure leaves the section
+   saying so rather than taking the studio down with it — you can still edit and
+   export her without ever opening her camera. */
+async function loadSelfieBook() {
+  try {
+    const payload = await studioApi.selfieBook(state.id);
+    state.book = payload.book;
+    state.bookSource = payload.source || "shipped";
+    state.bookSlots = payload.slots || [];
+  } catch (error) {
+    state.bookError = error.message || "Could not read her selfie library.";
+  }
+  renderForm();
+}
+
 async function boot() {
   try {
     if (state.id) {
@@ -667,6 +872,8 @@ async function boot() {
       elements.primary.querySelector("span").textContent = "Export PNG";
       elements.primary.addEventListener("click", doExport);
       setSaveState("saved");
+      loadSelfieBook();                  // off the critical path — the form
+                                         // renders without it and fills in
     } else {
       const payload = await studioApi.template();
       state.draft = normalise(payload.draft);

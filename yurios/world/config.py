@@ -47,6 +47,14 @@ class Config(VoiceConfig):
     # repo, exactly like the checkpoint below. Set but missing → one loud
     # WARNING and the shipped library alone.
     selfie_templates_extra: str = ""
+    # Her *own* template library, which REPLACES the shipped one rather than
+    # merging over it (characters/selfiebook.py). Empty, or a path with no file
+    # there, means the shipped book — which is what every character has until
+    # somebody edits her library in the studio. A character runtime points this
+    # at `data/characters/<id>/selfie.yaml` (host.py, `config_for_character`);
+    # the overlay above still layers on top of whichever base wins, so a
+    # house-wide register keeps working for characters with no book of their own.
+    selfie_templates: str = ""
     # Whose likeness the camera renders — an appearance yaml (forge/character.py).
     # Empty = the shipped Yuri, which is the right answer for a single-character
     # house; a character runtime points this at her own `appearance.yaml`

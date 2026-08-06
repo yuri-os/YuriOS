@@ -68,6 +68,11 @@ export const SECTIONS = Object.freeze([
                hint: "Never sent to the model — this is the card's README" }],
   },
   { id: "image", label: "Face", eyebrow: "The card image", fields: [{ key: "__image", type: "image" }] },
+  {
+    id: "selfies", label: "Selfies", eyebrow: "Her camera's vocabulary",
+    blurb: "A selfie is composed as scene + framing + wardrobe + lighting + mood, and these are the rows those slots can name. Hers replaces the shipped library outright — she is not our character, and the house book is full of our character's world.",
+    fields: [{ key: "__selfiebook", type: "selfiebook" }],
+  },
   { id: "export", label: "Export", eyebrow: "Take her out", fields: [{ key: "__export", type: "export" }] },
 ]);
 

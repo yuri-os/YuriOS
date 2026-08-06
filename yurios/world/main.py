@@ -465,6 +465,7 @@ class Runtime:
                 # book the host renders from (world/selfies.py) — overlay and
                 # its tool_hint included — so the two can never disagree
                 "SELFIE_TEMPLATES_EXTRA": self.cfg.selfie_templates_extra,
+                "SELFIE_TEMPLATES": self.cfg.selfie_templates,
             })
         elif runner is None and self.cfg.tools_backend == "fake":
             from .tools.fakes import FakeToolRunner

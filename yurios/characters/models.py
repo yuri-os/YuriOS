@@ -125,6 +125,10 @@ class CharacterPaths:
     # Her visual identity for the forge — who the camera renders (§7.6). Derived
     # from her card at import (characters/appearance.py) and hand-editable after.
     appearance: Path
+    # Her own selfie template library, when she has one: the file REPLACES the
+    # shipped book rather than merging over it (characters/selfiebook.py). Absent
+    # for every character who has never opened the studio's Selfies section.
+    selfie_templates: Path
 
     @classmethod
     def under(cls, root: Path) -> "CharacterPaths":
@@ -140,6 +144,7 @@ class CharacterPaths:
             tool_logs=root / "tool-logs",
             selfies=root / "selfies",
             appearance=root / "appearance.yaml",
+            selfie_templates=root / "selfie.yaml",
         )
 
 

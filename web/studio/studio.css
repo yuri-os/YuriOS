@@ -217,6 +217,34 @@ code { font: 11px/1.5 var(--font-mono); color: var(--soft); }
 .lore-entry { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--rule); border-radius: 2px; background: rgb(17 24 22 / .45); }
 .lore-head { display: grid; grid-template-columns: 1fr auto; gap: 10px; }
 
+/* Her selfie library — rows of words her camera knows. Deliberately built from
+   the lorebook's entry card: they are the same shape of thing (a keyed fragment
+   that fires when named) and a second visual language for it would only make
+   the page look longer than it is. */
+.field-selfiebook { gap: 22px; }
+.book-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.book-head .field-hint { flex: 1 1 24ch; margin: 0; }
+.book-badge {
+  padding: 3px 9px; border: 1px solid var(--rule); border-radius: 2px;
+  color: var(--dim); font: 9px var(--font-mono); letter-spacing: .1em; text-transform: uppercase;
+}
+.book-badge.own { border-color: rgb(215 255 88 / .4); color: var(--acid); }
+.book-reset { margin-left: auto; }
+.book-reset.armed { border-color: var(--amber); color: var(--amber); }
+.book-slot { display: grid; gap: 8px; padding-top: 4px; }
+.book-slot .field-head { justify-content: flex-start; }
+.book-count { color: var(--dim); font: 9px var(--font-mono); }
+.book-row .book-key { font-family: var(--font-mono); font-size: 12px; }
+.book-extra { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; }
+.book-extra input[type="text"] {
+  width: 100%; padding: 7px 10px; border: 1px solid var(--rule); border-radius: 2px;
+  background: var(--panel); color: var(--dim); font-size: 12px;
+}
+.book-extra input[type="text"]:focus { outline: none; border-color: var(--acid); color: var(--ink); }
+.book-pin { display: inline-flex; align-items: center; gap: 7px; cursor: pointer; white-space: nowrap;
+  color: var(--dim); font: 9px var(--font-mono); letter-spacing: .08em; text-transform: uppercase; }
+.book-pin input { accent-color: var(--acid); }
+
 .selfie-strip { display: flex; gap: 10px; flex-wrap: wrap; }
 .selfie {
   width: 78px; height: 117px; padding: 0; overflow: hidden; cursor: pointer;

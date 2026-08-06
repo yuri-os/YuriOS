@@ -547,7 +547,13 @@ to every new subscriber before its first live event. Malformed JSON is logged an
   The
   shipped library stays in the everyday register; personal registers layer on from an optional
   user-supplied overlay file outside the repo (`SELFIE_TEMPLATES_EXTRA`, merged key-by-key —
-  forge/templates.py).
+  forge/templates.py). A character **MAY** carry her own library at
+  `data/characters/<id>/selfie.yaml` (`SELFIE_TEMPLATES`, edited in the card studio), and when
+  she does it **MUST** *replace* the shipped book rather than merge over it — an overlay can only
+  add rows, and the shipped book describes one character's world down to the tail in half its
+  scenes. The tool description **MUST** be built from the same merged book, so what she is
+  offered is always what her camera would compose. The env overlay still layers over whichever
+  base wins.
 
   `show_picture` is the same camera pointed away from her — the street below, a sketch, whatever
   she is describing and would rather show. It has **no library, no slots and no rotation**: the

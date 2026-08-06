@@ -173,6 +173,7 @@ See [Tools](tools.md).
 | `SELFIE_BACKEND` | `openrouter` | `openrouter` · `diffusers` · `krea2` · `mock` · `off` |
 | `SELFIE_MODEL` | `bytedance-seed/seedream-4.5` | the hosted route's model |
 | `SELFIE_TEMPLATES_EXTRA` | *(empty)* | your own template overlay yaml |
+| `SELFIE_TEMPLATES` | *(empty)* | a library that **replaces** the shipped one (a character runtime points this at her own `selfie.yaml`) |
 | `SELFIE_LOCAL_MODEL` | *(empty)* | path to a `.safetensors` checkpoint |
 | `SELFIE_LOCAL_DEVICE` | `cuda` | |
 | `SELFIE_LOCAL_STEPS` / `_CFG` | `30` / `5.0` | SDXL sampling |

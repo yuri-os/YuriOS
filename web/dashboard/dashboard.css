@@ -258,7 +258,19 @@ h1, h2, p { margin-top: 0; }
 .character-grid:not(.list) .card-body { flex: none; z-index: 2; padding: 0 20px 2px; }
 .character-grid:not(.list) .card-body h2 { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .character-grid:not(.list) .card-description { margin-top: 11px; }
-.character-grid:not(.list) .card-footer { z-index: 2; padding: 16px 20px 18px; border-top-color: rgb(255 255 255 / .1); }
+/* Four doors and the record button no longer fit beside the loop switches on a
+   ~290px tile — the button ran past the card's right edge and was clipped off.
+   On the wall the footer breaks in two: switches across the top, the ways in
+   and the record button on the line under them. The list row, which has the
+   width for it, keeps all three abreast. */
+.character-grid:not(.list) .card-footer {
+  z-index: 2; padding: 16px 20px 18px; border-top-color: rgb(255 255 255 / .1);
+  grid-template-columns: minmax(0, 1fr) auto; row-gap: 15px; align-items: center;
+}
+/* the three switches share that top line, with ~16px to spare on the narrowest
+   tile the wall ever makes; a wider fallback mono wraps them rather than
+   spilling, which is why the stack is still flex-wrap */
+.character-grid:not(.list) .loop-stack { grid-column: 1 / -1; gap: 7px 10px; }
 .character-grid:not(.list) .skeleton { min-height: 0; aspect-ratio: 2 / 3; display: flex; flex-direction: column; padding: 0; }
 .character-grid:not(.list) .skeleton i:nth-child(1) { width: 100%; height: auto; flex: 1; border-radius: 0; }
 .character-grid:not(.list) .skeleton i:nth-child(2) { width: 52%; height: 20px; margin: 20px 0 0 20px; }
@@ -424,7 +436,7 @@ h1, h2, p { margin-top: 0; }
   .topbar > .button span, .topbar-actions .button span { display: none; }
   .board { padding: 39px 16px 60px; }
   .board-head { margin-bottom: 29px; }
-  h1 { font-size: 42px; }
+  /* the sign sizes itself off its own clamp — no override needed here */
   .intro { font-size: 13px; }
   .board-tools { flex-wrap: wrap; }
   .search-wrap { flex-basis: calc(100% - 98px); }

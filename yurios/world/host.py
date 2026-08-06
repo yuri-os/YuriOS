@@ -145,6 +145,22 @@ def _tail_jsonl(path: Path, limit: int = 100) -> list[dict[str, Any]]:
     return rows
 
 
+def _log_sort_key(row: dict[str, Any]) -> float:
+    """Tick traces stamp `ts` as a local ISO string (`iso_of`); tool-call audits
+    stamp it as the raw epoch-seconds float underneath. Both come from the same
+    clock, so this recovers one comparable epoch value to interleave the two
+    logs chronologically instead of ticks-then-calls."""
+    ts = row.get("ts")
+    if isinstance(ts, (int, float)):
+        return float(ts)
+    if isinstance(ts, str):
+        try:
+            return datetime.datetime.fromisoformat(ts).timestamp()
+        except ValueError:
+            return 0.0
+    return 0.0
+
+
 class TelegramCredentials(NamedTuple):
     """What one character answers on, and the two variables it is written in —
     the names travel with the values so pairing mode and the settings panel both
@@ -1228,6 +1244,7 @@ def create_host_app(base: Config, registry: CharacterRegistry | None = None) -> 
         record = require(character_id)
         rows = _tail_jsonl(record.paths.traces / "ticks.jsonl", 60)
         rows += _tail_jsonl(record.paths.tool_logs / "calls.jsonl", 40)
+        rows.sort(key=_log_sort_key)
         return {"entries": rows[-100:]}
 
     @app.get("/api/characters/{character_id}/context-history")

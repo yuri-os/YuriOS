@@ -117,6 +117,35 @@ function flattenJournal(payload) {
   return [];
 }
 
+// The /log endpoint interleaves two raw row shapes with no shared vocabulary:
+// tick traces ({ts: ISO string, activity_state, decided: {intention}, acted: {what, result}})
+// and tool-call audits ({ts: epoch seconds, tool, verdict, result}). Neither has
+// title/body/timestamp, so they need their own mapping instead of the generic one.
+function logTimestamp(ts) {
+  if (typeof ts === "number") return new Date(ts * 1000).toISOString();
+  return text(ts);
+}
+
+function normalizeLogRow(row, index) {
+  const isToolCall = "tool" in row;
+  if (isToolCall) {
+    return {
+      id: text(row.id, `log-${index}`),
+      title: row.verdict && row.verdict !== "ok" ? `${text(row.tool, "tool call")} — ${row.verdict}` : text(row.tool, "tool call"),
+      body: text(row.result),
+      time: logTimestamp(row.ts),
+      tone: text(row.verdict),
+    };
+  }
+  return {
+    id: text(row.id, `log-${index}`),
+    title: text(row.decided?.intention, text(row.activity_state, "tick")),
+    body: text(row.acted?.result),
+    time: logTimestamp(row.ts),
+    tone: row.acted?.what === "error" ? "error" : "",
+  };
+}
+
 export function normalizeDetailItems(kind, payload) {
   const rows = kind === "journal"
     ? flattenJournal(payload)
@@ -125,6 +154,7 @@ export function normalizeDetailItems(kind, payload) {
   return rows.map((item, index) => {
     if (typeof item === "string") return { id: `${kind}-${index}`, title: kind === "journal" ? "Journal entry" : "Event", body: item, time: "" };
     const row = item && typeof item === "object" ? item : {};
+    if (kind === "log") return normalizeLogRow(row, index);
     return {
       id: text(row.id, `${kind}-${index}`),
       title: text(row.title ?? row.event ?? row.type ?? row.role, kind === "journal" ? "Journal entry" : "Event"),

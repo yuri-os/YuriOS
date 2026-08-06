@@ -160,7 +160,7 @@ function characterCard(character) {
   // The mind page is not a room and carries `data-no-gate`: it reads her files
   // rather than talking to her, so it works on a parked character — who is
   // precisely the one you want to look inside before deciding about her.
-  const debug = way("mind", "Mind debug", rooms(character).mind);
+  const debug = way("mind", "Debug mind", rooms(character).mind);
   debug.setAttribute("data-no-gate", "");
   const ways = element("div", { className: "card-ways" }, enter,
     way("live2d", "Live2D body", rooms(character).live2d),
@@ -272,6 +272,7 @@ function syncDrawer() {
   elements.drawerEnter.href = where.sanctuary;
   $("#drawer-live2d").href = where.live2d;
   $("#drawer-text").href = where.text;
+  $("#drawer-mind").href = where.mind;
   $("#drawer-export").href = `/api/characters/${encodeURIComponent(character.id)}/export`;
   $("#drawer-studio").href = studio;
   // Her rooms open either way — they are worth a look before you decide — but
@@ -904,7 +905,8 @@ function wireEvents() {
     if (event.target === dialog) closeModal(dialog);
   }));
   $("#import-form").addEventListener("submit", submitImport);
-  // The drawer's three doors, guarded the same way the card's are.
+  // The drawer's three doors, guarded the same way the card's are. `#drawer-mind`
+  // is deliberately not among them — it is a window, not a door.
   for (const link of [elements.drawerEnter, $("#drawer-live2d"), $("#drawer-text")]) {
     link.addEventListener("click", (event) => guardRoom(event, selectedCharacter(), link.href));
   }

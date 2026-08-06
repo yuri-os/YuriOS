@@ -144,7 +144,8 @@ route `/characters/{id}/sanctuary/`; this is navigation, not an API request.
 
 ## The mind debug page
 
-The fourth way off a character card is not a room: `/characters/{id}/mind` (`web/mind/`)
+The fourth way off a character card — and the **Debug mind** button in the detail
+drawer's action row — is not a room: `/characters/{id}/mind` (`web/mind/`)
 reads her files rather than talking to her — the activity timeline, tick traces, every
 context window she was given, her tool calls, and the Vault's own history. It is
 navigation, like the rooms, and it is **not** gated by the approval dialog: a parked

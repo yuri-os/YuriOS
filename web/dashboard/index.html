@@ -137,11 +137,15 @@
     <div id="approve-error" class="form-error" role="alert"></div>
     <!-- the three ways into the same character: the 3D room, the Live2D body
          (SPEC §6.6) and the bodyless text room (SPEC §6.7). One runtime behind
-         all three — the bus and the voice socket do not care which one is open. -->
+         all three — the bus and the voice socket do not care which one is open.
+         The debug page is the fourth entry here but not a fourth room. -->
     <div class="drawer-actions">
       <a id="drawer-enter" class="button button-primary" href="#">Enter sanctuary <svg><use href="#i-arrow"></use></svg></a>
       <a id="drawer-live2d" class="button button-quiet" href="#"><svg><use href="#i-live2d"></use></svg>Live2D body</a>
       <a id="drawer-text" class="button button-quiet" href="#"><svg><use href="#i-text"></use></svg>Text only</a>
+      <!-- not a room: it reads her files rather than talking to her, so it is
+           ungated and works on a parked character. -->
+      <a id="drawer-mind" class="button button-quiet" href="#"><svg><use href="#i-mind"></use></svg>Debug mind</a>
       <a id="drawer-studio" class="button button-quiet" href="#"><svg><use href="#i-card"></use></svg>Edit in studio</a>
       <a id="drawer-export" class="button button-quiet" href="#" download><svg><use href="#i-download"></use></svg>Export PNG</a>
       <button id="settings-open" class="button button-quiet" type="button"><svg><use href="#i-tune"></use></svg>Settings</button>

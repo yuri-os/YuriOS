@@ -206,19 +206,27 @@
     await runtimeReady;
     if (es) return;                       // one stream per page
     es = new EventSource(apiPath('/api/events'));
+    let everOpened = false;
     es.onopen = () => {
       onStatus?.(true);
-      // Recover committed selfie terminal messages that may have landed before
-      // the first connection or while EventSource was reconnecting. addMsg
-      // deduplicates the overlap with the normal initial backfill.
+      // The first open is already covered by the initial backfill below; only a
+      // *re*-connect needs recovery, because EventSource reconnects silently and
+      // anything she committed while the stream was down never arrived.
+      if (!everOpened) { everOpened = true; return; }
       fetch(apiPath('/api/history')).then((r) => r.json()).then((d) => {
         const history = d.messages || [];
-        for (const message of history) {
+        // Announce only what this page has not already rendered. Replaying the
+        // whole transcript on every reconnect — and re-dispatching a
+        // chat-history-message per entry to every listener — is duplicate work
+        // on a flaky link, not recovery. Computed before addMsg, which is what
+        // fills `seen`.
+        const missed = history.filter((m) => !m.id || !seen.has(m.id));
+        for (const message of missed) {
           window.dispatchEvent(new CustomEvent('chat-history-message', {
             detail: { type: 'message', ...message },
           }));
         }
-        if (backfilled) history.forEach(addMsg);
+        if (backfilled) missed.forEach(addMsg);
         else flushBackfill(history);
       }).catch(() => {});
     };

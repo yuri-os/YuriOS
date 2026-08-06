@@ -270,6 +270,18 @@ def test_browser_chat_controls_share_safe_defaults():
     assert "addPendingUser" in chat and "'received'" in chat
 
 
+def test_a_reconnect_recovers_only_what_the_page_missed():
+    """EventSource reconnects silently, so `onopen` fires again on a flaky link.
+    Re-fetching and re-announcing the whole transcript each time is duplicate
+    work, not recovery: the first open is already covered by the initial
+    backfill, and a reconnect only owes the page the messages it never saw."""
+    chat = (WEB / "js" / "chat.js").read_text()
+
+    assert "if (!everOpened) { everOpened = true; return; }" in chat
+    assert "const missed = history.filter((m) => !m.id || !seen.has(m.id));" in chat
+    assert "missed.forEach(addMsg)" in chat
+
+
 def test_shared_settings_panel_is_served(client):
     for name in ("settings.js", "settings.css"):
         assert (WEB / "shared" / name).exists(), f"web/shared/{name} missing"

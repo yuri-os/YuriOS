@@ -144,6 +144,7 @@ class VoiceStack:
                 return
             t0 = time.perf_counter()
             log.info("voice: warming up (loading local models — this is the slow part)…")
+            landed = False
             try:
                 self.tts, self.tts_name = self._stage(
                     "tts", "TTS", self.cfg.tts_backend, lambda: build_tts(self.cfg))
@@ -163,16 +164,31 @@ class VoiceStack:
                     except Exception:
                         log.exception("filler prime failed; masking disabled this run")
                         self.boot.done("fillers", state=FAILED, detail="prime failed")
+                landed = True
             finally:
                 # an earlier stage that raised leaves the later ones un-run; don't
                 # let them hang the boot panel — settle any that never resolved.
                 for key in self.boot.unresolved(self._keys()):
                     self.boot.done(key, state=FAILED, detail="not reached")
-                self._loaded = True
-                self.loads += 1
-                self.ready.set()               # never leave a connection hanging
-                log.info("voice: ready — she can hear and speak (%.1fs total)",
-                         time.perf_counter() - t0)
+                # Only a stack that actually built counts as loaded. Marking a
+                # failed warm `_loaded` made `acquire` short-circuit ever after,
+                # handing the next connection a stack whose tts/stt are None
+                # instead of retrying the build — a permanent mute from one bad
+                # warm. A failure resets to cold; the next listener tries again.
+                self._loaded = landed
+                if landed:
+                    self.loads += 1
+                    self.ready.set()           # never leave a connection hanging
+                    log.info("voice: ready — she can hear and speak (%.1fs total)",
+                             time.perf_counter() - t0)
+                else:
+                    self.tts = self.stt = self.vad = None
+                    self.filler_bank = None
+                    self.tts_name = self.stt_name = self.vad_name = UNLOADED
+                    self.ready.clear()
+                    log.error("voice: warm-up failed after %.1fs — she has no "
+                              "voice this connection; the next one retries",
+                              time.perf_counter() - t0)
 
     def unload(self) -> None:
         """Drop the weights. A no-op while anyone is still listening — the check

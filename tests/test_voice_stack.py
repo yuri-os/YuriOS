@@ -185,6 +185,69 @@ def test_boot_panel_says_on_demand_then_narrates_the_load(stack):
     assert states()["tts"] == ("skipped", UNLOADED)
 
 
+# ---- a warm that does not land ---------------------------------------------
+
+def test_a_failed_warm_stays_cold_and_is_retried(stack, monkeypatch):
+    """Marking a failed warm `loaded` made `acquire` short-circuit ever after,
+    so one bad build handed every later connection a stack whose tts is None —
+    a permanent mute from a transient failure."""
+    def boom(cfg):
+        raise RuntimeError("no espeak-ng")
+
+    monkeypatch.setattr(voicestack, "build_tts", boom)
+
+    async def scenario():
+        with pytest.raises(RuntimeError):
+            await stack.acquire()
+        assert stack.loaded is False           # cold, so the next one tries again
+        assert stack.ready.is_set() is False
+        assert stack.tts is stack.stt is stack.vad is None
+        assert stack.tts_name == UNLOADED
+
+        monkeypatch.undo()
+        await stack.acquire()
+        assert stack.loaded is True and stack.tts is not None
+        stack.release()
+        await settle(stack)
+
+    asyncio.run(scenario())
+
+
+def test_a_failed_warm_releases_the_listener_it_counted(stack, monkeypatch):
+    """`acquire` counts the listener before it warms anything, so the caller's
+    release has to cover the raise too. Leak one and `unload` returns early
+    forever — her weights pinned by a connection that never got into the room."""
+    monkeypatch.setattr(voicestack, "build_tts",
+                        lambda cfg: (_ for _ in ()).throw(RuntimeError("nope")))
+
+    async def scenario():
+        try:                                   # exactly what world/routes/voice_ws does
+            await stack.acquire()
+        except RuntimeError:
+            pass
+        finally:
+            stack.release()
+
+    asyncio.run(scenario())
+    assert stack.listeners == 0
+
+
+def test_the_socket_releases_a_listener_when_the_warm_raises(cfg, monkeypatch):
+    """…and through the real route, because the guard is the route's to get
+    right: the acquire has to sit inside the try that releases."""
+    monkeypatch.setattr(voicestack, "build_tts",
+                        lambda c: (_ for _ in ()).throw(RuntimeError("no espeak-ng")))
+    app = create_app(cfg, brain=FakeBrain())
+    with TestClient(app) as client:
+        rt = app.state.rt
+        with pytest.raises(Exception):
+            with client.websocket_connect("/ws/voice") as ws:
+                ws.send_json({"type": "hello"})
+                ws.receive_json()
+                ws.receive_json()
+        assert rt.voice.listeners == 0
+
+
 # ---- through the runtime and the socket ------------------------------------
 
 def test_runtime_holds_no_voice_until_a_client_opens_the_socket(cfg):

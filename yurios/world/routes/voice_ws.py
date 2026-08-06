@@ -124,12 +124,18 @@ async def voice(ws: WebSocket):
         # composer, and a cold stack is ~20 s of silence (web/js/voice.js).
         await safe_send({"type": "warming", "message": "loading her voice…"})
     await safe_send({"type": "session", "session_id": session_id})
-    await rt.voice.acquire()
-    # Always send the all-clear. A demand-driven client closes this socket while
-    # muted, and a later reconnect may find an already-warm stack without ever
-    # receiving the `warming` frame.
-    await safe_send({"type": "ready"})
+    # `acquire` counts this listener BEFORE it warms anything, so it belongs
+    # inside the release scope, not in front of it: a warm that raises would
+    # otherwise leave the count above zero for the life of the process, and
+    # `unload` returns early forever — her weights pinned by a connection that
+    # never actually got into the room. That is the exact leak the split below
+    # exists to prevent, so the guard has to start here.
     try:
+        await rt.voice.acquire()
+        # Always send the all-clear. A demand-driven client closes this socket
+        # while muted, and a later reconnect may find an already-warm stack
+        # without ever receiving the `warming` frame.
+        await safe_send({"type": "ready"})
         await _in_the_room(ws, rt, session_id, safe_send)
     finally:
         # every way out of the room — a clean close, a reload, a raise — puts the

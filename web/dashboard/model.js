@@ -108,15 +108,6 @@ export function formatRelativeTime(value, now = Date.now()) {
   return date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: date.getFullYear() === new Date(now).getFullYear() ? undefined : "numeric" });
 }
 
-function flattenJournal(payload) {
-  if (Array.isArray(payload)) return payload;
-  if (Array.isArray(payload?.entries)) return payload.entries;
-  if (Array.isArray(payload?.days)) {
-    return payload.days.flatMap((day) => (day.entries || []).map((entry) => ({ ...entry, day: entry.day || day.day })));
-  }
-  return [];
-}
-
 // The /log endpoint interleaves two raw row shapes with no shared vocabulary:
 // tick traces ({ts: ISO string, activity_state, decided: {intention}, acted: {what, result}})
 // and tool-call audits ({ts: epoch seconds, tool, verdict, result}). Neither has
@@ -199,24 +190,46 @@ function collapseRepeatedLogRows(items) {
   return collapsed;
 }
 
-export function normalizeDetailItems(kind, payload) {
-  const rows = kind === "journal"
-    ? flattenJournal(payload)
-    : (Array.isArray(payload) ? payload : payload?.entries ?? payload?.logs ?? payload?.events ?? payload?.items ?? []);
+export function normalizeDetailItems(payload) {
+  const rows = Array.isArray(payload) ? payload : payload?.entries ?? payload?.logs ?? payload?.events ?? payload?.items ?? [];
   if (!Array.isArray(rows)) return [];
   const items = rows.map((item, index) => {
-    if (typeof item === "string") return { id: `${kind}-${index}`, title: kind === "journal" ? "Journal entry" : "Event", body: item, time: "" };
+    if (typeof item === "string") return { id: `log-${index}`, title: "Event", body: item, time: "" };
     const row = item && typeof item === "object" ? item : {};
-    if (kind === "log") return normalizeLogRow(row, index);
-    return {
-      id: text(row.id, `${kind}-${index}`),
-      title: text(row.title ?? row.event ?? row.type ?? row.role, kind === "journal" ? "Journal entry" : "Event"),
-      body: text(row.body ?? row.content ?? row.message ?? row.text ?? row.detail),
-      time: text(row.timestamp ?? row.created_at ?? row.time ?? row.day),
-      tone: text(row.level ?? row.tone ?? row.role),
-    };
+    return normalizeLogRow(row, index);
   });
-  return kind === "log" ? collapseRepeatedLogRows(items) : items;
+  return collapseRepeatedLogRows(items);
+}
+
+export function normalizeJournalDays(payload) {
+  const days = Array.isArray(payload?.days) ? payload.days : [];
+  return {
+    days: days.map((row) => ({ day: text(row?.day), count: Number(row?.count) || 0 })),
+    page: Number(payload?.page) || 0,
+    hasMore: Boolean(payload?.has_more),
+    total: Number(payload?.total) || days.length,
+  };
+}
+
+export function normalizeJournalDay(payload) {
+  const entries = Array.isArray(payload?.entries) ? payload.entries : [];
+  return {
+    day: text(payload?.day),
+    entries: entries.map((row) => ({
+      time: text(row?.time),
+      hers: Boolean(row?.hers),
+      text: text(row?.text),
+    })),
+  };
+}
+
+// `day` is a plain "YYYY-MM-DD" — parsed with explicit y/m/d args (not
+// `new Date(day)`) so it lands on local midnight instead of UTC midnight,
+// which can otherwise print as the wrong calendar day near a timezone edge.
+export function formatDiaryDay(day, options) {
+  const [y, m, d] = text(day).split("-").map(Number);
+  if (!y || !m || !d) return text(day);
+  return new Date(y, m - 1, d).toLocaleDateString(undefined, options);
 }
 
 export function contextEntries(payload) {

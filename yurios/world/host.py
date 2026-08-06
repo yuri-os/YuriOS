@@ -34,6 +34,7 @@ from yurios.characters.exporter import ExportOptions, build_export, preview_expo
 from yurios.characters.optimize import CardOptimizeError, optimize_draft
 from yurios.characters.privacy import CardExportError
 from yurios.app.providers.catalog import provider_models
+from yurios.mind.journal import parse_day_entries
 
 from . import rewire
 from .config import Config
@@ -143,6 +144,9 @@ def _tail_jsonl(path: Path, limit: int = 100) -> list[dict[str, Any]]:
         if isinstance(value, dict):
             rows.append(value)
     return rows
+
+
+JOURNAL_PAGE_SIZE = 20  # diary days per page, newest first
 
 
 def _log_sort_key(row: dict[str, Any]) -> float:
@@ -1226,18 +1230,27 @@ def create_host_app(base: Config, registry: CharacterRegistry | None = None) -> 
         return {"character": host.summary(record)}
 
     @app.get("/api/characters/{character_id}/journal")
-    async def journal(character_id: str, days: int = 7):
-        rt = host.runtime(character_id)
-        if rt is None or rt.mind is None:
-            return {"days": []}
-        out = []
-        now = rt.clock.now()
-        for index in range(max(1, min(days, 30))):
-            day = datetime.datetime.fromtimestamp(now - index * 86400).strftime("%Y-%m-%d")
-            entries = rt.mind.journal.day_entries(day)
-            if entries:
-                out.append({"day": day, "entries": entries})
-        return {"days": out}
+    async def journal(character_id: str, page: int = 0, day: str | None = None):
+        """The diary index (paged 20 days at a time, newest day first) or,
+        with `day=YYYY-MM-DD`, that one day's entries newest-first. Reads the
+        episodic files straight off disk (like /log and /context-history) so
+        history is visible whether or not the mind loop is currently running."""
+        record = require(character_id)
+        episodic = Path(record.paths.vault) / "memory" / "episodic"
+        if day:
+            path = episodic / f"{day}.md"
+            text = path.read_text(encoding="utf-8") if path.is_file() else ""
+            entries = parse_day_entries(text)
+            entries.reverse()
+            return {"day": day, "entries": entries}
+        all_days = sorted((p.stem for p in episodic.glob("*.md")), reverse=True) if episodic.is_dir() else []
+        page = max(0, page)
+        start = page * JOURNAL_PAGE_SIZE
+        page_days = all_days[start:start + JOURNAL_PAGE_SIZE]
+        out = [{"day": d, "count": len(parse_day_entries((episodic / f"{d}.md").read_text(encoding="utf-8")))}
+               for d in page_days]
+        return {"days": out, "page": page,
+                "has_more": start + JOURNAL_PAGE_SIZE < len(all_days), "total": len(all_days)}
 
     @app.get("/api/characters/{character_id}/log")
     async def logs(character_id: str):

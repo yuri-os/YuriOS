@@ -31,6 +31,10 @@ export const charactersApi = Object.freeze({
   list: ({ signal } = {}) => request(ROOT, { signal }),
   detail: (id, section, { signal } = {}) => request(
     characterPath(id, section === "context" ? "/context-history" : `/${section}`), { signal }),
+  journalDays: (id, page = 0, { signal } = {}) => request(
+    characterPath(id, `/journal?page=${encodeURIComponent(page)}`), { signal }),
+  journalDay: (id, day, { signal } = {}) => request(
+    characterPath(id, `/journal?day=${encodeURIComponent(day)}`), { signal }),
   settings: (id, { signal } = {}) => request(characterPath(id, "/profile"), { signal }),
   setLoop: (id, enabled) => request(characterPath(id, "/loop"), {
     method: "PATCH",

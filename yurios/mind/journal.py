@@ -57,14 +57,21 @@ class Journal:
 
     def day_entries(self, day: str) -> list[dict]:
         """Parsed entries for one day — the /api/journal shape."""
-        out = []
-        for line in self.vault.read(f"memory/episodic/{day}.md").splitlines():
-            if not line.startswith("### "):
-                continue
-            body = line[4:]
-            hhmm, _, rest = body.partition("  ")
-            hers = rest.startswith("[she] ")
-            out.append({"time": hhmm.strip(),
-                        "hers": hers,
-                        "text": rest[6:] if hers else rest})
-        return out
+        return parse_day_entries(self.vault.read(f"memory/episodic/{day}.md"))
+
+
+def parse_day_entries(text: str) -> list[dict]:
+    """One episodic day file's `### HH:MM  ...` lines → the /api/journal shape.
+    Standalone (not a `Journal` method) so a reader without a running mind —
+    the fleet dashboard, chiefly — can parse a day file straight off disk."""
+    out = []
+    for line in text.splitlines():
+        if not line.startswith("### "):
+            continue
+        body = line[4:]
+        hhmm, _, rest = body.partition("  ")
+        hers = rest.startswith("[she] ")
+        out.append({"time": hhmm.strip(),
+                    "hers": hers,
+                    "text": rest[6:] if hers else rest})
+    return out

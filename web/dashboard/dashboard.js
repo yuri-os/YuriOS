@@ -2,11 +2,14 @@ import { charactersApi } from "./api.js";
 import {
   contextEntries,
   filterCharacters,
+  formatDiaryDay,
   formatRelativeTime,
   initials,
   normalizeCharacter,
   normalizeCharacters,
   normalizeDetailItems,
+  normalizeJournalDay,
+  normalizeJournalDays,
 } from "./model.js";
 
 const $ = (selector, root = document) => root.querySelector(selector);
@@ -54,6 +57,9 @@ const state = {
   // user was trying to open when it got in the way
   reviewId: null,
   pendingRoom: null,
+  // the diary's own place in the book: which day list page, or which day's
+  // page is open — reset whenever a different character's drawer opens
+  journal: { view: "days", page: 0, day: null },
 };
 
 function readView() {
@@ -298,6 +304,7 @@ function syncDrawer() {
 }
 
 function openDrawer(id) {
+  if (state.selectedId !== id) state.journal = { view: "days", page: 0, day: null };
   state.selectedId = id;
   elements.approveError.textContent = "";      // last character's start failure
   syncDrawer();
@@ -330,6 +337,7 @@ function detailCacheKey(id, tab) {
 }
 
 async function loadDetail(tab, force = false) {
+  if (tab === "journal") return loadJournal(force);
   const character = selectedCharacter();
   if (!character) return;
   const id = character.id;
@@ -355,6 +363,115 @@ async function loadDetail(tab, force = false) {
   }
 }
 
+const JOURNAL_ENTRY_CLAMP_CHARS = 260;
+
+function journalCacheKey(id) {
+  const { view, page, day } = state.journal;
+  return view === "day" ? `${id}:journal:day:${day}` : `${id}:journal:days:${page}`;
+}
+
+async function loadJournal(force = false) {
+  const character = selectedCharacter();
+  if (!character) return;
+  const id = character.id;
+  const key = journalCacheKey(id);
+  if (!force && state.detailCache.has(key)) {
+    renderJournal(state.detailCache.get(key));
+    return;
+  }
+  state.detailRequest?.abort();
+  state.detailRequest = new AbortController();
+  elements.detailContent.replaceChildren(element("div", { className: "detail-placeholder", text: "Loading journal..." }));
+  try {
+    const { view, page, day } = state.journal;
+    const payload = view === "day"
+      ? await charactersApi.journalDay(id, day, { signal: state.detailRequest.signal })
+      : await charactersApi.journalDays(id, page, { signal: state.detailRequest.signal });
+    if (state.selectedId !== id || state.tab !== "journal") return;
+    state.detailCache.set(key, payload);
+    renderJournal(payload);
+  } catch (error) {
+    if (error.name === "AbortError") return;
+    const retry = element("button", { className: "detail-retry", text: "Try again", attrs: { type: "button" } });
+    retry.addEventListener("click", () => loadJournal(true));
+    elements.detailContent.replaceChildren(element("div", { className: "detail-error" },
+      document.createTextNode(errorMessage(error)), element("br"), retry));
+  }
+}
+
+function renderJournal(payload) {
+  if (state.journal.view === "day") renderJournalDay(payload);
+  else renderJournalDays(payload);
+}
+
+function renderJournalDays(payload) {
+  const { days, page, hasMore, total } = normalizeJournalDays(payload);
+  if (!days.length) {
+    elements.detailContent.replaceChildren(element("div", { className: "detail-placeholder", text: "No journal entries yet." }));
+    return;
+  }
+  const list = element("ol", { className: "diary-days" }, ...days.map((entry) =>
+    element("li", {},
+      element("button", { className: "diary-day-row", attrs: { type: "button", "data-open-day": entry.day } },
+        element("span", { className: "diary-day-date", text: formatDiaryDay(entry.day, { weekday: "short", day: "numeric", month: "short", year: "numeric" }) }),
+        element("span", { className: "diary-day-count", text: `${entry.count} ${entry.count === 1 ? "entry" : "entries"}` })))));
+  const totalPages = Math.max(1, Math.ceil(total / 20));
+  const pagerButton = (label, targetPage, disabled) => element("button", {
+    className: "button button-quiet", text: label,
+    attrs: { type: "button", "data-journal-page": String(targetPage), ...(disabled ? { disabled: "disabled" } : {}) },
+  });
+  const pager = element("div", { className: "diary-pager" },
+    pagerButton("Newer", page - 1, page === 0),
+    element("span", { className: "diary-pager-status", text: `Page ${page + 1} of ${totalPages}` }),
+    pagerButton("Older", page + 1, !hasMore));
+  elements.detailContent.replaceChildren(list, pager);
+}
+
+function diaryEntryRow(entry) {
+  const clamp = entry.text.length > JOURNAL_ENTRY_CLAMP_CHARS;
+  const textNode = element("p", { className: `diary-entry-text${clamp ? " clamped" : ""}`, text: entry.text });
+  const children = [element("time", { text: entry.time }), textNode];
+  if (clamp) children.push(element("button", {
+    className: "diary-more", text: "Show more", attrs: { type: "button", "data-toggle-entry": "" },
+  }));
+  return element("li", { className: `diary-entry${entry.hers ? " diary-entry-hers" : ""}` }, ...children);
+}
+
+function renderJournalDay(payload) {
+  const { day, entries } = normalizeJournalDay(payload);
+  const header = element("div", { className: "diary-day-head" },
+    element("button", { className: "button button-quiet", text: "← All days", attrs: { type: "button", "data-journal-back": "" } }),
+    element("h3", { className: "diary-day-title", text: formatDiaryDay(day, { weekday: "long", day: "numeric", month: "long", year: "numeric" }) }));
+  if (!entries.length) {
+    elements.detailContent.replaceChildren(header, element("div", { className: "detail-placeholder", text: "No entries this day." }));
+    return;
+  }
+  const list = element("ol", { className: "diary-entries" }, ...entries.map(diaryEntryRow));
+  elements.detailContent.replaceChildren(header, list);
+}
+
+function toggleDiaryEntry(button) {
+  const paragraph = button.previousElementSibling;
+  const expanded = paragraph.classList.toggle("expanded");
+  button.textContent = expanded ? "Show less" : "Show more";
+}
+
+function openJournalDay(day) {
+  state.journal = { view: "day", page: state.journal.page, day };
+  loadJournal();
+}
+
+function backToJournalDays() {
+  state.journal = { view: "days", page: state.journal.page, day: null };
+  loadJournal();
+}
+
+function changeJournalPage(page) {
+  if (page < 0) return;
+  state.journal = { view: "days", page, day: null };
+  loadJournal();
+}
+
 function renderDetail(tab, payload) {
   if (tab === "context") {
     const entries = contextEntries(payload);
@@ -369,7 +486,7 @@ function renderDetail(tab, payload) {
     elements.detailContent.replaceChildren(contextChart(history), list);
     return;
   }
-  const items = normalizeDetailItems(tab, payload);
+  const items = normalizeDetailItems(payload);
   if (!items.length) {
     elements.detailContent.replaceChildren(element("div", { className: "detail-placeholder", text: `No ${tab} entries yet.` }));
     return;
@@ -628,6 +745,15 @@ function wireEvents() {
   $("#detail-tabs").addEventListener("click", (event) => {
     const tab = event.target.closest("[data-tab]")?.dataset.tab;
     if (tab) selectTab(tab);
+  });
+  elements.detailContent.addEventListener("click", (event) => {
+    const dayButton = event.target.closest("[data-open-day]");
+    if (dayButton) return openJournalDay(dayButton.dataset.openDay);
+    const pageButton = event.target.closest("[data-journal-page]");
+    if (pageButton) return changeJournalPage(Number(pageButton.dataset.journalPage));
+    if (event.target.closest("[data-journal-back]")) return backToJournalDays();
+    const moreButton = event.target.closest("[data-toggle-entry]");
+    if (moreButton) toggleDiaryEntry(moreButton);
   });
   $$(".import-open").forEach((button) => button.addEventListener("click", () => {
     $("#import-error").textContent = "";

@@ -70,6 +70,18 @@ function clock(value) {
   return Number.isFinite(ms) ? new Date(ms).toLocaleString() : String(value ?? "—");
 }
 
+/** "Aug 7, 4:42:25 AM – 4:43:21 AM" for a collapsed stretch. Drops the date on
+ *  the far edge when both ends fall on the same day. */
+function clockRange(from, to) {
+  if (to == null || to === from) return clock(from);
+  const at = (v) => new Date(typeof v === "number" ? v * 1000 : Date.parse(v));
+  const [start, end] = [at(from), at(to)];
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return clock(from);
+  const far = start.toDateString() === end.toDateString()
+    ? end.toLocaleTimeString() : end.toLocaleString();
+  return `${clock(from)} – ${far}`;
+}
+
 const bytes = (n) => {
   if (!n) return "0 B";
   const units = ["B", "KB", "MB", "GB"];
@@ -309,6 +321,45 @@ async function renderTimeline(ctx) {
 
 // --- ticks
 
+/** A tick fires every few seconds, so an idle stretch is dozens of identical
+ *  "REST / ENGAGED / rest" lines. Fold consecutive ticks whose whole summary
+ *  matches into one row spanning the stretch; it still opens the newest tick
+ *  in its range, and anything that differed stays its own row. */
+function summariseTick(tick) {
+  const acted = tick.acted || {};
+  return {
+    tick_id: tick.tick_id,
+    ts: tick.ts,
+    until: tick.ts,
+    count: 1,
+    title: tick.decided?.intention || "REST",
+    activity: tick.activity_state || "?",
+    outcome: (tick.interrupt || {}).outcome || "",
+    failed: acted.what === "error",
+    body: [acted.result,
+      (tick.sensed || []).length ? `${tick.sensed.length} sensed` : null,
+      (tick.appraised || []).length ? `${tick.appraised.length} appraised` : null]
+      .filter(Boolean).join(" · ") || "nothing to do",
+  };
+}
+
+const TICK_SAME = ["title", "activity", "outcome", "failed", "body"];
+
+function collapseTicks(items) {
+  const collapsed = [];
+  for (const tick of items) {
+    const row = summariseTick(tick);
+    const last = collapsed[collapsed.length - 1];
+    if (last && TICK_SAME.every((key) => last[key] === row[key])) {
+      last.count += 1;
+      last.until = row.ts;   // items arrive newest-first, so this is the older edge
+    } else {
+      collapsed.push(row);
+    }
+  }
+  return collapsed;
+}
+
 async function renderTicks(ctx) {
   const data = await debugApi.ticks(ctx.page, { state: ctx.state, q: ctx.q });
   const wrap = element("div", { className: "stage-body" });
@@ -328,20 +379,17 @@ async function renderTicks(ctx) {
 
   wrap.append(element("div", { className: "filters" }, stateSelect, search));
 
-  const list = rows(data.items || [], (tick) => {
-    const acted = tick.acted || {};
+  const list = rows(collapseTicks(data.items || []), (row) => {
     const node = element("div", { className: "row clickable" },
       element("div", { className: "row-top" },
-        element("span", { className: "row-title", text: tick.decided?.intention || "REST" }),
-        chip(tick.activity_state || "?"),
-        (tick.interrupt || {}).outcome ? chip(tick.interrupt.outcome, "accent") : null,
-        acted.what === "error" ? chip("error", "bad") : null,
-        element("span", { className: "row-time", text: clock(tick.ts) })),
-      element("div", { className: "row-body", text:
-        [acted.result, (tick.sensed || []).length ? `${tick.sensed.length} sensed` : null,
-          (tick.appraised || []).length ? `${tick.appraised.length} appraised` : null]
-          .filter(Boolean).join(" · ") || "nothing to do" }));
-    node.addEventListener("click", () => go(`#/ticks/detail/${encodeURIComponent(tick.tick_id)}`));
+        element("span", { className: "row-title", text: row.title }),
+        chip(row.activity),
+        row.count > 1 ? chip(`×${row.count}`) : null,
+        row.outcome ? chip(row.outcome, "accent") : null,
+        row.failed ? chip("error", "bad") : null,
+        element("span", { className: "row-time", text: clockRange(row.until, row.ts) })),
+      element("div", { className: "row-body", text: row.body }));
+    node.addEventListener("click", () => go(`#/ticks/detail/${encodeURIComponent(row.tick_id)}`));
     return node;
   });
 

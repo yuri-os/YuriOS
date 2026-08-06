@@ -374,6 +374,13 @@ class SelfieLab:
             path = Path(self.forge.out_dir) / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(result.data)
+            # Carry the turn's identity into the ledger. A render finishes long
+            # after the sentence that asked for it, so without these the only
+            # way back to "who wanted this photo, and why" is the clock.
+            if c.get("_corr_id"):
+                result.meta["corr_id"] = c["_corr_id"]
+            if c.get("id"):
+                result.meta["selfie_id"] = str(c["id"])
             self.forge._write_provenance(path, result.meta)   # the ledger (→ ch. 26)
         except Exception as e:                 # render failed: say so, quietly
             failed = True

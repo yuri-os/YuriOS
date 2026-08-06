@@ -17,7 +17,7 @@ from pathlib import Path
 
 from yurios.world.clock import Clock
 
-from .util import dt_of, read_json, write_json
+from .util import dt_of, iso_of, jsonl_append, read_json, write_json
 
 ENGAGED, IDLE, DORMANT, DREAM = "ENGAGED", "IDLE", "DORMANT", "DREAM"
 
@@ -25,42 +25,69 @@ ENGAGED, IDLE, DORMANT, DREAM = "ENGAGED", "IDLE", "DORMANT", "DREAM"
 class ActivityController:
     """SPEC §17.1: the state ladder, persisted so a restart resumes in place."""
 
-    def __init__(self, state_dir: Path, clock: Clock, cfg):
+    def __init__(self, state_dir: Path, clock: Clock, cfg,
+                 trace_dir: Path | None = None):
         self.clock = clock
         self.cfg = cfg
         self.path = state_dir / "activity.json"
         st = read_json(self.path, None) or {}
         self.state: str = st.get("state", IDLE)
         self.last_user_msg: float | None = st.get("last_user_msg")
+        # `activity.json` answers "where is she now"; this answers "where has she
+        # been", which is the question the debug page asks. It is a separate file
+        # because the snapshot is rewritten every tick and a log must not be.
+        self.log_path = (Path(trace_dir) / "activity.jsonl") if trace_dir else None
+        self._logged = self.state       # a restart in place is not a transition
+        if self.log_path is not None and not self.log_path.exists():
+            self._append(None, "boot")  # the timeline always has an origin point
 
-    def _persist(self) -> None:
+    def _append(self, previous: str | None, reason: str) -> None:
+        if self.log_path is None:
+            return
+        jsonl_append(self.log_path, {
+            "ts": iso_of(self.clock.now()), "at": self.clock.now(),
+            "from": previous, "to": self.state, "reason": reason,
+            "cadence_s": self.cadence(), "last_user_msg": self.last_user_msg,
+        }, max_bytes=getattr(self.cfg, "mind_activity_log_max_bytes", None))
+
+    def _persist(self, *, reason: str = "tick") -> None:
         write_json(self.path, {"state": self.state,
                                "cadence_s": self.cadence(),
                                "last_user_msg": self.last_user_msg})
+        # The snapshot above is rewritten on every tick; the log below is
+        # appended only when the ladder actually moved, or the timeline would be
+        # one row per heartbeat and say nothing.
+        if self.state == self._logged:
+            return
+        previous, self._logged = self._logged, self.state
+        self._append(previous, reason)
 
     def preempt_engaged(self) -> None:
         """A user turn, from ANY state, mid-tick if necessary (SPEC §17.2)."""
         self.state = ENGAGED
         self.last_user_msg = self.clock.now()
-        self._persist()
+        self._persist(reason="user_turn")
 
     def update(self, *, dream_backlog: bool, budget_pressure: float) -> str:
         """REGULATE's half: drift down the cost ladder (SPEC §17.1)."""
         now = self.clock.now()
         since_msg = (now - self.last_user_msg) if self.last_user_msg else float("inf")
 
+        # Each rung names why it fired. The cascade falls through, so the last
+        # one to fire is the one that decided where she ended up.
+        reason = "tick"
         if self.state == ENGAGED and since_msg > self.cfg.mind_engaged_timeout_s:
-            self.state = IDLE
+            self.state, reason = IDLE, "engaged_timeout"
         if self.state == IDLE and since_msg > self.cfg.mind_idle_timeout_s:
-            self.state = DORMANT
+            self.state, reason = DORMANT, "idle_timeout"
         if self.state == DORMANT and dream_backlog and self._in_dream_window(now):
-            self.state = DREAM
+            self.state, reason = DREAM, "dream_window"
         if self.state == DREAM and not dream_backlog:
-            self.state = DORMANT
+            self.state, reason = DORMANT, "dream_done"
         # budget pressure sheds the expensive states (SPEC §17.3 → REGULATE)
         if budget_pressure >= 1.0 and self.state == IDLE:
-            self.state = DORMANT
-        self._persist()
+            self.state, reason = DORMANT, "budget_pressure"
+        self._persist(reason=reason)
         return self.state
 
     def _in_dream_window(self, now: float) -> bool:

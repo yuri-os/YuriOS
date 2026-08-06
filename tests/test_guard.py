@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 
+from yurios.world import correlate
 from yurios.world.tools.guard import RESULT_MAX_CHARS, Guard
 
 
@@ -75,3 +76,79 @@ def test_audit_writes_one_jsonl_line_per_call_allowed_or_denied(guard, cfg):
     assert lines[0]["tool"] == "set_timer" and lines[0]["verdict"] == "ok"
     assert lines[0]["duration_ms"] == 12.3
     assert lines[1]["verdict"].startswith("denied")
+
+
+# --- who asked (world/correlate.py) -------------------------------------------
+
+def audit_lines(cfg):
+    return [json.loads(l) for l in
+            (cfg.tool_log_dir / "calls.jsonl").read_text().splitlines()]
+
+
+def test_a_call_made_inside_a_turn_carries_the_turn(guard, cfg):
+    with correlate.scope(kind=correlate.CHAT_TURN, session_id="s-1",
+                         turn_index=7) as origin:
+        guard.audit("set_timer", {"minutes": 10}, "ok", 1.0, "{}")
+    line = audit_lines(cfg)[0]
+    assert line["corr_id"] == origin.corr_id
+    assert (line["origin"], line["session_id"], line["turn_index"]) \
+        == ("chat_turn", "s-1", 7)
+
+
+def test_a_call_the_mind_made_for_itself_still_writes_a_whole_line(guard, cfg):
+    """No turn is in scope for most of what she does. That is the ordinary
+    case, so it must produce the same shape — nulls, not missing keys."""
+    guard.audit("get_weather", {}, "ok", 1.0, "{}")
+    line = audit_lines(cfg)[0]
+    assert line["origin"] == "host"
+    assert all(line[k] is None for k in
+               ("corr_id", "session_id", "turn_index", "tick_id"))
+
+
+def test_a_tick_stamps_every_call_it_causes(guard, cfg):
+    with correlate.scope(kind=correlate.TICK, tick_id="t-abc") as tick:
+        with correlate.scope(kind=correlate.DREAM):     # nested: refines, not restarts
+            guard.audit("get_weather", {}, "ok", 1.0, "{}")
+    line = audit_lines(cfg)[0]
+    assert line["tick_id"] == "t-abc"
+    assert line["origin"] == "dream"
+    assert line["corr_id"] == tick.corr_id, "one unit of work, one join key"
+
+
+def test_every_call_gets_its_own_id(guard, cfg):
+    guard.audit("set_timer", {}, "ok", 1.0, "{}")
+    guard.audit("set_timer", {}, "ok", 1.0, "{}")
+    ids = [l["call_id"] for l in audit_lines(cfg)]
+    assert len(set(ids)) == 2 and all(i.startswith("call-") for i in ids)
+
+
+def test_the_scope_does_not_leak_out_of_the_turn(guard, cfg):
+    with correlate.scope(kind=correlate.CHAT_TURN):
+        guard.audit("set_timer", {}, "ok", 1.0, "{}")
+    guard.audit("set_timer", {}, "ok", 1.0, "{}")
+    inside, outside = audit_lines(cfg)
+    assert inside["corr_id"] is not None
+    assert outside["corr_id"] is None
+
+
+def test_the_audit_rotates_so_it_cannot_grow_forever(clock, cfg):
+    """calls.jsonl had no rotation at all — an always-on mind writes to it for
+    as long as she is alive."""
+    guard = Guard(rates_per_min={"set_timer": 6}, log_dir=cfg.tool_log_dir,
+                  clock=clock, max_bytes=2_000)
+    for _ in range(60):
+        guard.audit("set_timer", {"pad": "x" * 100}, "ok", 1.0, "{}")
+    live = cfg.tool_log_dir / "calls.jsonl"
+    rolled = cfg.tool_log_dir / "calls.jsonl.1"
+    assert rolled.is_file()
+    # `live` may not exist at all: a roll renames it away and the next append
+    # recreates it. What must hold is that the pair stays bounded — one
+    # generation each side of the cap, never sixty calls' worth of history.
+    footprint = sum(p.stat().st_size for p in (live, rolled) if p.exists())
+    assert footprint < 2 * 2_000
+
+
+def test_an_unwritable_log_never_breaks_the_turn_it_observes(guard, cfg, monkeypatch):
+    monkeypatch.setattr("yurios.world.tools.guard.jsonl_append",
+                        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("disk full")))
+    guard.audit("set_timer", {}, "ok", 1.0, "{}")      # must not raise

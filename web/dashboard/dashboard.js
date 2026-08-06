@@ -1,3 +1,4 @@
+import { $, $$, element, errorMessage, setBusy, showToast } from "../shared/dom.js";
 import { charactersApi } from "./api.js";
 import {
   contextEntries,
@@ -11,9 +12,6 @@ import {
   normalizeJournalDay,
   normalizeJournalDays,
 } from "./model.js";
-
-const $ = (selector, root = document) => root.querySelector(selector);
-const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 
 const elements = {
   grid: $("#character-grid"),
@@ -67,15 +65,6 @@ function readView() {
   catch { return "grid"; }
 }
 
-function element(tag, options = {}, ...children) {
-  const node = document.createElement(tag);
-  if (options.className) node.className = options.className;
-  if (options.text != null) node.textContent = options.text;
-  if (options.attrs) for (const [key, value] of Object.entries(options.attrs)) node.setAttribute(key, value);
-  for (const child of children.flat()) if (child != null) node.append(child);
-  return node;
-}
-
 function icon(name) {
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
@@ -84,26 +73,8 @@ function icon(name) {
   return svg;
 }
 
-function setBusy(button, busy, busyLabel) {
-  // Swap the label, not the button: one with an icon keeps it (textContent on
-  // the button itself would take the <svg> out with the words and never put it back).
-  const slot = $("span", button) || button;
-  if (!slot.dataset.label) slot.dataset.label = slot.textContent;
-  button.disabled = busy;
-  slot.textContent = busy ? busyLabel : slot.dataset.label;
-}
-
-function errorMessage(error) {
-  if (error?.name === "AbortError") return "";
-  if (error?.status === 404) return "This endpoint is not available on the current YuriOS node.";
-  return error?.message || "The node did not complete the request.";
-}
-
-function toast(message, type = "success") {
-  const node = element("div", { className: `toast ${type}`, text: message });
-  elements.toastRegion.append(node);
-  setTimeout(() => node.remove(), 4200);
-}
+// this page's toast region, bound once so the ~30 call sites below stay as they were
+const toast = (message, type = "success") => showToast(elements.toastRegion, message, type);
 
 function portrait(character, className = "portrait") {
   const node = element("span", { className, attrs: { "aria-hidden": "true" } });
@@ -133,7 +104,12 @@ function portrait(character, className = "portrait") {
  * shared/runtime.js reads to aim the API and socket calls. */
 function rooms(character) {
   const base = `/characters/${encodeURIComponent(character.id)}`;
-  return { sanctuary: `${base}/sanctuary/`, live2d: `${base}/live2d`, text: `${base}/text/` };
+  return {
+    sanctuary: `${base}/sanctuary/`, live2d: `${base}/live2d`, text: `${base}/text/`,
+    // …and the one way in that is not a room: the debug page, which reads her
+    // files rather than talking to her (SPEC §24.3).
+    mind: `${base}/mind`,
+  };
 }
 
 function statusChip(character) {
@@ -180,9 +156,15 @@ function characterCard(character) {
     className: "card-way",
     attrs: { href, title: label, "aria-label": `${label} — ${character.name}` },
   }, icon(name));
+  // The mind page is not a room and carries `data-no-gate`: it reads her files
+  // rather than talking to her, so it works on a parked character — who is
+  // precisely the one you want to look inside before deciding about her.
+  const debug = way("mind", "Mind debug", rooms(character).mind);
+  debug.setAttribute("data-no-gate", "");
   const ways = element("div", { className: "card-ways" }, enter,
     way("live2d", "Live2D body", rooms(character).live2d),
-    way("text", "Text only", rooms(character).text));
+    way("text", "Text only", rooms(character).text),
+    debug);
   const controls = element("div", { className: "loop-stack" },
     loopLabel("mind", "Mind"), loopLabel("utility", "Utility"), loopLabel("dream", "Dream"));
   const footer = element("div", { className: "card-footer" }, controls, ways, details);
@@ -689,6 +671,8 @@ async function approveCharacter(id, { button, errorSlot, goTo = null } = {}) {
  * with 4404; the door asks instead. Returns whether the click was swallowed. */
 function guardRoom(event, character, href) {
   if (!character?.reviewRequired) return false;
+  // …except the debug page, which is not a room (see characterCard).
+  if (event.target.closest("[data-no-gate]")) return false;
   event.preventDefault();
   state.reviewId = character.id;
   state.pendingRoom = href;
@@ -732,7 +716,8 @@ function wireEvents() {
     const id = card?.dataset.characterId;
     if (!id) return;
     if (event.target.closest('[data-action="details"]')) return openDrawer(id);
-    // Enter / Live2D / Text on the card itself — the same three doors as the drawer's.
+    // Enter / Live2D / Text on the card itself — the same three doors as the
+    // drawer's. The mind link rides along but opts out of the gate.
     const link = event.target.closest("a[href]");
     if (link) guardRoom(event, state.characters.find((item) => item.id === id), link.href);
   });

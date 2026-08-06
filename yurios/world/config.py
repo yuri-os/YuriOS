@@ -112,6 +112,15 @@ class Config(VoiceConfig):
     mind_daily_tokens: int = 200_000            # the budget governor's cap (§17.3)
     mind_dream_tick_tokens: int = 40000         # per-DREAM-tick consolidation budget (§21)
     mind_trace_max_bytes: int = 2_000_000       # ticks.jsonl rotates to .1 past this size
+    # The rest of the observability sinks, all rotating the same way (to `.1`,
+    # one generation, then gone). An always-on mind writes to these forever, so
+    # a cap is not tidiness — it is the difference between a log and a leak.
+    tool_log_max_bytes: int = 2_000_000         # tool-logs/calls.jsonl
+    mind_signal_max_bytes: int = 2_000_000      # traces/signals.jsonl
+    mind_activity_log_max_bytes: int = 512_000  # traces/activity.jsonl (tiny records)
+    mind_prompt_log_max_bytes: int = 32_000_000  # traces/prompts.jsonl (whole prompts)
+    mind_prompt_capture: bool = True            # off = no assembled prompts on disk
+    mind_prompt_max_chars: int = 200_000        # per-message cap inside a prompt record
 
     # activity-state cadences + drift timeouts (§17.1)
     mind_engaged_cadence_s: float = 2.0

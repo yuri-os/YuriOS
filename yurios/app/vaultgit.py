@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import subprocess
 import tempfile
 from pathlib import Path
@@ -24,6 +25,7 @@ memory/index/
 # is durable and stays versioned.
 state/engine.json
 state/activity.json
+state/activity.jsonl
 """
 
 
@@ -146,3 +148,154 @@ def log(vault: Path, n: int = 20) -> list[str]:
     """Last n commit subjects — the diary of how she grew (§4.2)."""
     result = _git(vault, "log", f"-{n}", "--pretty=%h %s")
     return result.stdout.strip().splitlines() if result.returncode == 0 else []
+
+
+# --- reading the diary back (the mind debug page, SPEC §24.3) -----------------
+# One commit per dirty tick and one per turn means `git log` *is* the record of
+# every durable change she ever made. These read it structurally so a page can
+# show "what changed in USER.md, and when" instead of a list of subject lines.
+
+#: A commit-ish that may be handed to git. Checked before it reaches argv, so a
+#: value shaped like a flag can never be read as one.
+SHA = re.compile(r"^[0-9a-fA-F]{4,40}$")
+
+_RS, _US = "\x1e", "\x1f"           # record / field separators, absent from git output
+_FORMAT = f"{_RS}%H{_US}%h{_US}%at{_US}%an{_US}%s"
+
+
+def is_rev(value: str) -> bool:
+    """Is this something we are willing to pass to git as a revision?"""
+    return bool(value) and (value == "HEAD" or bool(SHA.match(value)))
+
+
+def in_vault(vault: Path, rel: str) -> Path | None:
+    """Resolve a caller-supplied path inside the Vault, or None if it escapes.
+    The Vault is the jail; `..` and absolute paths are refusals, not surprises
+    (the same rule MindVault._check enforces on the write side)."""
+    root = Path(vault).resolve()
+    try:
+        target = (root / (rel or "")).resolve()
+    except OSError:
+        return None
+    if target != root and root not in target.parents:
+        return None
+    if ".git" in target.relative_to(root).parts:
+        return None                      # the plumbing is not part of her mind
+    return target
+
+
+def _parse_log(out: str) -> list[dict]:
+    records = []
+    for chunk in out.split(_RS):
+        head, _, body = chunk.partition("\n")
+        if not head.strip():
+            continue
+        parts = head.split(_US, 4)
+        if len(parts) != 5:
+            continue
+        sha, short, at, author, subject = parts
+        files, insertions, deletions = [], 0, 0
+        for line in body.splitlines():
+            cols = line.split("\t")
+            if len(cols) != 3:
+                continue
+            added, removed, path = cols
+            # a binary file reports "-" for both, which is a fact worth showing
+            a = int(added) if added.isdigit() else None
+            d = int(removed) if removed.isdigit() else None
+            insertions += a or 0
+            deletions += d or 0
+            files.append({"path": path, "insertions": a, "deletions": d,
+                          "binary": a is None})
+        records.append({"sha": sha, "short": short, "at": int(at or 0),
+                        "author": author, "subject": subject, "files": files,
+                        "insertions": insertions, "deletions": deletions})
+    return records
+
+
+def log_records(vault: Path, *, skip: int = 0, limit: int = 25,
+                rev: str | None = None, path: str | None = None) -> list[dict]:
+    """Structured commits, newest first, with per-file line counts."""
+    args = ["log", f"--skip={max(0, skip)}", f"-{max(1, limit)}",
+            "--no-color", f"--pretty=format:{_FORMAT}", "--numstat"]
+    if rev:
+        args.append(rev)
+    if path:
+        args += ["--follow", "--", path]
+    result = _git(vault, *args)
+    return _parse_log(result.stdout) if result.returncode == 0 else []
+
+
+def count_commits(vault: Path, *, path: str | None = None) -> int:
+    args = ["rev-list", "--count", "HEAD"]
+    if path:
+        args += ["--", path]
+    result = _git(vault, *args)
+    try:
+        return int(result.stdout.strip())
+    except ValueError:
+        return 0
+
+
+def show(vault: Path, sha: str, *, max_bytes: int = 400_000) -> dict | None:
+    """One commit: its metadata, its per-file counts, and its patch.
+
+    The patch is capped because a knowledge drop commits the extracted text of
+    whatever you handed her, and a page should not have to render a megabyte of
+    it to tell you that is what happened. The counts come back either way, so
+    the caller can say how much it is not showing."""
+    if not is_rev(sha):
+        return None
+    records = log_records(vault, limit=1, rev=sha)
+    if not records:
+        return None
+    patch = _git(vault, "show", "--no-color", "-M", "--format=", "--patch", sha, "--")
+    diff = patch.stdout if patch.returncode == 0 else ""
+    truncated = len(diff) > max_bytes
+    return {**records[0], "diff": diff[:max_bytes], "truncated": truncated}
+
+
+def read_at(vault: Path, rel: str, *, rev: str | None = None,
+            max_bytes: int = 512_000) -> dict | None:
+    """One file, as it is now (`rev=None`) or as it was at a commit.
+
+    Reads the working tree rather than the index when no revision is asked for,
+    because the interesting files — `state/*.json`, the recall index — are
+    gitignored on purpose and would otherwise be invisible."""
+    if rev is not None and not is_rev(rev):
+        return None
+    if rev is None:
+        target = in_vault(vault, rel)
+        if target is None or not target.is_file():
+            return None
+        raw = target.read_text(encoding="utf-8", errors="replace")
+    else:
+        if in_vault(vault, rel) is None:
+            return None
+        result = _git(vault, "show", f"{rev}:{rel}")
+        if result.returncode != 0:
+            return None
+        raw = result.stdout
+    return {"path": rel, "rev": rev, "text": raw[:max_bytes],
+            "truncated": len(raw) > max_bytes, "bytes": len(raw)}
+
+
+def tree(vault: Path, rel: str = "") -> list[dict] | None:
+    """One directory of the Vault. Walks the filesystem, not the index, so the
+    gitignored working state (`state/activity.json`, the chunk db) is listed —
+    on a debug page those are exactly what you came to look at."""
+    target = in_vault(vault, rel)
+    if target is None or not target.is_dir():
+        return None
+    root = Path(vault).resolve()
+    out = []
+    for child in sorted(target.iterdir(), key=lambda p: (p.is_file(), p.name)):
+        if child.name == ".git":
+            continue
+        stat = child.stat()
+        out.append({"name": child.name,
+                    "path": str(child.relative_to(root)),
+                    "dir": child.is_dir(),
+                    "bytes": stat.st_size if child.is_file() else None,
+                    "mtime": stat.st_mtime})
+    return out

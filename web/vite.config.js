@@ -34,6 +34,12 @@ export default defineConfig({
         // Selects its character by query parameter, so one entry covers both
         // "create" and "edit" without a route that would shadow the mount.
         studio: resolve(import.meta.dirname, 'studio/index.html'),
+        // the mind debug page (SPEC §24.3): the activity timeline, the tick
+        // traces, every context window she was given, her hands, and the Vault's
+        // own history. Character-scoped by path like the rooms, so
+        // shared/runtime.js aims its calls; its own entry because none of the
+        // room's rendering belongs on a page that only reads files.
+        mind: resolve(import.meta.dirname, 'mind/index.html'),
       },
     },
   },

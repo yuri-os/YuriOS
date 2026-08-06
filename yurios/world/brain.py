@@ -27,13 +27,12 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from contextlib import contextmanager
-from contextvars import ContextVar
 from typing import AsyncIterator, Optional
 
 from yurios.desktop.brain import BrainAdapter
 from yurios.desktop.config import Config
 
+from . import correlate
 from .avatar.controller import VrmController
 from .situation import render_situation
 from .tools.client import ToolRunner, ToolSpec, build_directive
@@ -61,8 +60,6 @@ class ToolBrain(BrainAdapter):
         # model-verbatim record per session (markers + results), for persist():
         # the corpus should see what the model actually did, not the cleaned speech
         self._raw: dict[str, str] = {}
-        self._request_context: ContextVar[dict] = ContextVar(
-            "toolbrain_request_context", default={})
 
     @classmethod
     def build(cls, cfg, *, guard: Guard, timers: TimerBoard,
@@ -87,16 +84,17 @@ class ToolBrain(BrainAdapter):
         fills it stops being a rendering and becomes the store's situation()."""
         self.world = world
 
-    @contextmanager
-    def turn_context(self, *, channel: str, client_id: str | None = None):
-        """Attach transport identity to asynchronous tools started by this turn."""
-        token = self._request_context.set({
-            "channel": channel, "client_id": client_id,
-        })
-        try:
-            yield
-        finally:
-            self._request_context.reset(token)
+    def turn_context(self, *, channel: str, client_id: str | None = None,
+                     session_id: str | None = None):
+        """Open the turn as a unit of work (world/correlate.py).
+
+        Transport identity for tools started by this turn — which is what this
+        used to carry alone — is now one part of an `Origin` that the tool audit
+        and the prompt log stamp too, so a photo that arrives minutes later is
+        still joinable to the sentence that asked for it.
+        """
+        return correlate.scope(kind=correlate.CHAT_TURN, channel=channel,
+                               client_id=client_id, session_id=session_id)
 
     # -- prompt assembly: the blocks + the situation (SPEC §19.2) ------
     def _assemble(self, session_id: str, text: str, *, window: list[dict],
@@ -161,10 +159,26 @@ class ToolBrain(BrainAdapter):
         """Self-talk / timer announcements. Self-contained like stream_greeting
         (B2 §7): window=[], the cue never enters the transcript, never persisted."""
         _soul, prompt = self._assemble(session_id, cue, window=[], lore=[])
-        async for token in self.state.chat.stream(
-                prompt.messages, temperature=self.cfg.temperature,
-                max_tokens=self.cfg.max_reply_tokens):
-            yield token
+        # Never persisted anywhere else, by design — which is exactly why the
+        # prompt log has to see it, or half of what she says in a day is a line
+        # in the journal with no reasoning behind it (SPEC §24.2). The caller's
+        # scope decides whether this reads as ambient, compose, or a greeting.
+        origin = correlate.current()
+        kind = origin.kind if origin and origin.kind != correlate.CHAT_TURN \
+            else correlate.AMBIENT
+        said: list[str] = []
+        try:
+            async for token in self.state.chat.stream(
+                    prompt.messages, temperature=self.cfg.temperature,
+                    max_tokens=self.cfg.max_reply_tokens):
+                said.append(token)
+                yield token
+        finally:
+            if self.prompt_log is not None:
+                self.prompt_log.record(
+                    kind=kind, messages=prompt.messages, completion="".join(said),
+                    model=self.cfg.chat_model, cue=cue,
+                    template_version=prompt.template_version)
 
     # -- the loop of passes (SPEC §7.4) -----------------------------------------
     async def _stream_with_tools(self, messages: list[dict],
@@ -270,7 +284,10 @@ class ToolBrain(BrainAdapter):
             # start-don't-await (§7.6): the render happens off-turn; the photo
             # arrives in the chat as a `message` event when it's done.
             if self.selfies is not None:
-                context = self._request_context.get()
-                data["_channel"] = context.get("channel")
-                data["_client_id"] = context.get("client_id")
+                origin = correlate.current()
+                data["_channel"] = origin.channel if origin else None
+                data["_client_id"] = origin.client_id if origin else None
+                # travels into generations.jsonl, so the debug page can join a
+                # rendered photo back to the turn that reached for the camera
+                data["_corr_id"] = origin.corr_id if origin else None
                 self.selfies.start(data)

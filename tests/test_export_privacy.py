@@ -37,7 +37,7 @@ def plant(record) -> dict[str, str]:
     marks = {key: f"the {uuid.uuid4().hex} matter that nobody else should ever read"
              for key in ("user", "memory_md", "summary", "facts", "forgotten",
                          "episodic", "goals", "situation", "beliefs", "state",
-                         "corpus", "traces", "knowledge")}
+                         "corpus", "traces", "prompts", "knowledge")}
     (vault / "soul" / "USER.md").write_text(
         f"---\nsoul: user\n---\n\n# User\n\n## Who\n\n{marks['user']}\n")
     (vault / "soul" / "MEMORY.md").write_text(f"# Memory\n\n- {marks['memory_md']}\n")
@@ -63,6 +63,14 @@ def plant(record) -> dict[str, str]:
     record.paths.traces.mkdir(parents=True, exist_ok=True)
     (record.paths.traces / "ticks.jsonl").write_text(
         json.dumps({"note": marks["traces"]}) + "\n")
+    # The most sensitive file the build produces: every assembled prompt carries
+    # USER.md and recalled memories verbatim (mind/promptlog.py). It is covered
+    # today because `traces/` is a private surface and every *.jsonl under it is
+    # canary-harvested — pinned here so a refactor that moves it cannot quietly
+    # walk out of that coverage.
+    (record.paths.traces / "prompts.jsonl").write_text(
+        json.dumps({"messages": [{"role": "system",
+                                  "content": marks["prompts"]}]}) + "\n")
     return marks
 
 

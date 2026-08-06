@@ -12,6 +12,9 @@ import json
 import logging
 from pathlib import Path
 
+from yurios.mind.util import jsonl_append, new_id
+
+from .. import correlate
 from ..clock import Clock
 
 log = logging.getLogger("world.guard")
@@ -45,11 +48,12 @@ class Turn:
 
 class Guard:
     def __init__(self, *, rates_per_min: dict[str, int], log_dir: Path,
-                 clock: Clock):
+                 clock: Clock, max_bytes: int | None = None):
         """`rates_per_min` doubles as the allowlist: a tool absent from it does
         not exist, whatever the model claims (SPEC §7.3)."""
         self.clock = clock
         self.log_path = Path(log_dir) / "calls.jsonl"
+        self.max_bytes = max_bytes
         self._rates = dict(rates_per_min)
         now = clock.now()
         self._buckets = {t: {"tokens": float(r), "at": now}
@@ -100,13 +104,21 @@ class Guard:
     # ---- the audit line (SPEC §7.3) ----
 
     def audit(self, tool: str, args: dict, verdict: str, duration_ms: float,
-              result: str) -> None:
-        line = {"ts": self.clock.now(), "tool": tool, "args": args,
+              result: str, *, origin: "correlate.Origin | None" = None) -> None:
+        """One line per call, allowed or denied — plus who asked.
+
+        The correlation fields come from whatever unit of work is in scope
+        (world/correlate.py) and are all nullable: a call the mind made for
+        itself, with no turn in view, still writes a complete line marked
+        `origin: "host"`. That is the ordinary case, not an error case."""
+        line = {"ts": self.clock.now(), "call_id": new_id("call"),
+                "tool": tool, "args": args,
                 "verdict": verdict, "duration_ms": round(duration_ms, 1),
-                "result": result[:200]}
+                "result": result[:200],
+                **(origin.stamp() if origin is not None else correlate.stamp())}
         try:
-            self.log_path.parent.mkdir(parents=True, exist_ok=True)
-            with self.log_path.open("a", encoding="utf-8") as f:
-                f.write(json.dumps(line, ensure_ascii=False, default=str) + "\n")
-        except OSError:
+            jsonl_append(self.log_path, line, max_bytes=self.max_bytes)
+        except Exception:
+            # An audit line is an observation. It must never be the reason the
+            # turn it is observing fails.
             log.exception("audit write failed")

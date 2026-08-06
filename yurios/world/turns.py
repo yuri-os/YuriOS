@@ -150,7 +150,8 @@ class TextTurns:
             buf = ""
             prev_events = 0
             turn_context = getattr(rt.brain, "turn_context", None)
-            context = turn_context(channel=channel, client_id=client_id) \
+            context = turn_context(channel=channel, client_id=client_id,
+                                   session_id=session_id) \
                 if turn_context else nullcontext()
             try:
                 with context:

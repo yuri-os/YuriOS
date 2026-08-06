@@ -52,9 +52,14 @@ class SignalBus:
     the same way the EventHub is: `post()` may be called from the event loop
     or a worker thread; the wake event hop is loop-safe."""
 
-    def __init__(self, clock: Clock, log_dir: Path | None = None):
+    def __init__(self, clock: Clock, log_dir: Path | None = None, *,
+                 max_bytes: int | None = None):
         self.clock = clock
         self.log_path = (log_dir / "signals.jsonl") if log_dir else None
+        # The log is a record, never a replay source — the in-memory queue above
+        # is the working copy and `bus_offset` indexes it — so rolling the file
+        # over costs nothing but old history.
+        self.max_bytes = max_bytes
         self._signals: list[Signal] = []
         self.wake = asyncio.Event()          # the loop sleeps on this (SPEC §15.1)
         self._loop: Optional[asyncio.AbstractEventLoop] = None
@@ -68,7 +73,8 @@ class SignalBus:
         if self.log_path is not None:
             jsonl_append(self.log_path, {"id": sig.id, "type": sig.type,
                                          "ts": sig.ts, "payload": sig.payload,
-                                         "source": sig.source})
+                                         "source": sig.source},
+                         max_bytes=self.max_bytes)
         self._set_wake()
         return sig
 

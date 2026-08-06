@@ -33,6 +33,7 @@ from starlette.datastructures import MutableHeaders
 from yurios.desktop.voice.fillers import FillerBank
 
 from yurios.mind.loop import MindLoop
+from yurios.mind.promptlog import PromptLog
 from yurios.mind.signals import SignalBus
 from yurios.models import is_configured
 
@@ -100,7 +101,8 @@ class Runtime:
             rates["take_selfie"] = cfg.tool_rate_selfie
             rates["show_picture"] = cfg.tool_rate_picture
         self.guard = Guard(rates_per_min=rates,
-                           log_dir=cfg.tool_log_dir, clock=self.clock)
+                           log_dir=cfg.tool_log_dir, clock=self.clock,
+                           max_bytes=cfg.tool_log_max_bytes)
         self.timers = TimerBoard(self.clock)
         # her camera (SPEC §7.6): the forge behind the SelfieLab. Built
         # even when tools are faked (tests inject a fake runner but still want
@@ -172,13 +174,19 @@ class Runtime:
         # the meter reads the prompt where every path funnels through: the chat
         # provider itself (reply, greeting, ambient, each tool-loop pass)
         self._wire_context_meter()
+        # …and the prompt log records what was actually in it (SPEC §24.2). Wired
+        # here rather than from the mind, because greetings and chat turns happen
+        # whether or not the loop is running, and they are half the record.
+        if hasattr(self.brain, "set_prompt_log"):
+            self.brain.set_prompt_log(PromptLog.from_config(cfg, self.clock))
         self._tool_runner = tool_runner        # injected, or built at startup
         self.tools_status = "off"
         # the inbound inbox (SPEC §16): everything that happens to her becomes a
         # typed signal here, and the mind's SENSE drains it. Producers (the
         # voice route, the events route, a landed timer) post facts; the loop
         # decides what they mean.
-        self.signals = SignalBus(self.clock, log_dir=cfg.trace_dir)
+        self.signals = SignalBus(self.clock, log_dir=cfg.trace_dir,
+                                 max_bytes=cfg.mind_signal_max_bytes)
         self.mind: MindLoop | None = None
         self.mind_status = "disabled"
         # the channel seam (SPEC §10.5): one text-turn runner shared by every

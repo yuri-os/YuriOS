@@ -62,6 +62,29 @@ vault/
 
 Human-readable, greppable, diffable, revertable. Moving her is copying a folder.
 
+Beside the Vault, and deliberately outside it, sit the records *about* her — derived, rotating,
+never part of what she is:
+
+```
+traces/     ticks.jsonl · activity.jsonl (state transitions) · signals.jsonl
+            context.jsonl · prompts.jsonl (every context window she was given)
+tool-logs/  calls.jsonl — every call her hands made, allowed or denied
+corpus/     turns.jsonl (the trainable log) · ratings.jsonl · utility.jsonl
+selfies/    generations.jsonl — how each photo was rendered
+```
+
+Every one of these rotates to a single `.1` generation and then goes; an always-on mind writes to
+them forever, so a cap is the difference between a log and a leak. All of them live under
+`traces/`, `tool-logs/`, `corpus/` and `selfies/`, which are `PRIVATE_SURFACES`
+(`characters/privacy.py`) — they never leave with an exported card. `prompts.jsonl` matters most
+there: an assembled prompt contains `USER.md` and her recalled memories verbatim.
+
+The four files are written by four different objects, so **one `corr_id` per unit of work**
+(`world/correlate.py`) is what makes them one story: the tick that decided, the prompt that
+phrased it, the call that ran it, and the photo that came back minutes later all carry the same
+key. Chat turns are the one deliberate split — `prompts.jsonl` holds an index row pointing at
+`corpus/turns.jsonl`, because that is the training asset and `ratings.jsonl` joins to its id.
+
 ## Where things live in the code
 
 | Piece | Code |
@@ -78,7 +101,10 @@ Human-readable, greppable, diffable, revertable. Moving her is copying a folder.
 | **Goals, promises, commitment** | `mind/goals.py` — `extract_promises`, `reconsider` |
 | **The SOUL split** | `mind/selfedit.py` + `mind/vaultio.py` |
 | **The journal + trace** | `mind/journal.py`, `mind/trace.py` |
+| **Every prompt she was given** | `mind/promptlog.py` → `traces/prompts.jsonl` |
+| **What caused what** | `world/correlate.py` — one `corr_id` per unit of work |
 | **The inner-life surface** | `world/routes/mind.py` + `web/js/mind.js` |
+| **The mind debug page** | `world/debug.py` + `web/mind/` (host routes under `…/debug/*`) |
 | **The host + registry API** | `world/host.py` |
 | **The character registry** | `characters/registry.py`, `characters/models.py` |
 | **The card parser / importer** | `characters/card.py`, `characters/importer.py` |

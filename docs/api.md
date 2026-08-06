@@ -57,8 +57,9 @@ Websockets follow the same shape: `/ws/voice` and `/ws/characters/<id>/voice`.
 | `GET /api/characters/{id}/portrait` | PNG, `Cache-Control: no-cache` |
 | `GET /api/characters/{id}/export` | her V2+V3 card PNG, as a download, with defaults |
 | `GET /api/characters/{id}/selfies/{name}` | one saved photo |
-| `GET /api/characters/{id}/journal?days=` | `{days: [{day, entries}]}` |
-| `GET /api/characters/{id}/log` | the tail of her tick trace + tool audit |
+| `GET /api/characters/{id}/journal?page=` | the diary index, 20 days a page, newest first: `{days: [{day, count}], page, has_more, total}` |
+| `GET /api/characters/{id}/journal?day=` | one day's entries, newest first: `{day, entries: [{time, hers, text}]}` |
+| `GET /api/characters/{id}/log` | the tail of her tick trace + tool audit, interleaved |
 | `GET /api/characters/{id}/context-history` | `{context, history}` |
 | `POST /api/characters/{id}/archive` | stop + move her root to `data/archives/` |
 | `DELETE /api/characters/{id}/purge?confirm=` | delete; `confirm` must match her id or name |
@@ -189,6 +190,35 @@ set a timer?" gets answered without reading logs.
 
 All of it reads *through* the mind's own stores, so the dashboard can never disagree with the
 files. With the mind off, these answer `503` and `/api/health` says so.
+
+### The mind debug page
+
+Served at `/characters/{id}/mind` (`web/mind/`), over a read-only API on the **host**:
+
+| Route | |
+|---|---|
+| `GET …/debug/overview` | activity, budget, vault head, row counts, and a manifest of every log with a `rotated` flag |
+| `GET …/debug/activity?page=` | the activity-state timeline — one row per real transition, with the reason that fired it |
+| `GET …/debug/ticks?page=&state=&q=` | full tick records; `…/ticks/{tick_id}` joins the calls, prompts and signals it caused |
+| `GET …/debug/signals?page=&type=` · `…/debug/goals` · `…/debug/self-edits` | the inbox, her intentions, the queue waiting on your ruling |
+| `GET …/debug/calls?page=&tool=&verdict=&corr_id=` | the tool audit, with the rendered photo joined on `corr_id` |
+| `GET …/debug/selfies?page=` | the render ledger |
+| `GET …/debug/prompts/days?page=` | days that have model calls, counted by kind |
+| `GET …/debug/prompts?day=&kind=&page=` | the index — `messages` stripped, `preview` kept |
+| `GET …/debug/prompts/{id}` | one whole context window; a `chat_turn` resolves its pointer into `corpus/turns.jsonl` |
+| `GET …/debug/vault/commits?page=&path=` · `…/vault/commits/{sha}` | the Vault's history, and one commit's patch |
+| `GET …/debug/vault/tree?path=` · `…/vault/file?path=&rev=` · `…/vault/history?path=` | browse it, read a file now or at a commit, and see every edit to it |
+| `GET …/debug/memory` · `…/debug/memory/chunks?page=&kind=&q=` · `…/memory/chunks/{id}` | her memory, and the recall index (never with embeddings in a list) |
+| `GET …/debug/economics` · `…/debug/utility?page=&kind=` | context pressure, the budget, and what the small model produced |
+
+Two rules hold across all of it. Every route **reads files** — none needs her running, because a
+stopped or crashed character is exactly the one you need to inspect; the only live value
+(`overview.live`) is `null` when she is down and never blended into history. And paging is
+newest-first over `mind/util.jsonl_page`, which reads backwards from the end of the file, so a
+32 MB prompt log is never pulled into memory to show its last twenty rows.
+
+The namespace is `debug/` and not `mind/` deliberately: `/api/characters/{id}/mind` already
+dispatches to the child app's `/api/mind` above, and a host route by that name would shadow it.
 
 ### Channels
 

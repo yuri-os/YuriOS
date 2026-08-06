@@ -28,6 +28,8 @@ from yurios.app.main import AppState, create_app
 from yurios.app.memory.store import Record
 from yurios.app.routes.chat import post_turn
 from yurios.app import vaultgit
+from yurios.mind.util import estimate_tokens
+from yurios.world import correlate
 
 from .config import Config
 from .voice.emotion import EXPRESSION_DIRECTIVE, SPOKEN_STYLE_DIRECTIVE
@@ -55,6 +57,13 @@ class BrainAdapter:
         self.state = state
         self.cfg = cfg
         self._pending: dict[str, _Pending] = {}
+        # mind/promptlog.py, wired by the world runtime. None on Build #1's own
+        # path, which keeps no such record — the same nullable seam as set_world.
+        self.prompt_log = None
+
+    def set_prompt_log(self, prompt_log) -> None:
+        """Wire the sink that records what she was actually asked (SPEC §24.2)."""
+        self.prompt_log = prompt_log
 
     # -- construction: build the Build #1 brain from the sibling package --------
     @classmethod
@@ -143,6 +152,19 @@ class BrainAdapter:
             template_version=pend.prompt.template_version,
             gen_params={"temperature": self.cfg.temperature},
             tags=["voice"])
+        if self.prompt_log is not None:
+            # A pointer, not a copy: the corpus already holds this prompt, and it
+            # is the record ratings.jsonl joins against. What the prompt log adds
+            # is that a chat turn appears in the same timeline as everything else
+            # she asked a model, in the same shape, joinable by the same id.
+            self.prompt_log.record(
+                kind=correlate.CHAT_TURN, model=self.cfg.chat_model,
+                template_version=pend.prompt.template_version,
+                messages_ref={"file": "corpus/turns.jsonl", "id": turn_id},
+                n_messages=len(pend.prompt.messages),
+                tokens_in=sum(estimate_tokens(m.get("content") or "")
+                              for m in pend.prompt.messages),
+                tokens_out=estimate_tokens(reply))
         self.state.sessions.append_message(session_id, "assistant", reply,
                                            turn_id=turn_id)
         self.state.sessions.bump_turn(session_id)
@@ -212,7 +234,22 @@ class BrainAdapter:
 
         cue = GREET_CUE.format(user=self.cfg.user_name)
         _soul, prompt = self._assemble(session_id, cue, window=[], lore=[])
-        async for token in self.state.chat.stream(
-                prompt.messages, temperature=self.cfg.temperature,
-                max_tokens=self.cfg.max_reply_tokens):
-            yield token
+        # A greeting is never persisted — no corpus line, no transcript entry — so
+        # without this the first thing she says every session leaves no record of
+        # what it was grounded in.
+        with correlate.scope(kind=correlate.GREETING, session_id=session_id):
+            said: list[str] = []
+            try:
+                async for token in self.state.chat.stream(
+                        prompt.messages, temperature=self.cfg.temperature,
+                        max_tokens=self.cfg.max_reply_tokens):
+                    said.append(token)
+                    yield token
+            finally:
+                # in `finally` so a barged-in greeting still records what it was
+                # asked and how far it got
+                if self.prompt_log is not None:
+                    self.prompt_log.record(
+                        kind=correlate.GREETING, messages=prompt.messages,
+                        completion="".join(said), model=self.cfg.chat_model,
+                        template_version=prompt.template_version)

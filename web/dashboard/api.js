@@ -1,27 +1,8 @@
+import { ApiError, request } from "../shared/http.js";
+
+export { ApiError };
+
 const ROOT = "/api/characters";
-
-export class ApiError extends Error {
-  constructor(message, status, payload) {
-    super(message);
-    this.name = "ApiError";
-    this.status = status;
-    this.payload = payload;
-  }
-}
-
-async function request(path, options = {}) {
-  const headers = new Headers(options.headers);
-  if (options.body && !(options.body instanceof FormData)) headers.set("Content-Type", "application/json");
-  headers.set("Accept", "application/json");
-  const response = await fetch(path, { ...options, headers });
-  const contentType = response.headers.get("content-type") || "";
-  const payload = contentType.includes("json") ? await response.json() : await response.text();
-  if (!response.ok) {
-    const detail = typeof payload === "object" ? payload.detail || payload.error || payload.message : payload;
-    throw new ApiError(detail || `Request failed (${response.status})`, response.status, payload);
-  }
-  return payload;
-}
 
 function characterPath(id, suffix = "") {
   return `${ROOT}/${encodeURIComponent(id)}${suffix}`;

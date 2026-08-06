@@ -248,6 +248,33 @@ Everything reads *through* the mind's own stores — the dashboard can never dis
 files. The same data is available at `GET /api/mind`, `/api/mind/journal`, `/api/mind/trace`
 ([API](api.md#the-mind)).
 
+## The mind debug page
+
+The inner-life tab is the *product* half of autonomy — what she did, in her words. The debug page
+at `/characters/{id}/mind` is the other half: every mechanism behind it, on one surface.
+
+- the **activity timeline** — every ENGAGED/IDLE/DORMANT/DREAM transition she actually made, with
+  the rung that fired it (`traces/activity.jsonl`, appended only on a real change);
+- the **tick traces**, in full — sensed, appraised with scores, decided with runners-up, acted,
+  and the interrupt decision with its factors, which the tab summarises and the `/log` view throws
+  away;
+- **every context window she was ever given** — not just committed turns. Self-talk, the arrival
+  greeting, a reach-out being written, goal work and DREAM consolidation all call a model, and
+  before `traces/prompts.jsonl` none of them left any record of what they were asked;
+- her **tool calls**, with the photo each produced joined on the correlation id rather than
+  guessed at by timestamp;
+- the **Vault's own history** — the commit list, any file now or at a revision, and every edit to
+  one file (`soul/USER.md` is the usual reason you came);
+- the **recall index**, her semantic facts, beliefs, and the knowledge shelf;
+- and **what it costs** — context pressure over time, the budget, and what the small model
+  produced versus what was quarantined.
+
+Two things make it useful where the tab is not. It reads **files, not a running mind**, so a
+stopped or crashed character is fully inspectable — the moment you most need it, and exactly when
+`/api/mind` answers `503`. And one `corr_id` per unit of work (`world/correlate.py`) ties the four
+separate logs into one story, so "why did she take that photo" walks from the tick that decided it
+to the prompt that phrased it to the audit line that ran it.
+
 ## The knobs
 
 ```ini

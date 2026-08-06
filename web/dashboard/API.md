@@ -44,12 +44,14 @@ non-2xx response.
 The drawer lazily requests the selected tab. This keeps per-character data scoped
 and avoids downloading every journal on registry load.
 
-- `GET /api/characters/{id}/journal`
+- `GET /api/characters/{id}/journal?page=` — the diary index, 20 days a page, newest
+  first: `{ "days": [{ "day": "YYYY-MM-DD", "count": n }], "page", "has_more", "total" }`
+- `GET /api/characters/{id}/journal?day=YYYY-MM-DD` — that day, newest entry first:
+  `{ "day", "entries": [{ "time", "hers", "text" }] }`
 - `GET /api/characters/{id}/log`
 - `GET /api/characters/{id}/context-history`
 
-Journal and log routes may return an array, `{ "entries": [...] }`, or respectively
-`{ "days": [{ "day": "YYYY-MM-DD", "entries": [...] }] }` and `{ "logs": [...] }`.
+The log route may return an array, `{ "entries": [...] }`, or `{ "logs": [...] }`.
 Entry fields are normalized from `title`, `event`, `type`, `body`, `content`,
 `message`, `text`, `timestamp`, `created_at`, or `time`.
 
@@ -128,3 +130,16 @@ the active `GET /api/characters` registry. Any 2xx JSON response is accepted.
 Errors should use an appropriate non-2xx status and one of `detail`, `error`, or
 `message` in the JSON body. The dashboard enters a character via the stable browser
 route `/characters/{id}/sanctuary/`; this is navigation, not an API request.
+
+## The mind debug page
+
+The fourth way off a character card is not a room: `/characters/{id}/mind` (`web/mind/`)
+reads her files rather than talking to her — the activity timeline, tick traces, every
+context window she was given, her tool calls, and the Vault's own history. It is
+navigation, like the rooms, and it is **not** gated by the approval dialog: a parked
+character is one you may well want to inspect before deciding.
+
+Its API lives on the host under `/api/characters/{id}/debug/*` and is documented in
+`docs/api.md`. Note the namespace: `…/{id}/mind` is already dispatched to the runtime's
+own `/api/mind` (the sanctuary's inner-life panel), so the debug routes may never
+live there.

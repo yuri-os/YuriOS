@@ -35,8 +35,11 @@ from yurios.characters.optimize import CardOptimizeError, optimize_draft
 from yurios.characters.privacy import CardExportError
 from yurios.app.providers.catalog import provider_models
 from yurios.mind.journal import parse_day_entries
+from yurios.mind.util import jsonl_page
 
-from . import rewire
+from yurios.app import vaultgit
+
+from . import debug, rewire
 from .config import Config
 from .main import DIST_DIR, WEB_DIR, create_app
 
@@ -133,16 +136,12 @@ def _sync_card_json(record: CharacterRecord, draft: "studio_model.Draft") -> Non
 
 
 def _tail_jsonl(path: Path, limit: int = 100) -> list[dict[str, Any]]:
-    if not path.is_file():
-        return []
-    rows: list[dict[str, Any]] = []
-    for line in path.read_text(encoding="utf-8", errors="replace").splitlines()[-limit:]:
-        try:
-            value = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(value, dict):
-            rows.append(value)
+    """The last `limit` records, oldest-first. Reads backwards from the end
+    rather than pulling the whole file in — these logs are bounded by rotation,
+    but the prompt sink is 32 MB of assembled contexts and the debug page pages
+    over all of them (mind/util.py)."""
+    rows, _, _ = jsonl_page(path, limit=limit)
+    rows.reverse()
     return rows
 
 
@@ -1267,6 +1266,147 @@ def create_host_app(base: Config, registry: CharacterRegistry | None = None) -> 
         return {"context": rt.context.snapshot() if rt else {"used": 0, "limit": None},
                 "history": _tail_jsonl(record.paths.traces / "context.jsonl", 500)}
 
+    # ---- /debug/*: the mind debug page (SPEC §24.3) --------------------------
+    # Namespaced under `debug/` on purpose. `/api/characters/{id}/mind` is
+    # already the sanctuary's inner-life surface — the dispatcher below rewrites
+    # it to the child app's `/api/mind` — and a host route by that name would
+    # silently shadow a working page with differently-shaped disk reads.
+    #
+    # Every route here reads files and needs no runtime. `/api/mind` answers 503
+    # when the loop is off, which is exactly the moment you want to read what
+    # happened; these answer anyway.
+
+    @app.get("/api/characters/{character_id}/debug/overview")
+    async def debug_overview(character_id: str):
+        return debug.overview(require(character_id), host.runtime(character_id))
+
+    @app.get("/api/characters/{character_id}/debug/activity")
+    async def debug_activity(character_id: str, page: int = 0, limit: int = 100):
+        return debug.activity(require(character_id), page=page, limit=limit)
+
+    @app.get("/api/characters/{character_id}/debug/ticks")
+    async def debug_ticks(character_id: str, page: int = 0, limit: int = 25,
+                          state: str | None = None, q: str | None = None):
+        return debug.ticks(require(character_id), page=page, limit=limit,
+                           state=state, q=q)
+
+    @app.get("/api/characters/{character_id}/debug/ticks/{tick_id}")
+    async def debug_tick(character_id: str, tick_id: str):
+        found = debug.tick_detail(require(character_id), tick_id)
+        if found is None:
+            raise HTTPException(404, "no such tick in the live trace")
+        return found
+
+    @app.get("/api/characters/{character_id}/debug/signals")
+    async def debug_signals(character_id: str, page: int = 0, limit: int = 100,
+                            type: str | None = None):
+        return debug.signals(require(character_id), page=page, limit=limit, type=type)
+
+    @app.get("/api/characters/{character_id}/debug/goals")
+    async def debug_goals(character_id: str):
+        return debug.goals(require(character_id))
+
+    @app.get("/api/characters/{character_id}/debug/self-edits")
+    async def debug_self_edits(character_id: str):
+        return debug.self_edits(require(character_id))
+
+    @app.get("/api/characters/{character_id}/debug/calls")
+    async def debug_calls(character_id: str, page: int = 0, limit: int = 50,
+                          tool: str | None = None, verdict: str | None = None,
+                          corr_id: str | None = None):
+        return debug.calls(require(character_id), page=page, limit=limit,
+                           tool=tool, verdict=verdict, corr_id=corr_id)
+
+    @app.get("/api/characters/{character_id}/debug/selfies")
+    async def debug_selfies(character_id: str, page: int = 0, limit: int = 24):
+        return debug.selfies(require(character_id), page=page, limit=limit)
+
+    @app.get("/api/characters/{character_id}/debug/prompts/days")
+    async def debug_prompt_days(character_id: str, page: int = 0, limit: int = 20):
+        return debug.prompt_days(require(character_id), page=page, limit=limit)
+
+    @app.get("/api/characters/{character_id}/debug/prompts")
+    async def debug_prompts(character_id: str, day: str | None = None,
+                            kind: str | None = None, page: int = 0,
+                            limit: int = 25):
+        return debug.prompts(require(character_id), day=day, kind=kind,
+                             page=page, limit=limit)
+
+    @app.get("/api/characters/{character_id}/debug/prompts/{prompt_id}")
+    async def debug_prompt(character_id: str, prompt_id: str):
+        found = debug.prompt_detail(require(character_id), prompt_id)
+        if found is None:
+            raise HTTPException(404, "no such prompt in the live log")
+        return found
+
+    @app.get("/api/characters/{character_id}/debug/vault/commits")
+    async def debug_commits(character_id: str, page: int = 0, limit: int = 25,
+                            path: str | None = None):
+        return debug.vault_commits(require(character_id), page=page,
+                                   limit=limit, path=path)
+
+    @app.get("/api/characters/{character_id}/debug/vault/commits/{sha}")
+    async def debug_commit(character_id: str, sha: str):
+        record = require(character_id)
+        if not vaultgit.is_rev(sha):
+            raise HTTPException(400, "not a commit id")
+        found = vaultgit.show(Path(record.paths.vault), sha)
+        if found is None:
+            raise HTTPException(404, "no such commit")
+        return found
+
+    @app.get("/api/characters/{character_id}/debug/vault/tree")
+    async def debug_tree(character_id: str, path: str = ""):
+        record = require(character_id)
+        entries = vaultgit.tree(Path(record.paths.vault), path)
+        if entries is None:
+            raise HTTPException(400, "not a directory inside this vault")
+        return {"path": path, "entries": entries}
+
+    @app.get("/api/characters/{character_id}/debug/vault/file")
+    async def debug_file(character_id: str, path: str, rev: str | None = None):
+        record = require(character_id)
+        found = vaultgit.read_at(Path(record.paths.vault), path, rev=rev)
+        if found is None:
+            raise HTTPException(400, "not a readable file inside this vault")
+        return found
+
+    @app.get("/api/characters/{character_id}/debug/vault/history")
+    async def debug_file_history(character_id: str, path: str, limit: int = 25):
+        record = require(character_id)
+        if vaultgit.in_vault(Path(record.paths.vault), path) is None:
+            raise HTTPException(400, "not a path inside this vault")
+        return {"path": path,
+                "items": vaultgit.log_records(Path(record.paths.vault),
+                                              limit=max(1, min(limit, 200)),
+                                              path=path)}
+
+    @app.get("/api/characters/{character_id}/debug/memory")
+    async def debug_memory(character_id: str):
+        return debug.memory(require(character_id))
+
+    @app.get("/api/characters/{character_id}/debug/memory/chunks")
+    async def debug_chunks(character_id: str, page: int = 0, limit: int = 50,
+                           kind: str | None = None, q: str | None = None):
+        return debug.chunks(require(character_id), page=page, limit=limit,
+                            kind=kind, q=q)
+
+    @app.get("/api/characters/{character_id}/debug/memory/chunks/{chunk_id}")
+    async def debug_chunk(character_id: str, chunk_id: str):
+        found = debug.chunk(require(character_id), chunk_id)
+        if found is None:
+            raise HTTPException(404, "no such chunk in the index")
+        return found
+
+    @app.get("/api/characters/{character_id}/debug/economics")
+    async def debug_economics(character_id: str):
+        return debug.economics(require(character_id))
+
+    @app.get("/api/characters/{character_id}/debug/utility")
+    async def debug_utility(character_id: str, page: int = 0, limit: int = 25,
+                            kind: str | None = None):
+        return debug.utility(require(character_id), page=page, limit=limit, kind=kind)
+
     @app.post("/api/characters/{character_id}/archive")
     async def archive(character_id: str):
         record = require(character_id)
@@ -1324,6 +1464,15 @@ def create_host_app(base: Config, registry: CharacterRegistry | None = None) -> 
     async def character_text(character_id: str):
         require(character_id)
         return FileResponse(DIST_DIR / "text" / "index.html", media_type="text/html")
+
+    # The mind debug page (SPEC §24.3): not a room — it never speaks to her, it
+    # reads her files. Character-scoped by path like the rooms above, so
+    # shared/runtime.js can aim its /api/characters/{id}/debug/* calls.
+    @app.get("/characters/{character_id}/mind")
+    @app.get("/characters/{character_id}/mind/")
+    async def character_mind(character_id: str):
+        require(character_id)
+        return FileResponse(DIST_DIR / "mind" / "index.html", media_type="text/html")
 
     # Both Vite entry points emit their hashed bundles into this shared root.
     # Keep it ahead of the primary-runtime fallback so /assets/* is not

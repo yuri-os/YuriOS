@@ -4,11 +4,12 @@
   if (window.YuriOSRuntime) return;
 
   // Every per-character page the host routes (world/host.py): the 3D sanctuary,
-  // the bodyless text room, and the Live2D client's redirect target. A page that
-  // is not in this list falls back to `?character=`, and with neither it speaks
-  // to the primary runtime — which is exactly right for the single-character app.
+  // the bodyless text room, the Live2D client's redirect target, and the mind
+  // debug page. A page that is not in this list falls back to `?character=`, and
+  // with neither it speaks to the primary runtime — which is exactly right for
+  // the single-character app.
   const routeMatch = location.pathname.match(
-    /^\/characters\/([^/]+)\/(?:sanctuary|text|live2d)(?:\/|$)/);
+    /^\/characters\/([^/]+)\/(?:sanctuary|text|live2d|mind)(?:\/|$)/);
   let characterId = null;
   if (routeMatch) {
     try { characterId = decodeURIComponent(routeMatch[1]); }

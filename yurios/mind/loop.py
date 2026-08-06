@@ -35,6 +35,7 @@ import logging
 import random
 from typing import Awaitable, Callable
 
+from yurios.world import correlate
 from yurios.world.avatar.controller import VrmController
 from yurios.world.clock import Clock
 from yurios.world.hub import EventHub
@@ -45,6 +46,7 @@ from .dream import DreamConsolidator
 from .goals import Goal, GoalStore, extract_promises
 from .journal import Journal
 from .knowledge import KnowledgeStore
+from .promptlog import PromptLog
 from .policy import (DREAM, ENGAGED, IDLE, ActivityController, Appraisal,
                      appraise_goal, appraise_signal, score_interrupt)
 from .selfedit import SelfEdit
@@ -125,10 +127,16 @@ class MindLoop:
                                        utility=self._utility
                                        if state.utility else None)
         state_dir = cfg.vault_dir / "state"
-        self.activity = ActivityController(state_dir, clock, cfg)
+        self.activity = ActivityController(state_dir, clock, cfg,
+                                           trace_dir=cfg.trace_dir)
         self.budget = BudgetGovernor(state_dir, clock,
                                      daily_tokens=cfg.mind_daily_tokens)
         self.trace = TickTrace(cfg.trace_dir, clock, max_bytes=cfg.mind_trace_max_bytes)
+        # Share the runtime's sink when there is one, so her conversational
+        # prompts and her private ones land in one file with one rotation state.
+        # A test brain has none; build our own rather than lose the record.
+        self.prompt_log = (getattr(brain, "prompt_log", None)
+                           or PromptLog.from_config(cfg, clock))
 
         # rehydration snapshot (SPEC §15.4): a restart resumes, not forgets
         self.state_path = state_dir / "engine.json"
@@ -152,12 +160,23 @@ class MindLoop:
 
     async def _utility(self, messages: list[dict]) -> str:
         """Local-tier utility call, debited against the governor. The loop's
-        only other model use is inside deliberate ACT speech (SPEC §17.3)."""
+        only other model use is inside deliberate ACT speech (SPEC §17.3).
+
+        One instrumentation point covers five callers: the knowledge store, the
+        dream consolidator and the goal-work step are all handed *this method*
+        as their `utility` seam (see __init__), so the prompt each of them sends
+        is recorded here, labelled by whichever ACT opened the scope."""
         utility = self.brain.state.utility
         if utility is None:
             return ""
         text = await utility.complete(messages)
         self.budget.debit("".join(m.get("content", "") for m in messages), text)
+        origin = correlate.current()
+        self.prompt_log.record(
+            kind=(origin.kind if origin and origin.kind != correlate.TICK
+                  else correlate.UTILITY),
+            messages=messages, completion=text, model=self.cfg.utility_model,
+            tier="utility")
         return text
 
     def _brain_session(self) -> str:
@@ -169,8 +188,9 @@ class MindLoop:
         """One line in her own voice, without the voice pipeline — used when a
         reach-out finds no page open to speak through (SPEC §18.3)."""
         out: list[str] = []
-        async for tok in self.brain.stream_ambient(self._brain_session(), cue):
-            out.append(tok)
+        with correlate.scope(kind=correlate.COMPOSE):
+            async for tok in self.brain.stream_ambient(self._brain_session(), cue):
+                out.append(tok)
         text = "".join(out).strip()
         self.budget.debit(cue, text)
         # strip any leading [expression] tag — this line lands as chat text
@@ -203,6 +223,14 @@ class MindLoop:
     async def tick(self) -> dict:
         """One full pass. Returns the trace record (the tests assert over these)."""
         self._tick_id = new_id("t")
+        # Everything this tick reaches for — a model call, a tool, a prompt —
+        # gets stamped with this id, so the debug page can put the tick trace
+        # next to the prompt that phrased it and the audit line that ran it
+        # (world/correlate.py). The ACT methods below refine `kind` in place.
+        with correlate.scope(kind=correlate.TICK, tick_id=self._tick_id):
+            return await self._tick()
+
+    async def _tick(self) -> dict:
         now = self.clock.now()
 
         # ---- SENSE -----------------------------------------------------------
@@ -382,7 +410,9 @@ class MindLoop:
         self.controller.set_expression("surprised", 0.6, reset_ms=4000)
         cue = ANNOUNCE_CUE.format(label=t.get("label", "your timer"),
                                   user=self.cfg.user_name)
-        if await self.speak(cue):
+        with correlate.scope(kind=correlate.AMBIENT):
+            spoken = await self.speak(cue)
+        if spoken:
             self._pending_announce.pop(0)
             return ({"what": "speak", "result": "announced the timer"}, {},
                     [f"told them the “{t.get('label')}” timer finished"])
@@ -393,7 +423,8 @@ class MindLoop:
         """The Ukagaka murmur, now decided rather than diced — ambient, never
         persisted, dropped if she can't be heard (SPEC §15.5)."""
         cue = self.rng.choice(SELF_TALK_CUES).format(user=self.cfg.user_name)
-        delivered = await self.speak(cue)
+        with correlate.scope(kind=correlate.AMBIENT):
+            delivered = await self.speak(cue)
         self._next_self_talk = self.clock.now() + self._uniform(
             self.cfg.idle_talk_min_s, self.cfg.idle_talk_max_s)
         return ({"what": "speak",
@@ -401,7 +432,8 @@ class MindLoop:
                            "let the murmur go (busy or alone)"}, {}, [])
 
     async def _act_ingest(self) -> tuple[dict, dict, list[str]]:
-        results = await self.knowledge.scan()
+        with correlate.scope(kind=correlate.KNOWLEDGE):
+            results = await self.knowledge.scan()
         notes = [f"read and shelved {r.doc} ({r.chunks} passages)"
                  for r in results]
         return ({"what": "knowledge.ingest",
@@ -410,8 +442,9 @@ class MindLoop:
     async def _act_dream(self) -> tuple[dict, dict, list[str]]:
         if not self.cfg.dream_enabled or not self.cfg.utility_enabled:
             return ({"what": "dream", "result": "DREAM disabled"}, {}, [])
-        report = await self.dream.consolidate(
-            token_budget=self.cfg.mind_dream_tick_tokens)
+        with correlate.scope(kind=correlate.DREAM):
+            report = await self.dream.consolidate(
+                token_budget=self.cfg.mind_dream_tick_tokens)
         msg = (f"DREAM: consolidated {len(report.days_processed)} day(s), "
                f"{report.facts_added} fact(s)"
                + (", budget spent — backlog remains"
@@ -465,7 +498,9 @@ class MindLoop:
         # SPEAK: aloud through the ambient seam if a page is open (the full turn
         # pipeline — voice, face, barge-in); as a chat line if the room is empty
         cue = REACH_OUT_CUE.format(goal=goal.text)
-        if not await self.speak(cue):
+        with correlate.scope(kind=correlate.COMPOSE):
+            spoken = await self.speak(cue)
+        if not spoken:
             text = await self._compose(cue)
             if text:
                 self.post_message("assistant", text, proactive=True)
@@ -478,12 +513,13 @@ class MindLoop:
     async def _act_goal_work(self, goal: Goal) -> tuple[dict, dict, list[str]]:
         """Advance a task/maintenance goal with one bounded local-tier step —
         a working note in the journal, never a message to the user."""
-        note = await self._utility([
-            {"role": "system",
-             "content": "You are quietly advancing one of your own goals. "
-                        "Write a short working note (<=80 words) of what you "
-                        "concluded or want to try next. Just the note."},
-            {"role": "user", "content": f"The goal: {goal.text}"}])
+        with correlate.scope(kind=correlate.GOAL_WORK):
+            note = await self._utility([
+                {"role": "system",
+                 "content": "You are quietly advancing one of your own goals. "
+                            "Write a short working note (<=80 words) of what you "
+                            "concluded or want to try next. Just the note."},
+                {"role": "user", "content": f"The goal: {goal.text}"}])
         note = (note or "").strip() or f"(sat with it; nothing new yet on: {goal.text})"
         self.goals.set_state(goal.id, "done")
         return ({"what": "goal_work", "result": "worked the goal; journaled"},

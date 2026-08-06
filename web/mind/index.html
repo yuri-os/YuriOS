@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0c1110">
+  <meta name="description" content="YuriOS mind debug — her state, her reasoning, her memory and her hands, read straight off disk">
+  <title>YuriOS / Mind debug</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><circle cx='8' cy='8' r='5.5' fill='none' stroke='%23d7ff58' stroke-width='1.6'/><path d='M8 2.5v11' stroke='%23d7ff58' stroke-width='1.2'/></svg>">
+  <link rel="stylesheet" href="./mind.css">
+  <script src="/shared/runtime.js"></script>
+</head>
+<body>
+  <svg class="icon-bank" aria-hidden="true">
+    <symbol id="i-back" viewBox="0 0 24 24"><path d="m15 19-7-7 7-7"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-.6 4M20 5v6h-6"/></symbol>
+    <symbol id="i-arrow" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></symbol>
+    <symbol id="i-gauge" viewBox="0 0 24 24"><path d="M4 18a8 8 0 1 1 16 0M12 14l4-4"/></symbol>
+    <symbol id="i-pulse" viewBox="0 0 24 24"><path d="M3 12h4l3-7 4 14 3-7h4"/></symbol>
+    <symbol id="i-tick" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></symbol>
+    <symbol id="i-context" viewBox="0 0 24 24"><path d="M4 5h16v14H4zM4 9h16M8 13h8M8 16h5"/></symbol>
+    <symbol id="i-tool" viewBox="0 0 24 24"><path d="M14.5 4a4.5 4.5 0 0 0-5.9 5.6L4 14.2 6.8 17l4.6-4.6A4.5 4.5 0 0 0 17 6.5z"/></symbol>
+    <symbol id="i-vault" viewBox="0 0 24 24"><path d="M4 4h16v16H4zM12 8v8M8 12h8"/></symbol>
+    <symbol id="i-memory" viewBox="0 0 24 24"><path d="M12 4a4 4 0 0 0-4 4 3 3 0 0 0-1 5.8V16a3 3 0 0 0 3 3h4a3 3 0 0 0 3-3v-2.2A3 3 0 0 0 16 8a4 4 0 0 0-4-4M12 8v11"/></symbol>
+    <symbol id="i-signal" viewBox="0 0 24 24"><path d="M4 20V10M9.3 20V4M14.7 20v-9M20 20V7"/></symbol>
+    <symbol id="i-coin" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 7v10M9.5 9.5h4a1.8 1.8 0 0 1 0 3.6h-3a1.8 1.8 0 0 0 0 3.6h4"/></symbol>
+  </svg>
+
+  <div class="page-noise" aria-hidden="true"></div>
+
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="Back to the switchboard">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <span class="brand-copy"><b>YuriOS</b><small id="brand-sub">mind &middot; debug</small></span>
+    </a>
+    <div class="topbar-state">
+      <span class="state-chip" id="state-chip" title="Her activity state">
+        <i class="state-dot" aria-hidden="true"></i><span id="state-label">&hellip;</span>
+      </span>
+      <span class="stream-chip" id="stream-chip" title="Live event stream">
+        <i class="stream-dot" aria-hidden="true"></i><span id="stream-label">offline</span>
+      </span>
+    </div>
+    <div class="topbar-actions">
+      <button id="refresh" class="button button-quiet" type="button" title="Re-read from disk">
+        <svg><use href="#i-refresh"></use></svg><span>Refresh</span>
+      </button>
+      <a class="button button-quiet" href="/"><svg><use href="#i-back"></use></svg><span>Switchboard</span></a>
+    </div>
+  </header>
+
+  <main class="shell">
+    <nav class="rail" id="rail" aria-label="Debug sections">
+      <a class="rail-item" href="#/overview"   data-section="overview"><svg><use href="#i-gauge"></use></svg><span>Overview</span></a>
+      <a class="rail-item" href="#/timeline"   data-section="timeline"><svg><use href="#i-pulse"></use></svg><span>Timeline</span></a>
+      <a class="rail-item" href="#/ticks"      data-section="ticks"><svg><use href="#i-tick"></use></svg><span>Ticks</span></a>
+      <a class="rail-item" href="#/context"    data-section="context"><svg><use href="#i-context"></use></svg><span>Context</span></a>
+      <a class="rail-item" href="#/tools"      data-section="tools"><svg><use href="#i-tool"></use></svg><span>Tools</span></a>
+      <a class="rail-item" href="#/vault"      data-section="vault"><svg><use href="#i-vault"></use></svg><span>Vault</span></a>
+      <a class="rail-item" href="#/memory"     data-section="memory"><svg><use href="#i-memory"></use></svg><span>Memory</span></a>
+      <a class="rail-item" href="#/signals"    data-section="signals"><svg><use href="#i-signal"></use></svg><span>Signals</span></a>
+      <a class="rail-item" href="#/economics"  data-section="economics"><svg><use href="#i-coin"></use></svg><span>Cost</span></a>
+    </nav>
+
+    <section class="stage">
+      <div class="stage-head">
+        <h1 id="section-title">Overview</h1>
+        <p id="section-note" class="stage-note"></p>
+      </div>
+      <div id="stage-body" class="stage-body" aria-live="polite"></div>
+    </section>
+  </main>
+
+  <div id="toast-region" class="toast-region" aria-live="polite"></div>
+  <script type="module" src="./mind.js"></script>
+</body>
+</html>

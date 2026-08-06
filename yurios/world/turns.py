@@ -69,7 +69,11 @@ class TextTurns:
             session_id = rt.brain.resolve_session(session_id)
             if session_id in rt.greeted:
                 return {"session_id": session_id, "message": None}
-            rt.greeted.add(session_id)
+            # NOT marked greeted yet: a greeting that dies mid-stream is a
+            # greeting that did not happen, and rolls back like every other turn
+            # here. Marking on entry meant one failed stream cost her the
+            # opener for the whole run. The turn lock serialises this method, so
+            # the check above cannot race with the mark below.
             await rt.park_gate.wait()          # the §7.6 door, as in `run`
             rt.turn_started(proactive=True)
             # A cold open is a scene, not an utterance: what she shows is the
@@ -108,6 +112,10 @@ class TextTurns:
             finally:
                 rt.turn_ended()
 
+            # The stream finished, so she has now greeted this session — whether
+            # or not it produced text. A silent-but-clean greeting is still an
+            # arrival; only a failure above (which raised) leaves it un-marked.
+            rt.greeted.add(session_id)
             entry = None
             text = cold or (" ".join(shown) if shown else "")
             if text:

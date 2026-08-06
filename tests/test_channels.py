@@ -120,6 +120,40 @@ def test_api_chat_cancel_tombstone_stops_a_late_request(cfg):
         assert app.state.rt.transcript == []
 
 
+def test_a_disconnect_is_not_reported_as_a_stop(cfg):
+    """`await task` raises CancelledError for two very different reasons — the
+    Stop button, and Starlette tearing the handler down because the client went
+    away or the server is closing. Answering both with a 409 also swallowed the
+    cancellation, so shutdown waited out a turn nobody was listening to."""
+    from fastapi import HTTPException
+    from yurios.world.routes.chat import _stopped, _tasks, _tracked
+
+    class Req:
+        app = type("App", (), {"state": type("S", (), {})()})()
+
+    async def slow():
+        await asyncio.sleep(10)
+
+    async def scenario():
+        request = Req()
+        stop = asyncio.create_task(_tracked(request, "browser", slow()))
+        await asyncio.sleep(0)
+        _stopped(request).add("browser")            # what /api/chat/cancel marks
+        _tasks(request)["browser"].cancel()
+        with pytest.raises(HTTPException) as refused:
+            await stop
+        assert refused.value.status_code == 409
+
+        gone = asyncio.create_task(_tracked(request, "browser", slow()))
+        await asyncio.sleep(0)
+        gone.cancel()                               # the client simply left
+        with pytest.raises(asyncio.CancelledError):
+            await gone
+        assert not _tasks(request) and not _stopped(request)
+
+    asyncio.run(scenario())
+
+
 # ---- POST /api/greeting — she speaks first, in text (SPEC §7) ---------------
 
 def test_api_greeting_opens_the_conversation_once(cfg):
@@ -172,6 +206,34 @@ def test_api_greeting_midstream_failure_leaves_no_trace(cfg):
     with TestClient(app) as c:
         assert c.post("/api/greeting", json={"channel": "cli"}).status_code == 502
         assert app.state.rt.transcript == []
+
+
+def test_a_greeting_that_failed_is_retried_on_the_next_arrival(cfg):
+    """A greeting that dies mid-stream did not happen, and rolls back like every
+    other turn here. Marking the session greeted on entry meant one bad stream
+    cost her the opener for the whole run — she came up silent and stayed that
+    way, with nothing in the transcript to say why."""
+    class FlakyBrain(FakeBrain):
+        def __init__(self):
+            super().__init__()
+            self.first = True
+
+        async def stream_greeting(self, session_id):
+            if self.first:
+                self.first = False
+                yield "[happy] Oh, "
+                raise RuntimeError("model died")
+            async for token in super().stream_greeting(session_id):
+                yield token
+
+    app = make_app(cfg, FlakyBrain())
+    with TestClient(app) as c:
+        assert c.post("/api/greeting", json={"channel": "cli"}).status_code == 502
+        assert app.state.rt.transcript == []
+
+        entry = c.post("/api/greeting", json={"channel": "cli"}).json()["message"]
+        assert entry is not None and entry["text"] == "Oh, there you are."
+        assert [m["role"] for m in app.state.rt.transcript] == ["assistant"]
 
 
 # ---- the Telegram adapter ---------------------------------------------------

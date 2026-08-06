@@ -64,6 +64,22 @@ def _cancelled(request: Request) -> set[str]:
     return cancelled
 
 
+def _stopped(request: Request) -> set[str]:
+    """Turns `/api/chat/cancel` cancelled on purpose.
+
+    The discriminator `_tracked` needs. A `CancelledError` at `await task` has
+    two sources — the Stop button, and Starlette cancelling the handler because
+    the client disconnected or the server is shutting down — and only the first
+    is a 409. Answering both with one meant an ordinary disconnect was reported
+    as a user-initiated stop and, worse, the cancellation stopped propagating,
+    so shutdown had to wait out a turn that nobody was listening to.
+    """
+    stopped = getattr(request.app.state, "chat_stopped", None)
+    if stopped is None:
+        stopped = request.app.state.chat_stopped = set()
+    return stopped
+
+
 async def _tracked(request: Request, client_id: str | None, coroutine):
     if not client_id:
         return await coroutine
@@ -78,11 +94,15 @@ async def _tracked(request: Request, client_id: str | None, coroutine):
         raise HTTPException(409, "request already processing")
     task = asyncio.create_task(coroutine, name=f"chat-{client_id}")
     tasks[client_id] = task
+    stopped = _stopped(request)
     try:
         return await task
     except asyncio.CancelledError:
-        raise HTTPException(409, "turn cancelled")
+        if client_id in stopped:
+            raise HTTPException(409, "turn cancelled") from None
+        raise                                  # the client left, or we're closing
     finally:
+        stopped.discard(client_id)
         if tasks.get(client_id) is task:
             tasks.pop(client_id, None)
 
@@ -133,6 +153,9 @@ async def cancel_chat(req: CancelRequest, request: Request):
     """Stop one browser request and any camera work it started."""
     task = _tasks(request).get(req.client_id)
     if task and not task.done():
+        # Marked before the cancel, so `_tracked` knows this one was the Stop
+        # button and not a disconnect (see `_stopped`).
+        _stopped(request).add(req.client_id)
         task.cancel()
     elif len(_cancelled(request)) < 256:
         # The stop POST can beat the original request after AbortController

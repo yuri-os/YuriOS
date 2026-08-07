@@ -56,18 +56,39 @@
   // ancestor once and pin that, and the one renderer keeps the latest line in
   // view on all three pages.
   let scrollEl = null;
+  // Stays true while the reader is at (or returns to) the bottom, false the
+  // moment they scroll up to read back — a reply landing mid-read must not
+  // yank the view out from under them. Sending a message of your own is the
+  // one action that always re-pins (see forceScroll).
+  let pinned = true;
+  const NEAR_BOTTOM_PX = 48;
+  function nearBottom(el) {
+    return el.scrollHeight - el.clientHeight - el.scrollTop < NEAR_BOTTOM_PX;
+  }
   function scroller() {
     if (scrollEl && scrollEl.isConnected) return scrollEl;
+    scrollEl = null;
     for (let el = messages; el && el !== document.body; el = el.parentElement) {
       const oy = getComputedStyle(el).overflowY;
-      if (oy === 'auto' || oy === 'scroll') return (scrollEl = el);
+      if (oy === 'auto' || oy === 'scroll') { scrollEl = el; break; }
     }
-    return (scrollEl = document.scrollingElement || document.body);
+    if (!scrollEl) scrollEl = document.scrollingElement || document.body;
+    scrollEl.addEventListener('scroll', () => { pinned = nearBottom(scrollEl); },
+      { passive: true });
+    return scrollEl;
   }
 
   function scroll() {
     if (!messages) return;
     const el = scroller();
+    if (!pinned) return;
+    el.scrollTop = el.scrollHeight;
+  }
+
+  function forceScroll() {
+    if (!messages) return;
+    const el = scroller();
+    pinned = true;
     el.scrollTop = el.scrollHeight;
   }
 
@@ -148,7 +169,7 @@
     window.dispatchEvent(new CustomEvent('chat-sending', {
       detail: { text, client_id: clientId },
     }));
-    scroll();
+    forceScroll();
   }
 
   function failPending(clientId, reason = 'not received') {

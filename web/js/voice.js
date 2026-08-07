@@ -278,7 +278,10 @@ export function initVoice({ viseme, els }) {
     aborter = null;
     renderProcessing();
     if (!wantsVoice()) disconnectVoice();
-    els.text?.focus();
+    // Only reclaim focus if the composer still has it — if the user dismissed
+    // the mobile keyboard (or never focused it, e.g. a mic turn) to read her
+    // reply, don't yank the keyboard back open under them.
+    if (document.activeElement === els.text) els.text?.focus();
   }
 
   function completeLlm(clientId, selfieIds = []) {

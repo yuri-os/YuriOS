@@ -24,7 +24,7 @@ _PROVIDER_PREFIXES = {
     "openrouter": "openrouter/",
 }
 _SELFIE_BACKENDS = ("openrouter", "diffusers", "off")
-_START_TIMEOUT_SECONDS = 120.0
+_START_TIMEOUT_SECONDS = 180.0
 _STOP_TIMEOUT_SECONDS = 10.0
 _POLL_INTERVAL_SECONDS = 0.25
 

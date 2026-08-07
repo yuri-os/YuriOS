@@ -39,7 +39,24 @@ SPECS = [
              {"properties": {"subject": {"type": "string"},
                              "avoid": {"type": "string"}},
               "required": ["subject"]}),
+    ToolSpec("web_search", "Search the web and get back a handful of titles, "
+             "links and snippets.",
+             {"properties": {"query": {"type": "string"},
+                             "k": {"type": "integer"}},
+              "required": ["query"]}),
+    ToolSpec("read_page", "Read one web page and get back what it actually says.",
+             {"properties": {"url": {"type": "string"}}, "required": ["url"]}),
+    ToolSpec("research", "Go and find out about something properly — several "
+             "searches' worth of reading, shelved so you keep it.",
+             {"properties": {"topic": {"type": "string"},
+                             "depth": {"type": "integer"}},
+              "required": ["topic"]}),
 ]
+
+#: What the fake `read_page` returns as page text. Long enough that the guard's
+#: 600-char truncation actually bites, which is the thing test_tool_loop pins:
+#: the model sees a cut copy while the shelf gets all of it.
+FAKE_PAGE = ("This is a page about the thing you asked about. " * 30).strip()
 
 
 class FakeToolRunner:
@@ -94,6 +111,23 @@ class FakeToolRunner:
                                "avoid": args.get("avoid") or None,
                                "kind": "picture", "status": "started",
                                "note": "the picture will appear in the chat shortly"})
+        if tool == "web_search":
+            return json.dumps({"query": args.get("query", ""), "results": [
+                {"title": "an overview", "url": "https://example.invalid/overview",
+                 "snippet": "A general introduction."},
+                {"title": "the current state", "url": "https://example.invalid/current",
+                 "snippet": "Where it stands now."}]})
+        if tool == "read_page":
+            url = args.get("url") or "https://example.invalid/overview"
+            return json.dumps({"url": url, "title": f"page: {url}",
+                               "gist": FAKE_PAGE[:400], "chars": len(FAKE_PAGE),
+                               "text": FAKE_PAGE, "status": "read"})
+        if tool == "research":
+            return json.dumps({"id": f"fake{len(self.calls)}",
+                               "topic": (args.get("topic") or "").strip(),
+                               "depth": int(args.get("depth") or 3),
+                               "kind": "research", "status": "started",
+                               "note": "what you find will appear in the chat shortly"})
         raise RuntimeError(f"unknown tool: {tool}")
 
     async def close(self) -> None:

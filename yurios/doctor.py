@@ -119,6 +119,13 @@ def collect(cfg) -> list[Check]:
               "", "mcp is a core dep — always installed"),
         Check("camera (selfies)", "SELFIE_BACKEND", selfie_shown,
               selfie_module, selfie_extra, selfie_note),
+        # The one seam whose dependency is a *service*, not a module — so the
+        # table can only say what .env selects, and the live half is checked
+        # below in search_lines(). Listed anyway: a row missing from this table
+        # is a capability people don't know she has.
+        Check("web search", "SEARCH_BACKEND",
+              getattr(cfg, "search_backend", "off"), "", "",
+              "needs a SearXNG container, not a pip extra — see below"),
     ]
     if getattr(cfg, "window_gui", None) is not None:
         # The desktop window is opt-in at RUN time (--window), not config, so it's
@@ -294,6 +301,44 @@ def network_lines(cfg) -> list[str]:
     return lines
 
 
+def search_lines(cfg, root: Path | None = None) -> list[str]:
+    """Whether she can actually search right now (SPEC §7.7).
+
+    Every other seam in the table is answered by "is the module importable",
+    which is a question with a stable answer. This one is a container that can
+    be missing, stopped, or up-but-refusing-JSON — three different problems
+    wearing the same "web search is on" configuration, and each with its own
+    fix. Checking them costs one local HTTP request, so the doctor checks.
+    """
+    from yurios import searxng
+
+    root = root or Path.cwd()
+    info = searxng.status(cfg, root)
+    lines = ["\nWeb search\n"]
+    backend = info["backend"]
+    if backend == "off":
+        lines.append("   SEARCH_BACKEND    off — she can't search, read a page, "
+                     "or research a topic")
+        lines.append("   to turn it on     rerun ./install.sh and say yes to web "
+                     "search (it sets up the container)")
+        return lines
+
+    lines.append(f"   SEARCH_BACKEND    {backend}")
+    if backend == "searxng":
+        lines.append(f"   instance          {info['url']}")
+        if info["container"].startswith("not ours"):
+            lines.append(f"   container         {info['container']}")
+        elif info["container"]:
+            lines.append(f"   container         {searxng.CONTAINER}: "
+                         f"{info['container']}")
+    mark = "ok" if info["live"] else "NOT WORKING"
+    lines.append(f"   right now         {mark} — {info['detail']}")
+    if info["live"]:
+        lines.append("   what she reads    is shelved as knowledge she can cite "
+                     "later (vault/knowledge/reference/)")
+    return lines
+
+
 def _optional_line(skipped: list[Check]) -> str:
     names = ", ".join(f"{c.seam} (`pip install -e '.[{c.extra}]'`)" for c in skipped)
     return f"Optional, not installed (fine to ignore): {names}"
@@ -374,7 +419,8 @@ def report(checks: list[Check], *, network: list[str] | None = None, out=None) -
 def main(argv: list[str] | None = None) -> int:
     from yurios.world.config import Config      # the same config the server reads
     cfg = Config()
-    missing = report(collect(cfg), network=network_lines(cfg))
+    missing = report(collect(cfg),
+                     network=search_lines(cfg) + network_lines(cfg))
     return 1 if missing else 0
 
 

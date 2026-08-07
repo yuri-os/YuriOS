@@ -106,7 +106,19 @@ class DiffusersBackend(ImageBackend):
 
     def _load(self, force_offload: bool = False):
         if self._pipe is not None:
-            return self._pipe
+            if self._offloading is False and self._resident_reuse_would_oom():
+                # The pipeline was loaded resident when the card had room, and
+                # the card no longer does — her brain came back beside it. A
+                # resident pipeline needs headroom for activations, not just for
+                # its own weights, so reusing this one now is the OOM. Trading
+                # ~20 s of reload for a photo that actually arrives.
+                log.warning("diffusers: the card filled up since this pipeline "
+                            "was loaded — reloading it with CPU offload rather "
+                            "than rendering into what's left.")
+                self._teardown()
+            else:
+                return self._pipe
+            force_offload = True
         self._prepare_env()
         import torch
         from diffusers import (DPMSolverMultistepScheduler,
@@ -157,6 +169,22 @@ class DiffusersBackend(ImageBackend):
             pass
         self._pipe = pipe
         return pipe
+
+    #: Headroom a *resident* pipeline needs on top of its own weights, for
+    #: activations and the VAE decode. Measured against free VRAM while the
+    #: pipeline is already loaded, so it is not the same number as
+    #: RESIDENT_FREE_GIB (which sizes an empty card for a fresh load).
+    REUSE_FREE_GIB = 2.5
+
+    def _resident_reuse_would_oom(self) -> bool:
+        """Is there still room to run the pipeline we're already holding?"""
+        try:
+            import torch
+            if self.device != "cuda" or not torch.cuda.is_available():
+                return False
+            return (torch.cuda.mem_get_info()[0] / 1024**3) < self.REUSE_FREE_GIB
+        except Exception:
+            return False        # can't measure → behave exactly as before
 
     def _teardown(self) -> None:
         """Drop the pipeline and hand the VRAM back (the OOM retry's reset)."""

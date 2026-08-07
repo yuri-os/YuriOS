@@ -32,9 +32,41 @@ def store(tmp_path):
     return ks
 
 
+def test_shelf_exists_to_be_dropped_into(tmp_path):
+    """The drop folder is an instruction to the user ("put a file here"), so
+    constructing the store has to make the place real — including in a Vault
+    seeded before §20 existed, which is every Vault upgraded rather than made."""
+    store = KnowledgeStore(MindVault(tmp_path / "vault"), FakeEmbedder(),
+                           VirtualClock(start=SIM_START.timestamp()))
+    assert store.reference.is_dir()
+    assert store.shelf() == []          # empty, but askable
+
+
+def test_derived_index_ignores_itself(tmp_path):
+    """chunks.jsonl is rewritten whole per ingest and holds an embedding per
+    chunk. The ignore lives *in* the index dir rather than the Vault's
+    `.gitignore`, which is written once at seed time and never refreshed."""
+    store = KnowledgeStore(MindVault(tmp_path / "vault"), FakeEmbedder(),
+                           VirtualClock(start=SIM_START.timestamp()))
+    ignore = store.index_path.parent / ".gitignore"
+    assert ignore.exists() and ignore.read_text().rstrip().endswith("*")
+
+
+def test_shelf_creation_survives_a_read_only_vault(tmp_path, monkeypatch):
+    """A Vault that can't be written is a strange configuration, not a reason
+    to refuse to build the mind."""
+    def no(*a, **kw):
+        raise PermissionError("read-only")
+    monkeypatch.setattr("pathlib.Path.mkdir", no)
+    store = KnowledgeStore(MindVault(tmp_path / "vault"), FakeEmbedder(),
+                           VirtualClock(start=SIM_START.timestamp()))
+    assert store.shelf() == []
+    assert store.pending_docs() == []
+
+
 async def test_drop_scan_ingest_search_with_citation(store):
     ref = store.reference
-    ref.mkdir(parents=True)
+    ref.mkdir(parents=True, exist_ok=True)
     (ref / "tea.md").write_text(DOC)
     assert store.pending_docs() == ["tea.md"]
 
@@ -53,7 +85,7 @@ async def test_drop_scan_ingest_search_with_citation(store):
 
 
 async def test_reingest_replaces_not_duplicates(store):
-    store.reference.mkdir(parents=True)
+    store.reference.mkdir(parents=True, exist_ok=True)
     (store.reference / "tea.md").write_text(DOC)
     await store.scan()
     n1 = len(store.inspect())
@@ -67,7 +99,7 @@ async def test_reingest_replaces_not_duplicates(store):
 
 
 async def test_forget_drops_doc_and_chunks(store):
-    store.reference.mkdir(parents=True)
+    store.reference.mkdir(parents=True, exist_ok=True)
     (store.reference / "tea.md").write_text(DOC)
     await store.scan()
     removed = store.forget("tea")
@@ -80,7 +112,7 @@ async def test_forget_drops_doc_and_chunks(store):
 async def test_knowledge_never_pollutes_memory(store, tmp_path):
     """The D-019 boundary: the shelf and the relationship are separate stores
     with separate files — nothing ingested lands in memory/, and vice versa."""
-    store.reference.mkdir(parents=True)
+    store.reference.mkdir(parents=True, exist_ok=True)
     (store.reference / "tea.md").write_text(DOC)
     await store.scan()
     vault_root = store.vault.vault
@@ -92,3 +124,27 @@ async def test_ingest_given_content_lands_on_the_shelf(store):
     res = await store.ingest("notes from her research", text="Sencha is steamed.")
     assert res.doc.endswith(".md")
     assert res.doc in store.shelf()                 # the shelf is the durable home
+
+
+async def test_the_index_is_not_reparsed_every_turn(store, monkeypatch):
+    """`search()` used to run occasionally; §20.2 puts it on every turn, against
+    a JSONL file carrying a full embedding per line. It caches on the file's own
+    size+mtime — and a fresh ingest rewrites the file, so the next search sees
+    it without anyone sending a signal."""
+    from yurios.mind import knowledge as mod
+
+    store.reference.mkdir(parents=True, exist_ok=True)
+    (store.reference / "tea.md").write_text(DOC)
+    await store.scan()
+
+    reads = []
+    real = mod.jsonl_read
+    monkeypatch.setattr(mod, "jsonl_read", lambda p: (reads.append(p), real(p))[1])
+
+    assert store.search("gyokuro", k=1)
+    assert store.search("gyokuro", k=1)
+    assert store.search("bancha", k=1)
+    assert len(reads) == 1, "three searches, one parse"
+
+    await store.ingest("more.md", text="Matcha is powdered.\n")
+    assert store.search("matcha powdered", k=1), "a new doc is visible at once"

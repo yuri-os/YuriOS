@@ -382,6 +382,7 @@ def _create_vault(vault: Path, fields: Mapping[str, Any], name: str,
                   warnings: tuple[str, ...] = ()) -> None:
     soul = vault / "soul"
     for directory in (
+        vault / "knowledge" / "reference",
         vault / "memory" / "episodic",
         vault / "memory" / "index",
         vault / "memory" / "semantic",

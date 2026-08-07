@@ -31,6 +31,9 @@ from typing import AsyncIterator
 log = logging.getLogger(__name__)
 _models: dict[tuple[Path, int, int, int, bool], "_LoadedModel"] = {}
 _models_lock = threading.Lock()
+# Signalled when a park ends. Every load decision is made while holding this,
+# which is what makes "is the card lent out right now?" answerable without a race.
+_models_cv = threading.Condition(_models_lock)
 _PROBE_TIMEOUT_SECONDS = 600
 _SAFE_CONTEXT_LENGTH = 8192
 
@@ -42,11 +45,27 @@ _SAFE_CONTEXT_LENGTH = 8192
 # the contexts here. `_load_gate` is the door: cleared for the render's whole
 # window, so a mind tick or a turn that slips past the ParkGate queues its load
 # instead of putting her brain back onto the card the render is filling.
+#
+# The door alone is not enough, and the failure log says why. `_load_gate` used
+# to be checked once, at the top of `get_model`, BEFORE the slow part — HF
+# resolution, a network round trip or two. A mind tick that passed the door a
+# quarter-second before `park()` shut it went on to build a fresh 5.7 GiB
+# context straight into the render's window: "park: lending the GPU (8.9 GiB
+# free)" and, eleven seconds later, "diffusers: 8.9 GiB VRAM free" — the loan
+# handed over nothing, and the render died with 132 MiB left. So the *decision*
+# to load is now made under `_models_cv`, where `_parked` cannot change
+# underneath it, and the gate above is only an optimisation that keeps a queued
+# caller from doing its network work twice.
 _providers: weakref.WeakSet = weakref.WeakSet()      # live chat/utility providers
 _registry: dict[tuple, tuple[str, object]] = {}      # key → (model, cfg), for reload
 _probed: dict[tuple, "_Options"] = {}                # key → preflight that passed
 _load_gate = threading.Event()                       # clear = parked; loads wait
 _load_gate.set()
+_parked = False                                      # authoritative; _models_cv guards it
+# How long a load will hold for a render before going through anyway. A park
+# window is evict + render + re-pin; past this something is wedged, and a late
+# reply beats a mute companion (world/vram.py's ParkGate makes the same trade).
+_PARK_WAIT_SECONDS = 180.0
 _THINKING_CONDITION = re.compile(
     r"enable_thinking\s+is\s+defined\s+and\s+enable_thinking\s+is\s+false")
 
@@ -284,27 +303,50 @@ def _key_for(path: Path, cfg) -> tuple:
 
 
 def get_model(model: str, cfg) -> _LoadedModel:
+    deadline = time.monotonic() + _PARK_WAIT_SECONDS
     # Outside the cache lock: a parked render holds this gate for its whole
     # window, and a load that queues here must not freeze every other reader.
-    _load_gate.wait()
+    # Cheap and advisory — the binding check is `_parked`, under the lock below.
+    _load_gate.wait(max(0.0, deadline - time.monotonic()))
     path = resolve_model_file(model, cfg)
     key = _key_for(path, cfg)
-    with _models_lock:
+    with _models_cv:
         _registry[key] = (model, cfg)
         loaded = _models.get(key)
-        if loaded is None:
-            requested = _Options(context_length=key[1], gpu_layers=key[2],
-                                 threads=key[3], flash_attn=key[4])
-            # A reload after a park skips the sacrificial-process preflight:
-            # this exact tuple already proved it loads, earlier this run.
-            options = _probed.get(key)
-            if options is None:
-                options = _probe_model(path, requested)
-                _probed[key] = options
-            loaded = _LoadedModel(path, context_length=options.context_length,
-                                  gpu_layers=options.gpu_layers, threads=options.threads,
-                                  flash_attn=options.flash_attn)
-            _models[key] = loaded
+        if loaded is not None:
+            return loaded                      # already resident: nothing to load
+        # The park may have started while we resolved the file above — that gap
+        # is a network round trip wide, and it is where the OOM lived. Building
+        # the context now would put her brain back onto the card the render is
+        # filling, so wait for the render to give it back, then look again.
+        if _parked:
+            log.info("GGUF: a load is waiting for the render to give the card "
+                     "back (%s)", model)
+            while _parked and time.monotonic() < deadline:
+                _models_cv.wait(max(0.0, deadline - time.monotonic()))
+            if _parked:
+                log.warning("GGUF: still parked after %.0fs — loading %s anyway "
+                            "(it may take VRAM the render is using)",
+                            _PARK_WAIT_SECONDS, model)
+            loaded = _models.get(key)
+            if loaded is not None:
+                return loaded                  # unpark() reloaded it while we waited
+        # From here to the `return` the lock is never dropped, and `park()` needs
+        # it to declare itself — so no park can begin underneath this load. One
+        # already waiting for the lock gets a live context to close, which is the
+        # outcome the loan wants.
+        requested = _Options(context_length=key[1], gpu_layers=key[2],
+                             threads=key[3], flash_attn=key[4])
+        # A reload after a park skips the sacrificial-process preflight:
+        # this exact tuple already proved it loads, earlier this run.
+        options = _probed.get(key)
+        if options is None:
+            options = _probe_model(path, requested)
+            _probed[key] = options
+        loaded = _LoadedModel(path, context_length=options.context_length,
+                              gpu_layers=options.gpu_layers, threads=options.threads,
+                              flash_attn=options.flash_attn)
+        _models[key] = loaded
         return loaded
 
 
@@ -330,8 +372,15 @@ def park() -> list[tuple[str, object]]:
     a context that will not close cleanly is dropped all the same, and the
     render keeps its offload fallback.
     """
+    global _parked
     _load_gate.clear()
-    with _models_lock:
+    with _models_cv:
+        # Declared under the lock, so a load that is mid-decision either sees it
+        # and waits, or holds the lock and finishes — never both. Taking the
+        # snapshot in the same critical section is what closes the old race: a
+        # context built between "the gate shut" and "the snapshot" no longer
+        # exists to be missed.
+        _parked = True
         snapshot = list(_models.items())
         _models.clear()
     for provider in list(_providers):
@@ -369,6 +418,10 @@ def unpark(handles: list[tuple[str, object]]) -> None:
     will not reload drops its cached preflight, so the next turn re-probes and
     can fall back to fewer GPU layers; the gate opens either way, so a failed
     restore never leaves her mute."""
+    global _parked
+    with _models_cv:
+        _parked = False
+        _models_cv.notify_all()      # release the loads queued in `get_model`
     _load_gate.set()
     for model, cfg in handles:
         try:

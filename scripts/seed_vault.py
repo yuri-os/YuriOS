@@ -81,6 +81,9 @@ def seed(soul_src: Path, vault: Path) -> None:
     (vault / "state").mkdir(parents=True, exist_ok=True)
     vaultgit.atomic_write(vault / "state" / "sessions.json",
                           '{\n "sessions": {}\n}')
+    # The shelf (§20). An empty directory is the whole point: it is where the
+    # docs tell you to drop a book, so it has to be there to be dropped into.
+    (vault / "knowledge" / "reference").mkdir(parents=True, exist_ok=True)
     vaultgit.atomic_write(vault / ".gitignore", VAULT_GITIGNORE)
 
     # ONE git repo — the mind (§4.1). Backed up by copying the folder.

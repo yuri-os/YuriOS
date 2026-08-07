@@ -148,16 +148,24 @@ reactive body (Part II gates who may edit it, §23).
 5. WHO YOU ARE TO HER     (vault/soul/USER.md, whole — it is small)
 6. WHAT YOU'VE TALKED ABOUT (vault/memory/summary.md)
 7. THINGS THAT MAY BE RELEVANT (recall(user_msg, k), each tagged with age)
-8. THE HONESTY CONSTRAINT (§2.1, fixed text)
-9. EXAMPLE VOICE (if budget allows)
+8. WHAT YOU'VE READ       (knowledge.search(user_msg, k), each with its citation — §20.2)
+9. THE HONESTY CONSTRAINT (§2.1, fixed text)
+10. EXAMPLE VOICE (if budget allows)
 ```
 
 followed by the last `RAW_WINDOW_TURNS` raw messages (default 6) and the new user message.
 `CONSTITUTION.md#Hard limits` (post-history instructions) **MUST** be appended **after** the
 history, so it is the last thing read before replying. The raw window **MUST** stay small
 (long raw context degrades middle recall); the rolling summary carries older context
-cheaply. On overflow, **drop recalled memories first, lorebook second; never drop the voice
-law, persona, `USER.md`, or the honesty constraint.**
+cheaply. On overflow, **drop the examples first, then knowledge, then recalled memories, then
+the lorebook; never drop the voice law, persona, `USER.md`, or the honesty constraint.**
+Knowledge goes before memory in that order because a chunk is a paragraph rather than a line
+(so one buys back what a dozen memories would), because the shelf is on disk and the same
+search runs again next turn, and because of the three it is the least *hers*.
+
+Blocks 7 and 8 are the two retrieval slots and **MUST** stay separate (§20): memory cites a
+conversation turn, knowledge cites a document + span. A page she read **MUST NOT** be
+assembled as something the user told her.
 
 **The honesty constraint** (property: honest memory) is a fixed block: *she remembers only
 what is in the memory blocks and the current conversation; asked about something with no
@@ -499,15 +507,28 @@ to every new subscriber before its first live event. Malformed JSON is logged an
   | `get_weather` | `city?` (default `WEATHER_CITY`) | `{city, temp_c, condition, wind_kmh}` | none |
   | `take_selfie` | `look?` (the whole picture in her own words), `scene?`, `framing?`, `lighting?`, `mood?`, `wardrobe?`, `avoid?` (template keys or free-form — carried verbatim, never refused; unnamed slots are left unnamed, never rolled) | `{id, look, scene, framing, lighting, mood, wardrobe, avoid, kind:"selfie", status:"started"}` | host renders off-turn, posts the photo (§7.6) |
   | `show_picture` | `subject` (required — the whole picture in her own words; no library, no slots), `avoid?` | `{id, subject, avoid, kind:"picture", status:"started"}` | host renders off-turn *without her likeness*, posts the picture (§7.6) |
+  | `web_search` | `query`, `k?` (≤ `SEARCH_RESULTS`) | `{query, results:[{title, url, snippet}]}` | none (§7.7) |
+  | `read_page` | `url` | `{url, title, gist, chars, text, status:"read"}` | host shelves the full text as knowledge (§7.7, §20) |
+  | `research` | `topic`, `depth?` (≤ `RESEARCH_MAX_PAGES`) | `{id, topic, depth, kind:"research", status:"started"}` | host searches, reads and shelves off-turn, posts what it found (§7.7) |
 
   The surface **MUST NOT** grow a shell — the heavy, sandboxed hands are a named later rung
   (§26). With `SELFIE_BACKEND=off` neither camera tool **MUST** be advertised: no hand, not a
-  dead one.
-- §7.2 **A genuine MCP client.** The brain side **MUST** connect over MCP
+  dead one; with `SEARCH_BACKEND=off` the three web tools **MUST NOT** be advertised either.
+- §7.2 **A genuine MCP client, and more than one server.** The brain side **MUST** connect over MCP
   (`yurios/world/tools/client.py`, stdio, spawning `yurios.world.tools.server`), discover tools
   with `list_tools`, and build the §7.4 directive from the discovered schemas. If the SDK or
   server fails, the build **MUST** degrade to tools-off and keep talking; `/api/health` reports
   the truth.
+
+  `MCP_SERVERS` **MAY** name a JSON file in the conventional `{"mcpServers": {…}}` shape, whose
+  servers are mounted alongside hers behind the same `ToolRunner` seam (`MultiToolRunner`), so the
+  brain still sees one runner and one flat list. Unset, the behaviour **MUST** be identical to the
+  single-server case. Her own server **MUST** be mounted first and tool names **MUST** stay
+  unprefixed, so a third-party server cannot shadow one of her hands — the collision is dropped and
+  logged. A configured server that fails to start **MUST** be skipped rather than costing her the
+  others. Tools discovered from a mounted server **MUST** be admitted to the §7.3 allowlist at that
+  server's rate (or `TOOL_RATE_EXTERNAL`); tools from her own server **MUST NOT** be admitted this
+  way, because their configured rates encode decisions discovery cannot see.
 - §7.3 **Guardrails.** Every call **MUST** pass `yurios/world/tools/guard.py`: an **allowlist**
   (exactly the discovered tools; anything else denied), **per-tool rate limits** (token bucket
   on the injected clock), a **per-turn call cap** (`TOOL_MAX_CALLS_PER_TURN`), a **per-call
@@ -523,6 +544,21 @@ to every new subscriber before its first live event. Malformed JSON is logged an
   …))` cue) the model finishes as the same turn — so she *speaks to* what her hands found.
   First audio **MUST NOT** wait on a tool: the lead-in sentence reaches TTS before the call runs.
   Barge-in **MUST** cancel the continuation, and a barged-in tool turn persists nothing.
+  The block lists each discovered tool with its **whole** description, unwrapped to one line: a
+  description is prose whose newlines are typography, so truncating at the first one keeps a
+  fragment and discards the sentences that say *when to reach for the tool* — a hand she can
+  call but was never told the purpose of is one she does not use, which is indistinguishable
+  from not having it. A length cap **MAY** bound a mounted third-party server (§7.2) but
+  **MUST** sit above every first-party description. The grammar is taught by a **concrete**
+  example; a metavariable like `tool_name` in the block is emitted verbatim by small models and
+  arrives at the guard as a call to a tool that does not exist. Every parameter **MUST** be
+  explained in its tool's description — the schema carries names and types, and the description
+  is the only place their *meaning* reaches her; an undocumented optional argument is one she
+  fills with the prose that had nowhere else to go. The client **MUST** fit arguments to the
+  discovered schema before the call: coerce what is coercible, drop an **optional** argument
+  that cannot be made to fit so the tool's own default applies, and leave a **required** one for
+  the tool to reject with its own better message. A fumbled optional scalar **MUST NOT** cost
+  the call the required arguments the model got right.
 - §7.5 **Semantics.** The MCP server is the *contract and audit point* for `set_timer` — it
   validates and records — but the **host** schedules the wake (`yurios/world/tools/timers.py`,
   on the injected clock), because only the host owns her voice; when a timer elapses she
@@ -582,6 +618,50 @@ to every new subscriber before its first live event. Malformed JSON is logged an
   its checkpoint, or (krea2) access to the gated companion repo its text encoder and VAE come
   from — **MUST** degrade to `mock` with one loud WARNING; a failed render **MUST** become a
   quiet chat message, never a crash and never silence.
+- §7.7 **The web: `web_search` / `read_page` / `research`, and what she reads she keeps.** The
+  three hands arrive together or not at all — searching with no way to open what you found is half
+  a capability — behind one `SEARCH_BACKEND` knob whose default is `off`.
+
+  Search **MUST** sit behind a `SearchProvider` seam (`yurios/world/tools/search.py`) with an
+  offline fake, and the reference backend **MUST** be a **self-hosted SearXNG** instance. Where
+  Open-Meteo is chosen for needing no key, this is chosen for needing no third party: the record of
+  what she searched for is a file on the user's own machine. The instance's JSON format is disabled
+  in stock SearXNG, and the resulting 403 **MUST** be reported as that rather than as an HTTP error,
+  because a bare 403 sends the reader to authentication.
+
+  Fetching **MUST** sit behind a `PageFetcher` seam (`yurios/world/tools/fetch.py`) with an offline
+  fake, extract text with no new dependency, and — the load-bearing rule — **validate the URL
+  before every request and again on every redirect hop**: http(s) only, and never an address that
+  resolves into private, loopback, link-local, reserved or multicast space. `url` is the first tool
+  argument authored by a language model rather than by a person, and the local network it would
+  otherwise reach includes her own control surface (§11.4). Redirects **MUST** therefore be followed
+  by hand. Non-text responses and bodies past `FETCH_MAX_BYTES` **MUST** be refused.
+
+  **A page she read is knowledge, not a tool result.** The full text of every page — fetched by
+  `research` or by a `read_page` she made herself — **MUST** be ingested into the §20
+  `KnowledgeStore` and carry its source URL in the document, so the doc+span citation survives the
+  round trip back to where it came from. The model **MUST** see only a short `gist`: §7.3's result
+  truncation bounds the model-facing and audit copies while the host realises against the
+  untruncated one (`ToolBrain._execute`), which is the same two-audience contract the camera's
+  contract JSON already relies on. With no mind running there is no shelf; she **MUST** still
+  search, read and report, and **MUST** say that it wasn't kept rather than implying it was.
+
+  Because the dependency is a **service and not a package**, the runtime **MUST** look after it:
+  `install.sh` asks (defaulting to off when no terminal is attached — a service is not something to
+  stand up for somebody who isn't watching), creates the container with the json format already
+  enabled, and degrades to `SEARCH_BACKEND=off` rather than failing the install when Docker is
+  unusable. `yurios start` **MUST** bring a stopped container up, and **MUST NOT** treat a failure
+  to do so as fatal. `yurios doctor` **MUST** report whether she can search *right now*, telling
+  missing, stopped and refusing-JSON apart, since those are three different fixes behind one
+  configuration. A non-loopback `SEARXNG_URL`, or a loopback instance the runtime did not create,
+  **MUST** be reported and never managed — and the probe **MUST** be consulted before the container
+  state, so a working instance run another way is never diagnosed as a missing one.
+
+  `research` **MUST** follow §7.6's start-don't-await rule — the server validates and answers
+  `{status:"started"}`, and `yurios/world/research.py` does the work off-turn, posting what it found
+  to the originating channel and offering one spoken line through the ambient seam (§9). A page that
+  won't open **MUST** be skipped rather than failing the run, and a run where nothing opens **MUST**
+  still end in words.
 
 ## §8 — Ambient life is the mind's, not a scripted machine
 
@@ -949,10 +1029,17 @@ turn** — separate files, separate indexes, separate `inspect()`.
   journaled ("read and shelved …"). Re-ingest replaces a doc's chunks, never duplicates. A doc that
   fails to ingest (no embedder backend, a mangled file) is marked seen with one loud WARNING and
   retried only when the file changes — a broken shelf item **MUST NOT** become a retry loop.
-- §20.2 **Retrieval is grounded.** Every returned `Chunk` carries `doc` + `span` (character range) —
-  a citation she can show. `search()` joins conversation via the assembler's knowledge slot;
-  `forget(selector)` drops a doc off the shelf and out of the index. The index (`knowledge/index/`)
-  is derived, gitignored, rebuildable.
+- §20.2 **Retrieval is grounded, and it reaches the prompt.** Every returned `Chunk` carries `doc`
+  + `span` (character range) — a citation she can show. `search()` **MUST** run on every assembled
+  turn and join conversation as the assembler's knowledge slot (§7.1 block 8), carrying its
+  citations with it; a store that indexes what it is never asked for is not a knowledge layer.
+  The store is late-bound onto the brain (`set_knowledge`, the `set_world` pattern), because it
+  belongs to the MindLoop and there is no shelf with the mind off. Retrieval is an **enhancement,
+  never a dependency**: a search that raises costs the block, not the reply. Every route onto the
+  shelf — a dropped file, `read_page`, `research` — is the same store and therefore the same slot.
+  `search()` **MUST NOT** re-parse the index per turn (cache on the index file's own size+mtime, so
+  a fresh ingest is picked up without a signal). `forget(selector)` drops a doc off the shelf and
+  out of the index. The index (`knowledge/index/`) is derived, gitignored, rebuildable.
 
 ## §21 — DREAM consolidation
 

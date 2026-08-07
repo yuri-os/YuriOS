@@ -31,6 +31,42 @@ class Config(VoiceConfig):
     weather_backend: str = "open_meteo"         # open_meteo | fake (§7.5)
     weather_city: str = "Tokyo"                 # default when she isn't told one
 
+    # --- the web: search, read, research (SPEC §7.7) ---
+    # searxng = your own metasearch instance — keyless AND third-party-less,
+    # which is the local-first argument applied to the one capability that
+    # usually hands your curiosity to somebody else. fake = deterministic
+    # offline rows (tests, demos). off = no web hands at all: the three tools
+    # aren't advertised, the SELFIE_BACKEND=off rule.
+    #
+    # DEFAULT IS OFF, unlike the weather. Open-Meteo works the moment you
+    # install her; a SearXNG instance is something you have to stand up first,
+    # and a hand that always errors is worse than a hand she doesn't have. Set
+    # this to `searxng` once the instance below answers.
+    #
+    # NOTE the instance needs `json` in its settings.yml `search.formats` — it
+    # is disabled by default and the symptom is a 403 on every query.
+    search_backend: str = "off"                 # searxng | fake | off
+    searxng_url: str = "http://localhost:8080"
+    search_results: int = 5                     # rows per web_search
+    search_language: str = "en"
+    search_safesearch: int = 1                  # 0 none | 1 moderate | 2 strict
+    fetch_timeout_s: float = 8.0                # one page, inside TOOL_TIMEOUT_S
+    fetch_max_bytes: int = 2_000_000            # read_page stops here
+    research_max_pages: int = 5                 # ceiling on `research(depth=…)`
+    tool_rate_search: int = 6                   # calls/minute
+    tool_rate_read: int = 6
+    tool_rate_research: int = 2                 # a run is many requests — cheap
+                                                #   to ask for, expensive to serve
+
+    # --- other people's hands: third-party MCP servers (SPEC §7.2) ---
+    # A JSON file in the familiar `{"mcpServers": {...}}` shape, so a server
+    # config you already have somewhere else pastes straight in. Empty (the
+    # default) means the in-repo server alone — exactly today's behaviour.
+    # Mounting a server gives her its tools, rate-limited but not reviewed.
+    mcp_servers: str = ""                       # path to mcp-servers.json
+    tool_rate_external: int = 4                 # default bucket for a discovered
+                                                #   tool with no rate of its own
+
     # --- her camera: selfies via the forge (SPEC §7.6) ---
     # openrouter = hosted generation (needs OPENROUTER_API_KEY, keeps the GPU
     # free). mock = deterministic placeholder cards, no key, no network (tests,
@@ -96,6 +132,12 @@ class Config(VoiceConfig):
     # render instead of a minute of offload; her brain is always restored, even
     # on a failed render.
     selfie_llm_park: bool = True
+    # Room her brain needs on the card after a render, in GiB. The camera keeps
+    # its pipeline warm between renders (worth ~25 s a selfie) only while this
+    # much VRAM is still free with the pipeline loaded — otherwise the brain
+    # reloads beside it, the card fills, and the *next* render OOMs. Raise it
+    # if your chat model is bigger than ~6 GiB on the card.
+    selfie_warm_headroom_gib: float = 6.0
 
     # --- her voice, on demand (SPEC §9.9 — world/voicestack.py) ---
     # Kokoro + faster-whisper + silero are the heaviest thing a runtime holds,

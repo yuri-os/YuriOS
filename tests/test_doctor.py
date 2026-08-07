@@ -353,3 +353,54 @@ def test_probing_does_not_import_the_module():
     sys.modules.pop(sentinel, None)
     assert _have(sentinel)
     assert sentinel not in sys.modules
+
+
+# ---- web search (SPEC §7.7) -------------------------------------------------
+# The one seam whose dependency is a service, so the table can only report what
+# .env selects and the live half is its own section.
+
+def test_web_search_is_in_the_table_even_when_it_is_off(cfg):
+    row = next(c for c in collect(cfg) if c.seam == "web search")
+    assert row.knob == "SEARCH_BACKEND"
+    # It never asks for a pip install, so it must never be counted as missing —
+    # a red row for "you didn't turn on an optional feature" is noise.
+    assert row.ok and not row.extra
+
+
+def test_web_search_off_says_what_she_cannot_do_and_how_to_change_it(cfg):
+    from yurios.doctor import search_lines
+    text = "\n".join(search_lines(cfg.model_copy(update={"search_backend": "off"})))
+    assert "research a topic" in text
+    assert "install.sh" in text
+
+
+def test_web_search_reports_the_live_instance(cfg, monkeypatch):
+    from yurios import searxng
+    from yurios.doctor import search_lines
+    monkeypatch.setattr(searxng, "probe", lambda url, **kw: (True, "answering JSON"))
+    monkeypatch.setattr(searxng, "state", lambda cmd=None: "running")
+    text = "\n".join(search_lines(cfg.model_copy(update={
+        "search_backend": "searxng", "searxng_url": "http://localhost:8080"})))
+    assert "http://localhost:8080" in text
+    assert "ok — answering JSON" in text
+    assert "vault/knowledge/reference" in text     # what she reads, she keeps
+
+
+def test_web_search_names_the_json_trap_rather_than_just_failing(cfg, monkeypatch):
+    from yurios import searxng
+    from yurios.doctor import search_lines
+    monkeypatch.setattr(searxng, "probe", lambda url, **kw: (
+        False, "reachable, but refusing JSON — add `json` to `search.formats` "
+               "in its settings.yml and restart it"))
+    monkeypatch.setattr(searxng, "state", lambda cmd=None: "running")
+    text = "\n".join(search_lines(cfg.model_copy(update={
+        "search_backend": "searxng"})))
+    assert "NOT WORKING" in text and "search.formats" in text
+
+
+def test_install_sh_offers_a_web_search_flag_pair():
+    """The installer must be able to answer the question without a terminal."""
+    script = (Path(__file__).resolve().parent.parent / "install.sh").read_text()
+    assert "--web-search)" in script and "--no-web-search)" in script
+    # …and unattended runs must not stand up a service nobody asked for
+    assert "WEB_SEARCH=false" in script

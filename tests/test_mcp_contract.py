@@ -14,14 +14,22 @@ import pytest
 pytest.importorskip("mcp")
 from mcp.shared.memory import create_connected_server_and_client_session  # noqa: E402
 
-from yurios.world.tools.client import result_text  # noqa: E402
+from yurios.world.tools.client import (  # noqa: E402
+    ToolSpec, build_directive, coerce_args, one_line, result_text)
+from yurios.world.tools.fetch import FakeFetcher  # noqa: E402
+from yurios.world.tools.search import FakeSearch  # noqa: E402
 from yurios.world.tools.server import MUSIC_TRACKS, build_server  # noqa: E402
 from yurios.world.tools.weather import FakeWeather  # noqa: E402
 
 
-def server():
+def server(**kw):
     return build_server(weather=FakeWeather(), max_minutes=180,
-                        default_city="Tokyo")
+                        default_city="Tokyo", **kw)
+
+
+def web_server():
+    """…with the web hands on (SEARCH_BACKEND=fake, §7.7)."""
+    return server(search=FakeSearch(), fetcher=FakeFetcher(), max_pages=5)
 
 
 async def test_list_tools_is_exactly_the_hands_she_has():
@@ -33,6 +41,59 @@ async def test_list_tools_is_exactly_the_hands_she_has():
         timer = next(t for t in listed.tools if t.name == "set_timer")
         assert "minutes" in timer.inputSchema["properties"]
         assert "minutes" in timer.inputSchema.get("required", [])
+
+
+async def test_the_web_hands_appear_only_when_search_is_configured():
+    """SEARCH_BACKEND=off is the SELFIE_BACKEND=off rule (§7.7): no hand, not a
+    dead one. The three go together — searching with no way to read what you
+    found is half a capability."""
+    async with create_connected_server_and_client_session(
+            web_server()._mcp_server) as s:
+        names = sorted(t.name for t in (await s.list_tools()).tools)
+    assert names == ["get_weather", "play_music", "read_page", "research",
+                     "set_timer", "show_picture", "take_selfie", "web_search"]
+
+
+async def test_web_search_returns_rows_a_model_can_speak_to():
+    async with create_connected_server_and_client_session(
+            web_server()._mcp_server) as s:
+        out = json.loads(result_text(await s.call_tool("web_search",
+                                                       {"query": "tea", "k": 2})))
+    assert out["query"] == "tea" and len(out["results"]) == 2
+    assert set(out["results"][0]) == {"title", "url", "snippet"}
+
+
+async def test_read_page_carries_the_whole_page_and_a_gist_of_it():
+    """The two-audience contract (§7.7): `gist` is what she says, `text` is what
+    the host shelves — world/brain.py truncates only the former's copy."""
+    async with create_connected_server_and_client_session(
+            web_server()._mcp_server) as s:
+        out = json.loads(result_text(
+            await s.call_tool("read_page", {"url": "https://a.example/x"})))
+    assert out["status"] == "read"
+    assert out["chars"] == len(out["text"])
+    assert out["gist"] and len(out["gist"]) <= len(out["text"])
+
+
+async def test_research_answers_started_without_doing_any_of_it():
+    """start-don't-await (§7.6): a search plus fetches plus embeddings will not
+    fit inside TOOL_TIMEOUT_S, so the server promises and the host delivers."""
+    fetcher = FakeFetcher()
+    srv = server(search=FakeSearch(), fetcher=fetcher, max_pages=4)
+    async with create_connected_server_and_client_session(srv._mcp_server) as s:
+        out = json.loads(result_text(
+            await s.call_tool("research", {"topic": "tea", "depth": 99})))
+    assert out["status"] == "started" and out["kind"] == "research"
+    assert out["depth"] == 4                    # clamped to RESEARCH_MAX_PAGES
+    assert fetcher.fetched == []                # nothing was read on the turn
+
+
+async def test_research_refuses_an_empty_topic():
+    async with create_connected_server_and_client_session(
+            web_server()._mcp_server) as s:
+        result = await s.call_tool("research", {"topic": "  "})
+    assert result.isError
+    assert "topic" in result_text(result)
 
 
 async def test_description_carries_the_overlay_and_its_hint(tmp_path, monkeypatch):
@@ -258,3 +319,54 @@ def test_a_server_that_never_came_up_is_reported_by_its_leaf():
     assert start_failure(FileNotFoundError("no python")) == "FileNotFoundError: no python"
     assert start_failure(ExceptionGroup("boom", [ValueError("a"), TypeError("b")])) == (
         "ValueError: a; TypeError: b")
+
+
+async def test_every_description_reaches_the_directive_whole():
+    """The directive is built from discovery, so a description the server writes
+    and the directive clips is a capability she was never told about. These are
+    written to fit under `DESC_MAX_CHARS`; if one grows past it, raise the cap
+    rather than let her see two thirds of her camera."""
+    async with create_connected_server_and_client_session(
+            web_server()._mcp_server) as s:
+        listed = await s.list_tools()
+        specs = [ToolSpec(name=t.name, description=t.description or "",
+                          schema=t.inputSchema) for t in listed.tools]
+    for spec in specs:
+        assert one_line(spec.description) == " ".join(spec.description.split()), (
+            f"{spec.name}'s description is clipped before she reads it")
+
+    directive = build_directive(specs, user_name="Sam", max_calls=2)
+    # The sentence that routes her off `web_search` and onto the tool that
+    # actually shelves what it reads — the one that never used to arrive.
+    assert "instead of `web_search`" in directive
+    assert "kept on your shelf" in directive          # read_page's, likewise
+
+
+async def test_the_call_that_failed_now_lands():
+    """From tool-logs: she filled the undocumented `depth` with the prose that
+    had nowhere else to go, and pydantic took the whole run down with it."""
+    async with create_connected_server_and_client_session(
+            web_server()._mcp_server) as s:
+        spec = next(t for t in (await s.list_tools()).tools if t.name == "research")
+        args = coerce_args({"topic": "AI roleplay escalation",
+                            "depth": "current state and key stages"},
+                           spec.inputSchema)
+        result = await s.call_tool("research", args)
+        assert not result.isError
+        payload = json.loads(result_text(result))
+        assert payload["status"] == "started"
+        assert payload["topic"] == "AI roleplay escalation"
+        assert payload["depth"] == 3                    # the tool's own default
+
+
+async def test_every_argument_is_documented_where_she_reads_it():
+    """`research` shipped explaining itself but not its arguments — the one tool
+    that didn't, and the one she got wrong. The description is the only place a
+    parameter's meaning reaches her; the schema carries names and types alone."""
+    async with create_connected_server_and_client_session(
+            web_server()._mcp_server) as s:
+        for tool in (await s.list_tools()).tools:
+            described = one_line(tool.description or "")
+            for arg in (tool.inputSchema.get("properties") or {}):
+                assert f"`{arg}`" in described, (
+                    f"{tool.name}'s `{arg}` is never explained to her")

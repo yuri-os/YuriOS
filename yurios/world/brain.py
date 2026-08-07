@@ -48,12 +48,13 @@ class ToolBrain(BrainAdapter):
 
     def __init__(self, state, cfg: Config, *, guard: Guard,
                  timers: TimerBoard, controller: VrmController,
-                 selfies=None):
+                 selfies=None, research=None):
         super().__init__(state, cfg)
         self.guard = guard
         self.timers = timers
         self.controller = controller
         self.selfies = selfies                 # SelfieLab | None (§7.6)
+        self.research = research               # Researcher | None (§7.7)
         self.runner: Optional[ToolRunner] = None
         self.world = None                      # WorldModelStore, wired by the mind
         self._directive: str = ""
@@ -63,12 +64,12 @@ class ToolBrain(BrainAdapter):
 
     @classmethod
     def build(cls, cfg, *, guard: Guard, timers: TimerBoard,
-              controller: VrmController, selfies=None, chat_model=None,
-              utility_model=None, embedder=None) -> "ToolBrain":
+              controller: VrmController, selfies=None, research=None,
+              chat_model=None, utility_model=None, embedder=None) -> "ToolBrain":
         base = BrainAdapter.build(cfg, chat_model=chat_model,
                                   utility_model=utility_model, embedder=embedder)
         return cls(base.state, base.cfg, guard=guard, timers=timers,
-                   controller=controller, selfies=selfies)
+                   controller=controller, selfies=selfies, research=research)
 
     def set_tools(self, runner: Optional[ToolRunner], specs: list[ToolSpec]) -> None:
         """Wire the discovered hands (SPEC §7.2). None/empty → she has no hands
@@ -279,6 +280,23 @@ class ToolBrain(BrainAdapter):
                                       volume=data.get("volume"))
             else:
                 self.controller.music("stop")
+        elif call.tool == "read_page" and data.get("text"):
+            # The page she just read, onto the shelf (§7.7). This is the branch
+            # the whole read_page contract is shaped around: `data` here is the
+            # UNtruncated result, so the store gets the page while the model got
+            # 400 characters of it. Fire-and-forget — _realise is sync and the
+            # turn is still streaming.
+            if self.research is not None:
+                self.research.shelve(data)
+        elif call.tool == "research" and data.get("status") == "started":
+            # start-don't-await (§7.6, again): the reading happens off-turn and
+            # what she found arrives in the chat as a `message` when it's done.
+            if self.research is not None:
+                origin = correlate.current()
+                data["_channel"] = origin.channel if origin else None
+                data["_client_id"] = origin.client_id if origin else None
+                data["_corr_id"] = origin.corr_id if origin else None
+                self.research.start(data)
         elif (call.tool in ("take_selfie", "show_picture")
                 and data.get("status") == "started"):
             # start-don't-await (§7.6): the render happens off-turn; the photo

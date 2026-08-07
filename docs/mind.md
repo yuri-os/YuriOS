@@ -148,6 +148,13 @@ replaces its chunks rather than duplicating them.
 Retrieval is **grounded**: every returned chunk carries its document and a character span, so she
 can cite what she's telling you.
 
+And it runs on **every turn**. Whatever you just said is searched against the shelf, and the best
+few chunks go into the system prompt as a **WHAT YOU'VE READ** block with their citations — so a
+book you dropped in last month, or a page she looked up herself, is available to the sentence
+she's about to say. `KNOWLEDGE_K` (default 3) sets how many; `KNOWLEDGE_K=0` turns the slot off
+and leaves the shelf as an archive you can still search by hand. If the search fails — no
+embedder, a half-written index — she loses the block, not the reply.
+
 Knowledge is a sibling of memory, never folded into it, and the boundary is enforced by shape:
 **knowledge cites a document; memory cites a conversation turn.** The book you dropped in is
 knowledge; "you told me you play bass" is memory. A document she read never becomes something she

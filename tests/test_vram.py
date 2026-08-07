@@ -320,3 +320,62 @@ def test_the_gate_can_be_shut_from_the_render_worker_thread():
         return blocked, await gate.wait()
 
     assert asyncio.run(scenario()) == (False, True)
+
+
+# ---- the warm pipeline: whose card is it between renders? --------------------
+# The bug this section exists for is quiet, because the render that causes it
+# is never the render that fails. See LLMParker.can_keep_pipeline_warm.
+
+def test_a_warm_pipeline_may_stay_when_her_brain_still_fits_beside_it(cfg):
+    """Free VRAM measured with the pipeline loaded: room for her brain to come
+    home means the 25 seconds of warmth are free."""
+    assert make_parker(cfg, 9.0).can_keep_pipeline_warm() is True
+
+
+def test_a_warm_pipeline_is_dropped_when_it_would_fill_the_card(cfg):
+    """The failure from the log: the pipeline stays warm, her brain reloads
+    beside it, and the NEXT render parks into a card that is already full."""
+    assert make_parker(cfg, 1.4).can_keep_pipeline_warm() is False
+
+
+def test_the_headroom_follows_the_configured_brain(cfg):
+    p = make_parker(cfg, 6.5, selfie_warm_headroom_gib=8.0)
+    assert p.brain_headroom == 8.0
+    assert p.can_keep_pipeline_warm() is False   # 6.5 < 8.0
+
+
+def test_nothing_competing_for_the_card_keeps_the_pipeline_warm(cfg):
+    """A hosted or mock camera has no brain on this card to make room for."""
+    p = make_parker(cfg, 0.2, selfie_backend="mock")
+    assert p.applicable() is False
+    assert p.can_keep_pipeline_warm() is True
+
+
+def test_an_unmeasurable_card_keeps_the_pipeline_warm(cfg):
+    """No torch, no CUDA: don't take the speed away over a number we can't read."""
+    p = LLMParker(cfg.model_copy(update={"selfie_backend": "diffusers"}),
+                  free_probe=lambda: None, resident_free_gib=_RESIDENT_FLOOR_GIB)
+    assert p.can_keep_pipeline_warm() is True
+
+
+# ---- the wait: one flat reading is a pause, not the end of an unload --------
+
+def test_await_free_does_not_mistake_a_pause_for_a_finished_unload(cfg, monkeypatch):
+    """llama.cpp releases in stages. The old single-poll exit returned after
+    ~1 s with the card still full, silently — which is why a failed park and a
+    park that never ran looked identical in the log."""
+    readings = [5.4, 5.4, 8.9, 8.9, 8.9, _RESIDENT_FLOOR_GIB + 1.0]
+    probe = iter(readings)
+    p = LLMParker(cfg.model_copy(update={"selfie_backend": "diffusers"}),
+                  free_probe=lambda: next(probe, 99.0),
+                  resident_free_gib=_RESIDENT_FLOOR_GIB)
+    monkeypatch.setattr("yurios.world.vram.time.sleep", lambda s: None)
+    assert p._await_free(before=5.2) is True     # waited through both plateaus
+
+
+def test_await_free_reports_that_it_gave_up_short(cfg, monkeypatch, caplog):
+    p = make_parker(cfg, 8.8)                    # never reaches the floor
+    monkeypatch.setattr("yurios.world.vram.time.sleep", lambda s: None)
+    with caplog.at_level("WARNING"):
+        assert p._await_free(before=8.6) is False
+    assert "below the" in caplog.text and "floor" in caplog.text

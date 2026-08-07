@@ -20,6 +20,8 @@ from typing import Literal, get_args
 
 from mcp.server.fastmcp import FastMCP
 
+from .fetch import PageFetcher, build_fetcher, gist
+from .search import SearchProvider, build_provider
 from .weather import FakeWeather, OpenMeteoProvider, WeatherProvider
 
 # The catalog lives in the *type*, not in prose: an annotated Literal becomes an
@@ -36,7 +38,11 @@ MUSIC_TRACKS: tuple[str, ...] = get_args(MusicTrack)
 def build_server(*, weather: WeatherProvider | None = None,
                  max_minutes: float | None = None,
                  default_city: str | None = None,
-                 selfies: bool | None = None) -> FastMCP:
+                 selfies: bool | None = None,
+                 search: SearchProvider | None = None,
+                 fetcher: PageFetcher | None = None,
+                 results: int | None = None,
+                 max_pages: int | None = None) -> FastMCP:
     """Build the FastMCP server. Args are the test seams; `python -m` reads env."""
     max_minutes = max_minutes if max_minutes is not None else float(
         os.environ.get("TIMER_MAX_MINUTES", "180"))
@@ -46,6 +52,25 @@ def build_server(*, weather: WeatherProvider | None = None,
                    else OpenMeteoProvider())
     if selfies is None:                        # off = not advertised at all (§7.6)
         selfies = os.environ.get("SELFIE_ENABLED", "1") != "0"
+    results = results if results is not None else int(
+        os.environ.get("SEARCH_RESULTS", "5"))
+    max_pages = max_pages if max_pages is not None else int(
+        os.environ.get("RESEARCH_MAX_PAGES", "5"))
+    # The web hands go together or not at all (§7.7): searching with no way to
+    # read what you found is half a capability, and `research` is the two of
+    # them in sequence. SEARCH_BACKEND=off is the SELFIE_BACKEND=off rule —
+    # `list_tools` simply doesn't mention them.
+    backend = os.environ.get("SEARCH_BACKEND", "off")
+    if search is None:
+        search = build_provider(
+            backend, base_url=os.environ.get("SEARXNG_URL", "http://localhost:8080"),
+            language=os.environ.get("SEARCH_LANGUAGE", "en"),
+            safesearch=int(os.environ.get("SEARCH_SAFESEARCH", "1")))
+    if fetcher is None and search is not None:
+        fetcher = build_fetcher(
+            "fake" if backend == "fake" else "http",
+            timeout=float(os.environ.get("FETCH_TIMEOUT_S", "8")),
+            max_bytes=int(os.environ.get("FETCH_MAX_BYTES", "2000000")))
 
     mcp = FastMCP("world-companion-tools")
 
@@ -88,6 +113,80 @@ def build_server(*, weather: WeatherProvider | None = None,
     async def get_weather(city: str = "") -> dict:
         """Look up the current weather. `city` defaults to the configured city."""
         return await weather.current(city or default_city)
+
+    if search is not None and fetcher is not None:
+        # The web (SPEC §7.7). Three hands that go together: find it, read it,
+        # or go away and find out about it properly.
+
+        @mcp.tool()
+        async def web_search(query: str, k: int = 0) -> dict:
+            """Search the web and get back a handful of titles, links and
+            snippets. Use it when you need something you don't know or that
+            changed recently — news, a fact you're unsure of, what a thing
+            actually is. `query` is what you'd type into a search box: the words
+            that matter, not a sentence. `k` is a plain NUMBER and nothing else:
+            how many results you want back — leave it out for the usual handful.
+            The snippets are short on purpose: if one of them is the answer, say
+            it; if you need what the page actually says, follow it with
+            `read_page` on the url."""
+            rows = await search.search(query, k if 0 < k <= results else results)
+            if not rows:
+                return {"query": query, "results": [],
+                        "note": "nothing came back for that"}
+            return {"query": query, "results": rows}
+
+        @mcp.tool()
+        async def read_page(url: str) -> dict:
+            """Read one web page and get back what it actually says. `url` must
+            be a real link — one from `web_search`, or one you were given. You
+            get a short opening extract to speak to; the whole page is kept on
+            your shelf afterwards, so you can recall it later without reading it
+            again. Pages that aren't text, and anything on this machine's own
+            network, can't be read."""
+            page = await fetcher.fetch(url)
+            text = page.get("text") or ""
+            if not text.strip():
+                raise ValueError(f"{url} had no readable text on it")
+            # `text` is the WHOLE page and `gist` is the part she speaks to.
+            # This works because world/brain.py `_execute` keeps the untruncated
+            # result for host realisation and truncates only the copy the model
+            # and the audit line see — so the shelf gets the page, the turn gets
+            # 400 characters, and neither has to know about the other.
+            return {"url": page.get("url") or url,
+                    "title": page.get("title") or url,
+                    "gist": gist(text),
+                    "chars": len(text),
+                    "text": text,
+                    "status": "read"}
+
+        @mcp.tool()
+        async def research(topic: str, depth: int = 3) -> dict:
+            """Go and find out about something properly — several searches'
+            worth of reading, shelved so you keep it. Use this instead of
+            `web_search` when the answer is going to take more than one page:
+            "what's the current state of X", "read up on Y for me". `topic` is
+            the whole thing you want to know, in one line and in your own words
+            — put every angle you care about in there, because it is the only
+            place they fit. `depth` is a plain NUMBER and nothing else: how many
+            pages to read, 1 to 5. Leave it out unless you want it quick (1) or
+            thorough (5). It takes a while, so it happens in the background:
+            this answers immediately and what you found arrives in the chat when
+            it's done. Say you're looking into it and carry on talking — never
+            call it twice for the same topic, and never wait for it."""
+            topic = (topic or "").strip()
+            if not topic:
+                raise ValueError("topic must say what to look into")
+            # Nothing here touches the network. A search plus three fetches plus
+            # three embeddings is 20+ seconds and TOOL_TIMEOUT_S is 10; the work
+            # belongs off-turn on the host (§7.6's start-don't-await rule, and
+            # world/research.py is where it lands).
+            return {"id": uuid.uuid4().hex[:8],
+                    "topic": topic,
+                    "depth": max(1, min(int(depth or 3), max_pages)),
+                    "kind": "research",
+                    "status": "started",
+                    "note": "what you find will appear in the chat shortly — "
+                            "no need to wait for it, and no need to ask again"}
 
     if selfies:
         # Her camera (SPEC §7.6). The server is the contract point only: it

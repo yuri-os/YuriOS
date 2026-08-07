@@ -32,6 +32,7 @@ async def health(request: Request) -> dict:
         "mind": rt.mind_status,            # "running" | "disabled" | "failed: …" (§15)
         "activity": rt.mind.activity.state if rt.mind else None,
         "selfies": rt.selfies_status,      # "openrouter" | "mock" | "mock (no key…)" | "off" (§7.6)
+        "web": rt.research_status,         # "searxng" | "fake" | "off" (§7.7)
         "viewers": rt.hub.subscribers,     # attached /api/events subscribers
         "context": rt.context.snapshot(),  # prompt tokens vs the window (§11)
     }

@@ -794,3 +794,98 @@ def test_the_two_cameras_have_separate_budgets(cfg, clock):
     assert guard.check("show_picture")[0]
     assert guard.check("show_picture") == (False, "rate limit")
     assert guard.check("take_selfie")[0]
+
+
+# ---- the warm pipeline between renders --------------------------------------
+# The render that keeps the pipeline warm is never the render that fails, which
+# is why this reads as "selfies fail randomly". See SelfieLab._render.
+
+class WarmthParker:
+    """A parker that never needs to park (the card looks roomy) but answers
+    the question that actually matters: is there room for her brain too?"""
+
+    def __init__(self, *, room_for_the_brain: bool):
+        self.room = room_for_the_brain
+        self.asked = 0
+
+    def parked(self):
+        from contextlib import contextmanager
+
+        @contextmanager
+        def _ctx():
+            yield False                     # no loan taken for this render
+        return _ctx()
+
+    def can_keep_pipeline_warm(self) -> bool:
+        self.asked += 1
+        return self.room
+
+
+class WarmForge:
+    """A forge whose backend keeps weights on the card, and says when dropped."""
+
+    def __init__(self, out_dir):
+        self.out_dir = out_dir
+        self.backend = self
+        self.torn_down = 0
+
+    def _teardown(self):
+        self.torn_down += 1
+
+    def selfie(self, **kw):
+        from yurios.forge.service import ImageResult
+        return ImageResult(data=b"\x89PNG\r\n\x1a\n", meta={"template": {}})
+
+    def _write_provenance(self, path, meta):
+        pass
+
+
+async def test_a_roomy_card_keeps_the_pipeline_warm(cfg, clock):
+    """The optimisation is real — 25 seconds a selfie — and costs nothing when
+    her brain still fits beside it."""
+    rec = Recorder()
+    parker = WarmthParker(room_for_the_brain=True)
+    lab = SelfieLab(WarmForge(cfg.selfie_dir), clock=clock, post=rec.post,
+                    speak=rec.speak, parker=parker)
+    lab.start({"id": "p1", "scene": "window", "status": "started"})
+    await settle(lab)
+    assert parker.asked == 1
+    assert lab.forge.torn_down == 0
+
+
+async def test_a_full_card_drops_the_pipeline_even_without_a_loan(cfg, clock):
+    """The fix: a render that didn't park still hands the card back when
+    keeping it would leave her brain nowhere to come home to. Without this the
+    next render parks into a card the last render already filled."""
+    rec = Recorder()
+    parker = WarmthParker(room_for_the_brain=False)
+    lab = SelfieLab(WarmForge(cfg.selfie_dir), clock=clock, post=rec.post,
+                    speak=rec.speak, parker=parker)
+    lab.start({"id": "p1", "scene": "window", "status": "started"})
+    await settle(lab)
+    assert lab.forge.torn_down >= 1
+
+
+async def test_a_parker_that_cannot_measure_releases_rather_than_guess(cfg, clock):
+    """Being wrong here strands the card until a restart, so an unanswerable
+    question resolves to the safe side."""
+    class Broken(WarmthParker):
+        def can_keep_pipeline_warm(self):
+            raise RuntimeError("no torch")
+
+    lab = SelfieLab(WarmForge(cfg.selfie_dir), clock=clock,
+                    post=Recorder().post, speak=Recorder().speak,
+                    parker=Broken(room_for_the_brain=True))
+    lab.start({"id": "p1", "scene": "window", "status": "started"})
+    await settle(lab)
+    assert lab.forge.torn_down >= 1
+
+
+async def test_an_old_parker_without_the_question_keeps_the_old_behaviour(cfg, clock):
+    """SpyParker and the hosted cameras don't answer it; they must not break."""
+    lab = SelfieLab(WarmForge(cfg.selfie_dir), clock=clock,
+                    post=Recorder().post, speak=Recorder().speak,
+                    parker=SpyParker())
+    lab.start({"id": "p1", "scene": "window", "status": "started"})
+    await settle(lab)
+    assert lab.forge.torn_down == 0

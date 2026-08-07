@@ -32,6 +32,15 @@ TORCH_CHOICE=""
 TORCH_EXPLICIT=false
 VOICE_EXPLICIT=false
 PRINT_EXTRAS=false
+# Web search (§7.7) is the one capability whose dependency is a *service* rather
+# than a pip extra: she talks to a SearXNG instance you run, so nothing about it
+# is settled by installing Python packages. Empty = not chosen yet; the script
+# asks when a terminal is attached and otherwise leaves it off, because standing
+# up a container is not something to do to somebody who isn't watching.
+WEB_SEARCH=""
+WEB_SEARCH_EXPLICIT=false
+WEB_SEARCH_READY=false
+SEARXNG_PORT=8080
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -65,6 +74,10 @@ Options:
                  voice and embeddings run fine on CPU, but local selfies crawl
   --cuda-torch   Install PyPI's matched CUDA torch + torchaudio pair (~4.5 GB):
                  fast local selfies and GPU voice. Needs an NVIDIA GPU
+  --web-search   Give her the web: web_search / read_page / research, backed by
+                 a SearXNG container this script pulls, configures and starts.
+                 Needs Docker. Everything she reads is shelved as knowledge
+  --no-web-search  Leave web search off (the default for unattended runs)
   --docker       Build the Docker Compose setup instead of a host environment
   --desktop      Also install the native transparent desktop-window dependencies
   --print-extras Print the extras the other flags resolve to and exit — a dry run
@@ -101,6 +114,8 @@ for arg in "$@"; do
         --forge-krea2) INSTALL_FORGE_KREA2=true ;;
         --gpu-voice) INSTALL_GPU_VOICE=true; INSTALL_VOICE=true
                      TORCH_CHOICE="cuda"; TORCH_EXPLICIT=true ;;
+        --web-search) WEB_SEARCH=true; WEB_SEARCH_EXPLICIT=true ;;
+        --no-web-search) WEB_SEARCH=false; WEB_SEARCH_EXPLICIT=true ;;
         --cpu-torch) TORCH_CHOICE="cpu"; TORCH_EXPLICIT=true ;;
         --cuda-torch) TORCH_CHOICE="cuda"; TORCH_EXPLICIT=true ;;
         --print-extras) PRINT_EXTRAS=true ;;
@@ -283,6 +298,98 @@ select_torch_build() {
         *) TORCH_CHOICE="$default_choice" ;;
     esac
     log "torch build: $TORCH_CHOICE"
+}
+
+select_web_search() {
+    # Ask whether she should be able to search the web. Unlike the torch
+    # question this one has a real cost on the other side of "yes" — a container
+    # image to pull and a service that then runs on this machine — so it is
+    # asked plainly, with what's needed said up front rather than discovered
+    # halfway through. No terminal, no flag: it stays off. Standing up a service
+    # for somebody who isn't there to see it is not a reasonable default.
+    [ "$WEB_SEARCH_EXPLICIT" = false ] || return 0
+    if [ ! -t 0 ]; then
+        WEB_SEARCH=false
+        return 0
+    fi
+
+    local docker_note="Docker is installed"
+    if ! command -v docker >/dev/null 2>&1 && ! command -v podman >/dev/null 2>&1; then
+        docker_note="Docker is NOT installed — you'd need to install it first"
+    elif ! docker info >/dev/null 2>&1 && ! podman info >/dev/null 2>&1; then
+        docker_note="Docker is installed but not usable (daemon stopped, or you're not in the docker group)"
+    fi
+
+    printf '\n==> Should she be able to search the web?\n' >&2
+    printf '    With it she gets three more hands: search the web, read a page you\n' >&2
+    printf '    link her, and go research a topic in the background. Everything she\n' >&2
+    printf '    reads is kept as knowledge she can cite later, not just for one reply.\n' >&2
+    printf '\n' >&2
+    printf '    What it needs:\n' >&2
+    printf '      · Docker — %s\n' "$docker_note" >&2
+    printf '      · a SearXNG container (~500 MB image), pulled and configured here\n' >&2
+    printf '      · it then runs on port %s and starts with `yurios start`\n' "$SEARXNG_PORT" >&2
+    printf '    Searches go to your own instance, so no account and no third party\n' >&2
+    printf '    sees what she looked up. Say no and she simply has no web hands;\n' >&2
+    printf '    rerun this script with --web-search whenever you change your mind.\n' >&2
+    local answer=""
+    read -r -p "    Set up web search? [y/N]: " answer || true
+    case "$answer" in
+        y|Y|yes|YES|Yes) WEB_SEARCH=true ;;
+        *) WEB_SEARCH=false ;;
+    esac
+    log "web search: $WEB_SEARCH"
+}
+
+setup_web_search() {
+    # Runs after the venv exists, because the container arguments and the
+    # settings template live in yurios/searxng.py — one source of truth, called
+    # from here rather than copied into bash.
+    if [ "$WEB_SEARCH" != true ]; then
+        set_env_value SEARCH_BACKEND off
+        return 0
+    fi
+
+    log "Setting up her search instance (SearXNG)"
+    if ! "$PYTHON" -m yurios.searxng check; then
+        # Not fatal. An install that dies here would cost the user everything
+        # else that already worked, over an optional capability.
+        printf 'Docker is not usable, so web search cannot be set up.\n' >&2
+        printf 'Install Docker (https://docs.docker.com/engine/install/), make sure\n' >&2
+        printf '`docker info` works, then rerun: ./install.sh --web-search\n' >&2
+        printf 'Leaving SEARCH_BACKEND=off for now — everything else is unaffected.\n' >&2
+        set_env_value SEARCH_BACKEND off
+        WEB_SEARCH=false
+        return 0
+    fi
+
+    local url="http://localhost:$SEARXNG_PORT"
+    if "$PYTHON" -m yurios.searxng setup --url "$url" --root "$ROOT_DIR"; then
+        set_env_value SEARCH_BACKEND searxng
+        set_env_value SEARXNG_URL "$url"
+        WEB_SEARCH_READY=true
+        log "Web search is on — her instance answers at $url"
+    else
+        printf 'Her search instance did not come up. Leaving SEARCH_BACKEND=off;\n' >&2
+        printf 'the container is still there, so once `docker start %s` works try:\n' "yurios-searxng" >&2
+        printf '  ./install.sh --web-search\n' >&2
+        set_env_value SEARCH_BACKEND off
+        WEB_SEARCH=false
+    fi
+}
+
+set_env_value() {
+    # Set KEY=VALUE in .env, whether or not the key is already there. Comments
+    # after the value are preserved for keys that carry them; a key that doesn't
+    # exist yet is appended rather than silently dropped, because .env files
+    # predating a new knob are the normal case on a rerun.
+    local key="$1" value="$2"
+    if grep -q "^$key=" .env 2>/dev/null; then
+        sed -i.bak "s|^$key=.*|$key=$value|" .env
+        rm -f .env.bak
+    else
+        printf '%s=%s\n' "$key" "$value" >> .env
+    fi
 }
 
 install_torch() {
@@ -582,7 +689,10 @@ if [ -d yurios.egg-info ]; then
 fi
 
 log "Installing YuriOS with Python $($PYTHON --version 2>&1)"
+# Both interactive questions together, before the long downloads — so the user
+# answers everything up front and can then walk away.
 select_torch_build
+select_web_search
 install_torch
 uv pip install --python "$PYTHON" -e ".[$EXTRAS]"
 install_launcher
@@ -590,6 +700,7 @@ install_launcher
 prepare_local_state
 configure_voice
 configure_wsl_lmstudio
+setup_web_search           # …after .env exists, and after the package is installed
 # seed_vault.py refuses to overwrite a seeded Vault (it is her mind, and re-seeding
 # would reset the relationship to zero), so guard on the same file it checks — that
 # keeps a re-run idempotent instead of erroring out under `set -e`.
@@ -648,6 +759,28 @@ Installed --thin, so .env selects the voice fakes: she is silent and doesn't
 transcribe. Add her real ears and voice whenever you like (and flip the three
 *_BACKEND knobs back) — this script is re-runnable:
   ./install.sh
+EOF
+fi
+
+if [ "$WEB_SEARCH_READY" = true ]; then
+    cat <<EOF
+
+She can search the web. Three more hands — web_search, read_page, research —
+against your own SearXNG instance at http://localhost:$SEARXNG_PORT, so no account
+and no third party sees what she looked up.
+
+  docker ps | grep yurios-searxng     # it starts with \`yurios start\`
+  data/searxng/settings.yml           # yours to edit (engines, safesearch)
+
+Everything she reads is shelved in vault/knowledge/reference/ — chunked and
+indexed, so she can cite a page next week instead of re-reading it.
+EOF
+else
+    cat <<'EOF'
+
+Web search is off: she can't look things up, read a page you link her, or
+research a topic. It needs Docker and a SearXNG container; turn it on with:
+  ./install.sh --web-search
 EOF
 fi
 

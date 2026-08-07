@@ -57,6 +57,15 @@ from yurios.forge.backends.diffusers import DiffusersBackend
 _DEFAULT_FLOOR_GIB = DiffusersBackend.RESIDENT_FREE_GIB
 _WAIT_STEP_S = 0.5
 _WAIT_BUDGET_S = 25.0     # LM Studio unloads are fast; don't stall a selfie
+# Room a parked brain needs to come back to, beside a warm render pipeline.
+# A 7–8B Q4 with a long context is ~5.5 GiB on the card; this is that plus a
+# little, because being wrong low here strands the card and being wrong high
+# only costs one pipeline reload.
+_BRAIN_HEADROOM_GIB = 6.0
+# How many quiet polls mean an unload has really finished. One is not enough:
+# llama.cpp hands VRAM back in stages, and a single flat reading mid-release
+# used to end the wait with the card still full.
+_SETTLE_POLLS = 3
 # How long a turn will hold at the gate before going through anyway. Covers a
 # whole park window (evict ≤25 s + render + re-pin ≈8 s) with room to spare;
 # past that something is wedged, and a late reply beats a mute companion.
@@ -173,6 +182,11 @@ class LLMParker:
         # which is the only place that knows which backend actually got built:
         # SELFIE_BACKEND=diffusers may resolve to either local backend.
         self.floor = resident_free_gib
+        # What her brain needs to come home to after a render (GiB). Compared
+        # against free VRAM *with the pipeline still resident*, so it answers
+        # "can these two live together?" — see can_keep_pipeline_warm.
+        self.brain_headroom = float(
+            getattr(cfg, "selfie_warm_headroom_gib", _BRAIN_HEADROOM_GIB))
         self._lock = threading.Lock()
 
     def _ids(self) -> list[str]:
@@ -206,27 +220,70 @@ class LLMParker:
         free = self._free()
         return free is not None and free < self.floor
 
-    def _await_free(self, before: float) -> None:
-        """Give LM Studio a moment to actually hand the VRAM back: poll until
+    def can_keep_pipeline_warm(self) -> bool:
+        """May the camera hold its pipeline on the card until the next render?
+
+        The warm pipeline is worth 25 seconds a selfie, and on a card that fits
+        both it costs nothing. On a card that does not, it is the bug this
+        method exists to stop — and it is a *quiet* bug, because it makes the
+        NEXT render fail, not this one:
+
+          1. a render finds room, doesn't park, and keeps ~9 GiB warm;
+          2. the next turn reloads her brain beside it — the card is now full;
+          3. the render after that parks, which frees her brain and nothing
+             else, and can never reach a floor that assumes an empty card;
+          4. it renders into what's left and dies of OOM.
+
+        Which reads exactly like "selfies fail randomly": the first one after a
+        restart works, and then they don't. So the pipeline stays warm only
+        while there is still room for her brain to come home beside it.
+        """
+        if not self.applicable():
+            return True                  # nothing else is competing for this card
+        free = self._free()
+        if free is None:
+            return True                  # can't measure → don't take the speed away
+        return free >= self.brain_headroom
+
+    def _await_free(self, before: float) -> bool:
+        """Give the unload a moment to actually hand the VRAM back: poll until
         free memory stops growing (or we cross the floor), capped — a slow
-        unload must never stall her camera for long."""
+        unload must never stall her camera for long.
+
+        Returns whether the card came up to the floor. Two things here were
+        learned from the failure log, and both are about *not lying quietly*:
+
+        - Giving up needed more than one flat reading. llama.cpp releases in
+          stages, so a single poll where free memory didn't move is a pause,
+          not the end — and the old single-poll exit returned after ~1 second
+          with the card still full.
+        - Every exit says what it saw. The silent "settled higher" return was
+          the reason a failing park looked identical in the log to one that
+          never ran: "lending the GPU", then nothing, then OOM.
+        """
         deadline = time.monotonic() + _WAIT_BUDGET_S
         best = before
+        stalls = 0
+        free = before
         while time.monotonic() < deadline:
             time.sleep(_WAIT_STEP_S)
             free = self._free()
             if free is None:
-                return
+                return True                 # can't measure → don't block the render
             if self.floor is not None and free >= self.floor:
                 log.info("park: %.1f GiB free — enough for a resident render", free)
-                return
+                return True
             if free > best + 0.2:           # still climbing; keep waiting
-                best = free
+                best, stalls = free, 0
                 continue
-            if free > before + 0.2:         # settled higher than we started
-                return
-        log.info("park: VRAM still below the floor after %.0fs — rendering "
-                 "anyway (offload fallback)", _WAIT_BUDGET_S)
+            stalls += 1
+            if stalls >= _SETTLE_POLLS:
+                break
+        log.warning("park: the unload settled at %.1f GiB free, below the %.0f "
+                    "GiB floor — this render will offload. If it keeps "
+                    "happening, something else is holding the card.",
+                    free, self.floor or 0.0)
+        return False
 
     @contextmanager
     def parked(self):

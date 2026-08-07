@@ -413,6 +413,32 @@ def command_uninstall(args) -> int:
     return 0
 
 
+def _start_search_instance(root: Path) -> None:
+    """Bring her SearXNG container up alongside her (SPEC §7.7).
+
+    Her hands are all in-process except this one: `web_search` talks to a
+    service, and a service that isn't running is the difference between a
+    companion who can look things up and one who errors every time she tries.
+    So starting her starts it — but *only* reports when it can't, because a
+    search instance is not a reason she doesn't boot. Same rule as the voice
+    stack: degrade loudly, keep talking.
+    """
+    from yurios import searxng
+
+    cfg = _configured_cfg(root)
+    if getattr(cfg, "search_backend", "off") != "searxng":
+        return
+    ok, why = searxng.ensure_running(cfg, root)
+    if ok:
+        # Only claim the container when it IS ours — an instance somebody runs
+        # another way is a fine thing to use and a wrong thing to take credit
+        # for, since `yurios stop` won't touch it either.
+        if searxng.state() == "running":
+            print(f"Her search instance is up ({searxng.CONTAINER}).")
+    else:
+        print(f"Web search is configured but not available: {why}", file=sys.stderr)
+
+
 def command_start(args) -> int:
     root = _root()
     pid_path = _pid_path(root)
@@ -424,6 +450,10 @@ def command_start(args) -> int:
             return 1
         print(f"YuriOS is already running and ready (pid {running}).")
         return 0
+    # …before the daemon either way: the foreground path is the one people use
+    # when something is already wrong, and it should not be the path that
+    # quietly skips a dependency.
+    _start_search_instance(root)
     if args.foreground:
         from yurios.world.__main__ import main
 

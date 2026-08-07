@@ -66,6 +66,21 @@ ANNOUNCE_CUE = (
     "({detail}). Say one short, warm line about it, nothing else.))")
 
 
+def _lightweight(exc: Exception) -> Exception:
+    """The same failure, without the frames that pin a pipeline's VRAM.
+
+    Re-raising the original would carry its traceback — and on the OOM path that
+    traceback is holding the gigabytes the caller is about to try to hand back.
+    Same class, same message (the chat line and the ledger both read
+    ``type(e).__name__``), no frames. A class with an exotic constructor is not
+    worth failing over: it degrades to a RuntimeError that still says the name.
+    """
+    try:
+        return type(exc)(str(exc))
+    except Exception:
+        return RuntimeError(f"{type(exc).__name__}: {exc}")
+
+
 def _noun(kind: str) -> str:
     """What to call the thing she just made. `kind` comes off the tool contract;
     a contract from before there were two cameras has none, and a selfie is the
@@ -230,15 +245,60 @@ class SelfieLab:
         warm would make the restore fail with the card still full. In a
         `finally`, because a render that *died* strands its weights just as
         surely as one that finished — and OOM, the likeliest way to get here,
-        is precisely the case where the card can least afford it."""
+        is precisely the case where the card can least afford it.
+
+        It is released after a render that *didn't* park too, whenever the card
+        has no room left for her brain to come home beside it. That case is
+        why selfies "fail randomly": the render that keeps the pipeline warm is
+        never the one that fails. The next turn reloads her brain next to it,
+        the card fills, and the render after that parks — which frees her brain
+        and nothing else, and cannot reach a floor that assumes an empty card.
+        One selfie after a restart works and the rest die of OOM.
+
+        A render that *died* needs one more thing, and it is the difference
+        between "this selfie failed" and "every selfie fails until you restart":
+        the exception must be dead before the release. An OOM traceback holds a
+        frame for every call down into the UNet, and those frames hold `pipe`
+        and the hires pass's `i2i` — so a `_release()` running while it is still
+        alive drops the backend's handle to a pipeline the traceback is still
+        pinning, and hands back nothing. The card then sits at 14.9 of 15.5 GiB
+        with nothing rendering, and the next render has no room to fail in
+        either. So the failure is caught HERE, inside the loan: the traceback
+        dies with the `except` clause, the release actually frees, and only then
+        does `parked()` bring her brain home. What reaches the caller is a light
+        copy that still answers to the same name."""
         if self.parker is None:
             return self._compose(kind, kw)
+        result = error = None
         with self.parker.parked() as borrowed:
             try:
-                return self._compose(kind, kw)
+                result = self._compose(kind, kw)
+            except Exception as exc:           # not BaseException: cancellation
+                log.exception("%s render failed on the card", kind)
+                error = _lightweight(exc)
             finally:
-                if borrowed:
+                # A failed render always gives the pipeline back, whatever the
+                # card looks like: the likeliest way to get here is OOM, and a
+                # half-run pipeline is the last thing worth keeping warm.
+                if error is not None or borrowed or not self._can_stay_warm():
                     self._release()
+        if error is not None:
+            raise error
+        return result
+
+    def _can_stay_warm(self) -> bool:
+        """Ask the parker whether a warm pipeline still leaves room for her
+        brain. A parker that doesn't answer (a stand-in, a test double) keeps
+        the old behaviour — the same duck typing `_release` uses."""
+        ask = getattr(self.parker, "can_keep_pipeline_warm", None)
+        if not callable(ask):
+            return True
+        try:
+            return bool(ask())
+        except Exception:
+            log.exception("selfie: couldn't measure the card — releasing the "
+                          "pipeline, which is the safe way to be wrong")
+            return False
 
     def _situation(self) -> str:
         """The visual facts about right now, or "" when nobody wired any.

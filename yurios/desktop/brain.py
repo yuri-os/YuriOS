@@ -60,10 +60,35 @@ class BrainAdapter:
         # mind/promptlog.py, wired by the world runtime. None on Build #1's own
         # path, which keeps no such record — the same nullable seam as set_world.
         self.prompt_log = None
+        # mind/knowledge.py's store, wired by MindLoop. None on Build #1's path
+        # and with MIND_ENABLED=false: no shelf, no block, and every other slot
+        # assembles exactly as it did.
+        self.knowledge = None
 
     def set_prompt_log(self, prompt_log) -> None:
         """Wire the sink that records what she was actually asked (SPEC §24.2)."""
         self.prompt_log = prompt_log
+
+    def set_knowledge(self, store) -> None:
+        """Wire the §20 shelf into the §7.1 assembly (the §20.2 knowledge slot).
+
+        Late-bound for the same reason `set_world` is: the KnowledgeStore belongs
+        to the MindLoop, which is built after the brain and not at all when the
+        mind is off.
+        """
+        self.knowledge = store
+
+    def _recall_knowledge(self, text: str) -> list:
+        """The shelf, searched for this turn. Never raises: a broken index is a
+        turn without the block, not a turn that doesn't happen."""
+        if self.knowledge is None or self.cfg.knowledge_k <= 0:
+            return []
+        try:
+            return self.knowledge.search(text, self.cfg.knowledge_k)
+        except Exception:       # noqa: BLE001 — no embedder, a half-written index
+            log.warning("knowledge recall failed; assembling without the shelf",
+                        exc_info=True)
+            return []
 
     # -- construction: build the Build #1 brain from the sibling package --------
     @classmethod
@@ -93,12 +118,14 @@ class BrainAdapter:
             user_md=self.state.store.read_user_md(),
             summary=self.state.store.read_summary(),
             memories=self.state.store.recall(text, self.cfg.retrieval_k),
+            knowledge=self._recall_knowledge(text),
             lore=lore,
             window=window,
             user_msg=text,
             user_name=self.cfg.user_name,
             system_budget_tokens=self.cfg.system_budget_tokens,
-            lorebook_budget_tokens=self.cfg.lorebook_budget_tokens)
+            lorebook_budget_tokens=self.cfg.lorebook_budget_tokens,
+            knowledge_budget_tokens=self.cfg.knowledge_budget_tokens)
         # the two prompt changes Build #2 makes (§6): tell the model this is a
         # spoken (not written) exchange — no narration — and ask for inline
         # expression tags. Both are voice-only; Build #1's text chat keeps neither.

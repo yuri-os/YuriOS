@@ -119,7 +119,11 @@ class MindLoop:
                                                # now carries the store's stage
         self.knowledge = KnowledgeStore(
             self.vault, state.embedder, clock,
-            utility=self._utility if cfg.utility_enabled and state.utility else None)
+            utility=self._utility if cfg.utility_enabled and state.utility else None,
+            min_score=cfg.knowledge_min_score)
+        if hasattr(brain, "set_knowledge"):
+            brain.set_knowledge(self.knowledge)  # §20.2: the shelf joins the
+                                                 # prompt's knowledge slot
         self.goals = GoalStore(self.vault, clock)
         self.selfedit = SelfEdit(self.vault, clock)
         self.journal = Journal(self.vault, clock, hub, store=state.store)

@@ -49,7 +49,7 @@ async def test_real_turn_still_preempts_to_engaged(cfg, seeded_vault):
 async def test_new_document_gets_read_and_journaled(cfg, seeded_vault):
     rig = make_mind(cfg, seeded_vault)
     ref = seeded_vault / "knowledge" / "reference"
-    ref.mkdir(parents=True)
+    ref.mkdir(parents=True, exist_ok=True)
     (ref / "manual.md").write_text("The kettle whistles at 93 degrees.\n")
     trace = await rig.mind.tick()
     assert trace["decided"]["intention"] == "ingest"
@@ -159,3 +159,38 @@ def test_promise_scan_shapes():
     assert "promise:her-own-words" in provs and "user:remind-me" in provs
     # negations are not promises
     assert extract_promises("I'll never leave.", "") == []
+
+
+async def test_what_she_read_reaches_the_next_prompt(cfg, seeded_vault):
+    """§20.2 end to end, on the real MindLoop and the real brain: a doc lands on
+    the shelf, the tick ingests it, and the *next turn she assembles* carries it
+    with its citation. Everything the web hands shelve arrives the same way —
+    `read_page`, `research` and a book you dropped are one shelf and one slot."""
+    rig = make_mind(cfg, seeded_vault)
+    ref = seeded_vault / "knowledge" / "reference"
+    ref.mkdir(parents=True, exist_ok=True)
+    (ref / "web-sencha.md").write_text(
+        "# Sencha\n\nSource: https://example.invalid/sencha\n\n"
+        "Sencha is steamed rather than pan-fired, which keeps it green.\n")
+    await rig.mind.tick()                               # SENSE → ingest
+
+    _soul, prompt = rig.mind.brain._assemble(
+        "s1", "how is sencha made?", window=[], lore=[])
+    assert "WHAT YOU'VE READ" in prompt.system
+    assert "steamed rather than pan-fired" in prompt.system
+    assert "web-sencha.md (chars" in prompt.system      # the citation, grounded
+
+
+async def test_a_turn_survives_a_broken_shelf(cfg, seeded_vault):
+    """Retrieval is an enhancement, never a dependency: an index that can't be
+    searched costs the block, not the reply."""
+    rig = make_mind(cfg, seeded_vault)
+
+    class Broken:
+        def search(self, *a, **kw):
+            raise RuntimeError("index is half-written")
+
+    rig.mind.brain.set_knowledge(Broken())
+    _soul, prompt = rig.mind.brain._assemble("s1", "hello", window=[], lore=[])
+    assert "WHAT YOU'VE READ" not in prompt.system
+    assert "PERSONA BACKBONE" in prompt.system          # the turn still happened

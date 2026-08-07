@@ -134,6 +134,18 @@ Every one of them also logged a WARNING at startup with the fix.
 **A render never starts while she's talking** — that's deliberate. A park mid-reply would kill the
 streaming turn, so a render that needs one waits for a quiet moment.
 
+**The first selfie after a restart works and the rest fail with CUDA out of memory** — the camera
+keeps its pipeline warm between renders, and on a card that can't hold the pipeline *and* her
+brain, that warmth is what fills the card. Parking frees her brain and nothing else, so it can
+never reach a floor that assumes an empty card. YuriOS now measures after each render and drops
+the pipeline when her brain would have nowhere to come home to; if your chat model is larger than
+~6 GiB on the card, raise `SELFIE_WARM_HEADROOM_GIB` to match it. The log tells you which case you
+are in: a successful park reads `park: N GiB free — enough for a resident render`, and one that
+came up short now says so with a WARNING instead of going quiet.
+
+A daemon already wedged in that state stays wedged — the VRAM is held by the running process, so
+`yurios restart` is the way out.
+
 ## She never says anything on her own
 
 That's the default, and it's the conservative half of the design: most ticks end in REST, and the

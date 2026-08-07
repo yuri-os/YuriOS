@@ -46,9 +46,13 @@ from .config import Config
 from .context import ContextMeter, short_tokens
 from .hub import EventHub
 from .turns import TextTurns
+from .research import Researcher
 from .selfies import SelfieLab, build_forge
 from .situation import render_visual_situation
+from .tools.client import MultiToolRunner, load_servers
+from .tools.fetch import build_fetcher
 from .tools.guard import Guard
+from .tools.search import build_provider
 from .tools.timers import TimerBoard
 from .voicestack import VoiceStack
 
@@ -100,6 +104,10 @@ class Runtime:
         if cfg.selfie_backend != "off":        # absent from the allowlist = no hand (§7.3)
             rates["take_selfie"] = cfg.tool_rate_selfie
             rates["show_picture"] = cfg.tool_rate_picture
+        if cfg.search_backend != "off":        # …and the same rule for the web (§7.7)
+            rates["web_search"] = cfg.tool_rate_search
+            rates["read_page"] = cfg.tool_rate_read
+            rates["research"] = cfg.tool_rate_research
         self.guard = Guard(rates_per_min=rates,
                            log_dir=cfg.tool_log_dir, clock=self.clock,
                            max_bytes=cfg.tool_log_max_bytes)
@@ -133,6 +141,29 @@ class Runtime:
                                          gate=self.park_gate),
                                      quiet=self.wait_turns_idle,
                                      situation=self.visual_situation)
+        # Her reading desk (SPEC §7.7): the same start-don't-await shape as the
+        # camera, and the place a fetched page turns into a shelved document.
+        # The knowledge store is passed as a GETTER because it belongs to the
+        # MindLoop, which is built later (start_async) and not at all when she
+        # is mindless — see world/research.py.
+        self.research: Researcher | None = None
+        self.research_status = "off"
+        #: server name -> calls/minute for the tools it turns out to offer,
+        #: filled from mcp-servers.json and spent at discovery (start_async).
+        self._external_rates: dict[str, int] = {}
+        if cfg.search_backend != "off":
+            search = build_provider(cfg.search_backend, base_url=cfg.searxng_url,
+                                    language=cfg.search_language,
+                                    safesearch=cfg.search_safesearch)
+            fetcher = build_fetcher(
+                "fake" if cfg.search_backend == "fake" else "http",
+                timeout=cfg.fetch_timeout_s, max_bytes=cfg.fetch_max_bytes)
+            self.research = Researcher(
+                search, fetcher, clock=self.clock,
+                post=self.post_message, speak=self.speak_ambient,
+                knowledge=lambda: self.mind.knowledge if self.mind else None,
+                notify=self.hub.publish)
+            self.research_status = cfg.search_backend
         # Whether the providers behind her voice are ours to rebuild (SPEC §31.4).
         # An injected brain or an injected model belongs to the caller — a live
         # model swap moves the Config knobs and leaves the object alone.
@@ -169,7 +200,7 @@ class Runtime:
             self.brain = ToolBrain.build(
                 cfg, guard=self.guard, timers=self.timers,
                 controller=self.controller, selfies=self.selfies,
-                chat_model=chat_model,
+                research=self.research, chat_model=chat_model,
                 utility_model=utility_model, embedder=embedder)
         # the meter reads the prompt where every path funnels through: the chat
         # provider itself (reply, greeting, ambient, each tool-loop pass)
@@ -466,7 +497,38 @@ class Runtime:
                 # its tool_hint included — so the two can never disagree
                 "SELFIE_TEMPLATES_EXTRA": self.cfg.selfie_templates_extra,
                 "SELFIE_TEMPLATES": self.cfg.selfie_templates,
+                # the web hands (§7.7) — off means unadvertised, same rule
+                "SEARCH_BACKEND": self.cfg.search_backend,
+                "SEARXNG_URL": self.cfg.searxng_url,
+                "SEARCH_RESULTS": str(self.cfg.search_results),
+                "SEARCH_LANGUAGE": self.cfg.search_language,
+                "SEARCH_SAFESEARCH": str(self.cfg.search_safesearch),
+                "FETCH_TIMEOUT_S": str(self.cfg.fetch_timeout_s),
+                "FETCH_MAX_BYTES": str(self.cfg.fetch_max_bytes),
+                "RESEARCH_MAX_PAGES": str(self.cfg.research_max_pages),
             })
+            # …plus anybody else's hands (§7.2). With no MCP_SERVERS file this
+            # is skipped entirely and she runs on her own server alone, exactly
+            # as before — the wrapper only appears when there is something to
+            # wrap. A file that won't parse is loud and then ignored: third-
+            # party hands are an addition, never a reason she boots without her
+            # own.
+            try:
+                extra = load_servers(self.cfg.mcp_servers) if self.cfg.mcp_servers else []
+            except Exception as e:
+                log.warning("MCP_SERVERS (%s) couldn't be read — running on her "
+                            "own server alone: %s", self.cfg.mcp_servers, e)
+                extra = []
+            if extra:
+                children = [("yurios", runner)]
+                for entry in extra:
+                    children.append((entry["name"],
+                                     McpToolRunner(command=entry["command"],
+                                                   env=entry["env"])))
+                    self._external_rates[entry["name"]] = (
+                        entry["rate"] if entry["rate"] is not None
+                        else self.cfg.tool_rate_external)
+                runner = MultiToolRunner(children)
         elif runner is None and self.cfg.tools_backend == "fake":
             from .tools.fakes import FakeToolRunner
             runner = FakeToolRunner()
@@ -476,11 +538,32 @@ class Runtime:
             self.boot.start("tools", detail=self.cfg.tools_backend)
             try:
                 specs = await runner.start()
+                # Discovery is the allowlist for tools nobody here could name in
+                # advance (§7.3) — that is, a third-party server's. Hers are
+                # deliberately NOT admitted this way: the rates in __init__ are
+                # her allowlist, and they encode decisions discovery can't see
+                # (SELFIE_BACKEND=off leaves the camera out of the buckets, and
+                # the fake runner advertises it regardless). Auto-admitting
+                # everything would quietly hand back the hands config took away.
+                for name, child in getattr(runner, "started", []):
+                    if name == "yurios":
+                        continue
+                    rate = self._external_rates.get(name, self.cfg.tool_rate_external)
+                    for spec in specs:
+                        if runner.server_of(spec.name) == name and \
+                                self.guard.allow(spec.name, rate):
+                            log.info("tools: %s admitted at %d/min (from the %r "
+                                     "server)", spec.name, rate, name)
                 self.brain.set_tools(runner, specs)
                 self._tool_runner = runner
                 self.tools_status = ("fake" if type(runner).__name__ == "FakeToolRunner"
                                      else "mcp")
-                self.boot.done("tools", detail=f"{self.tools_status} · {len(specs)} tools")
+                detail = f"{self.tools_status} · {len(specs)} tools"
+                if isinstance(runner, MultiToolRunner):
+                    detail += f" · {len(runner.started)} servers"
+                    for name, why in runner.failures.items():
+                        log.warning("tools: %s is not mounted (%s)", name, why)
+                self.boot.done("tools", detail=detail)
             except Exception as e:
                 # peeled out of its task groups — the wrapper's own message is
                 # "unhandled errors in a TaskGroup", which names nothing (§7.2)
@@ -539,6 +622,8 @@ class Runtime:
         await self.channels.stop_all()
         if self.selfies is not None:
             await self.selfies.close()
+        if self.research is not None:
+            await self.research.close()
         for t in self._tasks:
             t.cancel()
         await asyncio.gather(*self._tasks, return_exceptions=True)

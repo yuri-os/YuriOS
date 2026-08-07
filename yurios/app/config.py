@@ -100,6 +100,12 @@ class Config(BaseSettings):
     summary_every_n: int = 8         # summarise cadence (turns)
     summary_budget_tokens: int = 300
     lorebook_budget_tokens: int = 400
+    # the §20.2 knowledge slot: the shelf, searched per turn and cited in-prompt.
+    # k is small and the budget tight because a chunk is a paragraph, not a line —
+    # three of them already outweigh every recalled memory put together.
+    knowledge_k: int = 3             # shelf chunks injected (0 = slot off)
+    knowledge_min_score: float = 0.05  # hybrid score floor, below which it's noise
+    knowledge_budget_tokens: int = 900
     system_budget_tokens: int = 8000  # §7.2 overflow ceiling for the system block
     temperature: float = 0.9
 

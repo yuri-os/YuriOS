@@ -72,6 +72,44 @@ class KnowledgeStore:
         self.reference = vault.vault / "knowledge" / "reference"
         self.index_path = vault.vault / "knowledge" / "index" / "chunks.jsonl"
         self.seen_path = vault.vault / "knowledge" / "index" / "ingested.json"
+        #: (size, mtime_ns) -> parsed index rows; see `_rows`.
+        self._cache: tuple[tuple[int, int], list[dict]] | None = None
+        self._ensure_shelf()
+
+    #: The knowledge index is derived and rebuildable — the same class of file as
+    #: `memory/index/`, which `VAULT_GITIGNORE` excludes. It is *not* in that list
+    #: because this rule has to reach vaults that already exist: a Vault's
+    #: `.gitignore` is written once at seed time and never refreshed, so a line
+    #: added there today protects nobody's existing shelf. A `.gitignore` inside
+    #: the directory it describes needs no migration to arrive.
+    INDEX_GITIGNORE = (
+        "# derived, rebuildable from knowledge/reference/ alone — never committed.\n"
+        "# chunks.jsonl is rewritten whole on every ingest and carries a full\n"
+        "# embedding per chunk, so committing it puts a few MB of floats in the\n"
+        "# Vault's history each time she reads something.\n"
+        "*\n")
+
+    def _ensure_shelf(self) -> None:
+        """Make the shelf a place that exists.
+
+        The drop folder is a *user interface* — the docs, the doctor and §20 all
+        say "put a file in `knowledge/reference/`" — and until something creates
+        it, that instruction is addressed to a directory the user has to guess
+        the name of. `pending_docs()` and `shelf()` both answer "nothing" for a
+        missing folder, which is the right answer and an indistinguishable one.
+
+        Best-effort: a Vault on a read-only mount is a strange configuration, not
+        a reason to refuse to construct the mind.
+        """
+        try:
+            self.reference.mkdir(parents=True, exist_ok=True)
+            self.index_path.parent.mkdir(parents=True, exist_ok=True)
+            ignore = self.index_path.parent / ".gitignore"
+            if not ignore.exists():
+                ignore.write_text(self.INDEX_GITIGNORE, encoding="utf-8")
+        except OSError:
+            log.warning("couldn't create the knowledge shelf under %s",
+                        self.vault.vault / "knowledge", exc_info=True)
 
     # ------------------------------------------------------------------- scan
 
@@ -154,6 +192,29 @@ class KnowledgeStore:
         self.index_path.unlink(missing_ok=True)
         for r in rows:
             jsonl_append(self.index_path, r)
+        self._cache = None
+
+    def _rows(self) -> list[dict]:
+        """The index, parsed, cached against the file's own size+mtime.
+
+        `search()` used to be called once in a while; since §20.2 wired it into
+        the knowledge slot it runs on **every turn**, and the index is JSON with
+        a full embedding on every line — megabytes to re-parse for a question
+        nobody asked between one turn and the next. The signature is the same
+        cheap check `pending_docs()` uses on the shelf, so a fresh ingest (which
+        rewrites the file) is picked up on the next search without a signal.
+        """
+        try:
+            st = self.index_path.stat()
+            sig = (st.st_size, st.st_mtime_ns)
+        except OSError:
+            self._cache = None
+            return []
+        if self._cache is not None and self._cache[0] == sig:
+            return self._cache[1]
+        rows = list(jsonl_read(self.index_path))
+        self._cache = (sig, rows)
+        return rows
 
     def _chunk(self, text: str):
         paras = re.split(r"\n\s*\n", text)
@@ -191,7 +252,7 @@ class KnowledgeStore:
     # ----------------------------------------------------------------- search
 
     def search(self, query: str, k: int = 3) -> list[Chunk]:
-        rows = list(jsonl_read(self.index_path))
+        rows = self._rows()
         if not rows:
             return []
         qv = self.embedder.embed([query])[0]

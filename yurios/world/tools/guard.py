@@ -65,6 +65,27 @@ class Guard:
         """A fresh dedupe scope — one per reply (world/brain.py's pass loop)."""
         return Turn()
 
+    def allow(self, tool: str, rate: int) -> bool:
+        """Admit a discovered tool to the allowlist. True if it was new.
+
+        SPEC §7.3 defines the allowlist as "exactly the discovered tools", and
+        for her own server the hardcoded rates in world/main.py *are* that list.
+        A third-party server (§7.2, `mcp-servers.json`) can't be hardcoded —
+        nobody here knows what it offers until it says so — so `Runtime`
+        registers whatever came back from `list_tools` at the configured rate.
+
+        Existing entries are never overwritten: her own hands keep the rates
+        chosen for them, and a server that happens to advertise a `set_timer`
+        cannot widen the bucket on hers. A tool that was never discovered is
+        still denied, which is the property the allowlist exists for — this
+        widens *what counts as discovered*, not what counts as allowed.
+        """
+        if tool in self._rates:
+            return False
+        self._rates[tool] = rate
+        self._buckets[tool] = {"tokens": float(rate), "at": self.clock.now()}
+        return True
+
     def check(self, tool: str, args: dict | None = None, *,
               turn: Turn | None = None) -> tuple[bool, str]:
         """Allowlist + one-per-turn dedupe + rate limit. Returns

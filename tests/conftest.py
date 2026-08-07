@@ -108,13 +108,13 @@ class StubState:
 
 
 def make_toolbrain(cfg, guard, timers, controller, chat, runner=None,
-                   specs=None, selfies=None):
+                   specs=None, selfies=None, research=None):
     """A ToolBrain over a stub state — unit tests drive _stream_with_tools
     directly; the full path is pinned in test_integration.py."""
     from yurios.world.brain import ToolBrain
     from yurios.world.tools.fakes import SPECS
     tb = ToolBrain(StubState(chat), cfg, guard=guard, timers=timers,
-                   controller=controller, selfies=selfies)
+                   controller=controller, selfies=selfies, research=research)
     if runner is not None:
         tb.set_tools(runner, specs if specs is not None else list(SPECS))
     return tb
@@ -207,9 +207,12 @@ class PostRecorder:
         self.clock = clock
         self.messages: list[dict] = []
 
-    def __call__(self, role, text, *, image_url=None, proactive=False):
+    def __call__(self, role, text, *, image_url=None, proactive=False, **kw):
+        # **kw absorbs the routing fields a late-arriving message carries back
+        # (channel, client_id, selfie_id) — a recorder that rejected them would
+        # fail on exactly the callers that need them most.
         entry = {"role": role, "text": text, "ts": self.clock.now(),
-                 "proactive": proactive}
+                 "proactive": proactive, **kw}
         self.messages.append(entry)
         return entry
 

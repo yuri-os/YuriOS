@@ -152,3 +152,26 @@ def test_an_unwritable_log_never_breaks_the_turn_it_observes(guard, cfg, monkeyp
     monkeypatch.setattr("yurios.world.tools.guard.jsonl_append",
                         lambda *a, **k: (_ for _ in ()).throw(RuntimeError("disk full")))
     guard.audit("set_timer", {}, "ok", 1.0, "{}")      # must not raise
+
+
+def test_allow_admits_a_discovered_tool_at_its_own_rate(guard, clock):
+    """A third-party MCP server's tools can't be hardcoded — nobody here knows
+    what it offers until list_tools answers (§7.2)."""
+    assert guard.check("scrape")[0] is False
+    assert guard.allow("scrape", 2) is True
+    assert guard.check("scrape")[0] is True
+    assert guard.check("scrape")[0] is True
+    ok, why = guard.check("scrape")                   # the bucket holds two
+    assert ok is False and why == "rate limit"
+
+
+def test_allow_never_widens_the_bucket_on_a_hand_she_already_has(guard):
+    """A server that happens to advertise `get_weather` must not raise the rate
+    chosen for hers — or lower it."""
+    assert guard.allow("get_weather", 999) is False
+    assert guard._rates["get_weather"] == 4
+
+
+def test_a_tool_that_was_never_discovered_is_still_denied(guard):
+    guard.allow("scrape", 4)
+    assert guard.check("rm_rf")[0] is False

@@ -56,6 +56,8 @@ all other local data. Re-run `./install.sh` later to recreate the virtual enviro
 | `--gpu-voice` | Adds qwen3_tts, the designed voice — needs a CUDA GPU (and selects the GPU torch build) |
 | `--cpu-torch` | The CPU-only torch + torchaudio wheels (~750 MB) |
 | `--cuda-torch` | PyPI's matched CUDA torch + torchaudio pair (~4.5 GB) |
+| `--web-search` | Gives her the web (`web_search`, `read_page`, `research`): pulls, configures and starts a SearXNG container, then points `.env` at it. Needs Docker |
+| `--no-web-search` | Leaves web search off — the default for unattended runs |
 | `--desktop` | Adds the native transparent desktop-window dependencies (pywebview + Qt) |
 | `--skip-system` | Don't install system packages |
 | `--print-extras` | Print the extras the other flags resolve to and exit — a dry run that touches nothing |
@@ -65,6 +67,14 @@ all other local data. Re-run `./install.sh` later to recreate the virtual enviro
 On Linux/WSL with a terminal attached, the installer **asks** which Torch build to install unless
 `--cpu-torch` or `--cuda-torch` already settled it. When a working NVIDIA driver is detected,
 CUDA is preselected; otherwise, piped or unattended runs keep the CPU default.
+
+With a terminal attached it also **asks whether she should be able to search the web**, saying up
+front what that needs (Docker, a ~500 MB SearXNG image, a service on port 8080) and whether Docker
+is actually usable on this machine. Say yes and it does the whole setup; say no and she simply has
+no web hands. Piped or unattended runs leave it off — standing up a service for somebody who isn't
+there to see it is not a reasonable default. If Docker turns out to be unusable, the installer says
+so and continues with web search off rather than failing over an optional capability. See
+[Tools](tools.md#web_search-read_page-and-research).
 
 Contradictions are refused rather than resolved by argument order: `--thin` cannot be combined
 with `--voice`, `--gpu-voice`, `--forge-local` or `--forge-krea2`, and `--desktop` cannot be

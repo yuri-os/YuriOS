@@ -97,7 +97,18 @@ Full explanation: [Models & connections](models.md).
 | `SUMMARY_EVERY_N` | `8` | summarise cadence, in turns |
 | `SUMMARY_BUDGET_TOKENS` | `300` | |
 | `LOREBOOK_BUDGET_TOKENS` | `400` | |
+| `KNOWLEDGE_K` | `3` | shelf chunks injected per turn — `0` turns the slot off |
+| `KNOWLEDGE_MIN_SCORE` | `0.05` | hybrid-score floor, below which a chunk is noise |
+| `KNOWLEDGE_BUDGET_TOKENS` | `900` | ceiling on the knowledge block |
 | `SYSTEM_BUDGET_TOKENS` | `8000` | overflow ceiling for the system block |
+
+`RETRIEVAL_K` and `KNOWLEDGE_K` are the two retrieval slots, and they are separate on purpose:
+memory cites a conversation turn, knowledge cites a document and a character span. Everything
+that reaches the shelf goes through the second one — a file you dropped in
+`vault/knowledge/reference/`, a page she read with `read_page`, a `research` run — so raising
+`KNOWLEDGE_K` widens all three at once. Keep it small: a chunk is a paragraph, so three of them
+already outweigh every recalled memory put together, and on overflow knowledge is the first
+thing dropped after the example voice.
 
 Changing the backend, model or dimension re-indexes the Vault from its `.md` files automatically.
 See [Models & connections](models.md#switching-embedding-backends) for compatible LM Studio and
@@ -163,8 +174,31 @@ Backend-specific keys (`QWEN_*`, `SOVITS_*`) are in [Voice](voice.md).
 | `TIMER_MAX_MINUTES` | `180` | |
 | `WEATHER_BACKEND` | `open_meteo` | `open_meteo` · `fake` |
 | `WEATHER_CITY` | `Seoul` (`.env.example`) | the default when she isn't told one |
+| `MCP_SERVERS` | *(unset)* | path to `mcp-servers.json` — third-party servers |
+| `TOOL_RATE_EXTERNAL` | `4` | default bucket for a tool found by discovery |
 
 See [Tools](tools.md).
+
+## The web
+
+| Key | Default | |
+|---|---|---|
+| `SEARCH_BACKEND` | `off` | `searxng` · `fake` · `off` — off leaves all three unadvertised |
+| `SEARXNG_URL` | `http://localhost:8080` | a loopback URL is the container YuriOS manages; anything else is yours |
+| `SEARCH_RESULTS` | `5` | rows per `web_search` |
+| `SEARCH_LANGUAGE` | `en` | |
+| `SEARCH_SAFESEARCH` | `1` | `0` none · `1` moderate · `2` strict |
+| `FETCH_TIMEOUT_S` | `8` | one page, kept inside `TOOL_TIMEOUT_S` |
+| `FETCH_MAX_BYTES` | `2000000` | `read_page` stops here |
+| `RESEARCH_MAX_PAGES` | `5` | ceiling on `research(depth=…)` |
+| `TOOL_RATE_SEARCH` / `_READ` / `_RESEARCH` | `6` / `6` / `2` | calls per minute |
+
+Don't set these by hand for a fresh install — `./install.sh --web-search` pulls and configures the
+SearXNG container, then writes `SEARCH_BACKEND` and `SEARXNG_URL` for you. `yurios start` brings the
+container up with her; `yurios doctor` says whether she can actually search right now.
+
+See [Tools](tools.md) — including the SearXNG JSON-format trap, which is the one thing that
+reliably goes wrong when you point her at an instance you already run.
 
 ## Selfies
 
@@ -181,6 +215,7 @@ See [Tools](tools.md).
 | `SELFIE_LOCAL_CPU_OFFLOAD` | `false` | ~2× slower, much less VRAM |
 | `SELFIE_KREA2_STEPS` / `_CFG` | `0` / `-1` | `0`/`-1` = read it off the checkpoint |
 | `SELFIE_LLM_PARK` | `true` | lend the LLM's VRAM to a local render |
+| `SELFIE_WARM_HEADROOM_GIB` | `6.0` | VRAM her brain needs beside a warm render pipeline; below it the pipeline is dropped after each render |
 
 See [Selfies](selfies.md).
 

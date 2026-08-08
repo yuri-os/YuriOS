@@ -372,12 +372,31 @@ class ConsolidateJob(DreamJob):
 #: outside and picks the wrong side of it: the first live run of this job
 #: produced an entry in the user's voice, about waiting for *her* to reply.
 #: Saying whose diary it is, and what the two kinds of line mean, fixes it.
+#: How to read a journal line, shared by every job that reads one. Getting this
+#: wrong doesn't degrade the output, it inverts it: a model that mistakes which
+#: side of the ⇄ is hers writes the diary — and frames the photograph — from the
+#: other person's chair, in their voice, about her.
+#:
+#: The second half is the part that is easy to leave out and expensive to. Her
+#: own replies are roleplay prose: dialogue, mood tags, and stage directions
+#: that describe her from the outside, often by name. "*Rikku tilted her head*"
+#: sitting inside Rikku's own half reads as someone watching Rikku unless the
+#: prompt says otherwise, and a character whose card narrates her by name
+#: rather than by pronoun loses her whole side of the transcript to it.
+JOURNAL_FORMAT = (
+    "Lines marked [she] are things you did alone. Every other line is one "
+    "exchange with two halves split by ⇄: the half before it, labelled "
+    "'{user}:', is the other person speaking to you, and the half after it is "
+    "your own reply. Your own half is written the way it was performed — "
+    "dialogue, moods in square brackets, and stage directions between asterisks "
+    "that describe you from the outside, sometimes as 'she' and sometimes by "
+    "your own name. All of it is yours: '*{char} tilted her head*' inside your "
+    "half is you tilting your head, not someone else watching you do it.")
+
 DIARY_SYSTEM = (
-    "You are {char}. Below is your own journal for the day just past. Lines "
-    "marked [she] are things you did alone. Every other line is one exchange "
-    "with two halves split by ⇄: the half before it, labelled '{user}:', is the "
-    "other person speaking to you, and the half after it is your own reply. "
-    "Write YOUR private diary entry about that day — yours, for nobody else to "
+    "You are {char}. Below is your own journal for the day just past. " +
+    JOURNAL_FORMAT +
+    " Write YOUR private diary entry about that day — yours, for nobody else to "
     "read, from your side only. You are {char}; never write as the person "
     "labelled '{user}'. Two short paragraphs at most: what the day was actually "
     "like and what you made of it, not a summary of events and not a report to "
@@ -470,13 +489,14 @@ class StrategyJob(DreamJob):
 
 
 SELFIE_SYSTEM = (
-    "You are {char}. From your own journal for this day — where lines labelled "
-    "'{user}:' are the other person and the replies after them are yours — pick "
-    "the one moment you'd want a picture of *yourself* in, and describe that "
-    "picture the way you'd describe a photograph: where you are, the light, "
-    "what you're doing, how you're sitting. The picture is of you. One "
-    "paragraph, no preamble, no explanation of why you chose it. If nothing in "
-    "the day suggests a picture, output NOTHING.")
+    "You are {char}. Below is your own journal for this day. " +
+    JOURNAL_FORMAT +
+    " Pick the one moment you'd want a picture of *yourself* in, and describe "
+    "that picture the way you'd describe a photograph: where you are, the "
+    "light, what you're doing, how you're sitting. The picture is of you, seen "
+    "as you are in it — not of the other person, and not the view from where "
+    "they were standing. One paragraph, no preamble, no explanation of why you "
+    "chose it. If nothing in the day suggests a picture, output NOTHING.")
 
 
 class SelfieJob(DreamJob):

@@ -189,6 +189,33 @@ async def test_the_first_item_of_the_night_always_runs_however_big(rig):
     assert report.jobs and report.jobs[0].days == ["2026-07-04"]
 
 
+# ------------------------------------------------------------------ the voice
+
+async def test_the_prompts_claim_her_own_stage_directions_for_her(rig):
+    """A live regression, twice. A journal is a two-person transcript, and her
+    own half is roleplay prose whose stage directions describe her from the
+    outside — often by name. A prompt that only says "the half after ⇄ is
+    yours" loses that side to the narration: the first live diary was written
+    from the other person's chair, and the first live selfie described the view
+    from where they were standing rather than a picture of her."""
+    runner, _clock, vault = rig
+    _day_file(vault, "2026-07-04",
+              ["you: hey  ⇄  her: [playful] Hey! *She tilted her head*"])
+    seen: list[str] = []
+    inner = runner.utility
+
+    async def recording(messages, **kw):
+        seen.append(messages[0]["content"])
+        return await inner(messages, **kw)
+
+    runner.utility = recording
+    await runner.run(only="diary", token_budget=40000)
+    system = seen[-1]
+    assert "stage directions" in system
+    assert "not someone else watching you do it" in system
+    assert "never write as the person" in system
+
+
 # ------------------------------------------------------------------- isolation
 
 async def test_a_failing_job_does_not_take_the_night_with_it(rig):

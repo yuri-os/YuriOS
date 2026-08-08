@@ -15,6 +15,7 @@ from yurios.mind.dream import DreamConsolidator
 from yurios.mind.dreamjobs import DreamJob, DreamRunner, JobReport
 from yurios.mind.vaultio import MindVault
 from yurios.mind.workspace import SkillStore, Workspace
+from yurios.world import correlate
 from yurios.world.clock import VirtualClock
 
 from .conftest import SIM_START, FakeEmbedder, FakeUtility
@@ -206,6 +207,27 @@ async def test_a_nights_desk_writes_leave_an_audit_line(rig):
     tool, args, verdict, result = lines[0]
     assert args["path"] == "diary/2026-07-04.md" and args["bytes"] > 0
     assert verdict == "ok" and "diary/2026-07-04.md" in result
+
+
+async def test_a_dreamt_selfie_carries_the_corr_id_that_joins_it_to_its_photo(rig, cfg):
+    """The Tools page joins a render to the call that asked for it on `corr_id`
+    (`debug._generations_by_corr`), and a dreamt render is the case where that
+    join is load-bearing: nothing else connects a photo landing at 02:41 to the
+    job that described it. Shipped without this, the page showed a `take_selfie`
+    row with no picture and a picture nothing pointed at."""
+    runner, _clock, vault = rig
+    runner.cfg = cfg.model_copy(update={"selfie_backend": "diffusers"})
+    _day_file(vault, "2026-07-04", ["you: hey  ⇄  her: [happy] hi"])
+    sent, audited = [], []
+    runner.selfie = sent.append
+    runner.audit = lambda tool, args, verdict, ms, result: audited.append(
+        correlate.stamp().get("corr_id"))
+    with correlate.scope(kind="dream", tick_id="t-abc"):
+        await runner.run(only="selfie", token_budget=40000)
+    assert sent, "the camera was never reached"
+    assert sent[0]["id"] == "dream-2026-07-04"
+    # the photo's key and the call's key have to be the same key
+    assert sent[0]["_corr_id"] and sent[0]["_corr_id"] == audited[-1]
 
 
 async def test_a_dry_run_claims_no_call_it_did_not_make(rig):

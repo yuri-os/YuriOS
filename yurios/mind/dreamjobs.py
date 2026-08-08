@@ -43,6 +43,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Awaitable, Callable
 
+from yurios.world import correlate
 from yurios.world.clock import Clock
 
 from .dream import DreamConsolidator
@@ -238,6 +239,17 @@ class DreamContext:
         self.note_call("write_note", {"path": rel, "bytes": len(text)},
                        result=f"wrote {rel}",
                        duration_ms=(self.clock.now() - started) * 1000.0)
+
+    def corr_id(self) -> str | None:
+        """The unit of work this job is running inside (`world/correlate.py`).
+
+        Only the camera needs it, and needs it badly: a render finishes minutes
+        after the job that asked, so the `corr_id` carried on the contract is
+        the only thing that later joins the photo to the call that started it.
+        Without it the Tools page shows a `take_selfie` line with no picture
+        under it and a picture nothing points at.
+        """
+        return correlate.stamp().get("corr_id")
 
     def note_call(self, tool: str, args: dict, *, result: str = "",
                   duration_ms: float = 0.0) -> None:
@@ -600,7 +612,8 @@ class SelfieJob(DreamJob):
             # start-don't-await (§7.6): the render happens off-tick and arrives
             # in the chat when it's done, exactly as a daytime selfie does
             ctx.selfie({"id": f"dream-{day}", "kind": "selfie", "look": look,
-                        "status": "started", "_dream": True})
+                        "status": "started", "_dream": True,
+                        "_corr_id": ctx.corr_id()})
             # The audit line goes in at dispatch, not at delivery — this is
             # start-don't-await, and the render lands minutes later. Same shape
             # as the `take_selfie` line a daytime shot leaves; the photo it

@@ -26,6 +26,7 @@ kept, and the message says so rather than pretending.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import re
 from typing import Awaitable, Callable, Optional
@@ -51,6 +52,21 @@ def _slug(text: str) -> str:
     shelf is a directory a human opens, so `web-tea-ceremony-1723.md` beats a
     hash even though a hash would collide less."""
     return re.sub(r"[^a-z0-9]+", "-", (text or "").lower()).strip("-")[:48] or "page"
+
+
+def _doc_name(page: dict) -> str:
+    """A stable name for a page's slot on the shelf.
+
+    The old scheme suffixed the wall-clock second (`web-x-{now()}.md`), so
+    reading the same URL on two research runs — or once via `research` and
+    once via a plain `read_page` — filed it twice under two different names.
+    Keying on the URL instead means a re-read lands on the same doc name, and
+    `KnowledgeStore.ingest`'s "re-ingest replaces" rule (mind/knowledge.py)
+    does the deduplication: same doc, chunks refreshed, no pileup.
+    """
+    url = page.get("url") or ""
+    digest = hashlib.sha1(url.encode("utf-8")).hexdigest()[:10]
+    return f"web-{_slug(page.get('title') or url)}-{digest}.md"
 
 
 def as_document(page: dict, *, retrieved: str) -> str:
@@ -103,7 +119,7 @@ class Researcher:
         if store is None:
             return ""
         retrieved = self._stamp()
-        name = f"web-{_slug(page.get('title') or page.get('url'))}-{int(self.clock.now())}.md"
+        name = _doc_name(page)
         try:
             result = await store.ingest(name, as_document(page, retrieved=retrieved))
         except Exception:

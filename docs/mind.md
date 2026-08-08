@@ -183,6 +183,11 @@ folded … into what I keep".
 Consolidation is the first job, not the only one. DREAM is a **pipeline** (`mind/dreamjobs.py`):
 each tick runs the enabled jobs in priority order, sharing one token budget, and yields.
 
+A job prices a day by the prompt it will send, not by the journal on disk — a day's journal is
+capped before it reaches a model, so a talkative 180 KB day is still a ~1.7k-token call. And a job
+that runs out of room stops itself, not the night: the cheaper jobs behind it get their own turn at
+the same ceiling. Together those two rules are why an ordinary night finishes in one tick.
+
 | Job | When | What it does |
 |---|---|---|
 | `consolidate` | per finished day | the pass above — journal → durable facts |

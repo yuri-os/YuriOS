@@ -127,6 +127,59 @@ async def test_the_budget_is_shared_and_leaves_a_backlog_not_an_overrun(rig):
     assert runner.backlog() == []
 
 
+async def test_a_talkative_day_is_charged_for_the_prompt_not_for_the_file(rig):
+    """A day's journal reaches the model capped at JOURNAL_CHARS, so a 180KB
+    day is a ~1.7k-token call. Charging it 45k — which the first version did,
+    off the file's size — spent the whole night's allowance on one diary entry
+    and left every other job to a night that might not come."""
+    runner, _clock, vault = rig
+    _day_file(vault, "2026-07-04", ["user: and another thing  ⇄  yuri: mm"] * 5000)
+    assert (vault / "memory" / "episodic" / "2026-07-04.md").stat().st_size > 180_000
+    ctx = runner._context()
+    assert runner.get("diary").cost(ctx, "2026-07-04") < 3000
+
+    # …and so the whole night fits in one tick, which is the point of the number
+    report = await runner.run(token_budget=40000)
+    assert not report.exhausted_budget
+    assert {j.name for j in report.jobs} == {"consolidate", "diary", "strategy"}
+
+
+async def test_an_expensive_job_hitting_the_ceiling_leaves_the_cheap_ones_alone(rig):
+    """`exhausted_budget` used to break the night, not the job. One costly
+    diary day would then defer a strategy review costing a few hundred tokens,
+    even though it fit."""
+    runner, _clock, vault = rig
+    for day in ("2026-07-03", "2026-07-04"):
+        _day_file(vault, day, ["user: remember the boat  ⇄  yuri: noted"])
+
+    class Ruinous(DreamJob):
+        """Cheap on its first day and priced past the ceiling on its second,
+        so it runs, then stops mid-backlog — the shape a real diary hits."""
+        name, title, priority = "ruinous", "Ruinous", 0.9
+
+        def cost(self, ctx, day) -> int:
+            return 100 if day == "2026-07-03" else 10_000_000
+
+        async def work(self, ctx, day):
+            return JobReport(name=self.name, days=[day], changed=True)
+
+    class Pennies(DreamJob):
+        """A few hundred tokens, and last in the queue."""
+        name, title, priority = "pennies", "Pennies", 0.01
+
+        def cost(self, ctx, day) -> int:
+            return 100
+
+        async def work(self, ctx, day):
+            return JobReport(name=self.name, days=[day], changed=True)
+
+    runner.jobs.insert(0, Ruinous())
+    runner.jobs.append(Pennies())
+    report = await runner.run(token_budget=40000)
+    assert report.exhausted_budget                    # ruinous could not finish
+    assert "pennies" in {j.name for j in report.jobs}
+
+
 async def test_the_first_item_of_the_night_always_runs_however_big(rig):
     """Otherwise the backlog wedges on one outsized journal forever, and every
     DREAM tick from then on re-breaks against the same file."""

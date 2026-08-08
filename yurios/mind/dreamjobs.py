@@ -57,6 +57,12 @@ UtilityCall = Callable[[list[dict]], Awaitable[str]]
 #: an oversized day must cost a bounded call, not a proportional one.
 JOURNAL_CHARS = 6000
 
+#: Everything in a job's call that isn't the journal — the system prompt, the
+#: goals or facts a job pulls in, and the completion coming back. A flat
+#: allowance beats a per-job estimate here: the budget only has to be right
+#: enough to stop a runaway night, and being wrong high costs a job its turn.
+PROMPT_OVERHEAD_CHARS = 4000
+
 
 # --------------------------------------------------------------------- ledger
 
@@ -295,10 +301,17 @@ class DreamJob:
         return [d for d in days[-1:] if d not in done]
 
     def cost(self, ctx: DreamContext, day: str) -> int:
-        """Rough tokens this day will cost, for the budget — `dream.py`'s
-        chars/4, off the file's size rather than the truncated read, so a huge
-        day is charged as a huge day even though its prompt is capped."""
-        return max(64, ctx.journal_bytes(day) // 4)
+        """Rough tokens this day will cost the model — `dream.py`'s chars/4,
+        over what the prompt will actually carry.
+
+        That is the journal *capped at JOURNAL_CHARS*, not the file. Billing a
+        day for bytes the model never sees is what the budget governor is not
+        for: one talkative 180KB day is a ~1.7k-token prompt, and charging it
+        45k emptied the night's whole allowance on a single diary entry and
+        stalled every job queued behind it.
+        """
+        read = min(ctx.journal_bytes(day), JOURNAL_CHARS)
+        return max(64, (read + PROMPT_OVERHEAD_CHARS) // 4)
 
     async def work(self, ctx: DreamContext, day: str) -> JobReport:
         raise NotImplementedError
@@ -710,8 +723,12 @@ class DreamRunner:
                                          result=out.result)
             report.exchanges.extend(ctx.exchanges)
             report.writes.extend(ctx.writes)
-            if report.exhausted_budget:
-                break
+            # No `break` on an exhausted budget: one expensive job hitting the
+            # ceiling on its next day says nothing about whether the cheap jobs
+            # behind it fit. They are each gated by the same check above, so
+            # nothing overruns — a costly diary simply stops deferring the
+            # strategy review and the selfie, which cost a few hundred tokens
+            # between them, to a night that may not come.
 
         if touched:
             self.ledger.save()

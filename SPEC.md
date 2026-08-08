@@ -1068,7 +1068,11 @@ that set and a poor place to stop.
 - **Priority order over one shared budget.** Jobs run highest-priority first and share
   `MIND_DREAM_TICK_TOKENS`; `consolidate` runs first because the others read `facts.md`. The first
   item of a night **MUST** run however big it is (§21's anti-wedge rule, which matters more here:
-  a veto on the first item starves every job behind it too).
+  a veto on the first item starves every job behind it too). A job's estimate **MUST** price the
+  prompt it will actually send — a day's journal is capped at `JOURNAL_CHARS` before it reaches a
+  model, so charging the file's full size bills a talkative day thirty times over and spends the
+  night on one entry. And a job that hits the ceiling mid-backlog **MUST** stop that job, not the
+  night: the cheaper jobs behind it are each gated by the same check and may still fit.
 - **Per-job resumable progress** in `state/dream_jobs.json`. `consolidate` is the exception and
   keeps `state/dream_progress.json`, because that ledger predates this section and exists in every
   shipped vault.
@@ -1223,7 +1227,8 @@ brain with fake models.
   violated, `query(at=…)`); knowledge (drop→scan→ingest→cited search, re-ingest replaces, forget, the
   memory boundary, the failed-ingest degrade); DREAM (backlog excludes today, oldest-first resumable
   budget, dedupe, salience-2.0 indexing, the offline heuristic); the DREAM **pipeline** (priority
-  order, the shared budget leaving a backlog not an overrun, the first item always running, per-job
+  order, the shared budget leaving a backlog not an overrun, a day priced by its prompt and not by
+  its file, a job at the ceiling not taking the cheap jobs with it, the first item always running, per-job
   resumable progress, a once-a-night job not walking backwards through history, a job that wrote
   nothing still clearing its day so the ladder can leave DREAM, a failing job neither ending the
   night nor marking its day, the dry run that thinks and writes nothing, and the report carrying the

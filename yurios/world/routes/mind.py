@@ -50,6 +50,65 @@ async def trace(request: Request, n: int = 40) -> dict:
     return {"ticks": _mind(request).trace.tail(max(1, min(n, 200)))}
 
 
+@router.get("/api/mind/dream")
+async def dream_status(request: Request) -> dict:
+    """The night's roster: every job, whether it's on, and what it still owes.
+
+    Reads the same runner the tick loop uses, so the page can never show a job
+    list the loop doesn't have.
+    """
+    mind = _mind(request)
+    return {"jobs": mind.dreams.status(),
+            "backlog": mind.dreams.backlog(),
+            "state": mind.activity.state,
+            "window": [mind.cfg.mind_dream_start_hour,
+                       mind.cfg.mind_dream_end_hour],
+            "enabled": bool(mind.cfg.dream_enabled and mind.cfg.utility_enabled),
+            "tick_budget": mind.cfg.mind_dream_tick_tokens}
+
+
+@router.post("/api/mind/dream/run")
+async def dream_run(request: Request) -> dict:
+    """Run DREAM now, by hand.
+
+    Body, all optional:
+      {"job": "diary",          — one job instead of the whole night
+       "day": "2026-08-07",     — pin the day, instead of taking its backlog
+       "dry_run": true,         — do the thinking, write nothing
+       "budget": 40000}         — override the per-tick token budget
+
+    Answers with the full report *including the prompts* — the exact system
+    message, the exact input and the raw completion for every model call the
+    run made. That is the whole point of the button: a dream job is a prompt
+    you wrote and cannot otherwise see the output of until tomorrow morning,
+    and "run it against yesterday, dry, and show me what came back" is the only
+    way to iterate on one in less than a day.
+
+    Runs inline rather than posting a signal, which is the opposite of the
+    self-edit route next door and deliberately so: a decision belongs to the
+    loop's next tick, but a test you are watching has to answer *you*.
+    """
+    body = {}
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001 — an empty body means "the whole night"
+        pass
+    mind = _mind(request)
+    if not mind.cfg.dream_enabled:
+        raise HTTPException(409, "DREAM is off for this character (DREAM_ENABLED)")
+    kw = {"dry_run": bool(body.get("dry_run")),
+          "token_budget": int(body.get("budget") or mind.cfg.mind_dream_tick_tokens)}
+    if body.get("job"):
+        kw["only"] = str(body["job"])
+    if body.get("day"):
+        kw["day"] = str(body["day"])
+    try:
+        report = await mind.dream_now(**kw)
+    except KeyError as e:
+        raise HTTPException(404, str(e)) from None
+    return report.as_dict()
+
+
 @router.post("/api/mind/edits/{edit_id}")
 async def decide_edit(edit_id: str, request: Request) -> dict:
     """Rule on a queued self-edit. Body: {"approve": true|false}. The decision

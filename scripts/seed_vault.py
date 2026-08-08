@@ -28,6 +28,9 @@ import yaml  # noqa: E402
 
 from yurios.app import vaultgit  # noqa: E402
 from yurios.app.core.soul import parse_md, split_sections  # noqa: E402
+from yurios.characters.importer import (  # noqa: E402
+    SKILLS_README, WORKSPACE_README)
+from yurios.mind.workspace import WORKSPACE_GITIGNORE  # noqa: E402
 
 VAULT_GITIGNORE = vaultgit.VAULT_GITIGNORE   # the one canonical list (§4.1)
 
@@ -84,6 +87,15 @@ def seed(soul_src: Path, vault: Path) -> None:
     # The shelf (§20). An empty directory is the whole point: it is where the
     # docs tell you to drop a book, so it has to be there to be dropped into.
     (vault / "knowledge" / "reference").mkdir(parents=True, exist_ok=True)
+    # Her desk and her skills (§34) — the same "it has to exist to be dropped
+    # into" rule, and each seeded with the note that says what it is for.
+    (vault / "workspace").mkdir(parents=True, exist_ok=True)
+    (vault / "skills").mkdir(parents=True, exist_ok=True)
+    # The desk's ignore file goes down before the seed commit, or this README is
+    # tracked forever after (a .gitignore cannot untrack what git already knows).
+    vaultgit.atomic_write(vault / "workspace" / ".gitignore", WORKSPACE_GITIGNORE)
+    vaultgit.atomic_write(vault / "workspace" / "README.md", WORKSPACE_README)
+    vaultgit.atomic_write(vault / "skills" / "README.md", SKILLS_README)
     vaultgit.atomic_write(vault / ".gitignore", VAULT_GITIGNORE)
 
     # ONE git repo — the mind (§4.1). Backed up by copying the folder.

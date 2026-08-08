@@ -370,3 +370,79 @@ async def test_every_argument_is_documented_where_she_reads_it():
             for arg in (tool.inputSchema.get("properties") or {}):
                 assert f"`{arg}`" in described, (
                     f"{tool.name}'s `{arg}` is never explained to her")
+
+
+# --- her desk (SPEC §34.2) ---------------------------------------------------
+# The only hands that write inside the Vault, so the only ones whose contract
+# has to be a *refusal* as often as a result.
+
+
+def desk_server(tmp_path):
+    """…with a workspace and a skills folder wired, which is what a spawned
+    server gets from VAULT_DIR."""
+    from yurios.mind.workspace import SkillStore, Workspace
+    return server(workspace=Workspace(tmp_path / "workspace"),
+                  skills=SkillStore(tmp_path / "skills"))
+
+
+async def test_the_desk_hands_appear_only_when_a_vault_is_wired(tmp_path):
+    """No VAULT_DIR, no desk — the SELFIE_BACKEND=off rule once more."""
+    async with create_connected_server_and_client_session(server()._mcp_server) as s:
+        assert "write_note" not in {t.name for t in (await s.list_tools()).tools}
+    async with create_connected_server_and_client_session(
+            desk_server(tmp_path)._mcp_server) as s:
+        names = {t.name for t in (await s.list_tools()).tools}
+    assert {"list_notes", "read_note", "write_note", "append_note",
+            "delete_note", "read_skill", "write_skill", "delete_skill"} <= names
+
+
+async def test_a_note_round_trips_through_the_tools(tmp_path):
+    async with create_connected_server_and_client_session(
+            desk_server(tmp_path)._mcp_server) as s:
+        wrote = json.loads(result_text(await s.call_tool(
+            "write_note", {"path": "research/boards.md", "text": "three brands"})))
+        assert wrote["wrote"] is True and wrote["path"] == "research/boards.md"
+        read = json.loads(result_text(await s.call_tool(
+            "read_note", {"path": "research/boards.md"})))
+        assert "three brands" in read["text"]
+        listed = json.loads(result_text(await s.call_tool("list_notes", {})))
+        assert [f["path"] for f in listed["files"]] == ["research/boards.md"]
+    assert (tmp_path / "workspace" / "research" / "boards.md").is_file()
+
+
+async def test_the_sandbox_refuses_and_says_what_to_do_instead(tmp_path):
+    """A refusal that teaches nothing gets the same path tried again next turn.
+    The error has to name the shape of a path that would work."""
+    async with create_connected_server_and_client_session(
+            desk_server(tmp_path)._mcp_server) as s:
+        result = await s.call_tool(
+            "write_note", {"path": "../soul/CONSTITUTION.md", "text": "mine now"})
+        assert result.isError
+        assert "notes/paddleboards.md" in result_text(result)
+    assert not (tmp_path / "soul").exists()
+
+
+async def test_a_skill_she_writes_is_readable_back(tmp_path):
+    async with create_connected_server_and_client_session(
+            desk_server(tmp_path)._mcp_server) as s:
+        await s.call_tool("write_skill", {
+            "name": "tea-timer",
+            "description": "when they ask to steep something",
+            "instructions": "Ask which tea first, then set the timer."})
+        out = json.loads(result_text(await s.call_tool(
+            "read_skill", {"name": "tea-timer"})))
+        assert "Ask which tea first" in out["instructions"]
+        missing = await s.call_tool("read_skill", {"name": "nonesuch"})
+        assert missing.isError and "tea-timer" in result_text(missing)
+
+
+async def test_the_desk_hands_explain_their_arguments_too(tmp_path):
+    """`test_every_argument_is_documented_where_she_reads_it`, applied to the
+    tools that were not yet built when it was written."""
+    async with create_connected_server_and_client_session(
+            desk_server(tmp_path)._mcp_server) as s:
+        for tool in (await s.list_tools()).tools:
+            described = one_line(tool.description or "")
+            for arg in (tool.inputSchema.get("properties") or {}):
+                assert f"`{arg}`" in described, (
+                    f"{tool.name}'s `{arg}` is never explained to her")

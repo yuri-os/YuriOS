@@ -139,6 +139,21 @@ svg { width: 1.1em; height: 1.1em; fill: none; stroke: currentColor; stroke-widt
 .row-time { margin-left: auto; font: 10px var(--font-mono); color: var(--dim); white-space: nowrap; }
 .row-body { color: var(--soft); font-size: 12.5px; line-height: 1.5; overflow-wrap: anywhere; }
 
+/* --- the dreams section ------------------------------------------------------
+ * The only section with controls on it, so the only one that needs a form row
+ * and a place to put a button under a row. Everything else here is read-only. */
+.row-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.field-row { display: flex; align-items: center; gap: 9px; margin-bottom: 11px; }
+.field-row label { font-size: 12.5px; color: var(--soft); }
+.input {
+  padding: 6px 10px; border: 1px solid var(--rule); border-radius: 8px;
+  background: var(--panel-2); color: var(--ink); font-size: 12.5px; min-width: 200px;
+}
+.plain { margin: 0; padding-left: 18px; color: var(--soft); font-size: 12.5px; line-height: 1.7; }
+/* A disabled control must read as "not now", not as "broken" — this section
+ * greys every button while a run is in flight, which is most of them. */
+button[disabled] { opacity: .45; cursor: not-allowed; }
+
 .chip {
   display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 999px;
   border: 1px solid var(--chip-color, var(--rule)); color: var(--chip-color, var(--soft));

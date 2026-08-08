@@ -1055,6 +1055,49 @@ turn** — separate files, separate indexes, separate `inspect()`.
   leaves a backlog, not an overrun, and the next DREAM tick resumes. The night's work is journaled
   ("slept on it: folded … into what I keep").
 
+### §21.2 — The pipeline (more than one job)
+
+`yurios/mind/dreamjobs.py` — consolidation is the first job of the night, not the only one. Sleep
+is where the expensive, unhurried, nobody-is-waiting work goes; §21 is the most obvious member of
+that set and a poor place to stop.
+
+- A **job** is a name, a backlog, and a `run` (`DreamJob`). Four ship built in — `consolidate`
+  (§21, wrapping `DreamConsolidator`), `diary`, `strategy`, `selfie` — and adding a fifth **MUST**
+  require only a class and a name in `BUILTIN_JOBS`: the ladder, the trace, the budget, the debug
+  page and the manual trigger all derive from the roster.
+- **Priority order over one shared budget.** Jobs run highest-priority first and share
+  `MIND_DREAM_TICK_TOKENS`; `consolidate` runs first because the others read `facts.md`. The first
+  item of a night **MUST** run however big it is (§21's anti-wedge rule, which matters more here:
+  a veto on the first item starves every job behind it too).
+- **Per-job resumable progress** in `state/dream_jobs.json`. `consolidate` is the exception and
+  keeps `state/dream_progress.json`, because that ledger predates this section and exists in every
+  shipped vault.
+- **Handled is not produced.** A job that decided there was nothing to write **MUST** still mark
+  its day done. Otherwise the backlog never empties, `DREAM → DORMANT` never fires, and she spends
+  every night re-deciding not to write the same note.
+- A job that raises is caught, reported, **MUST NOT** mark its day (so it retries), and **MUST
+  NOT** end the night. One bad prompt added last week must never cost consolidation.
+- Jobs write to `workspace/` (§34) through `DreamContext.put`, never to `memory/` or `soul/`. A
+  nightly job that could append to semantic memory would be a second, unaudited consolidator; one
+  that could touch `soul/` would be §23.2 with the gate removed. `consolidate` writes to `memory/`
+  because it *is* the consolidator, through its own long-standing path.
+- Every model call goes through `DreamContext.ask`, which records it verbatim — the transcript is
+  complete by construction, and is what §21.3 serves.
+
+### §21.3 — Running a night by hand
+
+`GET /api/mind/dream` serves the roster (per job: enabled, backlog, last run, last result).
+`POST /api/mind/dream/run` runs it, taking optional `job`, `day`, `dry_run` and `budget`.
+
+- The response **MUST** include, for every model call the run made, the exact system message, the
+  exact input and the raw completion. A dream job is a prompt whose output is otherwise invisible
+  until the next morning; without this the iteration loop is one day long.
+- `dry_run` **MUST** make the same model calls, report what it *would* write, and write nothing,
+  mark no day done and leave no commit.
+- It runs **inline**, unlike §24.3's self-edit decision — a decision belongs to the loop's next
+  tick, a test you are watching has to answer you — and **MUST NOT** move the activity ladder. A
+  night you asked for is not evidence she drifted into one.
+
 ## §22 — Goals and intentions
 
 `yurios/mind/goals.py` — `vault/goals.md` is the store: a human-readable markdown checklist, because
@@ -1118,7 +1161,10 @@ key. `MIND_ENABLED` (off = the reactive body minus ambient life); `MIND_SEED`; t
 `MIND_CONSIDER_COOLDOWN_S`; `MIND_DAILY_TOKENS`, `MIND_DREAM_TICK_TOKENS`; the cadences and drift
 timeouts `MIND_{ENGAGED,IDLE,DORMANT,DREAM}_CADENCE_S`, `MIND_ENGAGED_TIMEOUT_S`, `MIND_IDLE_TIMEOUT_S`,
 `MIND_DREAM_START_HOUR`/`END_HOUR`; and the reflex windows `IDLE_SETTLE_S`, `IDLE_ACT_MIN/MAX_S`,
-`IDLE_TALK_MIN/MAX_S` (§15.5). The port is **8768**.
+`IDLE_TALK_MIN/MAX_S` (§15.5). Her desk (§34): `WORKSPACE_ENABLED`, `WORKSPACE_DIGEST_FILES`,
+`SKILLS_ENABLED`, `TOOL_RATE_DESK`. The DREAM pipeline (§21.2) has **no** per-job switch: the
+roster lives in `mind/dreamjobs.py`, and a job whose prerequisite is absent (the camera, for
+`selfie`) takes itself out of the night through `DreamJob.enabled`. The port is **8768**.
 
 ---
 
@@ -1176,12 +1222,23 @@ brain with fake models.
   factors; the world model (situation assertions verbatim, presence arithmetic, expectation met vs.
   violated, `query(at=…)`); knowledge (drop→scan→ingest→cited search, re-ingest replaces, forget, the
   memory boundary, the failed-ingest degrade); DREAM (backlog excludes today, oldest-first resumable
-  budget, dedupe, salience-2.0 indexing, the offline heuristic); goals (roundtrip, dedupe,
+  budget, dedupe, salience-2.0 indexing, the offline heuristic); the DREAM **pipeline** (priority
+  order, the shared budget leaving a backlog not an overrun, the first item always running, per-job
+  resumable progress, a once-a-night job not walking backwards through history, a job that wrote
+  nothing still clearing its day so the ladder can leave DREAM, a failing job neither ending the
+  night nor marking its day, the dry run that thinks and writes nothing, and the report carrying the
+  prompt verbatim — `test_dreamjobs.py`); her **desk** (every climb, dotfile and symlink out refused
+  by one enforcement point, the ceilings, the digest being an index not the contents, the skill
+  catalog costing a line per skill, a disabled skill leaving the catalog but not the disk, a mangled
+  `SKILL.md` costing one entry — `test_workspace.py`) and its hands (unadvertised without a vault,
+  a note round-tripping, a refusal that names a working path, every argument documented where she
+  reads it — `test_mcp_contract.py`); goals (roundtrip, dedupe,
   commitment-aware reconsideration, promise extraction incl. negations); the SOUL gate (constitution
   refused even gated and never queued, identity surfaces gate-only, low-risk applies, unknown fails
   safe, approve applies + commits, reject leaves no change, vault jail); the routes (snapshot, journal,
   decision-as-signal consumed on the next tick and journaled, 404, the 503 + health truth when
-  mindless); and the boot path (`create_app` over the real brain: mind running, health/boot reporting
+  mindless, the DREAM roster in priority order, a hand-run night answering with its prompts, dry vs.
+  wet, and the ladder not moving because you pressed a button); and the boot path (`create_app` over the real brain: mind running, health/boot reporting
   it, the §19.2 seam actually wired).
 - §27.2 **The scenario battery** — multi-day sim-user runs asserted over the tick trace, because "it
   felt right when I watched it for an evening" is not a gate: **the interview was Tuesday** (told
@@ -1477,3 +1534,64 @@ changes; a runtime does not know it has neighbours.
   when the file is absent — a portrait the user replaced or the forge rendered is hers and is
   never overwritten. A missing packaged portrait is a cosmetic loss and **MUST NOT** fail a
   migration.
+
+## §34 — Her desk and her skills
+
+`yurios/mind/workspace.py` — two directories inside the Vault that she may write without asking,
+and the sandbox that makes that safe. Every other write path in the mind is narrow on purpose
+(`memory/` by DREAM, `world/` by SENSE, `soul/` only through §23.2), which is the right shape for
+the things she *is* and the wrong shape for the things she is *doing*.
+
+- §34.1 **`vault/workspace/` is her desk.** No schema, no ceremony: drafts, research scratch, the
+  middle of a thought. `vault/skills/` is the same primitive pointed at instructions. Both live
+  **inside** the Vault and travel when the folder is copied; only skills are **versioned**.
+
+  The desk **MUST NOT** be git-tracked. Scratch churns, and a draft rewritten four times while she
+  works something out is four commits of a diff nobody will read — the Vault's `git log` is the
+  diary of how she grew, and working notes bury the entries that matter. Skills **MUST** stay
+  versioned: a skill is a durable statement about how she does something, changing one is exactly
+  the kind of change worth reverting, and they are written rarely enough to stay legible.
+
+  The rule lives in `workspace/.gitignore`, **inside** the folder, for the reason
+  `KnowledgeStore.INDEX_GITIGNORE` gives: a Vault's own `.gitignore` is written once at seed time
+  and never refreshed, so a line added to it today protects no existing vault. It **MUST** also be
+  written by the seeders (`characters/importer.py`, `scripts/seed_vault.py`) before their first
+  commit — `.gitignore` cannot untrack a path git already knows. Both folders are seeded with a
+  README saying what they are for, because a directory the docs address by name has to exist to be
+  dropped into.
+
+  A desk write therefore **MUST NOT** dirty the Vault. What a night did still reaches `git log`
+  through the journal line and the job ledger; the diary entry itself does not.
+
+- §34.2 **The sandbox is the design, and it is dull.** `Workspace.resolve()` is the single
+  enforcement point every read and write passes through, including listings. It **MUST** refuse an
+  absolute path, any `..`, and any component beginning with `.` (`.git/`, `.gitignore` and `.env`
+  are all within reach of a root that is otherwise hers, and none of them are notes). Symlinks
+  **MUST** be resolved *before* the containment test, so a link planted inside the desk that points
+  at `soul/CONSTITUTION.md` fails the same check a `../` would. Per-file, whole-tree and file-count
+  ceilings **MUST** refuse rather than fill a disk.
+
+  The hands are `list_notes`, `read_note`, `write_note`, `append_note`, `delete_note`,
+  `read_skill`, `write_skill`, `delete_skill`, advertised by the tool server only when `VAULT_DIR`
+  is in its environment — the `SELFIE_BACKEND=off` rule (§7.6). That path **is** the sandbox root
+  and is fixed at spawn time, so one character's hands can never reach another's desk. A refusal
+  **MUST** say what a working path looks like: "denied" teaches nothing and the same path is tried
+  again next turn.
+
+  The tool server is a separate process writing straight to disk, so a desk write **MUST** be
+  reported back to the host (`_realise` → `MindLoop._desk_written`), which marks the Vault dirty
+  and journals it. Without that a note she wrote at noon lands in whatever commit fires next,
+  labelled as something else.
+
+- §34.3 **Skills are progressive by format.** One folder per skill, each with a `SKILL.md` of YAML
+  frontmatter (`name`, `description`, `author`, `enabled`) plus a body of instructions. Every turn
+  carries the **catalog** — one line per enabled skill, name plus `description` — and the body is
+  loaded only through `read_skill`, once she has decided this is the skill the moment calls for.
+  Twenty skills therefore cost twenty lines of context until one is used. The `description` is
+  written as *when to reach for this*, not as a title. The desk gets the same treatment: the prompt
+  carries a listing of the newest `WORKSPACE_DIGEST_FILES` files, never their contents. A mangled
+  `SKILL.md` **MUST** cost that one entry, never the block.
+
+- §34.4 **Nothing here executes.** The desk holds inert text. The coming code harness (§28's
+  workshop) gets its own workspace **outside** the Vault precisely so that "she can write here" and
+  "this can run" never become the same sentence, and its own skills folder for the same reason.

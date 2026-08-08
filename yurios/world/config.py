@@ -27,6 +27,9 @@ class Config(VoiceConfig):
     tool_rate_timer: int = 6                    # calls/minute, token bucket (§7.3)
     tool_rate_music: int = 6
     tool_rate_weather: int = 4
+    tool_rate_desk: int = 20                    # her workspace + skills (§34.2):
+                                                #   local writes, no outside party
+                                                #   — a loop-catcher, not a ration
     timer_max_minutes: int = 180                # set_timer upper bound (§7.1)
     weather_backend: str = "open_meteo"         # open_meteo | fake (§7.5)
     weather_city: str = "Tokyo"                 # default when she isn't told one

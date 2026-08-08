@@ -69,6 +69,70 @@ def test_unknown_edit_is_404(client_with_mind):
     assert c.post("/api/mind/edits/nope", json={"approve": True}).status_code == 404
 
 
+# --- the DREAM roster and its trigger (SPEC §21.3) --------------------------
+# The one part of the mind surface that *acts* rather than reporting. It runs
+# inline, unlike the self-edit decision above, and deliberately: a decision
+# belongs to the loop's next tick, but a test you are watching has to answer you.
+
+
+def test_dream_status_lists_the_night(client_with_mind):
+    c, _rig = client_with_mind
+    data = c.get("/api/mind/dream").json()
+    names = [j["name"] for j in data["jobs"]]
+    assert names[0] == "consolidate"                # priority order, as the loop runs it
+    assert {"diary", "strategy"} <= set(names)
+    assert data["window"] == [2, 6]
+    assert all("backlog" in j and "enabled" in j for j in data["jobs"])
+
+
+async def test_dream_run_answers_with_the_prompts_it_sent(client_with_mind):
+    """The whole point of the button: the exact system message, the exact
+    input and the raw completion, without waiting until 3am to see them."""
+    c, rig = client_with_mind
+    day = rig.mind.vault.vault / "memory" / "episodic" / "2026-07-04.md"
+    day.parent.mkdir(parents=True, exist_ok=True)
+    day.write_text("# Journal — 2026-07-04\n\n### 10:01  user: the rain kept up\n")
+    body = c.post("/api/mind/dream/run",
+                  json={"job": "diary", "day": "2026-07-04", "dry_run": True}).json()
+    assert body["dry_run"] is True
+    assert body["writes"] == ["diary/2026-07-04.md"]
+    exchange = body["exchanges"][0]
+    assert "diary entry" in exchange["system"]
+    assert "the rain kept up" in exchange["user"]
+    assert exchange["completion"]
+    # dry: nothing on disk, nothing marked done
+    assert not (rig.mind.vault.vault / "workspace" / "diary").exists()
+    assert "2026-07-04" in rig.mind.dreams.backlog()
+
+
+async def test_a_wet_dream_run_writes_and_journals(client_with_mind):
+    c, rig = client_with_mind
+    day = rig.mind.vault.vault / "memory" / "episodic" / "2026-07-04.md"
+    day.parent.mkdir(parents=True, exist_ok=True)
+    day.write_text("# Journal — 2026-07-04\n\n### 10:01  user: the rain kept up\n")
+    body = c.post("/api/mind/dream/run", json={"job": "diary", "day": "2026-07-04"}).json()
+    assert body["dry_run"] is False
+    entry = rig.mind.vault.vault / "workspace" / "diary" / "2026-07-04.md"
+    assert entry.is_file()
+    day_files = list((rig.mind.vault.vault / "memory" / "episodic").glob("*.md"))
+    assert any("wrote a diary entry" in p.read_text() for p in day_files)
+
+
+def test_running_the_night_does_not_move_the_activity_ladder(client_with_mind):
+    """A night you asked for is not evidence she drifted into one — and a DREAM
+    state written by a button is a lie the timeline then shows you forever."""
+    c, rig = client_with_mind
+    before = rig.mind.activity.state
+    c.post("/api/mind/dream/run", json={"dry_run": True})
+    assert rig.mind.activity.state == before
+
+
+def test_an_unknown_dream_job_is_404(client_with_mind):
+    c, _rig = client_with_mind
+    r = c.post("/api/mind/dream/run", json={"job": "nonesuch"})
+    assert r.status_code == 404
+
+
 def test_start_async_builds_the_mind_over_the_real_brain(cfg, seeded_vault):
     """The `python -m yurios.world` path: create_app with the real brain
     (fake models) boots the mind on the server's event loop (SPEC §15)."""

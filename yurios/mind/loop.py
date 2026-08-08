@@ -43,6 +43,7 @@ from yurios.world.tools.timers import TimerBoard
 
 from .budget import BudgetGovernor
 from .dream import DreamConsolidator
+from .dreamjobs import DreamRunner
 from .goals import Goal, GoalStore, extract_promises
 from .journal import Journal
 from .knowledge import KnowledgeStore
@@ -54,6 +55,7 @@ from .signals import Signal, SignalBus
 from .trace import TickTrace
 from .util import day_of, iso_of, new_id, read_json, ts_of_iso, write_json
 from .vaultio import MindVault
+from .workspace import SkillStore, Workspace
 from .world import WorldModelStore
 
 log = logging.getLogger("mind.loop")
@@ -124,12 +126,32 @@ class MindLoop:
         if hasattr(brain, "set_knowledge"):
             brain.set_knowledge(self.knowledge)  # §20.2: the shelf joins the
                                                  # prompt's knowledge slot
+        # her desk and her skills (§34). Built before the dream runner, which
+        # gives jobs a place to write, and before the brain seam below.
+        self._desk_notes: list[str] = []       # drained by REFLECT, see below
+        self.workspace = (Workspace(cfg.vault_dir / "workspace")
+                          if cfg.workspace_enabled else None)
+        self.skills = (SkillStore(cfg.vault_dir / "skills")
+                       if cfg.skills_enabled else None)
+        if hasattr(brain, "set_workspace"):
+            brain.set_workspace(self.workspace, self.skills,
+                                on_write=self._desk_written)
         self.goals = GoalStore(self.vault, clock)
         self.selfedit = SelfEdit(self.vault, clock)
         self.journal = Journal(self.vault, clock, hub, store=state.store)
         self.dream = DreamConsolidator(self.vault, state.store, clock,
                                        utility=self._utility
                                        if state.utility else None)
+        # …and the pipeline it is now the first job of (§21.2). `self.dream`
+        # stays the consolidator: it is still what §21 means and what the tests
+        # pin, and the runner wraps rather than replaces it.
+        self.dreams = DreamRunner(
+            self.vault, state.store, clock, cfg,
+            consolidator=self.dream, goals=self.goals,
+            workspace=self.workspace, skills=self.skills,
+            utility=self._utility if state.utility else None,
+            selfie=(brain.selfies.start
+                    if getattr(brain, "selfies", None) is not None else None))
         state_dir = cfg.vault_dir / "state"
         self.activity = ActivityController(state_dir, clock, cfg,
                                            trace_dir=cfg.trace_dir)
@@ -182,6 +204,29 @@ class MindLoop:
             messages=messages, completion=text, model=self.cfg.utility_model,
             tier="utility")
         return text
+
+    def _desk_written(self, tool: str, data: dict) -> None:
+        """A desk tool changed a file, from the tool server's process (§34.2).
+
+        The journal is the whole consequence. `workspace/` is not versioned
+        (§34.1), so there is nothing to commit — but a note she wrote for
+        herself is exactly what "what did she do while I was out" means, and
+        with the file itself outside `git log` the journal line is the *only*
+        record that it happened.
+
+        Skills are versioned, so those do dirty the Vault. `commit_if_dirty`
+        already no-ops when nothing is staged, so this stays a one-line rule
+        rather than a special case per tool.
+        """
+        if tool in ("write_skill", "delete_skill"):
+            self.vault.mark_dirty()
+        what = data.get("path") or data.get("name") or "something"
+        verb = {"write_note": "wrote myself a note",
+                "append_note": "added to a note",
+                "delete_note": "cleared a note off my desk",
+                "write_skill": "wrote down how to do something",
+                "delete_skill": "let go of a skill"}.get(tool, "changed")
+        self._desk_notes.append(f"{verb}: {what}")
 
     def _brain_session(self) -> str:
         if self._session is None:
@@ -308,7 +353,7 @@ class MindLoop:
             appraisals.append(Appraisal("ingest", "impulse", 0.55,
                                         "new document on the shelf"))
         if (self.cfg.dream_enabled and self.cfg.utility_enabled
-                and self.activity.state == DREAM and self.dream.backlog()):
+                and self.activity.state == DREAM and self.dreams.backlog()):
             appraisals.append(Appraisal("dream", "dream", 0.6, "DREAM backlog"))
         if (self.activity.state == IDLE and not self._engaged_now()
                 and self.world.snapshot().get("user_present")
@@ -341,6 +386,11 @@ class MindLoop:
                 acted = {"what": "error", "result": f"error: {e}"}
 
         # ---- REFLECT: journal + trace, always ----------------------------------
+        # Desk writes happened on the *turn's* task, outside this tick entirely
+        # (§34.2). Drain them here so they are journalled in tick order with
+        # everything else, rather than racing the journal from another task.
+        while self._desk_notes:
+            reflect_notes.append(self._desk_notes.pop(0))
         for note in reflect_notes:
             self.journal.write(note)
         trace_rec = {
@@ -355,7 +405,7 @@ class MindLoop:
         # ---- REGULATE -----------------------------------------------------------
         self.activity.update(dream_backlog=(self.cfg.dream_enabled
                                             and self.cfg.utility_enabled
-                                            and bool(self.dream.backlog())),
+                                            and bool(self.dreams.backlog())),
                              budget_pressure=self.budget.pressure())
         self._body_reflexes(now)
         # persist the cursor BEFORE the commit, not after: `git add -A` stages
@@ -444,20 +494,39 @@ class MindLoop:
                  "result": f"ingested {len(results)} doc(s)"}, {}, notes)
 
     async def _act_dream(self) -> tuple[dict, dict, list[str]]:
+        """One DREAM tick: the whole pipeline, one shared budget (§21.2).
+
+        The night is chunked exactly as consolidation alone used to be — this
+        tick spends what it may and yields, the ladder stays in DREAM while any
+        job still has a backlog, and the next tick picks up where this one
+        stopped. What changed is only how many kinds of work that covers.
+        """
         if not self.cfg.dream_enabled or not self.cfg.utility_enabled:
             return ({"what": "dream", "result": "DREAM disabled"}, {}, [])
         with correlate.scope(kind=correlate.DREAM):
-            report = await self.dream.consolidate(
+            report = await self.dreams.run(
                 token_budget=self.cfg.mind_dream_tick_tokens)
-        msg = (f"DREAM: consolidated {len(report.days_processed)} day(s), "
-               f"{report.facts_added} fact(s)"
-               + (", budget spent — backlog remains"
-                  if report.exhausted_budget else ""))
-        notes = []
-        if report.days_processed:
-            notes.append(f"slept on it: folded {', '.join(report.days_processed)} "
-                         "into what I keep")
-        return ({"what": "dream", "result": msg}, {}, notes)
+        return ({"what": "dream", "result": report.summary,
+                 "jobs": [j.as_dict() for j in report.jobs]}, {}, report.notes)
+
+    async def dream_now(self, **kw):
+        """Run the pipeline off-cadence — the debug page's trigger (§21.3).
+
+        Deliberately the same call the tick makes, with the same correlate
+        scope, so a hand-triggered night is indistinguishable from a real one
+        in the prompt log and the trace. What it does NOT do is move the
+        activity ladder: a night you asked for is not evidence she drifted into
+        one, and a DREAM state written by a button would be a lie the timeline
+        then shows you forever.
+        """
+        with correlate.scope(kind=correlate.DREAM, tick_id=self._tick_id):
+            report = await self.dreams.run(**kw)
+        if report.dry_run:
+            return report          # a rehearsal leaves no journal and no commit
+        for note in report.notes:
+            self.journal.write(note)
+        self.vault.commit_if_dirty(f"dream (by hand): {report.summary[:60]}")
+        return report
 
     # ---- initiative: gate 2 lives here (SPEC §18.2–§18.3) -----------------------
 
@@ -616,5 +685,10 @@ class MindLoop:
             "pending_edits": self.selfedit.pending(),
             "shelf": self.knowledge.shelf(),
             "interrupts_today": self.interrupts.get("count", 0),
-            "dream_backlog": self.dream.backlog(),
+            "dream_backlog": self.dreams.backlog(),
+            "dream_jobs": self.dreams.status(),
+            "workspace": (self.workspace.digest(limit=10)
+                          if self.workspace else ""),
+            "skills": [s.as_dict() for s in self.skills.all()]
+                      if self.skills else [],
         }

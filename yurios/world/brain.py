@@ -31,6 +31,7 @@ from typing import AsyncIterator, Optional
 
 from yurios.desktop.brain import BrainAdapter
 from yurios.desktop.config import Config
+from yurios.mind.workspace import DESK_WRITE_TOOLS
 
 from . import correlate
 from .avatar.controller import VrmController
@@ -269,6 +270,14 @@ class ToolBrain(BrainAdapter):
         try:
             data = json.loads(result)
         except ValueError:
+            return
+        if call.tool in DESK_WRITE_TOOLS:
+            # She wrote inside the Vault, from the other process (§34.2). Say so
+            # here and the next tick commits it under a message that names what
+            # happened; the effect is the whole point, so it runs before the
+            # elif chain rather than inside it.
+            if self._on_desk_write is not None:
+                self._on_desk_write(call.tool, data)
             return
         if call.tool == "set_timer" and "seconds" in data:
             self.timers.add(id=data.get("id", "t"),

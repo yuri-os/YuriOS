@@ -139,17 +139,28 @@ SIM_START = datetime.datetime(2026, 7, 6, 9, 0)     # a Monday morning, local
 
 class FakeUtility:
     """Answers like a real utility model: empty partner ops, and a dumb but
-    honest DREAM summary (keeps the lines someone flagged with 'remember')."""
+    honest DREAM summary (keeps the lines someone flagged with 'remember').
+
+    The §21.2 dream jobs get answers too, each recognisable enough that a test
+    can assert the right prompt reached the model — a fake that returned the
+    same string to every job would let two jobs swap prompts unnoticed."""
 
     async def complete(self, messages, **params):
         system = messages[0].get("content", "") if messages else ""
+        low = system.lower()
         if "durable facts" in system:
             body = messages[1].get("content", "") if len(messages) > 1 else ""
             keep = [l.split("  ", 1)[-1] for l in body.splitlines()
                     if l.startswith("### ") and "remember" in l.lower()]
             return "\n".join(keep[:3])
-        if "working note" in system.lower():
+        if "working note" in low:
             return "sat with it; noted one next step."
+        if "diary entry" in low:
+            return "A quiet one. The rain kept up all afternoon."
+        if "taking stock of your own goals" in low:
+            return "Two of these are the same thing. Do the sailing one first."
+        if "want a picture of" in low:
+            return "Sat by the window with the lamp low, chin on my hand."
         return '{"ops": []}'
 
 

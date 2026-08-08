@@ -13,7 +13,7 @@
  *    first page — a page you are reading must not jump under you.
  */
 import { element, errorMessage, showToast } from "../shared/dom.js";
-import { debugApi } from "./api.js";
+import { debugApi, dreamApi } from "./api.js";
 
 const { characterId, apiPath } = window.YuriOSRuntime;
 const $ = (selector) => document.querySelector(selector);
@@ -217,6 +217,7 @@ const SECTIONS = {
   overview: { title: "Overview", note: "What is on disk for this character, read without starting her.", render: renderOverview },
   timeline: { title: "State timeline", note: "Her activity ladder over time — every transition she actually made, and why.", render: renderTimeline },
   ticks: { title: "Tick traces", note: "One record per tick: what she sensed, how she appraised it, what she chose, and what it did.", render: renderTicks },
+  dreams: { title: "Dreams", note: "The jobs that run at night, what each still owes, and a way to try one now.", render: renderDreams },
   context: { title: "Context windows", note: "Every prompt she was given — conversation, self-talk, goal work, dreams. Pick a day, then a call.", render: renderContext },
   tools: { title: "Tool calls", note: "Every call her hands made, allowed or denied, with the photo it produced.", render: renderTools },
   vault: { title: "Vault", note: "The files that are her mind, and the commit history of how they changed.", render: renderVault },
@@ -316,6 +317,192 @@ async function renderTimeline(ctx) {
   });
   out.push(panel("Transitions", element("div", {}, list,
     pager(data, (page) => go(`#/timeline/${page}`)))));
+  return element("div", { className: "stage-body" }, ...out);
+}
+
+// --- dreams
+
+/* The one section with buttons on it.
+ *
+ * A dream job is a prompt you wrote that runs at 3am against yesterday, and
+ * whose only visible output is a file that appears tomorrow. Iterating on one
+ * that way takes a day per attempt. So this section is built around the
+ * shortest loop that answers "what does this prompt actually do": pick a job,
+ * pick a day, run it dry, read the raw completion. Nothing is written, the
+ * ledger doesn't move, and you can press it again.
+ *
+ * Two other rules, both learned from the sections above:
+ *   - The results replace only the results panel, never the page. A run you
+ *     just triggered must not scroll the job you triggered it from off-screen.
+ *   - The dry-run toggle defaults to ON. The wet run is the one that costs
+ *     tokens and writes to her vault, and it should take a deliberate click.
+ */
+const dreamState = { day: "", dryRun: true, running: false, report: null };
+
+function dreamJobCard(job, onRun) {
+  const backlog = job.backlog || [];
+  const head = element("div", { className: "row-top" },
+    element("span", { className: "row-title", text: job.title || job.name }),
+    chip(job.name),
+    job.enabled ? chip("on", "ok") : chip("off", "warn"),
+    job.per_day ? chip("per day") : chip("once a night"),
+    element("span", { className: "row-time", text:
+      job.last_run ? `last run ${relative(job.last_run)}` : "never run" }));
+
+  const body = element("div", { className: "row-body" },
+    element("div", { text: job.description || "" }),
+    element("div", { className: "muted", text:
+      `${backlog.length} day(s) owed${backlog.length
+        ? ` — oldest ${backlog[0]}` : ""}`
+      + ` · ${number(job.days ?? 0)} done`
+      + (job.last_result ? ` · last: ${job.last_result}` : "") }));
+
+  const run = element("button", {
+    className: "button", text: "Test this job",
+    attrs: { type: "button", ...(job.enabled ? {} : { disabled: "disabled" }) },
+  });
+  run.addEventListener("click", () => onRun(job.name));
+
+  const node = element("div", { className: "row" }, head, body,
+    element("div", { className: "row-actions" }, run));
+  node.style.setProperty("--event-color",
+    job.enabled ? "var(--amber)" : "var(--dim)");
+  return node;
+}
+
+/** One model call, exactly as it went out and came back. The whole reason the
+ *  button exists, so it is not folded away — you came here to read this. */
+function dreamExchange(exchange) {
+  return element("div", { className: "row" },
+    element("div", { className: "row-top" },
+      element("span", { className: "row-title", text: exchange.job }),
+      chip("utility")),
+    fold("System prompt",
+      element("pre", { className: "json", text: exchange.system })),
+    fold("Input",
+      element("pre", { className: "json", text: exchange.user })),
+    element("div", { className: "row-body" },
+      element("div", { className: "muted", text: "Raw completion" }),
+      element("pre", { className: "json", text: exchange.completion || "(empty)" })));
+}
+
+function dreamResults(report) {
+  if (!report) return placeholder("No run yet. Test a job, or run the night.");
+  const out = [];
+  out.push(element("div", { className: "tiles" },
+    tile("Outcome", report.nothing_to_do ? "nothing to do" : "ran",
+      report.dry_run ? "dry run — nothing written" : "written and committed"),
+    tile("Jobs", String((report.jobs || []).length),
+      report.exhausted_budget ? "budget spent — backlog remains" : "budget held"),
+    tile("Model calls", String((report.exchanges || []).length)),
+    tile("Files", String((report.writes || []).length),
+      report.dry_run ? "would have been written" : "written to her desk")));
+
+  out.push(panel("What it did", element("div", {},
+    rows(report.jobs || [], (job) => element("div", { className: "row" },
+      element("div", { className: "row-top" },
+        element("span", { className: "row-title", text: job.name }),
+        job.failed ? chip("failed", "bad")
+          : job.changed ? chip("wrote something", "ok") : chip("no-op"),
+        element("span", { className: "row-time", text: (job.days || []).join(", ") })),
+      element("div", { className: "row-body", text: job.failed || job.result }))))));
+
+  if ((report.writes || []).length) {
+    out.push(panel(report.dry_run ? "Files it would write" : "Files it wrote",
+      element("div", { className: "panel-body" },
+        element("ul", { className: "plain" }, ...report.writes.map(
+          (path) => element("li", {}, element("span",
+            { className: "mono", text: `workspace/${path}` })))))));
+  }
+  out.push(panel("The prompts", element("div", {},
+    rows(report.exchanges || [], dreamExchange))));
+  return element("div", {}, ...out);
+}
+
+async function renderDreams() {
+  const data = await dreamApi.status();
+  const out = [];
+  const results = element("div", {}, dreamResults(dreamState.report));
+
+  /* Every button on the section, disabled together while one run is in flight.
+   * A dream job is one or more model calls against a local 12B — seconds, not
+   * milliseconds — and two overlapping runs would interleave their reports. */
+  // `render()` unwraps the .stage-body this function returns and adopts its
+  // children, so by the time a click lands the buttons are directly under
+  // #stage-body — not under anything this closure still holds a handle to.
+  const buttons = () => nodes.body.querySelectorAll("button");
+  const setBusy = (busy) => {
+    dreamState.running = busy;
+    for (const button of buttons()) button.disabled = busy;
+  };
+
+  const runDream = async (job) => {
+    if (dreamState.running) return;
+    setBusy(true);
+    results.replaceChildren(
+      placeholder(job ? `Running ${job}…` : "Running the night…"));
+    try {
+      dreamState.report = await dreamApi.run({
+        job: job || undefined,
+        day: dreamState.day || undefined,
+        dry_run: dreamState.dryRun,
+      });
+      toast(dreamState.report.summary || "done", "ok");
+    } catch (error) {
+      dreamState.report = null;
+      toast(errorMessage(error));
+    } finally {
+      // Only this panel: re-rendering the section would rebuild the controls
+      // under the cursor that just clicked one of them, and lose the day you
+      // typed into the box.
+      results.replaceChildren(dreamResults(dreamState.report));
+      setBusy(false);
+    }
+  };
+
+  out.push(element("div", { className: "tiles" },
+    tile("State now", data.state || "—",
+      data.enabled ? "DREAM is on" : "DREAM is off for this character"),
+    tile("Night window", `${String(data.window?.[0]).padStart(2, "0")}:00–`
+      + `${String(data.window?.[1]).padStart(2, "0")}:00`,
+      "she may enter DREAM from DORMANT in here"),
+    tile("Days owed", String((data.backlog || []).length),
+      (data.backlog || []).length ? `oldest ${data.backlog[0]}` : "nothing pending"),
+    tile("Budget per tick", number(data.tick_budget), "tokens, shared by all jobs")));
+
+  // --- the controls
+  const dayInput = element("input", {
+    className: "input", attrs: {
+      type: "text", id: "dream-day", placeholder: "leave blank for the backlog",
+      value: dreamState.day, "aria-label": "Day to run against (YYYY-MM-DD)",
+    },
+  });
+  dayInput.addEventListener("input", () => { dreamState.day = dayInput.value.trim(); });
+
+  const dryBox = element("input", {
+    attrs: { type: "checkbox", id: "dream-dry", ...(dreamState.dryRun ? { checked: "checked" } : {}) },
+  });
+  dryBox.addEventListener("change", () => { dreamState.dryRun = dryBox.checked; });
+
+  const runNight = element("button", { className: "button", text: "Run tonight's dream", attrs: { type: "button" } });
+  runNight.addEventListener("click", () => runDream(null));
+
+  out.push(panel("Try it", element("div", { className: "panel-body" },
+    element("div", { className: "field-row" },
+      element("label", { text: "Day", attrs: { for: "dream-day" } }), dayInput),
+    element("div", { className: "field-row" },
+      dryBox, element("label", {
+        text: "Dry run — do the thinking, write nothing",
+        attrs: { for: "dream-dry" } })),
+    element("div", { className: "row-actions" }, runNight),
+    element("p", { className: "muted", text:
+      "A dry run makes the same model calls and shows you the same output, but "
+      + "writes no files, marks no days done and leaves no commit. Turn it off "
+      + "to let a run count." }))));
+
+  out.push(panel("Jobs", element("div", {},
+    rows(data.jobs || [], (job) => dreamJobCard(job, runDream)))));
+  out.push(panel("Last run", results));
   return element("div", { className: "stage-body" }, ...out);
 }
 

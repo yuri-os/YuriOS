@@ -117,3 +117,10 @@ class Config(BaseSettings):
     data_dir: Path = Path("./data")
     utility_enabled: bool = True
     dream_enabled: bool = True
+
+    # her desk and her skills (§34). Both blocks are indexes, not contents, so
+    # the cost is a line per entry — but a desk that has grown to two hundred
+    # notes should not quietly become the largest thing in the system block.
+    workspace_enabled: bool = True   # off = no desk tools, no desk block
+    workspace_digest_files: int = 20  # newest N desk files named in the prompt
+    skills_enabled: bool = True      # off = no skill tools, no catalog block

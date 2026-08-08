@@ -64,6 +64,11 @@ class BrainAdapter:
         # and with MIND_ENABLED=false: no shelf, no block, and every other slot
         # assembles exactly as it did.
         self.knowledge = None
+        # mind/workspace.py's two stores (§34), wired the same way and just as
+        # nullable — her desk and her skills.
+        self.workspace = None
+        self.skills = None
+        self._on_desk_write = None
 
     def set_prompt_log(self, prompt_log) -> None:
         """Wire the sink that records what she was actually asked (SPEC §24.2)."""
@@ -77,6 +82,61 @@ class BrainAdapter:
         mind is off.
         """
         self.knowledge = store
+
+    def set_workspace(self, workspace, skills, on_write=None) -> None:
+        """Wire her desk and her skills into the prompt (SPEC §34.3).
+
+        Late-bound like the two above, and for the same reason. Either may be
+        None; the corresponding block simply isn't appended.
+
+        `on_write` is called after a desk tool changes a file. The tool server
+        is a separate process and writes straight to disk, so nothing in *this*
+        one would otherwise know the Vault had changed — and the tick loop only
+        commits a tick it believes is dirty. Without this, a note she wrote at
+        noon lands in whatever commit happens to fire next, labelled as
+        something else entirely.
+        """
+        self.workspace = workspace
+        self.skills = skills
+        self._on_desk_write = on_write
+
+    def _desk_block(self) -> str:
+        """The two §34 blocks, or "" — built fresh each turn, off the files.
+
+        Both are deliberately *indexes*, not contents. The skills catalog is one
+        line per skill (name + when to reach for it) and the desk listing is one
+        line per file; the bodies are behind `read_skill` and `read_note`, which
+        she calls only once she has decided she wants them. That is what keeps a
+        store of twenty skills and a desk of fifty notes affordable on every
+        single turn.
+        """
+        parts = []
+        try:
+            catalog = self.skills.catalog() if self.skills is not None else ""
+        except Exception:       # noqa: BLE001 — a mangled SKILL.md is not a lost turn
+            log.warning("skill catalog failed; assembling without it", exc_info=True)
+            catalog = ""
+        if catalog:
+            parts.append(
+                "## SKILLS\n\nThings you know how to do. These are names and "
+                "when-to-use lines only — call `read_skill` with the name to "
+                "get the actual instructions before you follow one.\n\n"
+                + catalog)
+        try:
+            desk = (self.workspace.digest(
+                limit=getattr(self.cfg, "workspace_digest_files", 20))
+                if self.workspace is not None else "")
+        except Exception:       # noqa: BLE001 — same rule as the shelf
+            log.warning("workspace digest failed; assembling without it",
+                        exc_info=True)
+            desk = ""
+        if desk:
+            parts.append(
+                "## YOUR DESK\n\nFiles you have written for yourself, newest "
+                "first. `read_note` opens one, `write_note` saves one. This is "
+                "your scratch space — use it when a thought needs somewhere to "
+                "live between now and later.\n\n" + desk)
+        return "\n\n".join(parts)
 
     def _recall_knowledge(self, text: str) -> list:
         """The shelf, searched for this turn. Never raises: a broken index is a
@@ -132,6 +192,9 @@ class BrainAdapter:
         prompt.messages[0]["content"] += (
             f"\n\n## VOICE\n\n{SPOKEN_STYLE_DIRECTIVE}"
             f"\n\n## EXPRESSION\n\n{EXPRESSION_DIRECTIVE}")
+        desk = self._desk_block()
+        if desk:
+            prompt.messages[0]["content"] += f"\n\n{desk}"
         return soul, prompt
 
     # -- the ReplyBrain seam ----------------------------------------------------

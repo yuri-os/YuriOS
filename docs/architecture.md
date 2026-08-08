@@ -55,6 +55,9 @@ vault/
 ├── memory/episodic/    conversation AND her own acts ([she] lines)
 ├── memory/semantic/    facts.md, grown by DREAM · forgotten.md, the forget ledger
 ├── knowledge/reference/  the drop folder (index derived, gitignored)
+├── workspace/          her desk — notes, drafts, diary, what DREAM's jobs write
+│                         (gitignored: scratch is not history)
+├── skills/             one folder per skill, each a SKILL.md she or you wrote
 ├── world/              situation.md + beliefs.jsonl — her picture of NOW
 ├── goals.md            her to-do list, human-readable
 └── state/              activity · budget · pending edits · engine cursor · dream progress
@@ -155,7 +158,9 @@ The seams past this build are already shaped:
   router's privacy boundary, and true one-loop conversation with it.
 - **The workshop** — a sandboxed workspace beside the Vault where ACT dispatches real work and
   never awaits it (the selfie lab's start-don't-await rule, generalised), with the gated self-edit
-  flow as the one door from work-product to self.
+  flow as the one door from work-product to self. Distinct from `vault/workspace/`, which is
+  already built: that one is *hers* and inert; this one is where code runs, and it lives outside
+  the Vault for exactly that reason.
 - **The temporal knowledge graph** behind `WorldModelStore`'s unchanged contract.
 - **The card studio** — export the Vault's SOUL as a `.PNG` that boots on someone else's machine,
   which is the point of the whole design.

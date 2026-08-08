@@ -178,6 +178,83 @@ It's oldest-first and resumable: a night that runs out of budget leaves a backlo
 and the next DREAM tick picks up where it stopped. The night's work is journaled — "slept on it:
 folded … into what I keep".
 
+### More than one thing happens at night
+
+Consolidation is the first job, not the only one. DREAM is a **pipeline** (`mind/dreamjobs.py`):
+each tick runs the enabled jobs in priority order, sharing one token budget, and yields.
+
+| Job | When | What it does |
+|---|---|---|
+| `consolidate` | per finished day | the pass above — journal → durable facts |
+| `diary` | per finished day | a short private entry in `workspace/diary/YYYY-MM-DD.md` — what the day was *like*, not what happened in it |
+| `strategy` | once a night | stands back from the open goals and writes `workspace/strategy/` — what matters, what's stale, what's next |
+| `selfie` | once a night | picks the moment from the day that wants a picture and sends it to the camera (absent entirely when `SELFIE_BACKEND=off`) |
+
+Each job keeps its own resumable ledger, so adding one to a vault with six months of history gives
+it a six-month backlog it eats a night at a time. A job that fails is caught, retries tomorrow, and
+does not take the rest of the night with it. Jobs write to `workspace/` — never to `memory/` or
+`soul/`; a nightly job that could append to semantic memory would be a second, unaudited
+consolidator.
+
+Adding a job is one class in `mind/dreamjobs.py` and one name in `BUILTIN_JOBS`. Everything else —
+the ladder, the trace, the budget, the debug page, the manual trigger — picks it up untold.
+
+### Trying one without waiting for 3am
+
+A dream job is a prompt that runs overnight and whose only output is a file that appears tomorrow,
+which makes a day the natural unit of iteration. The mind debug page's **Dreams** section shortens
+that to a click: pick a job, pick a day, leave *dry run* on, and you get back the exact system
+prompt, the exact input and the raw completion — with nothing written, no day marked done, and no
+commit.
+
+```
+/characters/<id>/mind#/dreams
+```
+
+Turning dry run off lets a run count. Either way the ladder does not move: a night you asked for is
+not evidence she drifted into one.
+
+## Her desk and her skills
+
+Every other write path in the mind is narrow on purpose — `memory/` is grown by DREAM, `world/` by
+SENSE, `soul/` only through the gated self-edit flow. That's the right shape for the things she
+*is*, and the wrong shape for the things she is *doing*.
+
+**`vault/workspace/`** is her desk: a corner of the Vault with no schema and no ceremony, which she
+reads and writes freely through `list_notes` / `read_note` / `write_note` / `append_note` /
+`delete_note`. Drafts, research scratch, the middle of a thought. You can drop files in too.
+
+**`vault/skills/`** is the same primitive pointed at instructions. One folder per skill, each with
+a `SKILL.md`:
+
+```markdown
+---
+name: tea-timer
+description: when they ask to steep something
+author: you
+enabled: true
+---
+
+Ask which tea first, then set the timer for...
+```
+
+The `description` is the load-bearing field. Every turn carries a one-line catalog — name plus
+when-to-reach-for-it — and the body loads only once she has decided this is the skill the moment
+calls for, through `read_skill`. Twenty skills cost twenty lines of context until one is used. She
+can write her own with `write_skill`; you can drop them in by hand.
+
+Both live inside the Vault and travel when you copy her folder, but only skills are **versioned**.
+The desk is deliberately not: scratch churns, and a draft rewritten four times while she works
+something out would be four commits of a diff nobody reads — the Vault's `git log` is the diary of
+how she grew. A skill, by contrast, is a durable statement about how she does something, and worth
+being able to read back and revert. `workspace/.gitignore` carries the rule from inside the folder,
+so existing vaults get it without a migration.
+
+The sandbox is dull and absolute: relative paths only, no `..`, no dotfiles, symlinks resolved
+*before* the containment check, and per-file/whole-tree/file-count ceilings. Nothing in there
+executes; the coming code harness gets its own workspace **outside** the Vault precisely so that
+"she can write here" and "this can run" never become the same sentence.
+
 ## Goals and promises
 
 `vault/goals.md` is the store, and it's a human-readable markdown checklist on purpose: what an

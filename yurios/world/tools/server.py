@@ -16,9 +16,13 @@ from __future__ import annotations
 import os
 import time
 import uuid
+from pathlib import Path
 from typing import Literal, get_args
 
 from mcp.server.fastmcp import FastMCP
+
+from yurios.mind.workspace import (DeskFull, OutsideTheDesk, SkillStore,
+                                   Workspace)
 
 from .fetch import PageFetcher, build_fetcher, gist
 from .search import SearchProvider, build_provider
@@ -42,7 +46,9 @@ def build_server(*, weather: WeatherProvider | None = None,
                  search: SearchProvider | None = None,
                  fetcher: PageFetcher | None = None,
                  results: int | None = None,
-                 max_pages: int | None = None) -> FastMCP:
+                 max_pages: int | None = None,
+                 workspace: "Workspace | None" = None,
+                 skills: "SkillStore | None" = None) -> FastMCP:
     """Build the FastMCP server. Args are the test seams; `python -m` reads env."""
     max_minutes = max_minutes if max_minutes is not None else float(
         os.environ.get("TIMER_MAX_MINUTES", "180"))
@@ -71,6 +77,17 @@ def build_server(*, weather: WeatherProvider | None = None,
             "fake" if backend == "fake" else "http",
             timeout=float(os.environ.get("FETCH_TIMEOUT_S", "8")),
             max_bytes=int(os.environ.get("FETCH_MAX_BYTES", "2000000")))
+    # Her desk and her skills (§34.2). This process has no runtime and no
+    # config object — a path is the entire wiring, and no path means the tools
+    # are not advertised at all, the SELFIE_BACKEND=off rule again. The host
+    # passes VAULT_DIR only for the character whose server this is, so one
+    # character's hands can never reach another's desk: the sandbox's root is
+    # decided at spawn time, not by an argument the model gets to write.
+    vault = os.environ.get("VAULT_DIR", "")
+    if workspace is None and vault and os.environ.get("WORKSPACE_ENABLED", "1") != "0":
+        workspace = Workspace(Path(vault) / "workspace")
+    if skills is None and vault and os.environ.get("SKILLS_ENABLED", "1") != "0":
+        skills = SkillStore(Path(vault) / "skills")
 
     mcp = FastMCP("world-companion-tools")
 
@@ -285,6 +302,144 @@ def build_server(*, weather: WeatherProvider | None = None,
                     "status": "started",
                     "note": "the picture will appear in the chat shortly — "
                             "no need to wait for it, and no need to ask again"}
+
+    # --- her desk (SPEC §34.2) ------------------------------------------------
+    # The only hands that write inside the Vault. Everything they can reach is
+    # under `workspace/`, and `Workspace.resolve` is the single place that is
+    # enforced — these wrappers translate its two refusals into a sentence the
+    # model can act on, and otherwise get out of the way.
+
+    def _refusal(exc: Exception) -> ValueError:
+        """A sandbox refusal as something she can read and correct.
+
+        Deliberately says what to do instead. "denied" teaches nothing and she
+        will try the same path again next turn; "use a path like notes/x.md"
+        ends the loop.
+        """
+        if isinstance(exc, OutsideTheDesk):
+            return ValueError(
+                f"{exc.reason}. Paths are relative to your workspace, like "
+                '"notes/paddleboards.md" — no leading slash, no "..", '
+                "no names starting with a dot.")
+        return ValueError(str(exc))
+
+    if workspace is not None:
+
+        @mcp.tool()
+        def list_notes(folder: str = "") -> dict:
+            """List what's on your desk — the notes and drafts you've written
+            for yourself. `folder` narrows it to one subfolder ("research"),
+            or leave it out for everything. You get paths and sizes, not
+            contents; `read_note` opens one."""
+            try:
+                entries = workspace.list(folder) if folder else workspace.list()
+            except OutsideTheDesk as e:
+                raise _refusal(e) from None
+            files = [e.as_dict() for e in entries if not e.is_dir]
+            count, total = workspace.usage()
+            return {"files": files, "count": len(files),
+                    "desk_files": count, "desk_bytes": total}
+
+        @mcp.tool()
+        def read_note(path: str) -> dict:
+            """Read one of your own notes back. `path` is what `list_notes`
+            showed you, like "research/paddleboards.md"."""
+            try:
+                return {"path": path, "text": workspace.read(path)}
+            except FileNotFoundError:
+                raise ValueError(
+                    f"nothing on your desk at {path} — `list_notes` shows what "
+                    "is there") from None
+            except OutsideTheDesk as e:
+                raise _refusal(e) from None
+
+        @mcp.tool()
+        def write_note(path: str, text: str) -> dict:
+            """Write something down for yourself and keep it. Use this whenever
+            a thought needs to outlive the conversation — what you found while
+            reading, a draft you're not ready to say, the state of something
+            you're working through. `path` names the file, relative to your
+            workspace, ending in .md ("research/paddleboards.md"); subfolders
+            are made for you. `text` REPLACES the whole file, so read it first
+            if you mean to add to it — or use `append_note`, which doesn't.
+            This is your own space: you don't need permission and you don't need
+            to mention it out loud."""
+            try:
+                entry = workspace.write(path, text)
+            except (OutsideTheDesk, DeskFull) as e:
+                raise _refusal(e) from None
+            return {"path": entry.path, "bytes": entry.bytes, "wrote": True}
+
+        @mcp.tool()
+        def append_note(path: str, text: str) -> dict:
+            """Add to the end of one of your notes without rewriting it — the
+            right call for a running log, a list you keep adding to, or one more
+            thought on something you already wrote. `path` is the note, the same
+            way `write_note` takes it; `text` is what goes on the end. Creates
+            the file if it isn't there yet."""
+            try:
+                entry = workspace.append(path, text)
+            except (OutsideTheDesk, DeskFull) as e:
+                raise _refusal(e) from None
+            return {"path": entry.path, "bytes": entry.bytes, "appended": True}
+
+        @mcp.tool()
+        def delete_note(path: str) -> dict:
+            """Throw away one of your notes. `path` is the one to remove — only
+            files you wrote, only one at a time. Every version is still in your
+            Vault's history, so this is tidying rather than destroying."""
+            try:
+                gone = workspace.delete(path)
+            except OutsideTheDesk as e:
+                raise _refusal(e) from None
+            return {"path": path, "deleted": gone,
+                    "note": "" if gone else "there was nothing there"}
+
+    if skills is not None:
+
+        @mcp.tool()
+        def read_skill(name: str) -> dict:
+            """Open one of your skills and get the actual instructions. `name`
+            is the skill, as the SKILLS list in your context names it — that
+            list gives you names and one line each on when to reach for them,
+            and this is how you get the rest. Read the skill BEFORE following
+            it: the one-liner is not the method."""
+            skill = skills.get(name)
+            if skill is None:
+                have = ", ".join(skills.names()) or "none yet"
+                raise ValueError(f"you have no skill called {name!r} (you have: {have})")
+            return {"name": skill.name, "description": skill.description,
+                    "instructions": skill.body, "files": skill.files}
+
+        @mcp.tool()
+        def write_skill(name: str, description: str, instructions: str) -> dict:
+            """Write down how to do something, so you still know it next month.
+            Use this when you've worked out a way of doing something that took
+            effort to get right and will come up again — not for one-off facts,
+            which belong in a note or in memory.
+
+            `name` is lowercase-with-hyphens ("tea-timer"). `description` is the
+            most important field and the only one you'll see later without
+            opening the skill: write it as WHEN TO REACH FOR THIS, not as a
+            title — "when they ask to be woken for something in the oven", not
+            "timer skill". `instructions` is the method itself, written to
+            yourself. Writing a skill that already exists replaces it."""
+            try:
+                skill = skills.save(name, description=description,
+                                    body=instructions, author="her")
+            except (OutsideTheDesk, DeskFull) as e:
+                raise _refusal(e) from None
+            # a ValueError from `save` (a bad name, a missing description) is
+            # already written to be read by her; let it through as it is
+            return {"name": skill.name, "description": skill.description,
+                    "saved": True}
+
+        @mcp.tool()
+        def delete_skill(name: str) -> dict:
+            """Forget how to do something on purpose. `name` is the skill to
+            remove — one you no longer want, or one that turned out to be
+            wrong."""
+            return {"name": name, "deleted": skills.remove(name)}
 
     return mcp
 

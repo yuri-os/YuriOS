@@ -35,6 +35,7 @@ from yurios.desktop.voice.fillers import FillerBank
 from yurios.mind.loop import MindLoop
 from yurios.mind.promptlog import PromptLog
 from yurios.mind.signals import SignalBus
+from yurios.mind.workspace import DESK_TOOLS, SKILL_TOOLS
 from yurios.models import is_configured
 
 from .avatar.controller import VrmController
@@ -108,6 +109,15 @@ class Runtime:
             rates["web_search"] = cfg.tool_rate_search
             rates["read_page"] = cfg.tool_rate_read
             rates["research"] = cfg.tool_rate_research
+        # her desk (§34.2), the same allowlist rule once more. The rate is
+        # generous because these are local file writes with no cost and no
+        # outside party — the bucket is here to catch a loop, not to ration.
+        if cfg.workspace_enabled:
+            for tool in DESK_TOOLS:
+                rates[tool] = cfg.tool_rate_desk
+        if cfg.skills_enabled:
+            for tool in SKILL_TOOLS:
+                rates[tool] = cfg.tool_rate_desk
         self.guard = Guard(rates_per_min=rates,
                            log_dir=cfg.tool_log_dir, clock=self.clock,
                            max_bytes=cfg.tool_log_max_bytes)
@@ -506,6 +516,12 @@ class Runtime:
                 "FETCH_TIMEOUT_S": str(self.cfg.fetch_timeout_s),
                 "FETCH_MAX_BYTES": str(self.cfg.fetch_max_bytes),
                 "RESEARCH_MAX_PAGES": str(self.cfg.research_max_pages),
+                # her desk (§34.2). The path IS the sandbox root, so this is
+                # also what scopes the hands to *this* character's vault — and
+                # an unset one leaves the desk tools unadvertised entirely.
+                "VAULT_DIR": str(self.cfg.vault_dir),
+                "WORKSPACE_ENABLED": "1" if self.cfg.workspace_enabled else "0",
+                "SKILLS_ENABLED": "1" if self.cfg.skills_enabled else "0",
             })
             # …plus anybody else's hands (§7.2). With no MCP_SERVERS file this
             # is skipped entirely and she runs on her own server alone, exactly

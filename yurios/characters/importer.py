@@ -18,6 +18,10 @@ import yaml
 from PIL import Image, ImageOps, UnidentifiedImageError
 
 from yurios.app import vaultgit
+# The desk's ignore rule has one home (§34.1). `mind.workspace` holds no runtime
+# and imports nothing from this package, so reaching for it here is a constant,
+# not a dependency on the mind.
+from yurios.mind.workspace import WORKSPACE_GITIGNORE
 
 from .appearance import mechanical_identity, write_appearance
 from .card import CardLimits, CardParseError, card_fields, parse_png_card
@@ -192,6 +196,55 @@ def _examples_markdown(value: str) -> str:
         parts = ["_(No example dialogue was supplied.)_"]
     blocks = [f"## Example {index}\n\n{part}" for index, part in enumerate(parts, start=1)]
     return "---\nsoul: examples\n---\n\n# Example dialogues\n\n" + "\n\n".join(blocks)
+
+
+#: Seeded into `vault/workspace/` and `vault/skills/` (SPEC §34). Both folders
+#: are addressed by name in the docs and by her own tools, so both explain
+#: themselves on arrival rather than turning up as two empty mysteries.
+WORKSPACE_README = """# Workspace
+
+Her desk. She may read, write and delete anything in here through her own tools,
+without asking and without a gate — drafts, research notes, working scratch, the
+middle of a thought.
+
+You can drop files in too; they are ordinary files. This folder is inside the
+Vault and travels when you copy it, but it is **not** version-controlled —
+scratch churns, and the Vault's `git log` is the diary of how she grew, not of
+every draft she rewrote. Her skills, next door, are versioned.
+
+Not in here: anything that runs. The code harness gets its own workspace outside
+the Vault. And no dotfiles — her tools refuse them.
+"""
+
+SKILLS_README = """# Skills
+
+One folder per skill, each with a `SKILL.md`:
+
+    skills/
+    └── tea-timer/
+        ├── SKILL.md
+        └── (any supporting files)
+
+`SKILL.md` is YAML frontmatter plus instructions:
+
+    ---
+    name: tea-timer
+    description: How she likes to run a tea steep — when to reach for this
+    author: you
+    enabled: true
+    ---
+
+    Ask which tea first, then set the timer for...
+
+The `description` is the load-bearing field: every turn carries a one-line
+catalog of names and descriptions, and the body is only loaded once she has
+decided this is the skill the moment calls for. Write it as *when to reach for
+this*, not as a title.
+
+Drop skills in by hand, or let her write her own. Unlike the workspace next
+door, this folder IS version-controlled: what she knows how to do is worth being
+able to read back and revert.
+"""
 
 
 def _write_partner_model(soul: Path) -> None:
@@ -386,7 +439,9 @@ def _create_vault(vault: Path, fields: Mapping[str, Any], name: str,
         vault / "memory" / "episodic",
         vault / "memory" / "index",
         vault / "memory" / "semantic",
+        vault / "skills",
         vault / "state",
+        vault / "workspace",
         vault / "world",
     ):
         directory.mkdir(parents=True, exist_ok=True)
@@ -399,6 +454,14 @@ def _create_vault(vault: Path, fields: Mapping[str, Any], name: str,
     _write(vault / "memory" / "summary.md", "# Conversation summary\n\n_(Empty.)_")
     _write(vault / "memory" / "semantic" / "facts.md", "# Facts")
     _write(vault / "memory" / "semantic" / "forgotten.md", "# Forgotten facts")
+    # Both are directories a *human* is told to put files in, so both ship with
+    # the note that says so. The desk's ignore file goes down at seed time too,
+    # not just when `Workspace` first constructs: otherwise this README is
+    # committed by the import commit below and stays tracked forever afterwards,
+    # since .gitignore has no effect on a path git already knows.
+    _write(vault / "workspace" / ".gitignore", WORKSPACE_GITIGNORE)
+    _write(vault / "workspace" / "README.md", WORKSPACE_README)
+    _write(vault / "skills" / "README.md", SKILLS_README)
     _write(vault / "world" / "beliefs.jsonl", "")
     _write(vault / "world" / "situation.md", "# Current situation\n\n_(Unknown.)_")
     _write(vault / "world" / "state.json", "{}")

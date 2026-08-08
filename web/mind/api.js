@@ -50,3 +50,20 @@ export const debugApi = Object.freeze({
   economics: (opts) => get("/economics", {}, opts),
   utility: (page, { kind } = {}, opts) => get("/utility", { page, limit: 25, kind }, opts),
 });
+
+/* The two exceptions to the note above, and to the "read-only" one in mind.js.
+ *
+ * DREAM's roster is not on disk in any readable form — it is the runner's list
+ * of job objects, assembled from code and two ledgers — and running a job is by
+ * definition not a read. Both therefore live on `/api/mind/*`, the runtime's
+ * own surface, which answers 503 when the loop is off. Everything else on this
+ * page works with her stopped; this section is the one that needs her awake,
+ * and says so.
+ */
+const mind = (path, options) => request(apiPath(`/api/mind${path}`), options);
+
+export const dreamApi = Object.freeze({
+  status: ({ signal } = {}) => mind("/dream", { signal }),
+  run: (body, { signal } = {}) =>
+    mind("/dream/run", { method: "POST", body: JSON.stringify(body || {}), signal }),
+});

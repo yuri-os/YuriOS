@@ -151,7 +151,12 @@ class MindLoop:
             workspace=self.workspace, skills=self.skills,
             utility=self._utility if state.utility else None,
             selfie=(brain.selfies.start
-                    if getattr(brain, "selfies", None) is not None else None))
+                    if getattr(brain, "selfies", None) is not None else None),
+            # A night's desk writes and its camera dispatch land in the same
+            # audit as her daytime hands (§7.3), so the Tools page answers
+            # "what did this actually do to the vault" for DREAM too.
+            audit=(brain.guard.audit
+                   if getattr(brain, "guard", None) is not None else None))
         state_dir = cfg.vault_dir / "state"
         self.activity = ActivityController(state_dir, clock, cfg,
                                            trace_dir=cfg.trace_dir)

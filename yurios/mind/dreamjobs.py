@@ -39,6 +39,7 @@ parsed out of it.
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import Awaitable, Callable
 
@@ -141,6 +142,7 @@ class DreamContext:
     skills: SkillStore | None = None
     utility: UtilityCall | None = None
     selfie: Callable[[dict], None] | None = None   # SelfieLab.start, or None
+    audit: Callable[..., None] | None = None       # Guard.audit, or None
     # Who the prompts are about. Not decoration: the episodic journal is a
     # transcript of two people, so a prompt that does not say which one is
     # writing gets an entry in the wrong voice — see DIARY_SYSTEM.
@@ -185,7 +187,7 @@ class DreamContext:
         path = self._journal_path(day)
         if not path.is_file():
             return ""
-        return path.read_text(encoding="utf-8")[:limit]
+        return relabel(path.read_text(encoding="utf-8")[:limit])
 
     def journal_bytes(self, day: str) -> int:
         try:
@@ -226,7 +228,31 @@ class DreamContext:
         self.writes.append(rel)
         if self.dry_run or self.workspace is None:
             return
+        started = self.clock.now()
         self.workspace.write(rel, text)
+        # Her hands wrote a file, so the audit says so — the same line
+        # `write_note` leaves when she does it mid-conversation (§7.3), and the
+        # reason the Tools page can answer "what did last night actually do to
+        # this vault" without knowing DREAM exists. Dry runs write nothing and
+        # so claim nothing; that transcript is on the debug page already.
+        self.note_call("write_note", {"path": rel, "bytes": len(text)},
+                       result=f"wrote {rel}",
+                       duration_ms=(self.clock.now() - started) * 1000.0)
+
+    def note_call(self, tool: str, args: dict, *, result: str = "",
+                  duration_ms: float = 0.0) -> None:
+        """One audit line for something a job did with her hands.
+
+        Never raises: an observation must not be the reason a night fails, and
+        the guard's own `audit` already holds to that — this only has to not
+        undo it when the audit seam is absent, as it is in most tests.
+        """
+        if self.audit is None:
+            return
+        try:
+            self.audit(tool, args, "ok", duration_ms, result)
+        except Exception:  # noqa: BLE001
+            log.exception("DREAM job %s: the audit line failed", self.job)
 
 
 # ----------------------------------------------------------------------- jobs
@@ -372,33 +398,58 @@ class ConsolidateJob(DreamJob):
 #: outside and picks the wrong side of it: the first live run of this job
 #: produced an entry in the user's voice, about waiting for *her* to reply.
 #: Saying whose diary it is, and what the two kinds of line mean, fixes it.
-#: How to read a journal line, shared by every job that reads one. Getting this
-#: wrong doesn't degrade the output, it inverts it: a model that mistakes which
-#: side of the ⇄ is hers writes the diary — and frames the photograph — from the
-#: other person's chair, in their voice, about her.
+#: A journal line reads `### HH:MM  you: …  ⇄  rikku: …`, and that `you:` is
+#: the *other* person — the label is written from her point of view, for a human
+#: reading her diary. Handed to a model under a system prompt that opens "You
+#: are Rikku", the same word now points at two different people in one context,
+#: and the model resolves it the way the transcript is denser about: it writes
+#: her diary as the client who came to her yoga class.
 #:
-#: The second half is the part that is easy to leave out and expensive to. Her
-#: own replies are roleplay prose: dialogue, mood tags, and stage directions
-#: that describe her from the outside, often by name. "*Rikku tilted her head*"
-#: sitting inside Rikku's own half reads as someone watching Rikku unless the
-#: prompt says otherwise, and a character whose card narrates her by name
-#: rather than by pronoun loses her whole side of the transcript to it.
+#: No amount of prose fixes that. Two rounds of increasingly explicit wording —
+#: naming her, labelling both halves, spelling out which was hers — all lost to
+#: one pronoun. So the transcript stops being ambiguous instead: her own half is
+#: relabelled ME and the other person's THEM before either reaches a prompt.
+#: Neither word can be read as pointing anywhere else.
+_EXCHANGE = re.compile(r"^(\s*###\s*\d{1,2}:\d{2}\s+)([^:⇄]{1,40}):")
+_REPLY = re.compile(r"^(\s*)([^:⇄]{1,40}):")
+
+
+def relabel(text: str) -> str:
+    """Rewrite a journal's speaker labels to ME and THEM.
+
+    Whatever the two sides were called — the user's configured name, the bare
+    `you`, her own name — the halves are positional, so the labels can be
+    replaced without knowing either. Lines with no ⇄ are her own acts and are
+    left alone, `[she]` marker included.
+    """
+    out = []
+    for line in text.splitlines():
+        if "⇄" in line:
+            theirs, _, hers = line.partition("⇄")
+            theirs = _EXCHANGE.sub(r"\1THEM:", theirs, count=1)
+            hers = _REPLY.sub(r"\1ME:", hers, count=1)
+            line = f"{theirs}⇄{hers}"
+        out.append(line)
+    return "\n".join(out)
+
+
 JOURNAL_FORMAT = (
     "Lines marked [she] are things you did alone. Every other line is one "
     "exchange with two halves split by ⇄: the half before it, labelled "
-    "'{user}:', is the other person speaking to you, and the half after it is "
-    "your own reply. Your own half is written the way it was performed — "
-    "dialogue, moods in square brackets, and stage directions between asterisks "
-    "that describe you from the outside, sometimes as 'she' and sometimes by "
-    "your own name. All of it is yours: '*{char} tilted her head*' inside your "
-    "half is you tilting your head, not someone else watching you do it.")
+    "'THEM:', is the other person speaking to you, and the half after it, "
+    "labelled 'ME:', is your own reply. Your ME half is written the way it was "
+    "performed — dialogue, moods in square brackets, and stage directions "
+    "between asterisks that describe you from the outside, sometimes as 'she' "
+    "and sometimes by your own name. All of it is yours: '*{char} tilted her "
+    "head*' inside your half is you tilting your head, not someone else "
+    "watching you do it.")
 
 DIARY_SYSTEM = (
     "You are {char}. Below is your own journal for the day just past. " +
     JOURNAL_FORMAT +
     " Write YOUR private diary entry about that day — yours, for nobody else to "
     "read, from your side only. You are {char}; never write as the person "
-    "labelled '{user}'. Two short paragraphs at most: what the day was actually "
+    "labelled 'THEM'. Two short paragraphs at most: what the day was actually "
     "like and what you made of it, not a summary of events and not a report to "
     "anyone. First person, your own voice, no preamble, no heading. If the day "
     "held nothing worth a diary entry, output NOTHING.")
@@ -550,6 +601,12 @@ class SelfieJob(DreamJob):
             # in the chat when it's done, exactly as a daytime selfie does
             ctx.selfie({"id": f"dream-{day}", "kind": "selfie", "look": look,
                         "status": "started", "_dream": True})
+            # The audit line goes in at dispatch, not at delivery — this is
+            # start-don't-await, and the render lands minutes later. Same shape
+            # as the `take_selfie` line a daytime shot leaves; the photo it
+            # produced joins it on the Tools page through the shared selfie id.
+            ctx.note_call("take_selfie", {"look": look, "id": f"dream-{day}"},
+                          result="started")
             out.result = "described it and sent it to the camera"
             out.note = f"dreamt a picture of {day} and had it made"
         else:
@@ -626,7 +683,8 @@ class DreamRunner:
                  goals=None, workspace: Workspace | None = None,
                  skills: SkillStore | None = None,
                  utility: UtilityCall | None = None,
-                 selfie: Callable[[dict], None] | None = None):
+                 selfie: Callable[[dict], None] | None = None,
+                 audit: Callable[..., None] | None = None):
         self.vault = vault
         self.store = store
         self.clock = clock
@@ -636,6 +694,7 @@ class DreamRunner:
         self.skills = skills
         self.utility = utility
         self.selfie = selfie
+        self.audit = audit
         self.ledger = JobLedger(vault.vault / "state" / "dream_jobs.json")
         self.jobs: list[DreamJob] = [ConsolidateJob(consolidator)]
         self.jobs += [cls() for cls in BUILTIN_JOBS]
@@ -653,7 +712,7 @@ class DreamRunner:
         return DreamContext(
             vault=self.vault, store=self.store, clock=self.clock,
             goals=self.goals, workspace=self.workspace, skills=self.skills,
-            utility=self.utility, selfie=self.selfie,
+            utility=self.utility, selfie=self.selfie, audit=self.audit,
             char_name=str(getattr(self.cfg, "companion_name", "") or "she"),
             user_name=str(getattr(self.cfg, "user_name", "") or "the user"),
             **kw)

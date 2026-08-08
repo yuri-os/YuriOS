@@ -189,7 +189,78 @@ async def test_the_first_item_of_the_night_always_runs_however_big(rig):
     assert report.jobs and report.jobs[0].days == ["2026-07-04"]
 
 
+# ------------------------------------------------------------------ the audit
+
+async def test_a_nights_desk_writes_leave_an_audit_line(rig):
+    """The Tools page is "every call her hands made". A diary entry is her
+    hands writing a file, so a night has to show up there beside the daytime
+    `write_note` calls — otherwise the one surface that answers "what touched
+    this vault" is blind to the hours she spends unattended."""
+    runner, _clock, vault = rig
+    _day_file(vault, "2026-07-04", ["you: hey  ⇄  her: [happy] hi"])
+    lines = []
+    runner.audit = lambda tool, args, verdict, ms, result: lines.append(
+        (tool, args, verdict, result))
+    await runner.run(only="diary", token_budget=40000)
+    assert [t for t, *_ in lines] == ["write_note"]
+    tool, args, verdict, result = lines[0]
+    assert args["path"] == "diary/2026-07-04.md" and args["bytes"] > 0
+    assert verdict == "ok" and "diary/2026-07-04.md" in result
+
+
+async def test_a_dry_run_claims_no_call_it_did_not_make(rig):
+    runner, _clock, vault = rig
+    _day_file(vault, "2026-07-04", ["you: hey  ⇄  her: [happy] hi"])
+    lines = []
+    runner.audit = lambda *a: lines.append(a)
+    await runner.run(only="diary", token_budget=40000, dry_run=True)
+    assert lines == []
+
+
+async def test_a_broken_audit_seam_does_not_cost_her_the_night(rig):
+    """An observation must never be the reason the thing it observes fails."""
+    runner, _clock, vault = rig
+    _day_file(vault, "2026-07-04", ["you: hey  ⇄  her: [happy] hi"])
+
+    def exploding(*a):
+        raise RuntimeError("the log is on fire")
+
+    runner.audit = exploding
+    report = await runner.run(only="diary", token_budget=40000)
+    assert report.jobs[0].changed and not report.jobs[0].failed
+    assert (vault / "workspace" / "diary" / "2026-07-04.md").is_file()
+
+
 # ------------------------------------------------------------------ the voice
+
+def test_the_journal_is_relabelled_before_a_model_sees_it():
+    """The live bug that two rounds of prompt wording could not reach.
+
+    A journal line labels the *other* person `you:`, because it is written for
+    a human reading her diary. Under a system prompt opening "You are Rikku",
+    that word points at two different people at once, and the model resolves it
+    against her — it wrote her diary as the client who came to her yoga class.
+    Positional relabelling removes the ambiguity rather than arguing with it.
+    """
+    from yurios.mind.dreamjobs import relabel
+    out = relabel(
+        "# Journal — 2026-08-07\n"
+        "### 00:20  you: hey  ⇄  rikku: [playful] Hey! *Rikku tilted her head*\n"
+        "### 01:12  [she] thought about the studio; chose not to interrupt\n")
+    assert "### 00:20  THEM: hey  ⇄  ME: [playful] Hey!" in out
+    assert "you:" not in out and "rikku:" not in out
+    # her own acts are not an exchange and keep their marker
+    assert "### 01:12  [she] thought about the studio" in out
+
+
+def test_relabelling_survives_a_name_that_is_not_the_configured_one():
+    """The halves are positional, so whatever the two sides were called — a
+    configured user name, a bare `you`, a nickname she picked up — both get
+    replaced without the code having to know either."""
+    from yurios.mind.dreamjobs import relabel
+    out = relabel("### 09:30  Sam: morning  ⇄  Yuri-chan: [happy] morning!\n")
+    assert out.startswith("### 09:30  THEM: morning  ⇄  ME: [happy] morning!")
+
 
 async def test_the_prompts_claim_her_own_stage_directions_for_her(rig):
     """A live regression, twice. A journal is a two-person transcript, and her

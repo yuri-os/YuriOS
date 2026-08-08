@@ -1076,6 +1076,15 @@ that set and a poor place to stop.
 - **Per-job resumable progress** in `state/dream_jobs.json`. `consolidate` is the exception and
   keeps `state/dream_progress.json`, because that ledger predates this section and exists in every
   shipped vault.
+- **ME and THEM, before a prompt sees it.** A journal labels the other person `you:`, which is
+  right for a human reading it and unusable in a prompt that opens "You are {char}" — the word
+  then points at two people at once and the model gives her side away. Every job that reads a
+  journal **MUST** read it through `relabel()`, which rewrites the two halves positionally. Prompt
+  wording is not an acceptable substitute; two rounds of it failed against one pronoun.
+- **A night's hands are audited like her daytime hands.** A desk write or a camera dispatch made
+  by a job **MUST** leave a `tool-logs/calls.jsonl` line (§7.3), so the Tools surface answers "what
+  touched this vault" for the unattended hours too. A dry run makes no calls and **MUST** claim
+  none.
 - **Handled is not produced.** A job that decided there was nothing to write **MUST** still mark
   its day done. Otherwise the backlog never empties, `DREAM → DORMANT` never fires, and she spends
   every night re-deciding not to write the same note.

@@ -183,6 +183,16 @@ folded … into what I keep".
 Consolidation is the first job, not the only one. DREAM is a **pipeline** (`mind/dreamjobs.py`):
 each tick runs the enabled jobs in priority order, sharing one token budget, and yields.
 
+A job reads the journal through `relabel()`, which rewrites the two speakers as **ME** and
+**THEM**. The journal's own `you:` means the *other* person — correct for a human reading her
+diary, and unusable under a prompt that opens "You are Yuri", where the same word points at two
+people and she loses her own side of the transcript. The halves are positional, so the rewrite
+needs neither name.
+
+What a night does with her hands — a desk write, a picture sent to the camera — lands in
+`tool-logs/calls.jsonl` beside her daytime calls, so the Tools page covers the unattended hours
+too. Dry runs make no calls and log none.
+
 A job prices a day by the prompt it will send, not by the journal on disk — a day's journal is
 capped before it reaches a model, so a talkative 180 KB day is still a ~1.7k-token call. And a job
 that runs out of room stops itself, not the night: the cheaper jobs behind it get their own turn at

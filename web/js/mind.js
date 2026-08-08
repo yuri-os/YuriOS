@@ -10,6 +10,8 @@
  * as a signal the loop consumes on its next tick, exactly like everything
  * else that happens to her.
  */
+import { STATE_META, canonicalState } from '../shared/activity-state.js';
+
 (() => {
   const runtimeReady = window.YuriOSRuntime
     ? Promise.resolve()
@@ -75,8 +77,9 @@
       return;
     }
 
+    const stateLabel = STATE_META[canonicalState(state.state)].label;
     let html = section('right now',
-      `<p class="il-state"><b>${esc(state.state)}</b> · a heartbeat every ` +
+      `<p class="il-state"><b>${esc(stateLabel)}</b> · a heartbeat every ` +
       `${Math.round(state.cadence_s)}s · spoke first ` +
       `${state.interrupts_today}× today` +
       (state.dream_backlog.length

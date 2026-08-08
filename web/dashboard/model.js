@@ -1,28 +1,6 @@
-const STATE_ALIASES = Object.freeze({
-  active: "awake",
-  running: "awake",
-  ready: "awake",
-  online: "awake",
-  idle: "resting",
-  dormant: "resting",
-  paused: "resting",
-  dream: "dreaming",
-  sleeping: "dreaming",
-  stopped: "offline",
-  disabled: "offline",
-  error: "attention",
-  failed: "attention",
-});
+import { STATE_META, canonicalState } from "../shared/activity-state.js";
 
-export const STATE_META = Object.freeze({
-  awake: { label: "awake", color: "#d7ff58", rank: 0 },
-  engaged: { label: "engaged", color: "#76e8bd", rank: 1 },
-  dreaming: { label: "dreaming", color: "#b39cf4", rank: 2 },
-  resting: { label: "resting", color: "#f4bd62", rank: 3 },
-  attention: { label: "attention", color: "#ef786f", rank: 4 },
-  offline: { label: "offline", color: "#69736d", rank: 5 },
-  unknown: { label: "unknown", color: "#69736d", rank: 6 },
-});
+export { STATE_META, canonicalState };
 
 const ACCENTS = ["#88ad9b", "#a28dc0", "#ad8a74", "#7296a8", "#a2a970", "#a2768d"];
 
@@ -33,12 +11,6 @@ function text(value, fallback = "") {
 function boolean(value) {
   if (typeof value === "string") return value.toLowerCase() === "true";
   return Boolean(value);
-}
-
-export function canonicalState(value) {
-  const input = text(value, "unknown").trim().toLowerCase();
-  const state = STATE_ALIASES[input] || input;
-  return STATE_META[state] ? state : "unknown";
 }
 
 export function initials(name) {

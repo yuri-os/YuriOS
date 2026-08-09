@@ -424,6 +424,31 @@ async def test_she_reports_what_she_is_reading(summarising_store):
     assert seen[0]["calls"] == seen[0]["passages"] * 2
 
 
+async def test_progress_admits_a_stop_it_has_not_reached_yet(summarising_store):
+    """A stop lands between passages, so the click and the stop are seconds and
+    a model call apart. `progress()` has to carry the flag through that gap, or
+    the panel's only honest option is a button that still says "stop"."""
+    store = summarising_store
+    real = store._summarise
+    seen = []
+
+    async def watch(doc, section):
+        out = await real(doc, section)
+        if len(store.calls) >= 2:
+            store.stop()
+        seen.append(store.progress())
+        return out
+
+    store._summarise = watch
+    assert store.progress() is None
+    res = await store.ingest("book.md", text=book(60_000))
+
+    assert res.held
+    assert seen[0]["stopping"] is False, "nobody has asked for anything yet"
+    assert seen[-1]["stopping"] is True, "asked for, and not yet honoured"
+    assert store.progress() is None, "and gone entirely once she has stopped"
+
+
 async def test_stopping_keeps_what_she_read_and_parks_the_rest(summarising_store):
     """The button's whole contract: nothing is lost, and nothing is read again
     until you say so."""

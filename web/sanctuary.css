@@ -230,6 +230,15 @@ svg{ width:1.1em; height:1.1em; fill:none; stroke:currentColor; stroke-width:1.7
 }
 .tab:hover{ color:var(--soft); }
 .tab.on{ border-color:var(--acid); color:var(--ink); }
+/* something of hers is running on the tab you aren't looking at (js/mind.js):
+   a research run answers in the transcript and then spends half an hour out of
+   sight, and this dot is the only thing that says so from the chat side. */
+.tab.busy{ color:var(--soft); }
+.tab.busy::after{
+  content:''; display:inline-block; width:5px; height:5px; margin-left:7px;
+  border-radius:50%; background:var(--acid); box-shadow:0 0 8px var(--acid);
+  vertical-align:middle; animation:pulse 1.8s infinite;
+}
 
 #messages{
   flex:1; min-height:0; overflow-y:auto; padding:18px 16px;

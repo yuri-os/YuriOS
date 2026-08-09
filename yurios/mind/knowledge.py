@@ -239,8 +239,16 @@ class KnowledgeStore:
     # will cost, and the ability to say no without losing the document.
 
     def progress(self) -> dict | None:
-        """What she is reading this second, or None. Cheap enough to poll."""
-        return dict(self._reading) if self._reading else None
+        """What she is reading this second, or None. Cheap enough to poll.
+
+        Carries `stopping`: the flag `stop()` raised, still standing because the
+        read hasn't reached the end of its section yet. That gap is seconds of
+        model call, and the panel has to be able to say so — a stop button that
+        still reads "stop" for those seconds looks like a click that missed.
+        """
+        if not self._reading:
+            return None
+        return {**self._reading, "stopping": self._stop}
 
     def stop(self) -> bool:
         """Ask the current read to stop after the section it's on.

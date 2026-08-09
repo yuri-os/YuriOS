@@ -270,7 +270,12 @@ async def test_watching_a_long_read_and_stopping_it_from_the_panel(
         assert live["calls"] == live["passages"] * live["calls_each"]
         assert live["calls_done"] == live["done"] * live["calls_each"]
 
+        assert live["stopping"] is False
         assert c.post("/api/mind/reading/stop", json={}).json()["stopped"]
+        # the gap the panel's "busy pausing" button lives in: asked for, and
+        # still reading, until the passage in flight is finished and paid for
+        asked = c.get("/api/mind/reading").json()["reading"]
+        assert asked is None or asked["stopping"] is True
         result = await asyncio.wait_for(task, timeout=10)
     finally:
         task.cancel()

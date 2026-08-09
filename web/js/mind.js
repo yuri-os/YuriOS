@@ -74,6 +74,27 @@ import { STATE_META, canonicalState } from '../shared/activity-state.js';
 
   const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 
+  const OVER = ['done', 'error', 'stopped'];
+  const liveRuns = (read) => (read?.runs || []).filter(r => !OVER.includes(r.stage));
+  const countLive = (read) => liveRuns(read).length + (read?.reading ? 1 : 0);
+
+  // A stop is cooperative: it lands after the passage she's on, which is a
+  // model call away — but the click has to look like it landed *now*. This set
+  // is what the button reads from in the gap between the POST and the server
+  // admitting it; the moment the server says `stopping`, the server is the one
+  // telling the truth and the optimistic note is dropped.
+  const asked = new Set();          // "" = the read in flight, otherwise a run id
+
+  function pausing(key, serverSays) {
+    if (serverSays) asked.delete(key);
+    return serverSays || asked.has(key);
+  }
+
+  function stopButton(key, off, label) {
+    return `<button class="il-stop" data-stop="${esc(key)}"` +
+      `${off ? ' disabled' : ''}>${off ? 'busy pausing' : label}</button>`;
+  }
+
   function bar(done, total) {
     const pct = total ? Math.min(100, Math.round((done / total) * 100)) : 0;
     return `<span class="il-bar"><i style="width:${pct}%"></i></span>`;
@@ -82,17 +103,19 @@ import { STATE_META, canonicalState } from '../shared/activity-state.js';
   function readingNow(r) {
     if (!r) return '';
     const how = r.digested ? 'in notes' : 'word for word';
+    const off = pausing('', Boolean(r.stopping));
     return `<div class="il-read">` +
       `<p class="il-read-doc">${esc(r.doc)}` +
-      `<span class="il-prov"> · ${how}${r.resumed ? ' · resumed' : ''}</span></p>` +
+      `<span class="il-prov"> · ${how}${r.resumed ? ' · resumed' : ''}` +
+      `${off ? ' · stopping after this passage' : ''}</span></p>` +
       bar(r.done, r.passages) +
       `<p class="il-read-n">${r.done} / ${r.passages} passages · ` +
       `${r.calls_done} of ~${r.calls} model calls</p>` +
-      `<button class="il-stop" data-stop="">stop reading</button></div>`;
+      stopButton('', off, 'stop reading') + '</div>';
   }
 
   function runRow(run) {
-    const live = !['done', 'error', 'stopped'].includes(run.stage);
+    const live = !OVER.includes(run.stage);
     const pages = run.pages || [];
     const bits = [esc(run.stage)];
     if (run.found != null) bits.push(plural(run.found, 'result', 'results'));
@@ -101,7 +124,8 @@ import { STATE_META, canonicalState } from '../shared/activity-state.js';
     bits.push(`${Math.round(run.elapsed_s)}s`);
     return `<div class="il-run${live ? ' on' : ''}">` +
       `<p class="il-run-top"><b>${esc(run.topic)}</b>` +
-      (live ? `<button class="il-stop" data-stop="${esc(run.id)}">stop</button>` : '') +
+      (live ? stopButton(run.id, pausing(run.id, run.stage === 'stopping'), 'stop')
+            : '') +
       `</p><p class="il-prov">${bits.map(esc).join(' · ')}</p>` +
       (pages.length
         ? '<ul class="il-pages">' + pages.map(p =>
@@ -123,11 +147,18 @@ import { STATE_META, canonicalState } from '../shared/activity-state.js';
   }
 
   function readingSection(read) {
-    busy = false;
+    const n = countLive(read);
+    busy = n > 0;
+    markTab(n);
     if (!read) return '';
+    // forget the optimistic notes for anything that has since finished — a run
+    // id that comes round again must not inherit an old click's "pausing"
+    if (!read.reading) asked.delete('');
+    const ids = new Set(liveRuns(read).map(r => r.id));
+    for (const key of [...asked]) if (key && !ids.has(key)) asked.delete(key);
+
     const runs = (read.runs || []).slice().reverse();
-    const live = runs.filter(r => !['done', 'error', 'stopped'].includes(r.stage));
-    busy = Boolean(read.reading) || live.length > 0;
+    const live = runs.filter(r => !OVER.includes(r.stage));
     let html = '';
     if (read.reading || live.length) {
       html += section('she is reading',
@@ -139,7 +170,7 @@ import { STATE_META, canonicalState } from '../shared/activity-state.js';
         '<p class="il-off">stopped, and kept. Nothing here is read again ' +
         'until you say so.</p>' + read.held.map(heldRow).join(''));
     }
-    const past = runs.filter(r => ['done', 'error', 'stopped'].includes(r.stage));
+    const past = runs.filter(r => OVER.includes(r.stage));
     if (past.length && !live.length) {
       html += section('what she looked up', past.slice(0, 3).map(runRow).join(''));
     }
@@ -159,6 +190,7 @@ import { STATE_META, canonicalState } from '../shared/activity-state.js';
       read = c.ok ? await c.json() : null;
     } catch {
       busy = false;              // nothing to watch; back to the slow cadence
+      markTab(0);
       panel.innerHTML = '<p class="il-off">the mind isn’t running — ' +
         'MIND_ENABLED=false, or she booted without a brain</p>';
       return;
@@ -224,8 +256,13 @@ import { STATE_META, canonicalState } from '../shared/activity-state.js';
     const stop = el?.dataset?.stop;
     const resume = el?.dataset?.resume;
     if (stop === undefined && resume === undefined) return;
+    if (el.disabled) return;
     el.disabled = true;
-    el.textContent = stop !== undefined ? 'stopping…' : 'resuming…';
+    // "busy pausing" the instant it is clicked, and it stays that way through
+    // every re-render until the passage in flight ends — the wait is the point,
+    // and a button that says nothing during it reads as a button that missed.
+    if (stop !== undefined) asked.add(stop);
+    el.textContent = stop !== undefined ? 'busy pausing' : 'resuming…';
     try {
       await runtimeReady;
       const [path, body] = stop !== undefined
@@ -235,8 +272,12 @@ import { STATE_META, canonicalState } from '../shared/activity-state.js';
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
-      if (!res.ok) el.textContent = 'that didn’t take — try again';
+      if (!res.ok) {
+        asked.delete(stop);
+        el.textContent = 'that didn’t take — try again';
+      }
     } catch {
+      asked.delete(stop);
       el.textContent = 'no answer from her';
     }
     // a stop lands after the passage she's on, so give it a beat before asking
@@ -268,6 +309,48 @@ import { STATE_META, canonicalState } from '../shared/activity-state.js';
       : null;
   }
 
+  // ---- the tab itself, seen from the chat side ----------------------------
+  //
+  // A research call answers in the transcript in 12ms and then spends the next
+  // half hour on the other tab. If you stay in the chat there is nothing at all
+  // to tell you any of that is happening — so the tab has to say it: a mark
+  // while something of hers is running, and no mark the rest of the time.
+  //
+  // Event-driven, and only polling while it believes something is live: the
+  // point of the pacing below is that a still afternoon costs nothing, and a
+  // badge that polls behind a closed panel would give that back.
+  let liveN = 0;
+  let watchTimer = null;
+
+  function markTab(n) {
+    liveN = n;
+    const on = n > 0 && !open;
+    tabMind.classList.toggle('busy', on);
+    if (on) {
+      tabMind.title = `she has ${plural(n, 'thing', 'things')} running — ` +
+        'reading, or looking something up';
+    } else {
+      tabMind.removeAttribute('title');
+    }
+  }
+
+  async function watch() {
+    clearTimeout(watchTimer);
+    watchTimer = null;
+    if (open) return;                  // the panel itself is the notification
+    let n = 0;
+    try {
+      await runtimeReady;
+      const res = await fetch(apiPath('/api/mind/reading'));
+      n = res.ok ? countLive(await res.json()) : 0;
+    } catch { /* no answer is not a run: leave the tab quiet */ }
+    markTab(n);
+    // again at the end, not only at the top: two events landing together mean
+    // two of these in flight, and the loser's timer would otherwise be orphaned
+    clearTimeout(watchTimer);
+    watchTimer = n > 0 && !open ? setTimeout(watch, SLOW) : null;
+  }
+
   function show(mind) {
     open = mind;
     panel.hidden = !mind;
@@ -276,12 +359,16 @@ import { STATE_META, canonicalState } from '../shared/activity-state.js';
     tabChat.classList.toggle('on', !mind);
     clearTimeout(refreshTimer);
     refreshTimer = null;
+    clearTimeout(watchTimer);
+    watchTimer = null;
+    markTab(liveN);
     if (mind) {
       render().then(pace);
     } else {
       // anything she said while this panel covered the transcript couldn't be
       // scrolled to — a hidden box has no height. Pin the bottom on the way back.
       window.WorldChat?.scrollToLatest?.();
+      watch();
     }
   }
 
@@ -295,6 +382,13 @@ import { STATE_META, canonicalState } from '../shared/activity-state.js';
     const t = ev.detail?.type;
     if (open && (t === 'journal' || t === 'mind' || t === 'research_status')) {
       render().then(pace);
+    } else if (!open && (t === 'research_status' || t === 'mind')) {
+      // a run starting is the whole reason for the mark; a tick is the only
+      // beat a read off the shelf — which fires no research event — arrives on
+      watch();
     }
   });
+
+  // a run that was already going when this page loaded still lights the tab
+  watch();
 })();

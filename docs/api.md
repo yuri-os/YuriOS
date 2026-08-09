@@ -196,6 +196,11 @@ files. With the mind off, these answer `503` and `/api/health` says so — excep
 `GET /api/mind/reading`, which answers either way (`"mind": false`), because a panel that 503s
 tells you nothing about whether anything is being spent.
 
+A stop is cooperative — it lands after the passage she is on, and a run winds down through its own
+ending — so both surfaces carry the asked-for-but-not-yet state: `reading.stopping` is `true` from
+the POST until the read notices, and a run sits at `stage: "stopping"` for the same stretch. The
+panel shows **busy pausing** on the button for exactly that gap.
+
 ### The mind debug page
 
 Served at `/characters/{id}/mind` (`web/mind/`), over a read-only API on the **host**:

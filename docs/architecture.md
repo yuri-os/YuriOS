@@ -59,6 +59,7 @@ vault/
 │                         (gitignored: scratch is not history)
 ├── skills/             one folder per skill, each a SKILL.md she or you wrote
 ├── world/              situation.md + beliefs.jsonl — her picture of NOW
+│                         (+ setting.md — where she is, from her card, yours to edit)
 ├── goals.md            her to-do list, human-readable
 └── state/              activity · budget · pending edits · engine cursor · dream progress
 ```

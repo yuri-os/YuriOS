@@ -325,6 +325,20 @@ surroundings, and asked about them she answers plainly (the no-narration rule fo
 directions, not the truth). The embodiment-truth text lives as one constant
 (`yurios/world/situation.py`) so the test suite can assert it verbatim.
 
+**Her room is hers.** The place named in that truth **MUST** be the character's own, read from
+`vault/world/setting.md` — one to three second-person present-tense sentences derived from her
+card at import (`yurios/characters/setting.py`: the `scenario` field first, a `Setting:`/
+`Location:` section next, the description last). It **MUST** replace the shipped companion's
+room outright rather than joining it, and the desktop clause, which is true wherever she lives,
+**MUST** survive the swap. A character whose card says nothing about a place gets no place line
+substituted and keeps the house sentence; the constant's default is therefore still asserted
+verbatim. The file is derived-marked, so the utility model's improvement pass (`refine_setting`,
+run after import and on demand) **MUST NOT** overwrite one a human has edited, and it is
+editable — by hand, and in the card studio (§28), where "improve with AI" proposes prose and
+only the ordinary save writes it. Because the setting is card prose rather than private prose,
+the export scrub (§27) **MUST NOT** harvest it out of `situation.md`: doing so hands every
+freshly imported character her own scenario back as an overlap with her own world model.
+
 This block is the promised seam. In the reactive body it is a per-prompt rendering of host
 state; with the mind running, the same `## THE SITUATION RIGHT NOW` slot is filled by
 **`WorldModelStore.situation()`** (§19.2) — which still *contains* these host lines via the
@@ -1012,7 +1026,11 @@ from it.
   the user is here, how long they've been away (minutes/hours/days phrasing), what's in progress,
   what she half-expects. It **MUST** be written to `vault/world/situation.md` whenever it changes —
   her picture of *now* is a file you can `cat` — and it feeds the brain via `ToolBrain.set_world`
-  (the §2.5 seam swap).
+  (the §2.5 seam swap). `situation.md` is **derived**: it is rewritten from the store on every
+  change, so nothing authored may live in it. Her standing place is authored, and therefore lives
+  next door in `vault/world/setting.md`, which this renders *from* and never writes. The importer
+  seeds both — the derived snapshot with her opening present tense, in place of the `_(Unknown.)_`
+  that used to stand there for every character while her card said otherwise.
 - §19.3 **Expectation and surprise.** `expect(text, due, keys)` stores a checkable belief about what
   comes next. A later observation that matches its keys resolves it quietly; one that finds it past
   due produces **prediction-error = surprise**, which **MUST** feed APPRAISE as a salience bonus —
@@ -1330,6 +1348,12 @@ A card starts the relationship at zero: `USER.md` arrives empty, `memory/`,
 nothing reads it and her gated self-edits (§23) would be offered it as a place to put a memory. The studio (`/studio/`, `web/studio/`) is the surface: create a character
 without a card to import, edit one as prose with her own grown edits marked and diffable, pick a
 portrait or a selfie, and read what stays on the machine before pressing export.
+
+Two things on that page are **not** card fields and say so: her selfie library (§7.6) and her
+setting (§2.5). Both are files in her own storage that the card decides at import and never
+carries back out, and both therefore load and save on their own endpoints rather than through
+the draft. The setting's AI pass follows the optimiser's rule (§30.6) exactly — the model
+proposes prose, the page shows it, and the ordinary save is the only thing that writes.
 
 ---
 

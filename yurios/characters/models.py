@@ -129,6 +129,10 @@ class CharacterPaths:
     # shipped book rather than merging over it (characters/selfiebook.py). Absent
     # for every character who has never opened the studio's Selfies section.
     selfie_templates: Path
+    # Where she is — the standing place her situation block puts her in (§2.5).
+    # Derived from her card at import (characters/setting.py) and hand-editable
+    # after. Inside the Vault, because it is world state and travels with her.
+    setting: Path
 
     @classmethod
     def under(cls, root: Path) -> "CharacterPaths":
@@ -145,6 +149,7 @@ class CharacterPaths:
             selfies=root / "selfies",
             appearance=root / "appearance.yaml",
             selfie_templates=root / "selfie.yaml",
+            setting=root / "vault" / "world" / "setting.md",
         )
 
 

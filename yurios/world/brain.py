@@ -29,6 +29,7 @@ import json
 import logging
 from typing import AsyncIterator, Optional
 
+from yurios.characters.setting import read_place
 from yurios.desktop.brain import BrainAdapter
 from yurios.desktop.config import Config
 from yurios.mind.workspace import DESK_WRITE_TOOLS
@@ -119,7 +120,8 @@ class ToolBrain(BrainAdapter):
         else:
             situation = render_situation(
                 self.guard.clock, controller=self.controller,
-                timers=self.timers, user_name=self.cfg.user_name)
+                timers=self.timers, user_name=self.cfg.user_name,
+                place=read_place(self.cfg.vault_dir))
         prompt.messages[0]["content"] += (
             "\n\n## THE SITUATION RIGHT NOW\n\n" + situation)
         return soul, prompt

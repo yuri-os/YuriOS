@@ -127,6 +127,12 @@ pending timers) with what only a store can know: whether you're here, how long y
 what's in progress, what she half-expects. It's written to `vault/world/situation.md` whenever it
 changes — her picture of now is a file you can `cat` — and it's what every prompt carries.
 
+The embodiment truth in there names a *place*, and the place is hers: `vault/world/setting.md`,
+read out of her character card when she was imported and rewritten into second-person prose by
+the utility model. Before this existed every character was told, every prompt, that she lived in
+the shipped companion's room above the Sprawl. Edit it by hand or in the card studio's Scenario
+section — `situation.md` is derived and gets overwritten, `setting.md` is yours and does not.
+
 **Expectation and surprise:** she can store a checkable belief about what comes next. An
 observation that matches resolves it quietly; one that finds it past due produces prediction
 error, and that surprise feeds APPRAISE as a salience bonus — the cheapest good salience signal

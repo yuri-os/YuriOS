@@ -30,6 +30,8 @@ from yurios.characters import (
 from yurios.characters import selfiebook
 from yurios.characters import studio as studio_model
 from yurios.characters.appearance import ensure_appearance, refine_appearance
+from yurios.characters import setting as setting_model
+from yurios.characters.setting import ensure_setting, refine_setting
 from yurios.characters.creator import create_character, template_draft
 from yurios.characters.exporter import ExportOptions, build_export, preview_export
 from yurios.characters.optimize import CardOptimizeError, optimize_draft
@@ -502,6 +504,7 @@ class CharacterHost:
                 raise RuntimeError("character is disabled or still requires review")
             self.states[character_id] = "starting"
             ensure_appearance(record)   # her own face, before her camera (§7.6)
+            ensure_setting(record)      # …and her own room, before her prompt (§2.5)
             try:
                 app = create_app(self.effective_config(record),
                                  manage_lifespan=False, mount_frontend=False)
@@ -810,11 +813,27 @@ def create_host_app(base: Config, registry: CharacterRegistry | None = None) -> 
         # be undone by a model that was busy.
         try:
             from yurios.app.main import build_utility_model
-            await refine_appearance(
-                record, build_utility_model(host.effective_config(record)))
+            utility = build_utility_model(host.effective_config(record))
         except Exception:
-            log.exception("appearance: couldn't refine %s's likeness — keeping "
-                          "the one read from her card", record.id)
+            log.exception("import: no utility model for %s — keeping the face "
+                          "and the room read straight from her card", record.id)
+            utility = None
+        if utility is not None:
+            try:
+                await refine_appearance(record, utility)
+            except Exception:
+                log.exception("appearance: couldn't refine %s's likeness — "
+                              "keeping the one read from her card", record.id)
+            # …and the same pass over where she is (characters/setting.py). The
+            # importer already read a place out of her card; this turns the
+            # card's own phrasing into the second-person present tense the
+            # situation block is written in. Separately guarded: a room that
+            # failed to improve must not cost her the better face.
+            try:
+                await refine_setting(record, utility)
+            except Exception:
+                log.exception("setting: couldn't refine %s's room — keeping the "
+                              "one read from her card", record.id)
         if record.lifecycle.enabled and not record.lifecycle.review_required:
             await host.start(record.id)
         return {"character": host.summary(record)}
@@ -1003,7 +1022,71 @@ def create_host_app(base: Config, registry: CharacterRegistry | None = None) -> 
             "constitution_fields": sorted(studio_model.CONSTITUTION_FIELDS),
             "images": _images(record),
             "portrait_url": f"/api/characters/{record.id}/portrait",
+            # Not a card field, and shown on the same page on purpose: where she
+            # is (§2.5) is the one thing the card decides that the *card* never
+            # carries back out. It rides beside the draft rather than in it —
+            # `Draft` is what ships, and this file stays in the Vault.
+            "setting": setting_model.derived_material(record),
         }
+
+    # ---- where she is (SPEC §2.5, §19.2) ---------------------------------
+    #
+    # Her standing place, derived from her card at import and edited here. Three
+    # verbs, same shape as her selfie library: read hers, write hers, and ask
+    # the utility model for a better one — which, like `/api/studio/optimize`,
+    # hands the prose back for you to look at and never writes it itself.
+
+    @app.get("/api/characters/{character_id}/setting")
+    async def get_setting(character_id: str):
+        return {"id": character_id,
+                **setting_model.derived_material(require(character_id))}
+
+    @app.put("/api/characters/{character_id}/setting")
+    async def save_setting(character_id: str, request: Request):
+        record = require(character_id)
+        body = await request.json()
+        place = str((body or {}).get("setting") or "").strip()
+        try:
+            if place:
+                # Saved without the derived marker: you wrote it, so no later
+                # background pass gets to redecorate it.
+                setting_model.write_authored(record.paths.setting, place)
+            else:
+                # Emptied on purpose. The file goes, and `ensure_setting` will
+                # write a fresh mechanical one at her next start rather than
+                # leaving her nowhere.
+                Path(record.paths.setting).unlink(missing_ok=True)
+        except OSError as exc:
+            raise HTTPException(500, f"could not write her setting: {exc}") from exc
+        try:
+            from yurios.app import vaultgit
+            vaultgit.commit(record.paths.vault, "studio: edit where she is")
+        except Exception:
+            log.exception("could not commit the setting edit")
+        # No restart: `WorldModelStore.situation()` reads the file every turn,
+        # so the next prompt already has it.
+        return {"id": record.id, **setting_model.derived_material(record)}
+
+    @app.post("/api/characters/{character_id}/setting/derive")
+    async def derive_setting(character_id: str, request: Request):
+        """A better room, from her card — proposed, never saved."""
+        record = require(character_id)
+        body = await request.json() if await request.body() else {}
+        cfg = host.effective_config(record)
+        model = str((body or {}).get("model") or "").strip() or cfg.utility_model
+        from yurios.app.main import model_api_base
+        from yurios.app.providers.openrouter import LiteLLMUtilityModel
+        utility = LiteLLMUtilityModel(
+            model, cfg.openrouter_api_key, thinking=cfg.utility_thinking,
+            api_base=model_api_base(cfg, model))
+        name, scenario, description, first_mes = setting_model.card_material(record)
+        place = await setting_model.derive_place(
+            utility, name=name or record.display.name, scenario=scenario,
+            description=description, first_mes=first_mes)
+        if not place:
+            raise HTTPException(502, "the model had nothing to say about where "
+                                     "she is — her card may not say either")
+        return {"id": record.id, "setting": place, "model": model}
 
     @app.patch("/api/characters/{character_id}/studio")
     async def studio_save(character_id: str, request: Request):

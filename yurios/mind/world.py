@@ -19,12 +19,19 @@ Three disciplines:
     salience signal there is.
   * **The snapshot is a file.** `world/situation.md` in the Vault is what she
     believes is the case right now — `cat`-able, diffable, hers and yours.
+
+That last file is *derived*: it is rewritten from this store whenever it
+changes, so nothing authored can live in it and survive. Her standing place is
+authored — read from her card at import and yours to edit after — so it lives
+next door in `world/setting.md` (`characters/setting.py`), which `situation()`
+renders *from* and never writes over.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from yurios.characters.setting import read_place
 from yurios.world.avatar.controller import VrmController
 from yurios.world.clock import Clock
 from yurios.world.situation import render_situation
@@ -135,8 +142,13 @@ class WorldModelStore:
         what she half-expects."""
         st = self._state()
         now = self.clock.now()
+        # Her standing place rides inside the host lines rather than beside
+        # them: it is not news, it is the room the news happens in. Read every
+        # time, so an edit in the studio lands on the next prompt without a
+        # restart — it is one small file, and this is once per turn.
         lines = [render_situation(self.clock, controller=self.controller,
-                                  timers=self.timers, user_name=self.user_name)]
+                                  timers=self.timers, user_name=self.user_name,
+                                  place=read_place(self.vault.vault))]
         if st["user_present"]:
             lines.append(f"{self.user_name} is here right now.")
         elif st["last_user_message"]:

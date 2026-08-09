@@ -49,6 +49,8 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Iterable, Iterator, Mapping
 
+from .setting import place_of
+
 # ---------------------------------------------------------------- the boundary
 
 #: Soul files that never leave the Vault, whatever `soul.yaml` says. A floor:
@@ -169,10 +171,16 @@ class Canary:
     word_bounded: bool = False  # match only on word boundaries (names)
 
 
-def _text_lines(path: Path, limit: int = _MAX_LINES_PER_FILE) -> list[str]:
+def _read_text(path: Path) -> str:
     try:
-        raw = path.read_text(encoding="utf-8", errors="replace")
+        return path.read_text(encoding="utf-8", errors="replace")
     except OSError:
+        return ""
+
+
+def _text_lines(path: Path, limit: int = _MAX_LINES_PER_FILE) -> list[str]:
+    raw = _read_text(path)
+    if not raw:
         return []
     out: list[str] = []
     for line in raw.splitlines():
@@ -245,10 +253,11 @@ def harvest(root: Path, *, user_name: str = "") -> list[Canary]:
     canaries: list[Canary] = []
     seen: set[str] = set()
 
-    def add(lines: Iterable[str], surface: str, *, hard: bool = True) -> None:
+    def add(lines: Iterable[str], surface: str, *, hard: bool = True,
+            within: str = "") -> None:
         for line in lines:
             for span in _spans(line):
-                if span in seen:
+                if span in seen or (within and span in within):
                     continue
                 seen.add(span)
                 canaries.append(Canary(text=span, surface=surface, hard=hard))
@@ -269,7 +278,16 @@ def harvest(root: Path, *, user_name: str = "") -> list[Canary]:
             add(_text_lines(path), f"vault/memory/episodic/{path.name}")
 
     add(_text_lines(vault / "goals.md"), "vault/goals.md")
-    add(_text_lines(vault / "world" / "situation.md"), "vault/world/situation.md")
+    # Her standing setting is *card* prose, not private prose: it is derived
+    # from the scenario the card already ships (characters/setting.py) and is
+    # rendered into `situation.md` on every prompt. Harvesting it would hand
+    # every freshly imported character her own card back as an overlap with her
+    # own world model, and refuse the export until a human acknowledged it.
+    # Substring containment rather than span equality, because the place lands
+    # mid-line inside the embodiment paragraph, where no sliding window lines up.
+    setting = normalise(place_of(_read_text(vault / "world" / "setting.md")))
+    add(_text_lines(vault / "world" / "situation.md"), "vault/world/situation.md",
+        within=setting)
     add(_jsonl_strings(vault / "world" / "beliefs.jsonl"), "vault/world/beliefs.jsonl")
 
     knowledge = vault / "knowledge"

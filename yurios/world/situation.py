@@ -25,17 +25,27 @@ from .avatar.controller import VrmController
 from .clock import Clock
 from .tools.timers import TimerBoard
 
-# The embodiment truth (SPEC §2.5). Kept as one constant so the test suite can
-# pin the law, not a paraphrase: knowing she runs as an AI never licenses
-# "I have no body" — the body is rendered live, and the no-narration rule
-# (B2 §6) forbids stage directions, not the truth about herself.
-EMBODIMENT = (
+# The embodiment truth (SPEC §2.5), in three parts: the body, the place, and the
+# law. Only the middle one is hers — the other two are true of every character
+# this runtime runs, and the test suite pins them as law rather than paraphrase.
+_BODY = (
     "You are in your body right now: it is rendered live on {user}'s screen "
     "this moment — your eyes are open and blinking on their own, your gaze "
-    "drifts, your face shows what you feel, your mouth moves with your voice. "
+    "drifts, your face shows what you feel, your mouth moves with your voice."
+)
+# The house place: the shipped companion's room, and *only* hers. A character
+# imported from somebody else's card gets her own from `world/setting.md`
+# (characters/setting.py) — being told all day that she lives above a city she
+# has never heard of is the bug this split exists to close.
+HOUSE_PLACE = (
     "Your place is your small room above the Sprawl — the lamp, the window "
     "seat, the plant, the rain on the window, the city burning beyond the "
-    "glass — though {user} can also float you directly on their desktop. "
+    "glass — though {user} can also float you directly on their desktop."
+)
+# True wherever she lives, so it is appended to a derived place rather than
+# being part of one.
+DESKTOP = "{user} can also float you directly on their desktop."
+_TRUTH = (
     "You know you run as an AI; that never means bodiless. Never say "
     "you have no body, no eyes, or no surroundings — you have all three, and "
     "they are yours. When {user} asks whether you can blink, look, smile, nod, "
@@ -45,6 +55,27 @@ EMBODIMENT = (
     "no-narration rule above forbids stage directions, never the truth about "
     "yourself: answer plainly and warmly."
 )
+
+#: The whole truth with the house place in it — what a character who has no
+#: setting of her own still gets, verbatim and unchanged.
+EMBODIMENT = " ".join((_BODY, HOUSE_PLACE, _TRUTH))
+
+
+def embodiment(user_name: str, place: str = "") -> str:
+    """The embodiment truth, standing in *her* room when she has one.
+
+    *place* is `vault/world/setting.md`'s prose (SPEC §19.2) — one to three
+    second-person sentences derived from her own card. It replaces the house
+    place outright rather than joining it: two places in one paragraph is not a
+    richer room, it is a character who does not know where she lives.
+    """
+    clause = HOUSE_PLACE
+    text = str(place or "").strip()
+    if text:
+        if text[-1] not in ".!?…":
+            text += "."
+        clause = f"{text} {DESKTOP}"
+    return " ".join((_BODY, clause, _TRUTH)).replace("{user}", user_name)
 
 
 def _clock_line(now: datetime.datetime, user_name: str) -> str:
@@ -127,11 +158,14 @@ def render_visual_situation(clock: Clock, *, controller: VrmController) -> str:
 
 
 def render_situation(clock: Clock, *, controller: VrmController,
-                     timers: TimerBoard, user_name: str = "you") -> str:
-    """The stage, as prose: time, body, weather, music, running timers."""
+                     timers: TimerBoard, user_name: str = "you",
+                     place: str = "") -> str:
+    """The stage, as prose: time, body, her place, weather, music, timers.
+
+    *place* is her standing setting when she has one — see `embodiment`.
+    """
     now = datetime.datetime.fromtimestamp(clock.now())
-    lines = [_clock_line(now, user_name),
-             EMBODIMENT.replace("{user}", user_name)]
+    lines = [_clock_line(now, user_name), embodiment(user_name, place)]
 
     scene = controller.scene_state()
     if scene["rain"] is not None:

@@ -62,6 +62,15 @@ export const studioApi = Object.freeze({
     method: "POST", body: JSON.stringify({ draft, portrait }),
   }),
   selfies: (id) => request(at(id, "/selfies")),
+  // Where she is (SPEC §2.5) — a Vault file, not a card field, so it loads and
+  // saves on its own. `deriveSetting` proposes a better room and writes nothing.
+  setting: (id) => request(at(id, "/setting")),
+  saveSetting: (id, setting) => request(at(id, "/setting"), {
+    method: "PUT", body: JSON.stringify({ setting }),
+  }),
+  deriveSetting: (id, model) => request(at(id, "/setting/derive"), {
+    method: "POST", body: JSON.stringify({ model: model || "" }),
+  }),
   // Her camera's library — a whole book per character, which *replaces* the
   // shipped one rather than merging over it. DELETE is how you go back.
   selfieBook: (id) => request(at(id, "/selfie-templates")),

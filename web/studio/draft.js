@@ -47,6 +47,7 @@ export const SECTIONS = Object.freeze([
     id: "scenario", label: "Scenario", eyebrow: "Where she is",
     fields: [
       { key: "scenario", label: "Scenario", type: "textarea" },
+      { key: "__setting", type: "setting" },
       { key: "first_mes", label: "Cold open", type: "textarea",
         hint: "The first thing she ever says to someone who imports this card" },
       { key: "alternate_greetings", label: "Return greetings", type: "list",

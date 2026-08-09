@@ -245,6 +245,15 @@ code { font: 11px/1.5 var(--font-mono); color: var(--soft); }
   color: var(--dim); font: 9px var(--font-mono); letter-spacing: .08em; text-transform: uppercase; }
 .book-pin input { accent-color: var(--acid); }
 
+/* Where she is — the standing room, sitting under the scenario it was derived
+   from. Marked off with the amber rule the constitution fields use, because it
+   is the same kind of thing: prose that rides in every prompt whether or not
+   anyone is looking at it. */
+.field-setting { gap: 9px; padding-left: 12px; border-left: 2px solid rgb(215 255 88 / .28); }
+.field-setting .field-head { justify-content: flex-start; }
+.field-setting .button { margin-left: auto; }
+.field-setting .form-note { color: var(--amber); }
+
 .selfie-strip { display: flex; gap: 10px; flex-wrap: wrap; }
 .selfie {
   width: 78px; height: 117px; padding: 0; overflow: hidden; cursor: pointer;

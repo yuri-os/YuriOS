@@ -21,6 +21,12 @@ const state = {
   bookError: "",
   bookSaving: false,
   bookResetArmed: false,
+  // Where she is — a Vault file like the library above, arriving with the card
+  // draft and saved on its own. `derived` is whether it is still the machine's
+  // reading of her card, or yours.
+  setting: { setting: "", derived: false, exists: false },
+  settingBusy: false,
+  settingError: "",
   options: { spec: "v3", include_soul: true, image: "portrait", fit: "contain",
              attribution: true, timestamps: true, acknowledged: false },
   preview: null,
@@ -426,6 +432,90 @@ function patchRow(slot, index, patch) {
   });
 }
 
+/* Where she is (SPEC §2.5) — the other file on this page that is not the card.
+   The scenario above ships inside the PNG and frames the meeting; this is the
+   standing room her prompt puts her in every single turn, and it stays in the
+   Vault. It is derived from that scenario at import, so the two agree until you
+   make them disagree, and it saves to its own endpoint on its own debounce. */
+function settingControl() {
+  const wrap = element("div", { className: "field field-setting" });
+  if (!state.id) {
+    wrap.append(element("p", { className: "form-note",
+      text: "Create her first — her room is a file in her Vault, derived from the scenario above." }));
+    return wrap;
+  }
+
+  const head = element("div", { className: "field-head" },
+    element("span", { className: "field-label", text: "Where she is" }),
+    element("span", {
+      className: `book-badge${state.setting.derived ? "" : " own"}`,
+      text: state.setting.derived ? "derived from her card" : "yours",
+    }));
+  const improve = element("button", {
+    className: "button button-quiet",
+    attrs: { type: "button", disabled: state.settingBusy },
+  }, icon("sparkle"), element("span", {
+    text: state.settingBusy ? "Reading her card…" : "Improve with AI" }));
+  improve.addEventListener("click", improveSetting);
+  head.append(improve);
+  wrap.append(head);
+  wrap.append(element("small", { className: "field-hint",
+    text: "One to three sentences, second person, present tense — it replaces the house room inside the embodiment truth she carries every turn. Leave out the hour, the weather and the music: the runtime injects the real ones. Write {user} for the person she talks to. Empty it and she is re-derived from her card at her next start." }));
+
+  const box = element("textarea", { attrs: { rows: 3,
+    placeholder: "You are in a narrow flat over the laundromat, the fire escape outside your one window." } });
+  box.value = state.setting.setting;
+  box.addEventListener("input", () => {
+    state.setting.setting = box.value;
+    state.setting.derived = false;
+    scheduleSettingSave();
+  });
+  wrap.append(box);
+  if (state.settingError) {
+    wrap.append(element("p", { className: "form-note", text: state.settingError }));
+  }
+  return wrap;
+}
+
+const scheduleSettingSave = debounce(async () => {
+  if (!state.id || state.settingBusy) return;
+  state.settingBusy = true;
+  setSaveState("saving her room", true);
+  try {
+    const payload = await studioApi.saveSetting(state.id, state.setting.setting);
+    state.setting = payload;
+    state.settingError = "";
+    setSaveState("saved");
+  } catch (error) {
+    state.settingError = error.message || "Could not save where she is.";
+    setSaveState("room not saved");
+  } finally {
+    state.settingBusy = false;
+  }
+}, 1500);
+
+/* The optimiser's rule, at one field's scale: the model proposes, the page
+   shows you the prose, and the ordinary save is what writes it. */
+async function improveSetting() {
+  if (!state.id || state.settingBusy) return;
+  state.settingBusy = true;
+  state.settingError = "";
+  renderForm();
+  try {
+    const payload = await studioApi.deriveSetting(state.id);
+    state.setting.setting = payload.setting;
+    state.setting.derived = false;
+    state.settingBusy = false;
+    renderForm();
+    scheduleSettingSave();
+    toast("A better room — saving.");
+  } catch (error) {
+    state.settingBusy = false;
+    state.settingError = error.message || "The model could not place her.";
+    renderForm();
+  }
+}
+
 function exportControl() {
   const wrap = element("div", { className: "field field-export" });
   const toggle = (key, label, hint) => {
@@ -478,6 +568,7 @@ function renderForm() {
       else if (field.type === "lorebook") grid.append(lorebookControl());
       else if (field.type === "image") grid.append(imageControl());
       else if (field.type === "selfiebook") grid.append(selfieBookControl());
+      else if (field.type === "setting") grid.append(settingControl());
       else if (field.type === "export") grid.append(exportControl());
       else grid.append(fieldControl(field));
     }
@@ -866,6 +957,7 @@ async function boot() {
       state.provenance = payload.provenance || {};
       state.grown = payload.grown || [];
       state.images = payload.images || state.images;
+      state.setting = payload.setting || state.setting;
       elements.brandSub.textContent = `studio / ${payload.draft.name || state.id}`;
       elements.title.textContent = payload.draft.name || state.id;
       elements.eyebrow.textContent = "Editing a character";

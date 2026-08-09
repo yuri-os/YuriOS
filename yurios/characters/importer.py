@@ -27,6 +27,7 @@ from .appearance import mechanical_identity, write_appearance
 from .card import CardLimits, CardParseError, card_fields, parse_png_card
 from .cardsplit import clean_version, split_description
 from .privacy import PRIVATE_SOUL_FILES
+from .setting import mechanical_place, opening_situation, write_setting
 from .soulfiles import SoulReader
 from .models import (
     BodyBinding,
@@ -463,7 +464,18 @@ def _create_vault(vault: Path, fields: Mapping[str, Any], name: str,
     _write(vault / "workspace" / "README.md", WORKSPACE_README)
     _write(vault / "skills" / "README.md", SKILLS_README)
     _write(vault / "world" / "beliefs.jsonl", "")
-    _write(vault / "world" / "situation.md", "# Current situation\n\n_(Unknown.)_")
+    # Where she is, from her own card (characters/setting.py). Mechanical and
+    # synchronous, so an import with no network and no key still leaves her
+    # standing somewhere of her own; `refine_setting` rewrites it into better
+    # prose when a utility model is reachable. This used to be `_(Unknown.)_`
+    # for every character, which was a lie by omission — nothing had happened
+    # yet, but the card in hand said perfectly plainly where she was.
+    place = mechanical_place(name, scenario=_text(fields.get("scenario")),
+                             description=_text(fields.get("description")),
+                             first_mes=_text(fields.get("first_mes")))
+    if place:
+        write_setting(vault / "world" / "setting.md", name, place)
+    _write(vault / "world" / "situation.md", opening_situation(place))
     _write(vault / "world" / "state.json", "{}")
     for filename in (
         "activity.json",

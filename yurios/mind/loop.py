@@ -493,7 +493,9 @@ class MindLoop:
     async def _act_ingest(self) -> tuple[dict, dict, list[str]]:
         with correlate.scope(kind=correlate.KNOWLEDGE):
             results = await self.knowledge.scan()
-        notes = [f"read and shelved {r.doc} ({r.chunks} passages)"
+        notes = [f"read and shelved {r.doc} ({r.chunks} passages"
+                 + (", too long to keep word-for-word, so notes)" if r.digested
+                    else ")")
                  for r in results]
         return ({"what": "knowledge.ingest",
                  "result": f"ingested {len(results)} doc(s)"}, {}, notes)

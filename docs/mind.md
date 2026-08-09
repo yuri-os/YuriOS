@@ -151,6 +151,16 @@ budget, each chunk situated with a short blurb, embedded, and hybrid-indexed (ve
 blended with keyword idf) — and journals "read and shelved …". Re-ingesting a changed file
 replaces its chunks rather than duplicating them.
 
+**A long document is read for notes instead.** Word-for-word ingestion costs a utility call and an
+embedding per 1,200 characters, which is right for a page and ruinous for a book — the 365,000-character
+encyclopaedia article one `research` call brought home is 379 chunks, i.e. 758 calls to the one model
+on this machine. Past 40,000 characters she switches to one précis per section (~8,000 characters,
+growing for a very long document so the call count stops climbing): ~140 calls instead of ~1,000 for
+that research run. The file is still kept whole on the shelf — only the index becomes notes — the span
+still points into the real document, and the citation says `summarised` so she doesn't offer her own
+paraphrase as a quotation. With no utility model configured there is nothing to summarise with, so
+long documents fall back to plain chunking, which is cheap there anyway.
+
 Retrieval is **grounded**: every returned chunk carries its document and a character span, so she
 can cite what she's telling you.
 
@@ -169,6 +179,25 @@ believes about *you*.
 A doc that fails to ingest (no embedder, a mangled file) is marked seen with one loud warning and
 retried only when the file changes — a broken shelf item never becomes a retry loop. The index is
 derived, gitignored and rebuildable.
+
+**You can watch it, and you can stop it.** Reading is the most expensive thing she does on her own
+initiative — a `research` tool call answers in milliseconds and then spends the next half hour of
+your machine — so the **inner life** tab carries a reading block: the document being read right now
+with a bar and a `12 / 48 passages · 24 of ~96 model calls` line, each research run with its pages
+and what they're priced at, and a **stop** button.
+
+Stopping loses nothing. The passages she has already read stay in the index and stay citable; the
+document stays on the shelf; pages a run had fetched but not yet read are shelved *held* rather
+than dropped, so resuming is reading rather than fetching all over again. A held document is not
+pending work — no heartbeat will touch it — until you press **resume**, and a resumed read carries
+on from the passage it stopped at rather than starting the book again. (A stop lands after the
+section she is on, never in the middle of a model call.)
+
+**One reader at the shelf.** A doc is claimed the moment its ingest starts rather than when it
+finishes, so a page `research` just shelved doesn't also look like pending work to every heartbeat
+in the minutes it takes to read; a caller arriving while it's claimed takes the shelved answer
+instead of repeating the work, and a tick that finds her already reading steps aside rather than
+queueing. A run that fails or is cancelled hands the claim back.
 
 ## DREAM
 

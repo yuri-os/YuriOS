@@ -6,6 +6,8 @@ wrong still ends in her saying something rather than in a traceback.
 """
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
 from yurios.world.research import Researcher, as_document
@@ -256,3 +258,114 @@ async def test_a_page_she_read_herself_is_retrievable(clock, tmp_path):
 
     hits = store.search("sencha steamed", k=2)
     assert hits and "steamed" in hits[0].text
+
+
+# ------------------------------------------------- watching it, stopping it
+#
+# A research call answers in milliseconds and then spends the next half hour of
+# this machine reading documents nobody has seen. §24.3 puts that on a page with
+# a button next to it; these are the properties the page rests on.
+
+async def drain(r):
+    """Wait out every task the researcher started, and anything they started."""
+    while r._tasks:
+        await asyncio.gather(*list(r._tasks), return_exceptions=True)
+
+
+class StoreFake(FakeShelf):
+    """The KnowledgeStore surface the Researcher actually touches."""
+
+    def __init__(self):
+        super().__init__()
+        self.parked: dict[str, str] = {}
+        self.stops = 0
+
+    def estimate(self, text):
+        passages = max(1, len(text) // 400)
+        return {"passages": passages, "calls": passages * 2,
+                "digested": len(text) > 40_000, "chars": len(text)}
+
+    def park(self, name, text):
+        self.parked[name] = text
+        return name
+
+    def holds(self):
+        return [{"doc": d} for d in self.parked]
+
+    def stop(self):
+        self.stops += 1
+        return True
+
+
+async def test_a_run_says_what_it_is_doing_and_what_it_will_cost(clock):
+    """The panel's row: stage, pages, and model calls priced per page as they
+    arrive — a URL has no length until somebody fetches it."""
+    shelf = StoreFake()
+    r, post, speak = make(clock, shelf=shelf)
+    r.start(CONTRACT)
+    (run,) = r.runs()
+    assert run["topic"] == "tea ceremony" and run["stage"] == "searching"
+
+    await drain(r)
+    (run,) = r.runs()
+    assert run["stage"] == "done"
+    assert run["found"] == 2 and run["read"] == len(run["pages"])
+    assert all(p["calls"] > 0 and p["state"] == "read" for p in run["pages"])
+    assert run["calls"] == sum(p["calls"] for p in run["pages"])
+
+
+async def test_stopping_before_she_reads_costs_nothing(clock):
+    """The flag goes up before the first fetch: nothing is fetched, nothing is
+    shelved, and she says so rather than going quiet."""
+    shelf = StoreFake()
+    r, post, speak = make(clock, shelf=shelf)
+    r.start(CONTRACT)
+    assert r.stop("r1") is True
+    await drain(r)
+
+    assert shelf.docs == {} and shelf.parked == {}
+    (run,) = r.runs()
+    assert run["stage"] == "stopped"
+    assert any("stopped reading" in m["text"] for m in post.messages)
+
+
+async def test_a_page_already_fetched_is_kept_rather_than_dropped(clock):
+    """Stopping between the fetch and the reading. Somebody's web server has
+    already been paid for that page — it goes on the shelf held, so resuming is
+    reading rather than fetching all over again."""
+    shelf = StoreFake()
+    r, post, speak = make(clock, shelf=shelf)
+
+    class StopsOnFetch(FakeFetcher):
+        async def fetch(self, url):
+            page = await super().fetch(url)
+            r.stop("r1")                       # you hit the button mid-run
+            return page
+
+    r.fetcher = StopsOnFetch()
+    r.start(CONTRACT)
+    await drain(r)
+
+    assert shelf.parked, "the fetched page was kept"
+    assert shelf.docs == {}, "and none of it was read"
+    assert shelf.stops == 1, "the read in flight was asked to stop too"
+    (run,) = r.runs()
+    assert run["stage"] == "stopped"
+    assert [p["state"] for p in run["pages"]] == ["held"]
+    assert run["pages"][0]["calls"] > 0, "priced, so the panel can offer it"
+
+
+async def test_stopping_a_run_that_already_finished_is_not_an_error(clock):
+    r, _post, _speak = make(clock, shelf=StoreFake())
+    r.start(CONTRACT)
+    await drain(r)
+    assert r.stop("r1") is False
+    assert r.stop("nope") is False
+
+
+async def test_finished_runs_are_kept_for_the_panel_but_not_forever(clock):
+    r, _post, _speak = make(clock, shelf=StoreFake())
+    for i in range(Researcher.KEEP_RUNS + 4):
+        r.start({**CONTRACT, "id": f"r{i}"})
+        await drain(r)
+    assert len(r.runs()) == Researcher.KEEP_RUNS

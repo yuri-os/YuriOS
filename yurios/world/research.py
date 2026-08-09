@@ -86,6 +86,10 @@ def as_document(page: dict, *, retrieved: str) -> str:
 class Researcher:
     """Owns the reading tasks. `start()` is the §7.5 host-side realisation."""
 
+    #: Finished runs kept for the panel, so "what did that cost?" survives the
+    #: end of the run that answers it.
+    KEEP_RUNS = 8
+
     def __init__(self, search, fetcher, *, clock: Clock,
                  post: Callable[..., dict],
                  speak: Callable[[str], Awaitable[bool]],
@@ -99,6 +103,9 @@ class Researcher:
         self.knowledge = knowledge             # () -> KnowledgeStore | None
         self.notify = notify                   # EventHub.publish, when hosted
         self._tasks: set[asyncio.Task] = set()
+        #: id -> the record the inner-life panel reads (§24.3). Ordered, and
+        #: trimmed to the last few finished runs.
+        self._runs: dict[str, dict] = {}
 
     # ------------------------------------------------------------- the shelf
 
@@ -112,6 +119,46 @@ class Researcher:
         except Exception:
             log.exception("research: couldn't reach the knowledge shelf")
             return None
+
+    def _price(self, entry: dict, page: dict) -> None:
+        """What reading this page is going to cost, in model calls, before any
+        of them are made. Best-effort: no store, no estimate, no drama."""
+        store = self._store()
+        if store is None:
+            return
+        try:
+            est = store.estimate(as_document(page, retrieved=self._stamp()))
+            entry["calls"] = est["calls"]
+            entry["passages"] = est["passages"]
+            entry["digested"] = est["digested"]
+        except Exception:  # noqa: BLE001 — a price tag is not worth a traceback
+            log.debug("research: couldn't price %s", page.get("url"),
+                      exc_info=True)
+
+    def _park(self, page: dict) -> str:
+        """Shelve a fetched page without reading it (KnowledgeStore.park)."""
+        store = self._store()
+        if store is None:
+            return ""
+        try:
+            return store.park(_doc_name(page),
+                              as_document(page, retrieved=self._stamp()))
+        except Exception:  # noqa: BLE001
+            log.warning("research: couldn't park %s", page.get("url"),
+                        exc_info=True)
+            return ""
+
+    def _page_state(self, doc: str) -> str:
+        """Did that page's reading finish, or did it end up held?"""
+        store = self._store()
+        if not doc or store is None:
+            return "unshelved"
+        try:
+            if any(h["doc"] == doc for h in store.holds()):
+                return "held"
+        except Exception:  # noqa: BLE001
+            pass
+        return "read"
 
     async def _shelve(self, page: dict) -> str:
         """Ingest one page. Returns the doc name, or "" if it wasn't kept."""
@@ -159,13 +206,31 @@ class Researcher:
     def start(self, contract: dict) -> None:
         """Spawn one research run from the tool's validated contract. Never
         blocks, never raises — the turn that asked is already moving on."""
+        run_id = str(contract.get("id") or "?")
+        self._runs[run_id] = {
+            "id": run_id, "topic": str(contract.get("topic") or ""),
+            "depth": int(contract.get("depth") or 3),
+            "stage": "searching", "started_at": self.clock.now(),
+            "pages": [], "stopped": False, "corr_id": contract.get("_corr_id")}
+        self._trim()
         task = asyncio.create_task(self._job(dict(contract)),
-                                   name=f"research-{contract.get('id', '?')}")
+                                   name=f"research-{run_id}")
         self._tasks.add(task)
         self._status(contract, "started")
         task.add_done_callback(self._tasks.discard)
 
+    def _trim(self) -> None:
+        finished = [k for k, r in self._runs.items()
+                    if r["stage"] in ("done", "error", "stopped")]
+        for k in finished[: max(0, len(finished) - self.KEEP_RUNS)]:
+            self._runs.pop(k, None)
+
     def _status(self, contract: dict, state: str) -> None:
+        run = self._runs.get(str(contract.get("id", "")))
+        if run is not None and state in ("done", "error", "stopped"):
+            run["stage"] = state
+            run["ended_at"] = self.clock.now()
+            self._trim()
         if self.notify is None:
             return
         event = {"id": str(contract.get("id", "")), "state": state,
@@ -174,9 +239,55 @@ class Researcher:
             event["client_id"] = contract["_client_id"]
         self.notify("research_status", event)
 
+    # ------------------------------------------------ watching it, stopping it
+
+    def runs(self) -> list[dict]:
+        """Every run this process knows about, newest last — the panel's list.
+
+        `calls` is what the reading is *estimated* to cost in model calls, page
+        by page, and it only becomes knowable as pages arrive: a search result
+        is a URL, and a URL's length is whatever the server sends back. So the
+        number grows during the fetch phase and then counts down — which is the
+        honest shape of it, and better than a spinner that implies nothing is
+        being spent.
+        """
+        out = []
+        for run in self._runs.values():
+            pages = run["pages"]
+            row = dict(run)
+            row["pages"] = list(pages)
+            row["calls"] = sum(p.get("calls", 0) for p in pages)
+            row["read"] = sum(1 for p in pages if p.get("state") == "read")
+            row["elapsed_s"] = round(
+                (run.get("ended_at") or self.clock.now()) - run["started_at"], 1)
+            out.append(row)
+        return out
+
+    def stop(self, run_id: str) -> bool:
+        """Stop a run: no more fetching, no more reading, nothing lost.
+
+        Not a task cancellation. A run is mostly spent *inside* one long
+        `KnowledgeStore.ingest`, and killing that mid-call would throw away the
+        passages already paid for and leave the doc claimed by a reader that no
+        longer exists. So this raises a flag the run itself honours: the store
+        stops after the section it's on and parks the rest (`hold`), pages
+        fetched but not yet read are shelved held rather than dropped, and the
+        run winds down through its ordinary ending.
+        """
+        run = self._runs.get(str(run_id))
+        if run is None or run["stage"] in ("done", "error", "stopped"):
+            return False
+        run["stopped"] = True
+        run["stage"] = "stopping"
+        store = self._store()
+        if store is not None:
+            store.stop()          # the read in flight, if there is one
+        return True
+
     async def _job(self, c: dict) -> None:
         topic = str(c.get("topic") or "").strip()
         depth = max(1, int(c.get("depth") or 3))
+        run = self._runs.get(str(c.get("id", "")), {"pages": [], "stopped": False})
         try:
             hits = await self.search.search(topic, depth)
         except Exception as e:
@@ -188,11 +299,15 @@ class Researcher:
             self._say(c, f"(nothing came back about {topic})")
             self._status(c, "done")
             return
+        run["found"] = len(hits)
+        run["stage"] = "reading" if not run["stopped"] else run["stage"]
 
         sem = asyncio.Semaphore(FETCH_CONCURRENCY)
 
         async def one(hit: dict) -> dict | None:
             async with sem:
+                if run["stopped"]:
+                    return None            # never fetched: nothing to keep
                 try:
                     page = await self.fetcher.fetch(hit["url"])
                 except Exception as e:
@@ -204,11 +319,32 @@ class Researcher:
                 if not (page.get("text") or "").strip():
                     return None
                 page.setdefault("title", hit.get("title") or hit["url"])
-                page["doc"] = await self._shelve(page)
+                entry = {"url": page["url"], "title": page["title"],
+                         "chars": len(page["text"]), "state": "fetched",
+                         "calls": 0, "doc": ""}
+                run["pages"].append(entry)
+                self._price(entry, page)
+                if run["stopped"]:
+                    # Fetched between the flag going up and this line. Somebody
+                    # already paid a stranger's web server for it — put it on the
+                    # shelf held rather than dropping it, so resuming is reading
+                    # rather than fetching all over again.
+                    entry["doc"] = self._park(page)
+                    entry["state"] = "held" if entry["doc"] else "dropped"
+                    return None
+                entry["state"] = "reading"   # …for however long the read takes
+                entry["doc"] = await self._shelve(page)
+                entry["state"] = self._page_state(entry["doc"])
+                page["doc"] = entry["doc"]
                 return page
 
         pages = [p for p in await asyncio.gather(*(one(h) for h in hits))
                  if p is not None]
+        if run["stopped"]:
+            self._say(c, f"(stopped reading about {topic} — what she'd already "
+                         "fetched is on her shelf, waiting for you)")
+            self._status(c, "stopped")
+            return
         if not pages:
             self._say(c, f"(found some links about {topic}, but none of them "
                          "would open)")

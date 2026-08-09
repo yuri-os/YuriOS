@@ -166,3 +166,123 @@ def test_mindless_app_reports_503(cfg):
         assert c.get("/api/mind").status_code == 503
         health = c.get("/api/health").json()
         assert health["mind"] == "disabled"            # the truth, not a guess
+
+
+# ---------------------------------------------- /api/mind/reading (SPEC §24.3)
+#
+# The panel behind the inner-life tab's reading block: what she is reading, what
+# it will cost in model calls, and the two buttons that stop it without losing
+# the document.
+
+def test_reading_answers_even_when_she_is_reading_nothing(client_with_mind):
+    """A panel that 503s tells you nothing about whether anything is happening."""
+    c, _rig = client_with_mind
+    body = c.get("/api/mind/reading").json()
+    assert body["mind"] is True
+    assert body["reading"] is None
+    assert body["runs"] == [] and body["held"] == []
+
+
+def test_reading_shows_what_is_held_and_what_finishing_it_costs(client_with_mind):
+    c, rig = client_with_mind
+    doc = rig.mind.knowledge.park("web-a-long-page.md",
+                                  text="A paragraph.\n\n" * 400)
+    (held,) = c.get("/api/mind/reading").json()["held"]
+    assert held["doc"] == doc and held["done"] == 0
+    assert held["passages"] > 1 and held["remaining_calls"] >= held["passages"]
+    assert "stopped it" in held["reason"]
+
+
+def test_resuming_a_held_doc_puts_it_back_in_her_way(client_with_mind):
+    c, rig = client_with_mind
+    doc = rig.mind.knowledge.park("web-a-long-page.md",
+                                  text="A paragraph.\n\n" * 400)
+    assert rig.mind.knowledge.pending_docs() == []
+
+    assert c.post("/api/mind/reading/resume", json={"doc": doc}).status_code == 200
+    assert rig.mind.knowledge.pending_docs() == [doc], "the tick can have it now"
+    assert c.get("/api/mind/reading").json()["held"] == []
+
+
+def test_resuming_something_she_never_stopped_is_a_404(client_with_mind):
+    c, _rig = client_with_mind
+    assert c.post("/api/mind/reading/resume",
+                  json={"doc": "nothing.md"}).status_code == 404
+
+
+def test_stopping_when_she_is_not_reading_says_so(client_with_mind):
+    c, _rig = client_with_mind
+    assert c.post("/api/mind/reading/stop", json={}).status_code == 409
+    assert c.post("/api/mind/reading/stop",
+                  json={"run": "nope"}).status_code == 404
+
+
+async def test_stopping_a_live_run_through_the_route(client_with_mind, clock):
+    """The button, end to end: the route reaches the runner the tool loop uses,
+    and the run winds down through its own ending rather than being killed."""
+    from yurios.world.research import Researcher
+    from yurios.world.tools.fetch import FakeFetcher
+    from yurios.world.tools.search import FakeSearch
+
+    c, rig = client_with_mind
+    r = Researcher(FakeSearch(), FakeFetcher(), clock=clock,
+                   post=lambda *a, **k: {}, speak=None,
+                   knowledge=lambda: rig.mind.knowledge)
+    c.app.state.rt.research = r
+    r.start({"id": "r1", "topic": "tea", "depth": 2})
+
+    body = c.get("/api/mind/reading").json()
+    assert [run["stage"] for run in body["runs"]] == ["searching"]
+
+    assert c.post("/api/mind/reading/stop", json={"run": "r1"}).json()["stopped"]
+    assert r.runs()[0]["stage"] == "stopping"
+    assert c.post("/api/mind/reading/stop", json={"run": "r1"}).status_code == 200
+
+
+async def test_watching_a_long_read_and_stopping_it_from_the_panel(
+        client_with_mind):
+    """The whole feature in one test: a document long enough to watch, the
+    numbers the panel shows while it is being read, the stop button, and the
+    guarantee that what's left is not read again until you resume it."""
+    import asyncio
+
+    c, rig = client_with_mind
+    store = rig.mind.knowledge
+    real = store._contextualize
+
+    async def unhurried(doc, chunk):          # a local model is not instant
+        await asyncio.sleep(0.02)
+        return await real(doc, chunk)
+
+    store._contextualize = unhurried
+    store.vault.write("knowledge/reference/long.md", "A paragraph.\n\n" * 600)
+
+    task = asyncio.create_task(store.ingest("long.md"))
+    live = None
+    try:
+        for _ in range(200):                  # wait for the read to be visible
+            await asyncio.sleep(0.02)
+            live = c.get("/api/mind/reading").json()["reading"]
+            if live and live["done"] >= 2:
+                break
+        assert live and live["doc"] == "long.md"
+        assert 0 < live["done"] < live["passages"]
+        assert live["calls"] == live["passages"] * live["calls_each"]
+        assert live["calls_done"] == live["done"] * live["calls_each"]
+
+        assert c.post("/api/mind/reading/stop", json={}).json()["stopped"]
+        result = await asyncio.wait_for(task, timeout=10)
+    finally:
+        task.cancel()
+
+    assert result.held and 0 < result.chunks < live["passages"]
+    body = c.get("/api/mind/reading").json()
+    assert body["reading"] is None
+    (held,) = body["held"]
+    assert held["doc"] == "long.md" and held["done"] == result.chunks
+    assert store.pending_docs() == [], "held is held: no tick will touch it"
+
+    # …and it is exactly as resumable as the panel's button claims
+    assert c.post("/api/mind/reading/resume", json={"doc": "long.md"}).is_success
+    assert store.pending_docs() == ["long.md"]
+    assert store._resume_point("long.md") == result.chunks

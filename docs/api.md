@@ -187,9 +187,14 @@ set a timer?" gets answered without reading logs.
 | `GET /api/mind/journal?days=` | her `[she]` lines by day (max 30) |
 | `GET /api/mind/trace?n=` | the tick-trace tail (max 200) |
 | `POST /api/mind/edits/{id}` | `{"approve": bool}` — queued as a signal the loop consumes next tick |
+| `GET /api/mind/reading` | research runs, the document being read right now with its passage and model-call counts, and everything held |
+| `POST /api/mind/reading/stop` | `{"run": "<id>"}` to stop a research run, `{}` to stop just the read in flight |
+| `POST /api/mind/reading/resume` | `{"doc": "<name>"}` — let a held document be read again, from where it stopped |
 
 All of it reads *through* the mind's own stores, so the dashboard can never disagree with the
-files. With the mind off, these answer `503` and `/api/health` says so.
+files. With the mind off, these answer `503` and `/api/health` says so — except
+`GET /api/mind/reading`, which answers either way (`"mind": false`), because a panel that 503s
+tells you nothing about whether anything is being spent.
 
 ### The mind debug page
 

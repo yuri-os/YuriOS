@@ -29,6 +29,73 @@ async def mind_state(request: Request) -> dict:
     return _mind(request).snapshot()
 
 
+@router.get("/api/mind/reading")
+async def reading(request: Request) -> dict:
+    """What her reading is doing right now, and what it is going to cost.
+
+    The one thing in here she does entirely on her own initiative and entirely
+    out of sight: a `research` tool call returns in milliseconds and then spends
+    the next half hour of the machine on a document nobody has seen. This is
+    that, on a page — the runs, the page being read this second with its
+    passage count, the model calls it will take, and everything parked waiting
+    on you (SPEC §24.3, §7.7).
+
+    Tolerant of a mindless runtime and of a build with no search backend, since
+    a panel that 503s is a panel that tells you nothing about either.
+    """
+    rt = request.app.state.rt
+    research = getattr(rt, "research", None)
+    mind = getattr(rt, "mind", None)
+    store = mind.knowledge if mind is not None else None
+    return {
+        "search": getattr(rt, "research_status", "off"),
+        "mind": mind is not None,
+        "runs": research.runs() if research is not None else [],
+        "reading": store.progress() if store is not None else None,
+        "held": store.holds() if store is not None else [],
+    }
+
+
+@router.post("/api/mind/reading/stop")
+async def reading_stop(request: Request) -> dict:
+    """Stop a run (`{"run": "<id>"}`) or just the read in flight (`{}`).
+
+    Nothing is thrown away: passages already read stay in the index, the
+    document stays on the shelf, and both are parked until you resume them.
+    """
+    body = {}
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001 — an empty body means "whatever she's reading"
+        pass
+    rt = request.app.state.rt
+    research = getattr(rt, "research", None)
+    mind = getattr(rt, "mind", None)
+    run_id = str(body.get("run") or "")
+    if run_id:
+        if research is None or not research.stop(run_id):
+            raise HTTPException(404, f"no run {run_id} still going")
+        return {"stopped": True, "run": run_id}
+    if mind is None or not mind.knowledge.stop():
+        raise HTTPException(409, "she isn't reading anything right now")
+    return {"stopped": True}
+
+
+@router.post("/api/mind/reading/resume")
+async def reading_resume(request: Request) -> dict:
+    """Let a parked document be read again. Body: {"doc": "<name>"}.
+
+    It goes back to being pending work, and the loop picks it up on a tick like
+    any other doc on the shelf — carrying on from the passage it stopped at.
+    """
+    body = await request.json()
+    doc = str(body.get("doc") or "")
+    mind = _mind(request)
+    if not mind.knowledge.resume(doc):
+        raise HTTPException(404, f"{doc or 'that'} isn't being held")
+    return {"resumed": True, "doc": doc}
+
+
 @router.get("/api/mind/journal")
 async def journal(request: Request, days: int = 3) -> dict:
     """The last `days` of the shared journal — her acts flagged `hers`."""

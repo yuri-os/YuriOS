@@ -366,3 +366,46 @@ svg{ width:1.1em; height:1.1em; fill:none; stroke:currentColor; stroke-width:1.7
   *, *::before, *::after{ animation-duration:.01ms !important; animation-iteration-count:1 !important;
                           transition-duration:.01ms !important; }
 }
+
+/* her reading, in flight (SPEC §7.7, §24.3) — the one block on this panel that
+   is spending the machine while you look at it, so it gets the acid and a
+   button, not just a line of prose. */
+.il-read,.il-run,.il-held{
+  margin:0 0 12px; padding:13px; border:1px solid var(--rule); background:var(--panel);
+}
+.il-read,.il-run.on{ border-left:2px solid var(--acid); }
+.il-held{ border-left:2px solid var(--acid-dark); }
+.il-read-doc,.il-held-doc{
+  color:var(--ink); font:10px var(--font-mono); word-break:break-all;
+}
+.il-read-n{
+  margin-top:7px; color:var(--dim); font:10px var(--font-mono);
+  font-variant-numeric:tabular-nums;
+}
+/* the bar: how much of the document she has actually got through */
+.il-bar{
+  display:block; height:3px; margin:10px 0 0; background:var(--void);
+  border:1px solid var(--rule);
+}
+.il-bar i{ display:block; height:100%; background:var(--acid); transition:width .4s ease; }
+.il-run .il-prov,.il-held .il-prov{ line-height:1.7; }
+.il-run-top{ display:flex; align-items:center; gap:10px; justify-content:space-between; }
+.il-run-top b{ color:var(--ink); font-weight:400; font-size:12px; line-height:1.5; }
+.il-pages{ list-style:none; padding:0; margin:9px 0 0; }
+.il-pages li{
+  margin:0 0 5px; color:var(--soft); font:10px var(--font-mono); line-height:1.6;
+  word-break:break-word;
+}
+.il-pages .il-t{ display:inline-block; min-width:52px; color:var(--dim); }
+.il-pages li.p-held .il-t{ color:var(--acid); }
+.il-stop,.il-go{
+  min-height:28px; margin-top:11px; display:inline-flex; align-items:center; padding:0 12px;
+  border:1px solid var(--rule); border-radius:2px; background:transparent;
+  color:var(--soft); cursor:pointer; font:9px var(--font-mono);
+  letter-spacing:.08em; text-transform:uppercase; transition:.18s ease;
+}
+.il-run-top .il-stop{ margin-top:0; flex:none; }
+.il-stop:hover{ border-color:var(--acid); color:var(--acid); }
+.il-go{ border-color:var(--acid); color:var(--acid); }
+.il-go:hover{ background:var(--acid); color:#10140a; }
+.il-stop:disabled,.il-go:disabled{ opacity:.45; cursor:wait; }

@@ -282,8 +282,10 @@ fraction of what the model can do — a long enough conversation ends with the s
 the turn outright ("Context size has been exceeded") and the reply lost. So the window is a
 knob and a readout, both. `CONTEXT_LENGTH` (0 = the provider's default) **MUST** be sent as
 `context_length` on the explicit load above, so the number in `.env` is the window she
-actually runs in, and a model already pinned in a *smaller* window **MUST** be reloaded to
-honour it (a larger one is left alone — it already fits). The frontend **MUST** show how full
+actually runs in. It governs a load *we* perform and nothing else: a model already pinned
+**MUST** be used in whatever window it already has, larger or smaller, and a shortfall
+against `CONTEXT_LENGTH` **MUST** be logged rather than corrected — LM Studio may be serving
+something other than her, and those weights cost seconds to move. The frontend **MUST** show how full
 that window is: prompt tokens against the ceiling, published as a sticky `context` event on
 the one bus (§10) so a page joining mid-conversation sees the last reading. The used side is
 the server's own `prompt_tokens` where the route will report it (`stream_options`, allowlisted

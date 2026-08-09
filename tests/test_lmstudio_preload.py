@@ -105,6 +105,11 @@ def test_chat_and_utility_being_the_same_model_loads_it_once():
 # window, which is routinely smaller than the model can do — so a long enough
 # conversation dies on "Context size has been exceeded". CONTEXT_LENGTH is the
 # cure, and it only works if the number actually reaches /models/load.
+#
+# But it is a setting for OUR load, never a warrant to redo someone else's: an
+# already-pinned model is used in whatever window it is in, and the shortfall is
+# logged. LM Studio is a shared server; those weights cost seconds to move and we
+# may not be the only thing talking to it.
 
 def test_context_length_rides_the_load():
     t = transport([GEMMA])
@@ -129,16 +134,20 @@ def test_an_embedder_never_gets_a_chat_window():
     assert t.calls == [("/api/v1/models/load", {"model": NOMIC["key"]})]
 
 
-def test_a_model_pinned_too_small_is_reloaded_bigger():
-    # LM Studio reports the loaded window inside the instance's `config` block
+def test_a_model_pinned_too_small_is_adopted_not_reloaded(caplog):
+    """The window we asked for loses to the one already paid for. LM Studio
+    reports it inside the instance's `config` block."""
     small = {**GEMMA, "loaded_instances": [
         {"id": GEMMA["key"], "config": {"context_length": 4096}}]}
     t = transport([small])
-    ensure_resident("http://lms/v1", [GEMMA["key"]], context_length=32768,
-                    transport=t)
-    assert t.calls == [("/api/v1/models/unload", {"instance_id": GEMMA["key"]}),
-                       ("/api/v1/models/load",
-                        {"model": GEMMA["key"], "context_length": 32768})]
+    with caplog.at_level("INFO", logger="mvw.lmstudio"):
+        resident = ensure_resident("http://lms/v1", [GEMMA["key"]],
+                                   context_length=32768, transport=t)
+    assert t.calls == []                       # no unload, no reload
+    assert resident == [GEMMA["key"]]          # and it still counts as ready
+    # silently running in 4096 when .env says 32768 is how you get a mystery
+    # "context size exceeded" later — the shortfall has to be visible
+    assert "4096" in caplog.text and "32768" in caplog.text
 
 
 def test_a_model_already_big_enough_is_left_alone():

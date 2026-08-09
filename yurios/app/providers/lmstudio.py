@@ -111,16 +111,6 @@ def _instance_ctx(inst: dict) -> int:
     return 0
 
 
-def _too_small(pinned: list[dict], want: int) -> bool:
-    """Is every pinned instance running in a window smaller than `want`? Only
-    then is a reload worth the seconds — an unknown or larger window already
-    serves the prompts we're going to send."""
-    if want <= 0:
-        return False
-    sizes = [_instance_ctx(i) for i in pinned]
-    return bool(sizes) and all(0 < s < want for s in sizes)
-
-
 def probe_context(base_url: str, model_id: str, *,
                   transport: httpx.BaseTransport | None = None) -> dict:
     """What context window `model_id` is actually running in, if LM Studio says.
@@ -165,10 +155,11 @@ def ensure_resident(base_url: str, model_ids: list[str], *,
     """Pin `model_ids` in LM Studio's memory, with no idle TTL. Never raises.
 
     `context_length` (CONTEXT_LENGTH in .env, 0 = leave it to LM Studio) is the
-    window each model is loaded with — the knob that answers "Context size has
-    been exceeded", since LM Studio's per-model default is usually well under
-    what the model can do. A model already resident in a SMALLER window is
-    reloaded to get the bigger one; a bigger one is left alone (it already fits).
+    window a model is loaded WITH — the knob that answers "Context size has been
+    exceeded", since LM Studio's per-model default is usually well under what the
+    model can do. It applies to a load we perform; it is never a reason to redo
+    someone else's. A model already pinned is used exactly as it stands, whatever
+    window it is in, and the shortfall is logged rather than reloaded away.
 
     Returns the keys that ended up resident — for the caller's boot panel, and
     short of the whole list when something could not be loaded.
@@ -201,23 +192,30 @@ def ensure_resident(base_url: str, model_ids: list[str], *,
         # the window is a chat knob: an embedding model has no conversation to
         # hold, and its own tiny window is the right one
         want = context_length if entry.get("type", "llm") == "llm" else 0
-        # An instance with no TTL is already pinned — nothing to do, unless it is
-        # pinned in a window smaller than the one asked for (a stale instance from
-        # before CONTEXT_LENGTH was set), which is worth the reload. One WITH a
-        # TTL was JIT-loaded (by us on an earlier run, or by anything else on this
-        # machine): it expires on idle and comes back through the evicting path,
-        # so trade it for a pinned one. Loading on top of either would just make a
-        # second instance and pay for the weights twice.
+        # An instance with no TTL is already pinned — nothing to do, full stop.
+        # Not even a window smaller than CONTEXT_LENGTH earns a reload: those are
+        # someone's loaded weights, the seconds are real, and a server another
+        # process is also using is not ours to churn. We adopt the window it is
+        # in and say so. One WITH a TTL was JIT-loaded (by us on an earlier run,
+        # or by anything else on this machine): it expires on idle and comes back
+        # through the evicting path, so trade it for a pinned one. Loading on top
+        # of either would just make a second instance and pay for the weights
+        # twice.
         pinned = [i for i in instances if i.get("remaining_ttl_seconds") is None]
-        if pinned and not _too_small(pinned, want):
-            log.info("LM Studio: %s already resident", key)
+        if pinned:
+            have = max((_instance_ctx(i) for i in pinned), default=0)
+            if 0 < want and 0 < have < want:
+                log.info("LM Studio: %s already resident in a %d-token window — "
+                         "using it as loaded; CONTEXT_LENGTH=%d would need a "
+                         "reload in LM Studio to take effect", key, have, want)
+            else:
+                log.info("LM Studio: %s already resident", key)
             resident.append(key)
             continue
         try:
             with httpx.Client(timeout=timeout, transport=transport) as client:
                 for inst in instances:
-                    log.info("LM Studio: dropping the %s instance of %s",
-                             "under-sized" if inst in pinned else "TTL'd", key)
+                    log.info("LM Studio: dropping the TTL'd instance of %s", key)
                     client.post(f"{root}/api/v1/models/unload",
                                 json={"instance_id": inst["id"]}).raise_for_status()
                 # no ttl_seconds → no idle unload. No context_length → LM Studio's

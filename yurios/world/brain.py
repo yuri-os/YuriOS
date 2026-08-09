@@ -87,16 +87,22 @@ class ToolBrain(BrainAdapter):
         self.world = world
 
     def turn_context(self, *, channel: str, client_id: str | None = None,
-                     session_id: str | None = None):
+                     session_id: str | None = None,
+                     proactive: bool = False):
         """Open the turn as a unit of work (world/correlate.py).
 
         Transport identity for tools started by this turn — which is what this
         used to carry alone — is now one part of an `Origin` that the tool audit
         and the prompt log stamp too, so a photo that arrives minutes later is
         still joinable to the sentence that asked for it.
+
+        `proactive` is the caller saying she started this turn (a greeting, an
+        ambient line): the voice route runs those through the same pump as a
+        reply, and off-turn work needs to know which it inherited.
         """
         return correlate.scope(kind=correlate.CHAT_TURN, channel=channel,
-                               client_id=client_id, session_id=session_id)
+                               client_id=client_id, session_id=session_id,
+                               proactive=proactive)
 
     # -- prompt assembly: the blocks + the situation (SPEC §19.2) ------
     def _assemble(self, session_id: str, text: str, *, window: list[dict],
@@ -317,4 +323,10 @@ class ToolBrain(BrainAdapter):
                 # travels into generations.jsonl, so the debug page can join a
                 # rendered photo back to the turn that reached for the camera
                 data["_corr_id"] = origin.corr_id if origin else None
+                # …and whether the photo is an answer. She reaches for the
+                # camera mid-turn, but the shot lands minutes later with no
+                # turn around it, and the lab used to read that gap as her
+                # speaking first — so every photo you asked for arrived marked
+                # as one she volunteered (§15.5).
+                data["_proactive"] = not correlate.answering()
                 self.selfies.start(data)

@@ -50,6 +50,21 @@ class Origin:
     tick_id: str | None = None
     channel: str | None = None
     client_id: str | None = None
+    #: A turn she started rather than one she is answering. The greeting and the
+    #: ambient injector ride the same route as a real reply (voice_ws `run`), so
+    #: `kind` alone cannot tell them apart — this is how they say so.
+    proactive: bool = False
+
+    @property
+    def answering(self) -> bool:
+        """Is this work part of answering something the user said?
+
+        Work started inside a turn and finished off it — a selfie, a research
+        read — inherits the answer: a photo you asked for is a reply, however
+        many minutes later it lands, and must not be marked "she spoke first"
+        (§15.5).
+        """
+        return self.kind == CHAT_TURN and not self.proactive
 
     def stamp(self) -> dict:
         """The fields a log line carries. Written flat rather than nested so the
@@ -74,6 +89,13 @@ def new_corr_id() -> str:
 
 def current() -> Origin | None:
     return _current.get()
+
+
+def answering() -> bool:
+    """Whether the scope in view is a turn answering the user. No scope at all
+    is a call nobody asked for, which is exactly not that."""
+    origin = _current.get()
+    return origin is not None and origin.answering
 
 
 def stamp() -> dict:

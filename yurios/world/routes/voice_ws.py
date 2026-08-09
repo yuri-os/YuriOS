@@ -200,7 +200,8 @@ async def _in_the_room(ws: WebSocket, rt, session_id: str, safe_send) -> None:
         try:
             turn_context = getattr(brain, "turn_context", None)
             context = turn_context(channel="voice", client_id=client_id,
-                                   session_id=session_id) \
+                                   session_id=session_id,
+                                   proactive=proactive) \
                 if turn_context else nullcontext()
             with context:
                 async for ev in agen:

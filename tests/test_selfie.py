@@ -556,6 +556,61 @@ async def test_the_tool_loop_starts_the_lab(cfg, guard, timers, controller, cloc
     assert contract["scene"] == "window" and contract["status"] == "started"
 
 
+async def test_a_photo_you_asked_for_is_not_marked_she_spoke_first(
+        cfg, guard, timers, controller, clock, forge):
+    """The whole point of the marking (§15.5): "she spoke first" means she
+    started this. A selfie lands minutes after the turn that reached for the
+    camera, with no turn around it — so the lab used to read every photo as
+    unprompted, and the chat put the tag on every single one, including the
+    ones you asked for by name."""
+    from yurios.world.tools.fakes import FakeToolRunner
+
+    class SpyLab:
+        def __init__(self):
+            self.started: list[dict] = []
+
+        def start(self, contract):
+            self.started.append(contract)
+
+    guard._rates["take_selfie"] = 2
+    guard._buckets["take_selfie"] = {"tokens": 2.0, "at": clock.now()}
+    lab = SpyLab()
+    chat = ScriptedChat([
+        ['ok~ [[take_selfie {"scene": "window"}]]'],
+        ["coming right up."],
+    ])
+    brain = make_toolbrain(cfg, guard, timers, controller, chat,
+                           runner=FakeToolRunner(), selfies=lab)
+    with brain.turn_context(channel="web", client_id="browser-1",
+                            session_id="s-1"):
+        await collect(brain._stream_with_tools(
+            [{"role": "user", "content": "send me a selfie"}], []))
+
+    (contract,) = lab.started
+    assert contract["_proactive"] is False     # decided while the turn was up
+
+    # …and the lab, running long after that turn closed, commits it as a reply
+    rec = Recorder()
+    real = SelfieLab(forge, clock=clock, post=rec.post, speak=rec.speak)
+    real.start({**contract, "id": "asked-for"})
+    await settle(real)
+    (post,) = rec.posts
+    assert post["image_url"] and post["proactive"] is False
+
+
+async def test_a_photo_nobody_asked_for_still_says_she_spoke_first(
+        cfg, clock, forge):
+    """The other half: a dream's picture (mind/dreamjobs.py) carries no
+    `_proactive` at all, because nobody was talking — and that is exactly the
+    line the tag was invented for."""
+    rec = Recorder()
+    lab = SelfieLab(forge, clock=clock, post=rec.post, speak=rec.speak)
+    lab.start({"id": "dream-2026-08-08", "status": "started", "_dream": True})
+    await settle(lab)
+    (post,) = rec.posts
+    assert post["proactive"] is True
+
+
 async def test_long_selfie_result_is_realised_before_model_truncation(
         cfg, guard, timers, controller, clock):
     """The continuation may get a bounded result, but host realization must

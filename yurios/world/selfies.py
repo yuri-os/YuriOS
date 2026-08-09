@@ -88,6 +88,19 @@ def _noun(kind: str) -> str:
     return "picture" if kind == "picture" else "selfie"
 
 
+def _unprompted(contract: dict) -> bool:
+    """Did she take this one unasked? — the `proactive` marking the photo is
+    committed with (§15.5).
+
+    The render outlives the turn that started it, so the lab cannot look at the
+    conversation to answer this; whoever built the contract stamps `_proactive`
+    while the turn is still in scope (world/brain.py). A contract without it is
+    one nobody was talking during — a dream's picture, a host call — and that
+    is her speaking first, which is also the old behaviour.
+    """
+    return bool(contract.get("_proactive", True))
+
+
 def _identity(cfg):
     """Whose face the camera renders (SPEC §7.6).
 
@@ -466,7 +479,7 @@ class SelfieLab:
         except Exception as e:                 # render failed: say so, quietly
             failed = True
             log.exception("%s render failed", noun)
-            post_kw = {"proactive": True}
+            post_kw = {"proactive": _unprompted(c)}
             if c.get("_channel"):
                 post_kw["channel"] = c["_channel"]
             if c.get("_client_id"):
@@ -495,7 +508,8 @@ class SelfieLab:
         # names ever did, and it is her line about her own photo.
         detail = chosen.get("look") or ", ".join(
             v for v in (chosen.get("scene"), chosen.get("mood")) if v)
-        post_kw = {"image_url": f"/selfies/{name}", "proactive": True}
+        post_kw = {"image_url": f"/selfies/{name}",
+                   "proactive": _unprompted(c)}
         if c.get("_channel"):
             post_kw["channel"] = c["_channel"]
         if c.get("_client_id"):

@@ -13,15 +13,29 @@ name, state, model and voice. Select a card to enter her sanctuary at
 `/characters/<id>/sanctuary/`; **leaving the room returns to the board without stopping her** —
 her background life doesn't depend on being looked at.
 
+![The switchboard: two companions, their states and their mind / utility / dream switches.](img/switchboard.png)
+
 States you'll see on a tile:
 
 | State | Meaning |
 |---|---|
-| `engaged` / `awake` / `resting` / `dreaming` | her mind's activity state — she's running (see [The mind](mind.md#activity-states)) |
+| `engaged` / `idle` / `dormant` / `dream` | her mind's activity state — she's running (see [The mind](mind.md#activity-states)) |
 | `offline` | registered, no runtime up |
 | `starting` / `ready` | the host is bringing her up |
-| `attention` | imported and waiting for review — see [below](#importing-a-card) |
-| `failed` | her runtime didn't start; the tile carries the error |
+| `attention` | imported and waiting for review (see [below](#importing-a-card)), or her runtime didn't start — the tile carries the error |
+
+Those four rungs are the mind loop's own words (`mind/policy.py`), printed as themselves. There is
+no second, friendlier vocabulary anywhere in the UI: a screen that said "resting" where another
+said `DORMANT` was describing one fact in two languages. A character with no mind running never
+reaches the ladder at all and keeps the host's process words instead — those are a different fact
+(is she up), not another name for a rung.
+
+The tile also carries her three [loop switches](#loop-switches), live, and the four ways in beside
+them: **Enter** for the 3D sanctuary, then her Live2D body, the text-only room, and her
+[mind debug page](mind.md#the-mind-debug-page). That last one is not a room — it reads her files,
+so it stays open on a character who is down, which is the one you want to look inside before
+deciding what to do about her. The last control opens her profile drawer without entering
+anything. The header counts what is registered against how many minds are actually ticking.
 
 One broken companion is never a down house: the host stays up and everyone else keeps running.
 
@@ -142,7 +156,35 @@ and writes them back down through `soul.yaml` into the SOUL files, one commit pe
 right-hand column shows the card that will actually ship: the face, the per-field prompt budget
 against the ch. 07 guidance, and what stays on this machine.
 
-Two things there are worth knowing about:
+![The card studio: editing Yuri's identity, with her face, prompt budget and what stays local.](img/card-studio.png)
+
+Nine sections down the left, in the order a character gets written:
+
+| Section | What's in it |
+|---|---|
+| **Identity** | name, nickname, version, creator, tags, and the locked `Identity` / `History` blocks |
+| **Manner** | appearance, manner, the one-line personality register the format wants, and the locked voice law and hard limits |
+| **Scenario** | where she is, her setting, the cold open she greets a stranger with, and the return greetings for someone she has met |
+| **Examples** | example exchanges — the difference between a model that has heard her speak and one guessing from adjectives |
+| **Lore** | lorebook entries, each firing on its own keys |
+| **Notes** | `creator_notes`, for whoever imports her next |
+| **Face** | her portrait, or any selfie she has taken, or an upload |
+| **Selfies** | her own [selfie library](selfies.md#a-library-of-her-own) — the scenes, framings, lighting, moods and wardrobe her camera may compose, and the `tool_hint` the `take_selfie` description carries verbatim |
+| **Export** | the options below, and the button |
+
+The **Selfies** section is the one part of the page that isn't a card field: it edits
+`data/characters/<id>/selfie.yaml` on its own save, not through `soul.yaml`. Until she has a file
+of her own the section shows the shipped library and the first save forks it into hers; *back to
+the shipped library* deletes it again. Because the tool's description is built from the merged
+rows, what she is offered can never drift from what you wrote there.
+
+The **prompt budget** in the right-hand column is per field, against the guidance in ch. 07 of
+[the book](https://yurios.org/book/index.html) — `description` 150–300 tokens, `personality`
+40–80, `scenario` 30–60, `first_mes` 80–200, examples spend freely, system prompt and post-history
+minimal. It counts what will actually be sent, so a scenario quietly holding two pages of
+world-building shows up as a number rather than as a model that has forgotten what you said.
+
+Two more things are worth knowing about:
 
 - **The constitution is locked by default.** `Identity`, `History`, `Voice law` and `Hard limits`
   live in `CONSTITUTION.md`, which [§23](mind.md#self-edits)'s gate forbids *her* from editing.

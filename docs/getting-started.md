@@ -57,6 +57,12 @@ yurios status                      # → http://localhost:8768
 The installer has already started the daemon. That address opens the **character switchboard**. Select a card to enter her sanctuary; leaving
 the room returns to the switchboard *without* stopping that character's background life.
 
+![The character switchboard](img/switchboard.png)
+
+It is also where companions arrive and leave: **Import** takes a SillyTavern V2/V3 `.PNG` card,
+**Create character** opens the [card studio](characters.md#the-card-studio) on a blank one, and the
+switches on each tile turn her mind, utility and dream loops on and off while she runs.
+
 On the first 0.2 start, an existing 0.1 install's `vault/`, `corpus/`, `traces/`, `tool-logs/`
 and `selfies/` are copied into a registered `yuri` character before any mind wakes. The old
 directories stay untouched as a backup. See [Characters](characters.md#migrating-from-01).
@@ -85,6 +91,9 @@ Then try the loop end to end:
 - **Watch her think** — the **inner life** tab in the chat column shows her activity state and
   heartbeat, today's token budget, the goals on her mind, the shelf, edits waiting on your
   approval, and the journal of what she did while you were gone.
+- **Then check her working** — the [mind debug page](mind.md#the-mind-debug-page), the last icon on
+  her switchboard tile, has the tick behind each of those decisions, the prompt it was phrased
+  with, and what the day cost.
 
 More on all of it in [The mind](mind.md).
 
@@ -96,6 +105,7 @@ More on all of it in [The mind](mind.md).
 - Let her take selfies → [Selfies](selfies.md)
 - Reach her from your phone → [Channels](channels.md#telegram)
 - Add a second companion → [Characters](characters.md)
+- Import a card, or write one of your own → [The card studio](characters.md#the-card-studio)
 - Turn a dial → [Configuration](configuration.md)
 - Let her search and read the web → [Tools](tools.md#web_search-read_page-and-research), and
   [what that can cost](README.md#experimental--and-it-can-spend) first if she's on a metered API

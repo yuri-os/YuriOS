@@ -399,8 +399,21 @@ files. The same data is available at `GET /api/mind`, `/api/mind/journal`, `/api
 ## The mind debug page
 
 The inner-life tab is the *product* half of autonomy — what she did, in her words. The debug page
-at `/characters/{id}/mind` is the other half: every mechanism behind it, on one surface.
+at `/characters/{id}/mind` is the other half: every mechanism behind it, on one surface. Reach it
+from the last of the four ways in on her switchboard tile, and **Switchboard** in the header is the
+way back.
 
+![The mind debug page: the tool-call audit, each call shown with the photo it produced.](img/mind-debug.png)
+
+Ten sections down the left — **Overview**, **Timeline**, **Ticks**, **Dreams**, **Context**,
+**Tools**, **Vault**, **Memory**, **Signals**, **Cost** — and two chips in the header that mean
+different things: the rung she is on, and whether this page's own event stream is `live` or
+`offline`. The second one going offline changes nothing about what you can read; the files are
+still there.
+
+- the **overview** — what is on disk for her, read without starting her: the state, the budget,
+  the Vault head, row counts, and a manifest of every log with a `rotated` flag, because a page
+  that reads only the live file should say so when an older one exists;
 - the **activity timeline** — every ENGAGED/IDLE/DORMANT/DREAM transition she actually made, with
   the rung that fired it (`traces/activity.jsonl`, appended only on a real change);
 - the **tick traces**, in full — sensed, appraised with scores, decided with runners-up, acted,
@@ -409,8 +422,12 @@ at `/characters/{id}/mind` is the other half: every mechanism behind it, on one 
 - **every context window she was ever given** — not just committed turns. Self-talk, the arrival
   greeting, a reach-out being written, goal work and DREAM consolidation all call a model, and
   before `traces/prompts.jsonl` none of them left any record of what they were asked;
-- her **tool calls**, with the photo each produced joined on the correlation id rather than
-  guessed at by timestamp;
+- her **tool calls**, allowed and denied, with the arguments she passed, the verdict, the latency,
+  and the photo each produced joined on the correlation id rather than guessed at by timestamp —
+  *how it was rendered* unfolds that photo's provenance record, and a row that came from a tick
+  links straight to it;
+- the **dream jobs** — what ran last night, what each still owes, and a way to run one now rather
+  than waiting for 2 a.m. to come round again;
 - the **Vault's own history** — the commit list, any file now or at a revision, and every edit to
   one file (`soul/USER.md` is the usual reason you came);
 - the **recall index**, her semantic facts, beliefs, and the knowledge shelf;

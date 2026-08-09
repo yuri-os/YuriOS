@@ -27,6 +27,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from typing import AsyncIterator, Optional
 
 from yurios.characters.setting import read_place
@@ -43,6 +44,124 @@ from .tools.timers import TimerBoard
 from .tooltags import ToolCall, ToolTagParser
 
 log = logging.getLogger("world.brain")
+
+
+class _EchoSkipper:
+    """Swallow a continuation pass's re-run of what she already said (§7.4).
+
+    A continuation is the same turn: her partial reply is in the messages and the
+    cue asks her to carry on from it. A 12B model reads that as an invitation to
+    start again — every live tool turn came back with its lead-in said twice
+    ("Let me see... Let me see... It says here that…"), which the user hears, the
+    transcript keeps and TTS speaks.
+
+    It matches characterwise against the previous pass, holding the candidate
+    rather than swallowing it as it goes. Holding is what makes it safe: a
+    continuation that merely *starts* the same way ("I'll check." → "I'll check
+    the other one too.") is released whole at the point it diverges, so no
+    sentence is ever left beginning mid-clause.
+
+    Whitespace and `[emotion]` tags are skipped on both sides rather than counted
+    as divergence — the model re-wraps freely and re-tags freely, and a repeat
+    that opened `[tender]` where the first pass opened `[neutral]` used to defeat
+    the match on its very first character. Only the words have to agree.
+
+    Only the continuation passes are matched, never the first — the turn's first
+    audio still leaves before any tool runs (§7.4). The held text is at most one
+    lead-in long, and once she has diverged every later token passes straight
+    through untouched.
+    """
+
+    #: Whitespace and complete `[tag]` spans: skippable on the `already` side.
+    _SKIP = re.compile(r"(?:\s|\[[^\[\]]{0,24}\])+")
+    #: How many times over she is allowed to have repeated herself. Live, the
+    #: lead-in came back three times in one continuation; bounded so a pass that
+    #: genuinely reprises a phrase cannot be swallowed indefinitely.
+    _MAX_WRAPS = 3
+
+    def __init__(self, already: str):
+        self.already = already
+        self.held = ""             # everything held, in order, for a divergence
+        #: The tail of `held` since the last word that matched — tags and spaces
+        #: that belong to whatever she says NEXT, not to the echo. Released when
+        #: the echo completes, so a `[happy]` opening the new sentence still
+        #: reaches the face instead of being dropped with the repeat.
+        self.trail = ""
+        self.i = 0
+        self.open = False          # she has diverged: pass everything from here
+        self.wraps = 0             # echoes absorbed so far (she can repeat twice)
+        self._in_tag = False       # inside an incoming '[tag]'
+
+    def _skip(self) -> None:
+        """Advance past whitespace and emotion tags in what she already said."""
+        m = self._SKIP.match(self.already, self.i)
+        if m is not None:
+            self.i = m.end()
+
+    def push(self, text: str) -> str:
+        if self.open:
+            return text
+        out: list[str] = []
+        for ch in text:
+            if self.open:
+                out.append(ch)
+                continue
+            if self._in_tag:                   # an incoming tag: hold, don't match
+                self.held += ch
+                self.trail += ch
+                if ch == "]":
+                    self._in_tag = False
+                continue
+            if ch == "[":
+                self.held += ch
+                self.trail += ch
+                self._in_tag = True
+                continue
+            if ch.isspace():
+                self.held += ch                # re-wrapped, not diverged
+                self.trail += ch
+                continue
+            self._skip()                       # …and the same on the other side
+            if self.i >= len(self.already):    # an echo matched all the way
+                if self.wraps < self._MAX_WRAPS:
+                    # …and she sometimes says it a THIRD time. Commit this echo
+                    # (drop its words, keep any pending tag) and start matching
+                    # again from the top, so a repeat of the repeat also goes.
+                    self.wraps += 1
+                    self.held = self.trail
+                    self.i = 0
+                    self._skip()
+                else:
+                    out.append(self._release(self.trail) + ch)
+                    self.open = True
+                    continue
+            self.held += ch
+            if ch == self.already[self.i]:
+                self.i += 1                    # still echoing
+                self.trail = ""
+                continue
+            # A partial match only: she is saying something new that happens to
+            # open the same way. Give every held character back.
+            self.open = True
+            out.append(self._release(self.held))
+        return "".join(out)
+
+    def _release(self, text: str) -> str:
+        """`text`, minus a gap the previous pass already ended with — once an echo
+        has actually been dropped, or the two passes join on a double space."""
+        if self.wraps and self.already[-1:].isspace():
+            text = text.lstrip(" \t")
+        self.held = self.trail = ""
+        return text
+
+    def finish(self) -> str:
+        """End of the pass. The held *words* matched what she already said all the
+        way to here, so releasing them would be the repeat this exists to stop —
+        but a trailing tag is hers to keep."""
+        if self.open:
+            self.held = self.trail = ""
+            return ""
+        return self._release(self.trail)
 
 
 class ToolBrain(BrainAdapter):
@@ -195,11 +314,18 @@ class ToolBrain(BrainAdapter):
                                  raw: list[str]) -> AsyncIterator[str]:
         messages = list(messages)
         calls_made = 0
+        retried = False                # one re-emit per turn for a broken marker
+        prev_spoken = ""               # the last pass's speech, for the echo skip
         cap = self.cfg.tool_max_calls_per_turn
         turn = self.guard.turn()      # one dedupe scope for this reply (§7.3)
         while True:
             parser = ToolTagParser()
             spoken_this_pass: list[str] = []
+            # "Continue from where you left off" is an instruction the model takes
+            # as "say it again, then continue": every live tool turn came out with
+            # its lead-in doubled. The cue can't be trusted to prevent it, so the
+            # echo is matched and dropped here (§7.4).
+            echo = _EchoSkipper(prev_spoken) if prev_spoken else None
             armed = self.runner is not None and calls_made < cap
             call: ToolCall | None = None
 
@@ -210,6 +336,8 @@ class ToolBrain(BrainAdapter):
                 async for token in stream:
                     raw.append(token)
                     speak, closed = parser.push(token)
+                    if speak and echo is not None:
+                        speak = echo.push(speak)
                     if speak:
                         spoken_this_pass.append(speak)
                         yield speak
@@ -222,20 +350,55 @@ class ToolBrain(BrainAdapter):
             finally:
                 await stream.aclose()
 
-            if call is None:                       # pass ran to completion — turn done
+            if call is None:                       # the pass ran to completion
                 tail = parser.finish()
+                if echo is not None:
+                    tail = echo.push(tail) + echo.finish()
                 if tail:
+                    spoken_this_pass.append(tail)
                     yield tail
-                return
+                if parser.salvaged and armed:
+                    # She closed the object and ran out of brackets. The call is
+                    # whole; only the marker wasn't (tooltags.finish).
+                    call = parser.salvaged[0]
+                elif parser.dropped and armed and not retried:
+                    # She reached for a tool and the marker was junk. Silence here
+                    # is how a lost `write_note` became a note she believed she
+                    # had written: the broken marker stays in `raw`, so next turn
+                    # she reads it back as evidence. Say it didn't land — in the
+                    # verbatim record, in the audit log, and to her — and let her
+                    # write it once more.
+                    retried = True
+                    prev_spoken = "".join(spoken_this_pass)
+                    raw.append("\n[[the call above did not parse — nothing ran]]\n")
+                    self.guard.audit("(unparsed marker)", {},
+                                     "dropped: malformed marker", 0.0, "")
+                    messages = messages + [
+                        {"role": "assistant", "content": prev_spoken},
+                        {"role": "user", "content":
+                            "((That tool call didn't parse, so nothing ran — no "
+                            "note was saved, no tool was called. Reply with ONLY "
+                            "the corrected call and no other words: don't repeat "
+                            "what you just said, don't explain, don't apologise. "
+                            "Exactly as the TOOLS block shows — double brackets, "
+                            "the tool's name, then the JSON on ONE line with "
+                            "every line break inside a string written as \\n and "
+                            "every quote inside it as \\\", ending in }]] with no "
+                            "space between the brackets.))"},
+                    ]
+                    continue
+                else:
+                    return
 
             calls_made += 1
+            prev_spoken = "".join(spoken_this_pass)
             result = await self._execute(call, turn)
             raw.append(f'\n[[{call.tool} → {result}]]\n')
             # the continuation: her partial reply + the result, back to the model
             # as the SAME turn (§7.4). The partial must be in the messages or she
             # restarts the sentence.
             messages = messages + [
-                {"role": "assistant", "content": "".join(spoken_this_pass)},
+                {"role": "assistant", "content": prev_spoken},
                 {"role": "user", "content":
                     f"(({call.tool} returned: {result}. Continue the same spoken "
                     "reply from where you left off — weave the result in "

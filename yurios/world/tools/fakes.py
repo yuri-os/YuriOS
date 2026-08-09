@@ -21,8 +21,37 @@ SPECS = [
                              "track": {"type": "string"},
                              "volume": {"type": "number"}},
               "required": ["action"]}),
-    ToolSpec("get_weather", "Look up the current weather.",
-             {"properties": {"city": {"type": "string"}}, "required": []}),
+    # Her desk and her skills (§34.2). Advertised here because they are the hands
+    # the loop reaches for most, and a fake tool set that omitted them let the
+    # loop's tests pass over the exact shape — a whole document as a JSON string
+    # argument — that broke in the wild (see tooltags' docstring).
+    ToolSpec("list_notes", "List what's on your desk — the notes and drafts "
+             "you've written for yourself. `folder` narrows it to one subfolder.",
+             {"properties": {"folder": {"type": "string"}}, "required": []}),
+    ToolSpec("read_note", "Read one of your own notes back.",
+             {"properties": {"path": {"type": "string"}}, "required": ["path"]}),
+    ToolSpec("write_note", "Write something down for yourself and keep it. "
+             "`text` REPLACES the whole file.",
+             {"properties": {"path": {"type": "string"},
+                             "text": {"type": "string"}},
+              "required": ["path", "text"]}),
+    ToolSpec("append_note", "Add to the end of one of your notes without "
+             "rewriting it.",
+             {"properties": {"path": {"type": "string"},
+                             "text": {"type": "string"}},
+              "required": ["path", "text"]}),
+    ToolSpec("delete_note", "Throw away one of your notes.",
+             {"properties": {"path": {"type": "string"}}, "required": ["path"]}),
+    ToolSpec("read_skill", "Open one of your skills and get the instructions.",
+             {"properties": {"name": {"type": "string"}}, "required": ["name"]}),
+    ToolSpec("write_skill", "Write down how to do something, so you still know "
+             "it next month.",
+             {"properties": {"name": {"type": "string"},
+                             "description": {"type": "string"},
+                             "instructions": {"type": "string"}},
+              "required": ["name", "description", "instructions"]}),
+    ToolSpec("delete_skill", "Forget how to do something on purpose.",
+             {"properties": {"name": {"type": "string"}}, "required": ["name"]}),
     ToolSpec("take_selfie", "Take a photo of yourself to share in the chat. "
              "`look` describes the picture in your own words; the rest are "
              "optional shorthands.",
@@ -58,6 +87,11 @@ SPECS = [
 #: the model sees a cut copy while the shelf gets all of it.
 FAKE_PAGE = ("This is a page about the thing you asked about. " * 30).strip()
 
+#: What a note reads back as. Deliberately prose with line breaks and a quote in
+#: it — the shape that has to survive the round trip through a marker.
+FAKE_NOTE = ('# What I know about you\n\nYou said "later" and meant it.\n'
+             '- you take your tea strong\n')
+
 
 class FakeToolRunner:
     """Scripted results + a call log the tests read."""
@@ -90,10 +124,30 @@ class FakeToolRunner:
             return json.dumps({"playing": args.get("action") == "play",
                                "track": args.get("track", "warm_pad"),
                                "volume": args.get("volume", 0.4)})
-        if tool == "get_weather":
-            return json.dumps({"city": args.get("city") or "Tokyo",
-                               "temp_c": 17.0, "condition": "raining",
-                               "wind_kmh": 9.0})
+        if tool == "list_notes":
+            return json.dumps({"folder": args.get("folder") or "",
+                               "notes": [{"path": "research/learning_you.md",
+                                          "bytes": 1220}]})
+        if tool == "read_note":
+            return json.dumps({"path": args.get("path"), "text": FAKE_NOTE,
+                               "bytes": len(FAKE_NOTE)})
+        if tool in ("write_note", "append_note"):
+            return json.dumps({"path": args.get("path"),
+                               "bytes": len(args.get("text") or ""),
+                               ("wrote" if tool == "write_note" else "appended"): True})
+        if tool == "delete_note":
+            return json.dumps({"path": args.get("path"), "deleted": True,
+                               "note": ""})
+        if tool == "read_skill":
+            return json.dumps({"name": args.get("name"),
+                               "description": "a way of doing something",
+                               "instructions": FAKE_NOTE})
+        if tool == "write_skill":
+            return json.dumps({"name": args.get("name"),
+                               "description": args.get("description"),
+                               "saved": True})
+        if tool == "delete_skill":
+            return json.dumps({"name": args.get("name"), "deleted": True})
         if tool == "take_selfie":
             return json.dumps({"id": f"fake{len(self.calls)}",
                                "look": args.get("look") or None,

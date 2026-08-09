@@ -1,4 +1,4 @@
-"""The in-repo MCP server (SPEC §7.1–§7.2) — her three hands, as a real server.
+"""The in-repo MCP server (SPEC §7.1–§7.2) — her hands, as a real server.
 
 Run standalone (`python -m yurios.world.tools.server`) it speaks MCP over stdio; the
 host spawns it exactly that way (client.py). Tests connect to the same server
@@ -26,7 +26,6 @@ from yurios.mind.workspace import (DeskFull, OutsideTheDesk, SkillStore,
 
 from .fetch import PageFetcher, build_fetcher, gist
 from .search import SearchProvider, build_provider
-from .weather import FakeWeather, OpenMeteoProvider, WeatherProvider
 
 # The catalog lives in the *type*, not in prose: an annotated Literal becomes an
 # `enum` in the tool's JSON schema, which is the only form of the list a model
@@ -39,9 +38,7 @@ MUSIC_ACTIONS: tuple[str, ...] = get_args(MusicAction)
 MUSIC_TRACKS: tuple[str, ...] = get_args(MusicTrack)
 
 
-def build_server(*, weather: WeatherProvider | None = None,
-                 max_minutes: float | None = None,
-                 default_city: str | None = None,
+def build_server(*, max_minutes: float | None = None,
                  selfies: bool | None = None,
                  search: SearchProvider | None = None,
                  fetcher: PageFetcher | None = None,
@@ -52,10 +49,6 @@ def build_server(*, weather: WeatherProvider | None = None,
     """Build the FastMCP server. Args are the test seams; `python -m` reads env."""
     max_minutes = max_minutes if max_minutes is not None else float(
         os.environ.get("TIMER_MAX_MINUTES", "180"))
-    default_city = default_city or os.environ.get("WEATHER_CITY", "Tokyo")
-    if weather is None:
-        weather = (FakeWeather() if os.environ.get("WEATHER_BACKEND") == "fake"
-                   else OpenMeteoProvider())
     if selfies is None:                        # off = not advertised at all (§7.6)
         selfies = os.environ.get("SELFIE_ENABLED", "1") != "0"
     results = results if results is not None else int(
@@ -125,11 +118,6 @@ def build_server(*, weather: WeatherProvider | None = None,
         return {"playing": action == "play",
                 "track": track if action == "play" else None,
                 "volume": volume}
-
-    @mcp.tool()
-    async def get_weather(city: str = "") -> dict:
-        """Look up the current weather. `city` defaults to the configured city."""
-        return await weather.current(city or default_city)
 
     if search is not None and fetcher is not None:
         # The web (SPEC §7.7). Three hands that go together: find it, read it,

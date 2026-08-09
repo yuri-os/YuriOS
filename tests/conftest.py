@@ -1,5 +1,5 @@
 """Shared fixtures. The whole suite runs offline (SPEC §13): fake voice backends
-(B2 §3), a fake tool runner, an in-memory MCP session, MockTransport weather,
+(B2 §3), a fake tool runner, an in-memory MCP session,
 and a VirtualClock for everything timed."""
 from __future__ import annotations
 
@@ -48,7 +48,7 @@ def cfg(tmp_path) -> Config:
 
 @pytest.fixture
 def guard(cfg, clock) -> Guard:
-    return Guard(rates_per_min={"set_timer": 6, "play_music": 6, "get_weather": 4},
+    return Guard(rates_per_min={"set_timer": 6, "play_music": 6, "list_notes": 20},
                  log_dir=cfg.tool_log_dir, clock=clock)
 
 

@@ -520,7 +520,6 @@ to every new subscriber before its first live event. Malformed JSON is logged an
   |---|---|---|---|
   | `set_timer` | `minutes` (0 < m ≤ `TIMER_MAX_MINUTES`), `label?` | `{id, label, seconds, due}` | host schedules the announcement (§7.5) |
   | `play_music` | `action`, `track?`, `volume?` | `{playing, track}` | `music` event to the stage (§4) |
-  | `get_weather` | `city?` (default `WEATHER_CITY`) | `{city, temp_c, condition, wind_kmh}` | none |
   | `take_selfie` | `look?` (the whole picture in her own words), `scene?`, `framing?`, `lighting?`, `mood?`, `wardrobe?`, `avoid?` (template keys or free-form — carried verbatim, never refused; unnamed slots are left unnamed, never rolled) | `{id, look, scene, framing, lighting, mood, wardrobe, avoid, kind:"selfie", status:"started"}` | host renders off-turn, posts the photo (§7.6) |
   | `show_picture` | `subject` (required — the whole picture in her own words; no library, no slots), `avoid?` | `{id, subject, avoid, kind:"picture", status:"started"}` | host renders off-turn *without her likeness*, posts the picture (§7.6) |
   | `web_search` | `query`, `k?` (≤ `SEARCH_RESULTS`) | `{query, results:[{title, url, snippet}]}` | none (§7.7) |
@@ -554,10 +553,30 @@ to every new subscriber before its first live event. Malformed JSON is logged an
 - §7.4 **The in-stream call protocol.** A `## TOOLS` block appended to the system prompt
   instructs the model: speak a short lead-in sentence first, then emit `[[tool_name {"arg":
   value}]]`. The streaming parser (`yurios/world/tooltags.py`) **MUST** strip markers from
-  speech, tolerate token-boundary splits, and drop unclosed, unknown, or oversized markers
-  silently (a 12B local model *will* emit a broken one). On a closed marker: guard-check → MCP
+  speech, tolerate token-boundary splits, and drop unknown or oversized markers
+  silently (a 12B local model *will* emit a broken one). Because the tools whose argument is
+  *prose* (`write_note`, `append_note`, the selfie `look`) ask that model to be a JSON
+  serializer for a paragraph it is still composing, the marker grammar **MUST** be read as the
+  model writes it, not as the directive asks for it. Three recoveries are **REQUIRED** before a
+  drop. **The closer is two brackets with optional whitespace between them** (`]]`, `] ]`,
+  `]\n]`) — the live 12B writes `}] ]` consistently, and an `endswith("]]")` test leaves that
+  marker open to swallow the rest of the stream, her next sentences and her next marker with it;
+  a stray bracket left inside the body is trimmed. A malformed argument object **MUST** be
+  re-read leniently (`json` still owns every scalar, list and nested object; a prose string runs
+  to its real terminator, so a literal newline or an unescaped `"` inside it costs nothing). And
+  a marker left open at end-of-stream whose body is otherwise complete **MUST** be salvaged.
+  All three are self-validating: they only ever yield a call that parses.
+  A marker that still cannot be read **MUST NOT** fail silently — it appends an audit line
+  (verdict `dropped: malformed marker`), is marked as unrun in the verbatim record, and earns
+  **one** re-emit pass per turn. Silence here is not neutral: the broken marker stays in the
+  transcript, so next turn she reads it back as evidence and reports the work as done.
+  On a closed marker: guard-check → MCP
   call → a **continuation stream** (original messages + the partial reply + a `((tool result:
   …))` cue) the model finishes as the same turn — so she *speaks to* what her hands found.
+  A continuation **MUST NOT** repeat what the previous pass already said: the model reads
+  "continue from where you left off" as "say it again, then continue", so the echo is matched
+  against that pass and dropped (`_EchoSkipper`). Matching **MUST** hold rather than swallow, so
+  a continuation that merely *opens* the same way is released whole and never begins mid-clause.
   First audio **MUST NOT** wait on a tool: the lead-in sentence reaches TTS before the call runs.
   Barge-in **MUST** cancel the continuation, and a barged-in tool turn persists nothing.
   The block lists each discovered tool with its **whole** description, unwrapped to one line: a
@@ -579,8 +598,7 @@ to every new subscriber before its first live event. Malformed JSON is logged an
   validates and records — but the **host** schedules the wake (`yurios/world/tools/timers.py`,
   on the injected clock), because only the host owns her voice; when a timer elapses she
   **MUST** announce it aloud through the ambient seam (§9), queued until deliverable.
-  `get_weather` **MUST** be a real HTTP lookup (Open-Meteo, keyless) behind a `WeatherProvider`
-  seam with an offline fake. `play_music` drives the browser-side synthesized ambience (§6.2) —
+  `play_music` drives the browser-side synthesized ambience (§6.2) —
   a generative pad, not a media library; the seam is the point.
 - §7.6 **Her camera: `take_selfie` / `show_picture`, start-don't-await.** The two hands that
   share a camera teach the one lesson the others can't: **a slow tool must not sit inside the turn.** A hosted render takes 10–30 s;
@@ -867,7 +885,7 @@ the reasoning switches, `CONTEXT_LENGTH` and the context readout it feeds — §
 and its auto-reindex, retrieval and summary budgets, the
 Vault dir) are inherited; the body knobs are `COMPANION_NAME`, `TOOLS_BACKEND=mcp|fake|off`, the
 tool caps/timeouts/log dir and per-tool rate limits, `TIMER_MAX_MINUTES`,
-`WEATHER_BACKEND`/`WEATHER_CITY`, `SELFIE_BACKEND`/`SELFIE_MODEL`/`SELFIE_DIR`, `RAIN_INTENSITY`,
+`SELFIE_BACKEND`/`SELFIE_MODEL`/`SELFIE_DIR`, `RAIN_INTENSITY`,
 `DESKTOP_BODY`, the channel credentials (§10.5), and the reflex windows (`IDLE_SETTLE_S`,
 `IDLE_ACT_MIN/MAX_S`, `IDLE_TALK_MIN/MAX_S`). The mind's knobs are §25; `DATA_DIR` — the root
 of the character tree — is Part III's (§29.1).
@@ -1222,12 +1240,16 @@ conversational); a tool-bearing autonomous act needs the broker that comes with 
 ## §27 — Tests (the hard gate)
 
 `pytest` **MUST** ship and be green from the project root, entirely offline — fakes for STT/TTS/VAD,
-a fake tool runner, `httpx.MockTransport` for weather, an in-memory MCP session for the contract
+a fake tool runner, an in-memory MCP session for the contract
 tests, and `VirtualClock` for everything timed. All mind tests run on `VirtualClock` + the real
 brain with fake models.
 
 - §27.1 **Mechanics.** The reactive body: emotion and tool-tag parsing (whole, split, unknown/
-  unclosed/oversized dropped, never spoken); the tool loop end-to-end over a scripted fake stream
+  unclosed/oversized dropped, never spoken; a closer with whitespace in it (`}] ]`) closed at the
+  right place rather than swallowing the stream, a marker one bracket short salvaged, raw newlines
+  and unescaped quotes inside a prose argument repaired, a marker that still won't read told to her
+  once rather than swallowed; a continuation that repeats the previous pass's lead-in dropped,
+  and one that merely opens the same way kept whole); the tool loop end-to-end over a scripted fake stream
   (guard consulted, result reaches the continuation, call cap enforced, tool error still completes
   the turn); **barge-in mid-continuation cancels and persists nothing**; guard allowlist/rate-limit/
   audit; the real MCP server's contract (`list_tools` = exactly four, three with selfies off; schema,

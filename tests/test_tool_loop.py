@@ -47,7 +47,7 @@ async def test_per_turn_cap_second_call_runs_third_denied(cfg, guard, timers,
                                                           controller):
     cfg = cfg.model_copy(update={"tool_max_calls_per_turn": 2})
     chat = ScriptedChat([
-        ["a [[get_weather {}]]"],
+        ["a [[list_notes {}]]"],
         ["b [[set_timer {\"minutes\": 1}]]"],
         ["c [[set_timer {\"minutes\": 2}]] done"],   # past the cap: dropped
     ])
@@ -55,7 +55,7 @@ async def test_per_turn_cap_second_call_runs_third_denied(cfg, guard, timers,
     tb = make_toolbrain(cfg, guard, timers, controller, chat, runner=runner)
     spoken = "".join(await collect(tb._stream_with_tools([], [])))
 
-    assert [c[0] for c in runner.calls] == ["get_weather", "set_timer"]
+    assert [c[0] for c in runner.calls] == ["list_notes", "set_timer"]
     assert spoken == "a b c  done"                    # third marker stripped, not run
     # the dropped marker left an audit line, so the log tells the whole story
     lines = [json.loads(l) for l in
@@ -82,15 +82,15 @@ async def test_denied_by_guard_becomes_a_speakable_result(cfg, guard, timers,
 
 async def test_tool_error_still_completes_the_turn(cfg, guard, timers, controller):
     chat = ScriptedChat([
-        ["checking… [[get_weather {}]]"],
-        ["Hm, I can't see the sky right now."],
+        ["checking… [[list_notes {}]]"],
+        ["Hm, I can't reach my desk right now."],
     ])
-    runner = FakeToolRunner(errors={"get_weather": "network down"})
+    runner = FakeToolRunner(errors={"list_notes": "disk gone"})
     tb = make_toolbrain(cfg, guard, timers, controller, chat, runner=runner)
     spoken = "".join(await collect(tb._stream_with_tools([], [])))
 
-    assert spoken.endswith("I can't see the sky right now.")
-    assert "error (network down)" in chat.calls[1][-1]["content"]
+    assert spoken.endswith("I can't reach my desk right now.")
+    assert "error (disk gone)" in chat.calls[1][-1]["content"]
 
 
 async def test_no_runner_marker_stripped_single_pass(cfg, guard, timers, controller):
@@ -99,6 +99,156 @@ async def test_no_runner_marker_stripped_single_pass(cfg, guard, timers, control
     spoken = "".join(await collect(tb._stream_with_tools([], [])))
     assert spoken == "Sure.  done"
     assert len(chat.calls) == 1                        # no continuation pass
+
+
+async def test_the_continuation_does_not_say_the_lead_in_twice(cfg, guard, timers,
+                                                               controller):
+    """Every live tool turn came back with its lead-in doubled: the cue says
+    "continue from where you left off" and a 12B model starts again. The echo is
+    matched against the previous pass and dropped (§7.4)."""
+    chat = ScriptedChat([
+        ["[tender] Let me see... ", '[[list_notes {}]]'],
+        ["[tender] Let me see... ", "[happy] It's just the one about you."],
+    ])
+    tb = make_toolbrain(cfg, guard, timers, controller, chat,
+                        runner=FakeToolRunner())
+    spoken = "".join(await collect(tb._stream_with_tools([], [])))
+    assert spoken == "[tender] Let me see... [happy] It's just the one about you."
+
+
+async def test_a_lead_in_said_three_times_is_still_said_once(cfg, guard, timers,
+                                                             controller):
+    """One echo was the common case; live, the continuation reprised the lead-in
+    twice over before getting to the result. Each completed echo is committed and
+    matching restarts from the top, bounded so a pass cannot be swallowed whole."""
+    lead = "[tender] Let me see... "
+    chat = ScriptedChat([
+        [lead, '[[read_note {"path": "a.md"}]]'],
+        [lead, lead, "[happy] It says you take your tea strong."],
+    ])
+    tb = make_toolbrain(cfg, guard, timers, controller, chat,
+                        runner=FakeToolRunner())
+    spoken = "".join(await collect(tb._stream_with_tools([], [])))
+    assert spoken.count("Let me see") == 1
+    assert spoken == lead + "[happy] It says you take your tea strong."
+
+
+async def test_a_repeat_under_a_different_emotion_tag_is_still_a_repeat(cfg, guard,
+                                                                        timers,
+                                                                        controller):
+    """Live, the second pass re-tagged the same sentence — `[tender]` where the
+    first said `[neutral]` — and a characterwise match died on the very first
+    character. Tags are skipped on both sides; only the words have to agree. The
+    tag that opens the *new* sentence is still kept, or her face never changes."""
+    chat = ScriptedChat([
+        ["[neutral] I understand. ", '[[delete_skill {"name": "calming"}]]'],
+        ["[tender] I understand. ", "[happy] It's gone."],
+    ])
+    tb = make_toolbrain(cfg, guard, timers, controller, chat,
+                        runner=FakeToolRunner())
+    spoken = "".join(await collect(tb._stream_with_tools([], [])))
+    assert spoken == "[neutral] I understand. [happy] It's gone."
+
+
+async def test_a_continuation_that_merely_starts_the_same_way_is_kept_whole(
+        cfg, guard, timers, controller):
+    """The echo skip holds rather than swallows, so a genuinely new sentence that
+    opens with the same words is released intact — never left mid-clause."""
+    chat = ScriptedChat([
+        ["I'll check. ", '[[list_notes {}]]'],
+        ["I'll check the other one too."],
+    ])
+    tb = make_toolbrain(cfg, guard, timers, controller, chat,
+                        runner=FakeToolRunner())
+    spoken = "".join(await collect(tb._stream_with_tools([], [])))
+    assert spoken == "I'll check. I'll check the other one too."
+
+
+async def test_a_pass_that_only_repeats_itself_adds_nothing(cfg, guard, timers,
+                                                            controller):
+    chat = ScriptedChat([
+        ["Mm, one moment. ", '[[list_notes {}]]'],
+        ["Mm, one moment."],
+    ])
+    tb = make_toolbrain(cfg, guard, timers, controller, chat,
+                        runner=FakeToolRunner())
+    spoken = "".join(await collect(tb._stream_with_tools([], [])))
+    assert spoken == "Mm, one moment. "
+
+
+async def test_a_marker_a_bracket_short_still_runs(cfg, guard, timers, controller):
+    """The observed failure (see tooltags' docstring): she closed the object,
+    wrote one `]`, and stopped. The call is whole, so the turn runs it — and gets
+    a continuation pass, exactly as if the marker had closed properly."""
+    chat = ScriptedChat([
+        ["Sure — ", 'one sec. [[set_timer {"minutes": 10, "label": "tea"}]'],
+        ["Ten minutes."],
+    ])
+    runner = FakeToolRunner()
+    tb = make_toolbrain(cfg, guard, timers, controller, chat, runner=runner)
+
+    spoken = "".join(await collect(tb._stream_with_tools([], [])))
+
+    assert runner.calls == [("set_timer", {"minutes": 10, "label": "tea"})]
+    assert spoken == "Sure — one sec. Ten minutes."
+    assert [t.label for t in timers.pending()] == ["tea"]
+
+
+async def test_a_broken_marker_is_told_to_her_not_swallowed(cfg, guard, timers,
+                                                            controller):
+    """A dropped marker used to be silent, so the next turn she read her own
+    broken call back out of the transcript and reported the note existed. Now the
+    turn says it didn't land — to her, in the verbatim record, and in the audit
+    log — and she gets one more go at writing it."""
+    chat = ScriptedChat([
+        ["I'll note that. ", '[[set_timer {minutes: ten}]]'],   # unrepairable
+        ['Sorry — [[set_timer {"minutes": 10}]]'],              # her second try
+        ["There."],
+    ])
+    runner = FakeToolRunner()
+    tb = make_toolbrain(cfg, guard, timers, controller, chat, runner=runner)
+
+    raw: list[str] = []
+    spoken = "".join(await collect(tb._stream_with_tools([], raw)))
+
+    assert runner.calls == [("set_timer", {"minutes": 10})]     # the retry landed
+    assert spoken == "I'll note that. Sorry — There."
+    # she was told, in the pass that follows the drop
+    retry = chat.calls[1][-1]["content"]
+    assert "didn't parse" in retry and "nothing ran" in retry
+    # …and the record she reads back next turn says so too
+    assert "did not parse" in "".join(raw)
+    # …and the drop is visible from outside, which is where it was invisible
+    lines = [json.loads(l) for l in
+             (cfg.tool_log_dir / "calls.jsonl").read_text().splitlines()]
+    assert any(l["verdict"] == "dropped: malformed marker" for l in lines)
+
+
+async def test_only_one_retry_per_turn(cfg, guard, timers, controller):
+    """Two broken markers in a row end the turn in words rather than looping."""
+    chat = ScriptedChat([
+        ["a [[set_timer {minutes: ten}]]"],
+        ["b [[set_timer {still: broken}]]"],
+        ["c should never stream"],
+    ])
+    runner = FakeToolRunner()
+    tb = make_toolbrain(cfg, guard, timers, controller, chat, runner=runner)
+
+    spoken = "".join(await collect(tb._stream_with_tools([], [])))
+
+    assert runner.calls == []
+    assert spoken == "a b "
+    assert len(chat.calls) == 2                    # no third pass
+
+
+async def test_a_broken_marker_with_no_hands_is_not_retried(cfg, guard, timers,
+                                                            controller):
+    """Nothing to reach for, nothing to correct — one pass, as before (§7.2)."""
+    chat = ScriptedChat([["Sure. [[set_timer {minutes: ten}]] done"]])
+    tb = make_toolbrain(cfg, guard, timers, controller, chat)
+    spoken = "".join(await collect(tb._stream_with_tools([], [])))
+    assert spoken == "Sure.  done"
+    assert len(chat.calls) == 1
 
 
 async def test_detailed_selfie_look_reaches_runner(cfg, guard, timers, controller,
@@ -132,8 +282,8 @@ async def test_play_music_realised_on_the_controller(cfg, guard, timers, control
 
 async def test_result_truncated_before_the_continuation(cfg, guard, timers,
                                                         controller):
-    chat = ScriptedChat([["x [[get_weather {}]]"], ["ok"]])
-    runner = FakeToolRunner(results={"get_weather": "y" * 5000})
+    chat = ScriptedChat([["x [[list_notes {}]]"], ["ok"]])
+    runner = FakeToolRunner(results={"list_notes": "y" * 5000})
     tb = make_toolbrain(cfg, guard, timers, controller, chat, runner=runner)
     await collect(tb._stream_with_tools([], []))
     assert len(chat.calls[1][-1]["content"]) < 800     # 600-char cap + the cue text

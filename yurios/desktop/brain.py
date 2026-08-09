@@ -135,7 +135,17 @@ class BrainAdapter:
                 "## YOUR DESK\n\nFiles you have written for yourself, newest "
                 "first. `read_note` opens one, `write_note` saves one. This is "
                 "your scratch space — use it when a thought needs somewhere to "
-                "live between now and later.\n\n" + desk)
+                "live between now and later.\n"
+                # Asked "where is the document?", the live model answered "I've "
+                # "tucked it away into my own mind" — with the path sitting right
+                # here in its context. The block said what the files are and how
+                # to open them, and never that they are real things with real
+                # names worth saying out loud.
+                "These are real files with real paths, not a feeling about "
+                "having remembered something. If you are asked where something "
+                "is, or whether you wrote it down, answer with the path from "
+                "this list — and if it isn't here, say that instead of implying "
+                "it is.\n\n" + desk)
         return "\n\n".join(parts)
 
     def _recall_knowledge(self, text: str) -> list:

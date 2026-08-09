@@ -69,7 +69,7 @@ async def test_tool_turn_over_the_real_brain(vault, cfg, clock):
         ["[happy] ", "Tea? ", "On it. ", MARKER],
         ["Ten ", "minutes ", "— ", "[tender] ", "I'll ", "call ", "you."],
     ])
-    guard = Guard(rates_per_min={"set_timer": 6, "play_music": 6, "get_weather": 4},
+    guard = Guard(rates_per_min={"set_timer": 6, "play_music": 6, "list_notes": 20},
                   log_dir=cfg.tool_log_dir, clock=clock)
     timers = TimerBoard(clock)
     controller = VrmController()

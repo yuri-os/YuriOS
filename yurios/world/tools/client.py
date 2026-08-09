@@ -417,8 +417,11 @@ def build_directive(specs: list[ToolSpec], *, user_name: str, max_calls: int) ->
         "How: say one short natural lead-in sentence first, then end your message "
         "with the call on its own — double brackets, the tool's own name, JSON "
         "args, nothing after it, exactly like the example at the end of this "
-        "block. You'll be prompted to continue once the result is back; weave it "
-        "in naturally and never read JSON or mention the mechanics aloud.\n"
+        "block. Close it with two brackets together and NO space between them: "
+        "`}]]`, never `}] ]`. Keep the JSON on one line — a line break inside a "
+        "string is `\\n` and a quote inside one is `\\\"`. You'll be prompted to "
+        "continue once the result is back; weave it in naturally and never read "
+        "JSON or mention the mechanics aloud.\n"
         f"Your tools (the only ones that exist — never invent one; at most "
         f"{max_calls} calls per reply):\n{tools}\n"
         'Example: "Mm, hold on — let me set that. [[set_timer {"minutes": 10, '

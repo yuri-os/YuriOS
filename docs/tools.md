@@ -24,7 +24,6 @@ reports the truth (`"mcp"` / `"fake"` / `"off"` / `"failed: …"`).
 |---|---|---|
 | `set_timer` | `minutes` (0 < m ≤ `TIMER_MAX_MINUTES`), `label?` | the host schedules the announcement |
 | `play_music` | `action`, `track?`, `volume?` | drives the browser-side synthesized ambience |
-| `get_weather` | `city?` (default `WEATHER_CITY`) | a real lookup — Open-Meteo, keyless |
 | `take_selfie` | `look?`, `scene?`, `framing?`, `lighting?`, `mood?`, `wardrobe?`, `avoid?` | starts a render off-turn — see [Selfies](selfies.md) |
 | `show_picture` | `subject`, `avoid?` | the same camera, pointed at something that isn't her |
 | `web_search` | `query`, `k?` | titles, links and snippets from your own SearXNG |
@@ -64,17 +63,6 @@ has to match a generator that exists.
 TOOL_RATE_MUSIC=6
 ```
 
-### get_weather
-
-A real HTTP lookup against Open-Meteo, which needs no key, behind a provider seam with an offline
-fake.
-
-```ini
-WEATHER_BACKEND=open_meteo        # open_meteo | fake
-WEATHER_CITY=Seoul                # the default when she isn't told one
-TOOL_RATE_WEATHER=4
-```
-
 ### web_search, read_page and research
 
 Her three web hands. They arrive together or not at all — searching with no way to read what you
@@ -112,8 +100,7 @@ dead one, the same rule as `SELFIE_BACKEND=off`.
 > being read right now with its model-call count, and the stop button there loses nothing. If she
 > is pointed at a paid API, set a spend limit with the provider as well.
 
-**Why SearXNG.** Open-Meteo is the weather backend because it is keyless; SearXNG is the search
-backend because it is keyless *and* third-party-less. You run the instance, so the record of what
+**Why SearXNG.** SearXNG is the search backend because it is keyless *and* third-party-less. You run the instance, so the record of what
 she searched for is a file on your own machine. That is the local-first argument applied to the
 one capability that usually hands your curiosity to somebody else.
 
@@ -163,7 +150,7 @@ a third call raises it for every other tool too.
 
 #### What she reads, she keeps
 
-This is the part that makes the web hands more than a slower `get_weather`. A tool result is
+This is the part that makes the web hands more than a slower lookup. A tool result is
 normally 600 characters that expire when the turn ends. Instead, every page — whether `research`
 fetched it or she opened it herself with `read_page` — is ingested into her
 [knowledge store](mind.md): chunked, situated, embedded, and indexed with a doc and character span
@@ -221,17 +208,51 @@ A `## TOOLS` block is appended to her system prompt, built from the *discovered*
 the model: speak a short lead-in sentence first, then emit a marker.
 
 ```
-"let me check — [[get_weather {"city": "Seoul"}]]"
+"let me write that down — [[write_note {"path": "research/you.md", "text": "…"}]]"
 ```
 
 The streaming parser strips markers from her speech, tolerates markers split across token
-boundaries, and silently drops unclosed, unknown or oversized ones (a 12B local model *will* emit
-a broken one). On a closed marker: guard check → MCP call → a **continuation stream** — the
-original messages plus her partial reply plus a `((tool result: …))` cue — which she finishes as
-the same turn. So she *speaks to* what her hands found, rather than reciting a payload.
+boundaries, and silently drops unknown or oversized ones. On a closed marker: guard check → MCP
+call → a **continuation stream** — the original messages plus her partial reply plus a
+`((tool result: …))` cue — which she finishes as the same turn. So she *speaks to* what her hands
+found, rather than reciting a payload.
 
 **First audio never waits on a tool:** the lead-in sentence reaches TTS before the call runs.
 Barge-in cancels the continuation, and a barged-in tool turn persists nothing.
+
+### Reading the marker the model actually writes
+
+A 12B local model *will* emit a broken one, and the interesting part is *how*. Driven through
+every desk tool, the live model got the closer wrong every single time:
+
+```
+[[read_note {"path": "research/probe.md"}] ]
+```
+
+A space between the brackets. `endswith("]]")` never fires on that, so the marker stayed open and
+swallowed everything after it — her next sentences and her next marker — until some accidental
+`]]` came along. One space cost the whole turn. The prose tools are worse: asked to serialize a
+paragraph it is still composing, the model leaves literal newlines and bare `"` inside the JSON
+string and sometimes stops a bracket short.
+
+So the parser reads what arrives rather than what the directive asked for:
+
+| what she writes | what happens |
+|---|---|
+| `}]]`, `}] ]`, `}]\n]` | all close the marker; a stray bracket left in the body is trimmed |
+| a literal newline or bare `"` inside a prose argument | the object is re-read leniently — `json` still owns every scalar, list and nested object |
+| `}]` and then end-of-stream | salvaged, if the body is otherwise complete |
+| anything still unreadable | audit line (`dropped: malformed marker`), marked unrun in the verbatim record, and **one** re-emit pass |
+
+Every recovery is self-validating: it can only ever produce a call that parses, so junk still
+drops. That last row matters as much as the others — a silently dropped marker stays in the
+transcript, so next turn she reads her own broken call back as evidence and tells you the note
+exists.
+
+**She does not say her lead-in twice.** "Continue from where you left off" reads to the model as
+"say it again, then continue", so the continuation's echo of the previous pass is matched and
+dropped. The match *holds* rather than swallows, so a continuation that merely opens the same way
+("I'll check." → "I'll check the other one too.") is released whole.
 
 ## The guard
 
@@ -261,7 +282,7 @@ Every call — allowed **or denied** — appends one JSONL line to `TOOL_LOG_DIR
 (`data/characters/<id>/tool-logs/calls.jsonl`):
 
 ```json
-{"ts": …, "tool": "get_weather", "args": {…}, "verdict": "allow", "duration_ms": 412, "result": "…"}
+{"ts": …, "tool": "write_note", "args": {…}, "verdict": "allow", "duration_ms": 12, "result": "…"}
 ```
 
 ```bash
@@ -300,7 +321,7 @@ Unset (the default) means her own server alone, byte for byte as before. With se
 - tool names stay **unprefixed**, because the model reads them, the audit log records them and the
   host dispatches on them;
 - a server that **won't start is skipped, not fatal**. A typo in a third-party entry costs her that
-  server, not her timers and her weather. `/api/health` and the boot board report how many of each
+  server, not her timers and her desk. `/api/health` and the boot board report how many of each
   came up.
 
 Discovery is the allowlist for these (§7.3): nobody here can hardcode a rate for a tool whose name

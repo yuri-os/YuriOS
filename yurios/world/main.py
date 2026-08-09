@@ -100,8 +100,7 @@ class Runtime:
         # the event loop (start_async); selfies is known now. /api/boot serves it.
         self.boot = BootBoard()
         rates = {"set_timer": cfg.tool_rate_timer,
-                 "play_music": cfg.tool_rate_music,
-                 "get_weather": cfg.tool_rate_weather}
+                 "play_music": cfg.tool_rate_music}
         if cfg.selfie_backend != "off":        # absent from the allowlist = no hand (§7.3)
             rates["take_selfie"] = cfg.tool_rate_selfie
             rates["show_picture"] = cfg.tool_rate_picture
@@ -498,8 +497,6 @@ class Runtime:
             from .tools.client import McpToolRunner
             runner = McpToolRunner(env={
                 "TIMER_MAX_MINUTES": str(self.cfg.timer_max_minutes),
-                "WEATHER_CITY": self.cfg.weather_city,
-                "WEATHER_BACKEND": self.cfg.weather_backend,
                 # off = the tool isn't even advertised: no hand, not a dead one
                 "SELFIE_ENABLED": "0" if self.cfg.selfie_backend == "off" else "1",
                 # the contract side builds its description from the SAME merged

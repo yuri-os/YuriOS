@@ -78,9 +78,9 @@ async def test_first_audio_precedes_tool_execution(cfg, guard, timers, controlle
 async def test_bargein_mid_continuation_cancels_and_persists_nothing(
         cfg, guard, timers, controller):
     chat = ScriptedChat([
-        ["One sec. ", '[[get_weather {}]]'],
-        ["It's ", "raining ", "and ", "seventeen ", "degrees ", "and ", "the ",
-         "wind ", "is ", "picking ", "up ", "outside…"],
+        ["One sec. ", '[[list_notes {}]]'],
+        ["There's ", "the ", "one ", "about ", "you ", "and ", "a ", "draft ",
+         "I ", "haven't ", "finished ", "yet…"],
     ])
     runner = FakeToolRunner()
     brain = LoopBrain(make_toolbrain(cfg, guard, timers, controller, chat,
@@ -91,7 +91,7 @@ async def test_bargein_mid_continuation_cancels_and_persists_nothing(
     events = []
 
     async def puller():
-        async for ev in tc.run_turn("s1", "weather?"):
+        async for ev in tc.run_turn("s1", "what have you written down?"):
             events.append(ev)
 
     task = asyncio.create_task(puller())
@@ -102,5 +102,5 @@ async def test_bargein_mid_continuation_cancels_and_persists_nothing(
 
     kinds = [e.kind for e in events]
     assert "cancelled" in kinds and "done" not in kinds
-    assert runner.calls == [("get_weather", {})]   # mid-CONTINUATION, tool did run
+    assert runner.calls == [("list_notes", {})]   # mid-CONTINUATION, tool did run
     assert brain.persist_calls == []               # a turn that didn't happen (B2 §4.4)

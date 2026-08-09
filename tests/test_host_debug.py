@@ -494,11 +494,11 @@ def test_log_interleaves_ticks_and_tool_calls_by_time(client):
     at = lambda hhmm: datetime.datetime.fromisoformat(     # noqa: E731
         f"2026-08-01T{hhmm}:00").timestamp()
     write_jsonl(rec.paths.tool_logs / "calls.jsonl", [
-        {"ts": at("10:05"), "tool": "get_weather", "verdict": "ok"}])
+        {"ts": at("10:05"), "tool": "list_notes", "verdict": "ok"}])
 
     entries = client.get("/api/characters/yuri/log").json()["entries"]
     assert [e.get("tick_id") or e.get("tool") for e in entries] \
-        == ["t-early", "get_weather", "t-late"]
+        == ["t-early", "list_notes", "t-late"]
 
 
 def test_context_history_reads_disk(client):

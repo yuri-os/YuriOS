@@ -98,7 +98,7 @@ def test_a_call_made_inside_a_turn_carries_the_turn(guard, cfg):
 def test_a_call_the_mind_made_for_itself_still_writes_a_whole_line(guard, cfg):
     """No turn is in scope for most of what she does. That is the ordinary
     case, so it must produce the same shape — nulls, not missing keys."""
-    guard.audit("get_weather", {}, "ok", 1.0, "{}")
+    guard.audit("list_notes", {}, "ok", 1.0, "{}")
     line = audit_lines(cfg)[0]
     assert line["origin"] == "host"
     assert all(line[k] is None for k in
@@ -108,7 +108,7 @@ def test_a_call_the_mind_made_for_itself_still_writes_a_whole_line(guard, cfg):
 def test_a_tick_stamps_every_call_it_causes(guard, cfg):
     with correlate.scope(kind=correlate.TICK, tick_id="t-abc") as tick:
         with correlate.scope(kind=correlate.DREAM):     # nested: refines, not restarts
-            guard.audit("get_weather", {}, "ok", 1.0, "{}")
+            guard.audit("list_notes", {}, "ok", 1.0, "{}")
     line = audit_lines(cfg)[0]
     assert line["tick_id"] == "t-abc"
     assert line["origin"] == "dream"
@@ -166,10 +166,10 @@ def test_allow_admits_a_discovered_tool_at_its_own_rate(guard, clock):
 
 
 def test_allow_never_widens_the_bucket_on_a_hand_she_already_has(guard):
-    """A server that happens to advertise `get_weather` must not raise the rate
+    """A server that happens to advertise `play_music` must not raise the rate
     chosen for hers — or lower it."""
-    assert guard.allow("get_weather", 999) is False
-    assert guard._rates["get_weather"] == 4
+    assert guard.allow("play_music", 999) is False
+    assert guard._rates["play_music"] == 6
 
 
 def test_a_tool_that_was_never_discovered_is_still_denied(guard):

@@ -26,13 +26,10 @@ class Config(VoiceConfig):
     tool_log_dir: Path = Path("./tool-logs")    # JSONL audit, one line per call (§7.3)
     tool_rate_timer: int = 6                    # calls/minute, token bucket (§7.3)
     tool_rate_music: int = 6
-    tool_rate_weather: int = 4
     tool_rate_desk: int = 20                    # her workspace + skills (§34.2):
                                                 #   local writes, no outside party
                                                 #   — a loop-catcher, not a ration
     timer_max_minutes: int = 180                # set_timer upper bound (§7.1)
-    weather_backend: str = "open_meteo"         # open_meteo | fake (§7.5)
-    weather_city: str = "Tokyo"                 # default when she isn't told one
 
     # --- the web: search, read, research (SPEC §7.7) ---
     # searxng = your own metasearch instance — keyless AND third-party-less,
@@ -41,10 +38,9 @@ class Config(VoiceConfig):
     # offline rows (tests, demos). off = no web hands at all: the three tools
     # aren't advertised, the SELFIE_BACKEND=off rule.
     #
-    # DEFAULT IS OFF, unlike the weather. Open-Meteo works the moment you
-    # install her; a SearXNG instance is something you have to stand up first,
-    # and a hand that always errors is worse than a hand she doesn't have. Set
-    # this to `searxng` once the instance below answers.
+    # DEFAULT IS OFF. A SearXNG instance is something you have to stand up
+    # first, and a hand that always errors is worse than a hand she doesn't
+    # have. Set this to `searxng` once the instance below answers.
     #
     # NOTE the instance needs `json` in its settings.yml `search.formats` — it
     # is disabled by default and the symptom is a 403 on every query.

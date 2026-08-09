@@ -19,12 +19,10 @@ from yurios.world.tools.client import (  # noqa: E402
 from yurios.world.tools.fetch import FakeFetcher  # noqa: E402
 from yurios.world.tools.search import FakeSearch  # noqa: E402
 from yurios.world.tools.server import MUSIC_TRACKS, build_server  # noqa: E402
-from yurios.world.tools.weather import FakeWeather  # noqa: E402
 
 
 def server(**kw):
-    return build_server(weather=FakeWeather(), max_minutes=180,
-                        default_city="Tokyo", **kw)
+    return build_server(max_minutes=180, **kw)
 
 
 def web_server():
@@ -36,8 +34,7 @@ async def test_list_tools_is_exactly_the_hands_she_has():
     async with create_connected_server_and_client_session(server()._mcp_server) as s:
         listed = await s.list_tools()
         assert sorted(t.name for t in listed.tools) == [
-            "get_weather", "play_music", "set_timer", "show_picture",
-            "take_selfie"]
+            "play_music", "set_timer", "show_picture", "take_selfie"]
         timer = next(t for t in listed.tools if t.name == "set_timer")
         assert "minutes" in timer.inputSchema["properties"]
         assert "minutes" in timer.inputSchema.get("required", [])
@@ -50,8 +47,8 @@ async def test_the_web_hands_appear_only_when_search_is_configured():
     async with create_connected_server_and_client_session(
             web_server()._mcp_server) as s:
         names = sorted(t.name for t in (await s.list_tools()).tools)
-    assert names == ["get_weather", "play_music", "read_page", "research",
-                     "set_timer", "show_picture", "take_selfie", "web_search"]
+    assert names == ["play_music", "read_page", "research", "set_timer",
+                     "show_picture", "take_selfie", "web_search"]
 
 
 async def test_web_search_returns_rows_a_model_can_speak_to():
@@ -134,11 +131,10 @@ async def test_description_is_built_from_her_own_library_when_she_has_one(tmp_pa
 
 async def test_selfies_off_is_not_advertised():
     """SELFIE_BACKEND=off: the tool doesn't exist — no hand, not a dead one (§7.6)."""
-    srv = build_server(weather=FakeWeather(), selfies=False)
+    srv = build_server(selfies=False)
     async with create_connected_server_and_client_session(srv._mcp_server) as s:
         listed = await s.list_tools()
-        assert sorted(t.name for t in listed.tools) == [
-            "get_weather", "play_music", "set_timer"]
+        assert sorted(t.name for t in listed.tools) == ["play_music", "set_timer"]
 
 
 async def test_take_selfie_contract_and_freeform_passthrough():
@@ -221,7 +217,7 @@ async def test_show_picture_is_the_camera_pointed_away_from_her():
 async def test_show_picture_is_off_when_the_camera_is():
     """One camera, two hands: SELFIE_BACKEND=off takes both away rather than
     leaving her one that can't render (§7.6)."""
-    srv = build_server(weather=FakeWeather(), selfies=False)
+    srv = build_server(selfies=False)
     async with create_connected_server_and_client_session(srv._mcp_server) as s:
         assert "show_picture" not in {t.name for t in (await s.list_tools()).tools}
 
@@ -293,13 +289,6 @@ def test_the_frontend_and_the_tool_agree_on_the_catalog():
     silent split there is a tool that validates a track her room can't play."""
     from yurios.world.avatar.controller import MUSIC_TRACKS as BODY_TRACKS
     assert tuple(BODY_TRACKS) == tuple(MUSIC_TRACKS)
-
-
-async def test_get_weather_uses_the_default_city():
-    async with create_connected_server_and_client_session(server()._mcp_server) as s:
-        r = await s.call_tool("get_weather", {})
-        data = json.loads(result_text(r))
-        assert data["city"] == "Tokyo" and data["condition"] == "raining"
 
 
 def test_a_server_that_never_came_up_is_reported_by_its_leaf():

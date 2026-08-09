@@ -9,6 +9,13 @@ It's additive. `MIND_ENABLED=false` gives you the reactive companion minus ambie
 conversation never depends on it. Timer expiries currently use the mind loop for delivery, so
 enable the mind and select a model if they must be announced or queued.
 
+> **Experimental.** This is a reference implementation of *initiative*, not a hardened product.
+> Much of what's on this page is new and still moving between releases — DREAM, self-edits, her
+> desk, the shelf — and all of it spends model calls with nobody watching. Meet it with a local
+> model first, mind the [budget governor](#the-budget-governor) and what it does *not* do, and
+> read [the cost note](README.md#experimental--and-it-can-spend) before pointing her at a metered
+> API.
+
 Normative detail: [`SPEC.md` §15–§25](../SPEC.md).
 
 ## The tick loop
@@ -85,6 +92,13 @@ line the mind composes. At pressure ≥ 1.0, REGULATE sheds IDLE to DORMANT and 
 
 It **never** gates conversation. A governor that silences her when you speak has failed at its one
 job. The ledger rolls at local midnight and is rendered in the inner-life tab.
+
+**It is a governor, not a spend cap**, and the difference matters if she is on a metered API. The
+number is an *estimate* of tokens, not a bill; pressure changes what the loop chooses to do next
+rather than stopping work already under way, so it will not abort a long read in flight; and it
+does not stand between a tool call and the run it starts — a `research` call you provoked in
+conversation goes ahead at any pressure. The hard bounds are `RESEARCH_MAX_PAGES`,
+`TOOL_RATE_RESEARCH`, and the stop button on the inner-life tab.
 
 ## The two gates
 

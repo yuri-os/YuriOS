@@ -98,6 +98,20 @@ TOOL_RATE_RESEARCH=2
 With `SEARCH_BACKEND=off` — the default — `list_tools` doesn't mention them at all. No hand, not a
 dead one, the same rule as `SELFIE_BACKEND=off`.
 
+> **Experimental — and this is the hand that can cost you money.** The web hands are new and still
+> moving, and `research` is the one thing here that keeps spending after it has answered: it
+> returns to the conversation in milliseconds and then searches, fetches and *reads*, for as long
+> as that takes. A long page is a model call per passage plus an embedding per chunk — dozens to
+> hundreds of calls, over half an hour, from one sentence you said in passing. On a local model
+> that is fan noise. On a metered API it is a bill, and nothing in the loop stops to ask you first.
+>
+> `MIND_DAILY_TOKENS` is a governor, not a spend cap: it is an estimate, it never gates
+> conversation, it does not abort a read already in flight, and it does not stand between a tool
+> call and the run it starts. What actually bounds a run is `RESEARCH_MAX_PAGES`, the
+> `TOOL_RATE_RESEARCH` bucket, and you — the **inner life** tab shows every run and the document
+> being read right now with its model-call count, and the stop button there loses nothing. If she
+> is pointed at a paid API, set a spend limit with the provider as well.
+
 **Why SearXNG.** Open-Meteo is the weather backend because it is keyless; SearXNG is the search
 backend because it is keyless *and* third-party-less. You run the instance, so the record of what
 she searched for is a file on your own machine. That is the local-first argument applied to the

@@ -193,6 +193,11 @@ See [Tools](tools.md).
 | `RESEARCH_MAX_PAGES` | `5` | ceiling on `research(depth=…)` |
 | `TOOL_RATE_SEARCH` / `_READ` / `_RESEARCH` | `6` / `6` / `2` | calls per minute |
 
+`SEARCH_BACKEND` is the one knob on this page that can turn into a bill: `research` keeps reading
+long after it has answered, and `MIND_DAILY_TOKENS` governs the loop's choices rather than capping
+spend. See [what it costs](README.md#experimental--and-it-can-spend) before turning it on against a
+metered API.
+
 Don't set these by hand for a fresh install — `./install.sh --web-search` pulls and configures the
 SearXNG container, then writes `SEARCH_BACKEND` and `SEARXNG_URL` for you. `yurios start` brings the
 container up with her; `yurios doctor` says whether she can actually search right now.

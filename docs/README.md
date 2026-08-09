@@ -4,6 +4,34 @@ Everything about running, configuring and extending YuriOS. The [README](../READ
 short version; [`SPEC.md`](../SPEC.md) is the normative specification these pages describe in
 plain language. Where the two disagree, the SPEC wins — and that is a bug worth reporting.
 
+## Experimental — and it can spend
+
+This is a reference implementation of *initiative*, not a hardened product. Much of the autonomous
+half is new and still moving: the tick loop, DREAM, self-edits, [her desk](mind.md#her-desk-and-her-skills),
+[the shelf](mind.md#the-shelf-drop-folder-rag), and above all [the web hands](tools.md#web_search-read_page-and-research).
+Expect rough edges, expect the shape of it to change between releases, and meet it with a local
+model first.
+
+**The reading is the expensive part.** `research` answers the conversation in milliseconds and
+then keeps going on its own for as long as it takes — searching, fetching pages, and reading each
+one. A long document is a model call per passage plus an embedding per chunk: dozens to hundreds
+of calls, over half an hour, from one sentence you said in passing. On a local model that is fan
+noise. On a metered API it is a bill, and nothing in the loop stops to ask you first.
+
+What stands between you and that:
+
+- **`SEARCH_BACKEND=off` is the default.** Until you turn it on, the three web hands are not
+  advertised to her at all — she can't call what she can't see.
+- **`MIND_DAILY_TOKENS` is a governor, not a cap.** At pressure ≥ 1.0 she sheds to DORMANT and
+  goal work stops, but it is an *estimate* of spend, it never gates conversation, it does not
+  abort a read already in flight, and it does not stand between a tool call and the run it starts.
+- **The inner-life tab is the meter.** Every run, the document being read right now, its passage
+  and model-call counts, and a stop button that keeps what she has already read.
+- **`RESEARCH_MAX_PAGES` and `TOOL_RATE_RESEARCH`** bound how far one run and one minute can reach.
+
+If you point her at a paid API — chat, utility or embeddings — set a spend limit with the provider
+as well. For the first few days, watch the numbers on the inner-life tab.
+
 ## Start here
 
 | Page | What's in it |

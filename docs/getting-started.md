@@ -97,3 +97,5 @@ More on all of it in [The mind](mind.md).
 - Reach her from your phone → [Channels](channels.md#telegram)
 - Add a second companion → [Characters](characters.md)
 - Turn a dial → [Configuration](configuration.md)
+- Let her search and read the web → [Tools](tools.md#web_search-read_page-and-research), and
+  [what that can cost](README.md#experimental--and-it-can-spend) first if she's on a metered API

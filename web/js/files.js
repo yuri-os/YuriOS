@@ -1,6 +1,6 @@
-/* The files tab is a small local terminal, not a second Vault debugger. It can
- * write only workspace scratch; research sources stay intact and can be copied
- * to the desk before changing them. */
+/* The files tab is a small local terminal dressed as an OS volume browser, not
+ * a second Vault debugger. It can write only workspace scratch; research
+ * sources stay intact and can be copied to the desk before changing them. */
 (() => {
   const runtimeReady = window.YuriOSRuntime
     ? Promise.resolve()
@@ -9,7 +9,18 @@
   const panel = document.getElementById('files');
   if (!panel) return;
 
-  const state = { workspace: [], research: [], active: null, dirty: false, loading: false };
+  // The two mounted volumes. `id` is what appears in fs:// paths, `kind` is
+  // the API namespace the volume's files live under.
+  const VOLUMES = [
+    { id: 'workspace', kind: 'workspace', mode: 'rw', desc: 'scratch · editable' },
+    { id: 'shelf', kind: 'research', mode: 'ro', desc: 'sources · preserved' },
+  ];
+
+  const state = {
+    workspace: [], research: [],
+    active: null, dirty: false, loading: false,
+    cwd: [], // fs path segments, e.g. ['workspace', 'research']; [] is the mount table
+  };
   let serial = 0;
 
   function esc(value) {
@@ -39,42 +50,126 @@
     return response.json();
   }
 
-  function fileRow(kind, file) {
-    const path = kind === 'workspace' ? file.path : file.name;
-    const active = state.active?.kind === kind && state.active?.path === path;
-    const folder = Boolean(file.dir);
-    return `<button class="fs-entry${active ? ' on' : ''}${folder ? ' folder' : ''}" ` +
-      `data-kind="${kind}" data-path="${esc(path)}"${folder ? ' disabled' : ''}>` +
-      `<span class="fs-glyph">${folder ? '>' : '·'}</span>` +
-      `<span class="fs-entry-path">${esc(path)}</span>` +
-      (folder ? '' : `<small>${bytes(file.bytes)}</small>`) + '</button>';
+  // ------------------------------------------------------------------ icons
+  // Stroked currentColor SVG, per house style: glyph fonts are tofu on Linux.
+  const ICON = {
+    folder: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4.5h4l1.8 2H14v7H2z" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>',
+    file: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2h5.5L13 5.5V14H4z" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/><path d="M9.5 2v3.5H13" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>',
+    up: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 13V4M3.5 8.5L8 4l4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    drive: '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="4" width="12" height="8" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M11 8.5h1.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>',
+  };
+
+  // -------------------------------------------------------------- navigation
+  function volume() {
+    return VOLUMES.find(v => v.id === state.cwd[0]) || null;
   }
 
-  function tree() {
-    const workspace = state.workspace.length
-      ? state.workspace.map(file => fileRow('workspace', file)).join('')
-      : '<p class="fs-empty">no notes on the desk</p>';
-    const research = state.research.length
-      ? state.research.map(file => fileRow('research', file)).join('')
-      : '<p class="fs-empty">the shelf is quiet</p>';
-    return `<aside class="fs-tree" aria-label="documents">` +
-      `<div class="fs-root"><p><i></i> workspace <span>${state.workspace.filter(f => !f.dir).length}</span></p>` +
-      `<small>scratch · editable</small>${workspace}</div>` +
-      `<div class="fs-root"><p><i></i> research shelf <span>${state.research.length}</span></p>` +
-      `<small>sources · preserved</small>${research}</div></aside>`;
+  function filesOf(kind) {
+    return kind === 'workspace' ? state.workspace : state.research;
+  }
+
+  // Folders first, then files, inside the current directory. Folders are
+  // derived from path prefixes so a dir the server never listed still opens.
+  function children() {
+    const vol = volume();
+    if (!vol) return { dirs: [], docs: [] };
+    const prefix = state.cwd.length > 1 ? state.cwd.slice(1).join('/') + '/' : '';
+    const dirs = new Set();
+    const docs = [];
+    for (const file of filesOf(vol.kind)) {
+      const path = vol.kind === 'workspace' ? file.path : file.name;
+      if (!path.startsWith(prefix)) continue;
+      const rest = path.slice(prefix.length);
+      const slash = rest.indexOf('/');
+      if (slash === -1) {
+        if (file.dir) dirs.add(rest); else docs.push(file);
+      } else {
+        dirs.add(rest.slice(0, slash));
+      }
+    }
+    docs.sort((a, b) => {
+      const an = vol.kind === 'workspace' ? a.path : a.name;
+      const bn = vol.kind === 'workspace' ? b.path : b.name;
+      return an.localeCompare(bn);
+    });
+    return { dirs: [...dirs].sort(), docs };
+  }
+
+  // ------------------------------------------------------------------ render
+  function addressBar() {
+    const parts = ['<button class="fs-seg fs-root-seg" data-depth="-1">fs://</button>'];
+    state.cwd.forEach((seg, i) => {
+      parts.push('<span class="fs-slash">/</span>');
+      parts.push(`<button class="fs-seg" data-depth="${i}">${esc(seg)}</button>`);
+    });
+    return `<div class="fs-addr"><span class="fs-prompt" aria-hidden="true"></span>${parts.join('')}</div>`;
+  }
+
+  function row(icon, name, meta, attrs, cls = '') {
+    return `<button class="fs-row${cls}"${attrs}>` +
+      `<span class="fs-icon">${icon}</span>` +
+      `<span class="fs-name">${esc(name)}</span>${meta}</button>`;
+  }
+
+  function listing() {
+    const vol = volume();
+    if (!vol) {
+      // Mount table: the root of the virtual file system.
+      const mounts = VOLUMES.map(v => {
+        const count = filesOf(v.kind).filter(f => !f.dir).length;
+        return `<button class="fs-vol" data-vol="${v.id}">` +
+          `<span class="fs-icon">${ICON.drive}</span>` +
+          `<span class="fs-vol-name">${esc(v.id)}<small>${esc(v.desc)}</small></span>` +
+          `<span class="fs-vol-meta"><em>${v.mode}</em>${count} obj</span></button>`;
+      }).join('');
+      return `<div class="fs-list">${mounts}</div>` +
+        `<div class="fs-status">${VOLUMES.length} volumes mounted</div>`;
+    }
+    const { dirs, docs } = children();
+    const rows = [];
+    if (state.cwd.length) {
+      rows.push(row(ICON.up, '..', '<small></small>', ' data-up="1"'));
+    }
+    for (const dir of dirs) {
+      rows.push(row(ICON.folder, dir, '<small>dir</small>',
+        ` data-dir="${esc(dir)}"`, ' folder'));
+    }
+    for (const doc of docs) {
+      const path = vol.kind === 'workspace' ? doc.path : doc.name;
+      const name = path.slice(path.lastIndexOf('/') + 1);
+      const active = state.active?.kind === vol.kind && state.active?.path === path;
+      rows.push(row(ICON.file, name,
+        `<small>${bytes(doc.bytes)}</small><small class="fs-mtime">${stamp(doc.mtime)}</small>`,
+        ` data-path="${esc(path)}"${active ? ' data-on="1"' : ''}`));
+    }
+    const body = rows.length
+      ? rows.join('')
+      : '<p class="fs-empty">empty directory</p>';
+    const total = docs.reduce((sum, doc) => sum + (doc.bytes || 0), 0);
+    return `<div class="fs-list">${body}</div>` +
+      `<div class="fs-status">${dirs.length + docs.length} objects · ${bytes(total)} · ${vol.mode}</div>`;
+  }
+
+  function browser() {
+    return `<section class="fs-os" aria-label="file system">` +
+      `<header class="fs-titlebar"><span class="fs-dots"><i></i><i></i><i></i></span>` +
+      `<span class="fs-title">yurios/files</span></header>` +
+      `${addressBar()}${listing()}</section>`;
   }
 
   function detail() {
     const active = state.active;
     if (!active) {
       return `<section class="fs-detail fs-idle"><span class="fs-cursor">_</span>` +
-        '<h2>select a document</h2><p>your working desk and the research shelf are live here.</p></section>';
+        '<h2>select a document</h2><p>mount a volume, open a folder, pick a file.</p></section>';
     }
     if (state.loading) {
       return `<section class="fs-detail fs-idle"><span class="fs-cursor">_</span>` +
         `<h2>opening ${esc(active.path)}</h2><p>reading the local file system…</p></section>`;
     }
     const meta = `${bytes(active.bytes)}${active.mtime ? ` · ${stamp(active.mtime)}` : ''}`;
+    const vol = VOLUMES.find(v => v.kind === active.kind);
+    const fsPath = `fs://${vol ? vol.id : active.kind}/${active.path}`;
     const mode = active.kind === 'workspace' ? 'workspace / editable' : 'research / source file';
     const action = active.kind === 'workspace'
       ? `<button class="fs-save"${state.dirty ? '' : ' disabled'}>save file</button>`
@@ -83,7 +178,7 @@
       ? `<textarea class="fs-editor" spellcheck="false" aria-label="${esc(active.path)}">${esc(active.text)}</textarea>`
       : `<pre class="fs-source">${esc(active.text)}</pre>`;
     return `<section class="fs-detail"><header class="fs-file-head">` +
-      `<div><p class="fs-breadcrumb">${mode}</p><h2>${esc(active.path)}</h2>` +
+      `<div><p class="fs-breadcrumb">${mode} · ${esc(fsPath)}</p><h2>${esc(active.path)}</h2>` +
       `<small>${meta}</small></div>${action}</header>${body}` +
       `<footer class="fs-foot">${active.kind === 'workspace'
         ? `<span class="fs-write-state">${state.dirty ? 'unsaved changes' : 'saved to local workspace'}</span>`
@@ -91,7 +186,7 @@
   }
 
   function render() {
-    panel.innerHTML = `<div class="fs-shell">${tree()}${detail()}</div>`;
+    panel.innerHTML = `<div class="fs-shell">${browser()}${detail()}</div>`;
   }
 
   async function refresh({ reload = false } = {}) {
@@ -114,9 +209,8 @@
 
   async function openFile(kind, path) {
     const token = ++serial;
-    const from = kind === 'workspace'
-      ? state.workspace.find(file => file.path === path)
-      : state.research.find(file => file.name === path);
+    const from = filesOf(kind).find(file =>
+      (kind === 'workspace' ? file.path : file.name) === path);
     if (!from || from.dir) return;
     state.active = { kind, path, text: '', bytes: from.bytes, mtime: from.mtime };
     state.dirty = false;
@@ -174,6 +268,7 @@
         body: JSON.stringify({ path, text: state.active.text }),
       });
       await refresh();
+      state.cwd = ['workspace', 'research'];
       openFile('workspace', path);
     } catch (error) {
       panel.querySelector('.fs-foot')?.insertAdjacentHTML('beforeend',
@@ -182,8 +277,37 @@
   }
 
   panel.addEventListener('click', (event) => {
-    const entry = event.target.closest('.fs-entry:not([disabled])');
-    if (entry) openFile(entry.dataset.kind, entry.dataset.path);
+    const volButton = event.target.closest('.fs-vol');
+    if (volButton) {
+      state.cwd = [volButton.dataset.vol];
+      render();
+      return;
+    }
+    const seg = event.target.closest('.fs-seg');
+    if (seg) {
+      const depth = Number(seg.dataset.depth);
+      state.cwd = depth < 0 ? [] : state.cwd.slice(0, depth + 1);
+      render();
+      return;
+    }
+    const up = event.target.closest('.fs-row[data-up]');
+    if (up) {
+      state.cwd = state.cwd.slice(0, -1);
+      render();
+      return;
+    }
+    const dir = event.target.closest('.fs-row[data-dir]');
+    if (dir) {
+      state.cwd = [...state.cwd, dir.dataset.dir];
+      render();
+      return;
+    }
+    const file = event.target.closest('.fs-row[data-path]');
+    if (file) {
+      const vol = volume();
+      if (vol) openFile(vol.kind, file.dataset.path);
+      return;
+    }
     if (event.target.closest('.fs-save')) save();
     if (event.target.closest('.fs-fork')) forkResearch();
   });

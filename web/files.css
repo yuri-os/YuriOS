@@ -1,22 +1,55 @@
-/* The room's local file system: paperless, terminal-adjacent, and deliberately
-   narrow. It inherits each room's palette tokens instead of inventing a theme. */
+/* The room's local file system, dressed as an OS volume browser: a window
+   chrome, an fs:// address bar, and folders you can walk into. It inherits
+   each room's palette tokens instead of inventing a theme. */
 #files{ flex:1; min-height:0; overflow:hidden; }
-.fs-shell{ height:100%; min-height:0; display:grid; grid-template-columns:minmax(170px, 26%) minmax(0, 1fr); background:var(--void); }
-.fs-tree{ min-height:0; overflow:auto; padding:16px 10px; border-right:1px solid var(--rule); scrollbar-width:thin; scrollbar-color:var(--rule) transparent; }
-.fs-root + .fs-root{ margin-top:22px; }
-.fs-root > p{ display:flex; align-items:center; gap:7px; margin:0; color:var(--soft); font:9px var(--font-mono); letter-spacing:.12em; text-transform:uppercase; }
-.fs-root > p i{ width:6px; height:6px; display:block; border:1px solid var(--acid); transform:rotate(45deg); }
-.fs-root > p span{ margin-left:auto; color:var(--dim); font-variant-numeric:tabular-nums; }
-.fs-root > small{ display:block; margin:5px 0 8px 13px; color:var(--dim); font:8px var(--font-mono); letter-spacing:.08em; text-transform:uppercase; }
-.fs-entry{ width:100%; min-height:29px; display:grid; grid-template-columns:10px minmax(0, 1fr) auto; gap:6px; align-items:center; padding:4px 6px; border:0; border-left:1px solid transparent; background:transparent; color:var(--soft); cursor:pointer; text-align:left; font:10px var(--font-mono); transition:background .14s ease, color .14s ease; }
-.fs-entry:hover{ background:var(--panel); color:var(--ink); }
-.fs-entry.on{ border-left-color:var(--acid); background:var(--panel-2); color:var(--ink); }
-.fs-entry.folder{ color:var(--dim); cursor:default; }
-.fs-glyph{ color:var(--acid-dark); }
-.fs-entry.folder .fs-glyph{ color:var(--dim); }
-.fs-entry-path{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.fs-entry small{ color:var(--dim); font-size:8px; }
+.fs-shell{ height:100%; min-height:0; display:grid; grid-template-columns:minmax(200px, 34%) minmax(0, 1fr); background:var(--void); }
+
+/* ------------------------------------------------------------- OS window */
+.fs-os{ min-width:0; min-height:0; display:flex; flex-direction:column; border-right:1px solid var(--rule); background:var(--ground); }
+.fs-titlebar{ flex:none; display:flex; align-items:center; gap:10px; padding:8px 10px; border-bottom:1px solid var(--rule); background:var(--panel); }
+.fs-dots{ display:flex; gap:5px; }
+.fs-dots i{ width:6px; height:6px; display:block; border:1px solid var(--dim); transform:rotate(45deg); }
+.fs-dots i:first-child{ border-color:var(--acid); background:rgb(215 255 88 / .18); }
+.fs-title{ overflow:hidden; color:var(--dim); font:8px var(--font-mono); letter-spacing:.16em; text-transform:uppercase; white-space:nowrap; }
+
+/* ----------------------------------------------------------- address bar */
+.fs-addr{ flex:none; display:flex; align-items:center; gap:2px; padding:7px 10px; border-bottom:1px solid var(--rule); background:var(--void); overflow-x:auto; scrollbar-width:thin; scrollbar-color:var(--rule) transparent; }
+.fs-prompt{ flex:none; width:7px; height:11px; margin-right:6px; background:var(--acid); animation:fs-blink 1.1s steps(2, start) infinite; }
+.fs-seg{ padding:2px 4px; border:0; border-radius:2px; background:transparent; color:var(--dim); cursor:pointer; font:9px var(--font-mono); letter-spacing:.06em; white-space:nowrap; transition:color .14s ease, background .14s ease; }
+.fs-seg:hover{ background:var(--panel-2); color:var(--ink); }
+.fs-seg:last-of-type{ color:var(--acid); }
+.fs-root-seg{ color:var(--acid-dark); }
+.fs-slash{ color:var(--rule); font:9px var(--font-mono); }
+
+/* --------------------------------------------------------------- listing */
+.fs-list{ flex:1; min-height:0; overflow:auto; padding:8px; scrollbar-width:thin; scrollbar-color:var(--rule) transparent; }
+.fs-row{ width:100%; min-height:30px; display:grid; grid-template-columns:14px minmax(0, 1fr) auto auto; gap:8px; align-items:center; padding:4px 8px; border:0; border-left:1px solid transparent; background:transparent; color:var(--soft); cursor:pointer; text-align:left; font:10px var(--font-mono); transition:background .14s ease, color .14s ease; }
+.fs-row:hover{ background:var(--panel); color:var(--ink); }
+.fs-row[data-on]{ border-left-color:var(--acid); background:var(--panel-2); color:var(--ink); }
+.fs-icon{ display:block; color:var(--acid-dark); }
+.fs-icon svg{ width:13px; height:13px; display:block; }
+.fs-row.folder .fs-icon{ color:var(--amber); }
+.fs-row[data-up]{ color:var(--dim); }
+.fs-row[data-up] .fs-icon{ color:var(--dim); }
+.fs-name{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.fs-row small{ color:var(--dim); font-size:8px; font-variant-numeric:tabular-nums; }
 .fs-empty{ margin:9px 6px; color:var(--dim); font:9px/1.5 var(--font-mono); }
+
+/* ------------------------------------------------------ mounted volumes */
+.fs-vol{ width:100%; display:grid; grid-template-columns:16px minmax(0, 1fr) auto; gap:10px; align-items:center; margin-bottom:8px; padding:11px 10px; border:1px solid var(--rule); border-radius:2px; background:var(--panel); color:var(--soft); cursor:pointer; text-align:left; font:10px var(--font-mono); transition:border-color .16s ease, box-shadow .16s ease; }
+.fs-vol:hover{ border-color:var(--acid-dark); box-shadow:0 0 18px rgb(215 255 88 / .06); }
+.fs-vol .fs-icon{ color:var(--acid); }
+.fs-vol .fs-icon svg{ width:15px; height:15px; }
+.fs-vol-name{ overflow:hidden; color:var(--ink); letter-spacing:.08em; text-overflow:ellipsis; white-space:nowrap; }
+.fs-vol-name small{ display:block; margin-top:3px; color:var(--dim); font-size:8px; letter-spacing:.08em; text-transform:uppercase; }
+.fs-vol-meta{ display:flex; flex-direction:column; align-items:flex-end; gap:3px; color:var(--dim); font-size:8px; font-style:normal; font-variant-numeric:tabular-nums; }
+.fs-vol-meta em{ padding:1px 4px; border:1px solid var(--acid-dark); border-radius:2px; color:var(--acid); font-size:7px; font-style:normal; letter-spacing:.1em; }
+.fs-vol:last-child .fs-vol-meta em{ border-color:var(--rule); color:var(--dim); }
+
+/* ------------------------------------------------------------- status bar */
+.fs-status{ flex:none; padding:6px 10px; border-top:1px solid var(--rule); background:var(--panel); color:var(--dim); font:8px var(--font-mono); letter-spacing:.1em; text-transform:uppercase; font-variant-numeric:tabular-nums; }
+
+/* ---------------------------------------------------------- detail pane */
 .fs-detail{ min-width:0; min-height:0; display:flex; flex-direction:column; padding:18px; }
 .fs-file-head{ flex:none; display:flex; align-items:flex-start; justify-content:space-between; gap:12px; padding-bottom:13px; border-bottom:1px solid var(--rule); }
 .fs-breadcrumb{ margin-bottom:5px; color:var(--acid-dark); font:8px var(--font-mono); letter-spacing:.14em; text-transform:uppercase; }
@@ -37,17 +70,17 @@
 @keyframes fs-blink{ 50%{ opacity:.15; } }
 
 /* The sanctuary has a narrow fixed sidecar. Its file browser becomes a compact
-   stacked desk; the text room keeps the full split-pane view above. */
+   stacked deck; the text room keeps the full split-pane view above. */
 #chat-col .fs-shell{ display:flex; flex-direction:column; }
-#chat-col .fs-tree{ flex:none; max-height:178px; display:grid; grid-template-columns:1fr 1fr; gap:12px; padding:12px 10px; border-right:0; border-bottom:1px solid var(--rule); }
-#chat-col .fs-root + .fs-root{ margin-top:0; }
-#chat-col .fs-entry{ min-height:25px; font-size:9px; }
+#chat-col .fs-os{ flex:none; max-height:236px; border-right:0; border-bottom:1px solid var(--rule); }
+#chat-col .fs-row{ min-height:25px; font-size:9px; }
+#chat-col .fs-mtime{ display:none; }
 #chat-col .fs-detail{ flex:1; padding:13px; }
 #chat-col .fs-file-head h2{ font-size:12px; }
 #chat-col .fs-editor,#chat-col .fs-source{ margin-top:10px; padding:10px; font-size:10px; }
 
 @media (max-width:720px){
-  .fs-shell{ grid-template-columns:1fr; grid-template-rows:minmax(150px, 34%) minmax(0, 1fr); }
-  .fs-tree{ border-right:0; border-bottom:1px solid var(--rule); }
+  .fs-shell{ grid-template-columns:1fr; grid-template-rows:minmax(190px, 38%) minmax(0, 1fr); }
+  .fs-os{ border-right:0; border-bottom:1px solid var(--rule); }
 }
-@media (prefers-reduced-motion:reduce){ .fs-cursor{ animation:none; } }
+@media (prefers-reduced-motion:reduce){ .fs-cursor,.fs-prompt{ animation:none; } }

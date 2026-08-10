@@ -234,6 +234,28 @@ which is the shared version of the same idea: her own endpoint wins over the pro
 The key itself never enters the registry — `api_key_env` names the environment variable it is read
 from, so a character can be copied to another machine without carrying a secret.
 
+Because her record wins, changing `CHAT_MODEL` in `.env` does **not** move a character who has one
+of her own — she keeps connecting where her record says, which is how an install whose `.env` reads
+`gguf/…` ends up dialling LM Studio at boot. So `yurios start` prints who connects where before it
+launches anything:
+
+```
+Characters and the model each one connects with:
+  * Adia [adia]  gguf/HauhauCS/Gemma4-12B-QAT-Uncensored-HauhauCS-Balanced
+  * Yuri [yuri]  lm_studio/gemma4-12b-…  → http://localhost:1234/v1
+      her own settings, not the house's:
+        chat_model    = lm_studio/gemma4-12b-…  (house: gguf/HauhauCS/Gemma4-12B-…)
+        chat_thinking = False  (house: True)
+  Those are character settings, not .env — `yurios configure` can clear them.
+```
+
+`yurios configure` offers the same thing at the moment it matters: after saving a new house model it
+lists any character who does not use it and asks whether to clear her own settings.
+`yurios configure --clear-character-models` does it without prompting, and on its own — with no
+`--model` — it puts every character back on whatever `.env` already says. Clearing takes her model
+bindings, endpoint, key variable and model knobs; her voice, body, loops and Vault are untouched.
+Restart for it to take effect.
+
 ## Changing models mid-conversation
 
 **Her** model, route, key and knobs apply the moment you save — no restart, no lost session.

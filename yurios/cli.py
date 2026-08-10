@@ -235,6 +235,12 @@ def command_configure(args) -> int:
     model = args.model
     provider = args.provider
     interactive = sys.stdin.isatty()
+    if getattr(args, "clear_character_models", False) and not model and not provider:
+        # The flag on its own is "put everyone back on what `.env` already says",
+        # which is worth having without re-choosing the model to say it.
+        _clear_character_overrides(root, cfg, cfg.chat_model,
+                                   interactive=interactive, always=True)
+        return 0
     configure_selfies = interactive and not model and not provider
     if not model and not provider:
         if not interactive:
@@ -313,9 +319,110 @@ def command_configure(args) -> int:
         print(f"GGUF ready: {path}")
     else:
         print(check.detail)
+    _clear_character_overrides(root, _configured_cfg(root), model,
+                               interactive=interactive,
+                               always=bool(getattr(args, "clear_character_models", False)))
     if configure_selfies:
         return command_configure_selfies_interactively(args, cfg, root)
     return 0
+
+
+def _registry_and_profiles(root: Path, cfg: Config):
+    """Her house's registry and connection profiles, or (None, None).
+
+    A direct single-companion install has no registry, and a fresh one has no
+    registry *yet*; neither is a fault worth a message. A registry that exists
+    and cannot be read is the daemon's error to report, in its own words — this
+    is a report about models, and it does not get to fail the command.
+    """
+    from yurios.characters import CharacterRegistry, ConnectionProfiles
+
+    try:
+        registry = CharacterRegistry(root / cfg.data_dir)
+        if not registry.list():
+            return None, None
+        return registry, ConnectionProfiles(registry.data_root)
+    except (OSError, ValueError):
+        return None, None
+
+
+def _character_connections(root: Path, cfg: Config) -> list:
+    """Which model each character will actually connect with (SPEC §31.2)."""
+    from yurios.characters import overrides
+
+    registry, profiles = _registry_and_profiles(root, cfg)
+    if registry is None:
+        return []
+    return overrides.describe(cfg, registry.list(), profiles)
+
+
+def _print_character_connections(rows: list, *, indent: str = "  ") -> None:
+    """Print the per-character connection table `start` and `configure` share.
+
+    The point of printing it at all: a character's record overrides the house
+    `.env` (§31.2), so "YuriOS is dialling LM Studio even though CHAT_MODEL says
+    gguf" is a *character* fact, not an `.env` fact, and nothing said so until
+    somebody went reading JSON.
+    """
+    width = max(len(f"{row.name} [{row.id}]") for row in rows)
+    print("Characters and the model each one connects with:")
+    for row in rows:
+        marker = "*" if row.autostart else " "
+        print(f"{indent}{marker} {f'{row.name} [{row.id}]':<{width}}  {row.summary()}")
+        if not row.overrides:
+            continue
+        keys = max(len(item.key) for item in row.overrides)
+        print(f"{indent}    her own settings, not the house's:")
+        for item in row.overrides:
+            print(f"{indent}      {item.key:<{keys}} = {item.value}  ({item.note})")
+
+
+def _report_character_connections(root: Path, cfg: Config) -> None:
+    """Say who connects where before the daemon goes up."""
+    rows = _character_connections(root, cfg)
+    if not rows:
+        return
+    _print_character_connections(rows)
+    if any(row.differs for row in rows):
+        print("  Those are character settings, not .env — "
+              "`yurios configure` can clear them.")
+
+
+def _clear_character_overrides(root: Path, cfg: Config, model: str, *,
+                               interactive: bool, always: bool) -> None:
+    """Offer to put every character back on the model just configured.
+
+    Choosing a house model is the moment a stale per-character one becomes
+    invisible: `.env` says the new thing, her record says the old thing, and her
+    record wins. So this asks here, where the two are both on screen, rather than
+    leaving it to be discovered from a connection that should not have happened.
+    """
+    from yurios.characters import overrides
+
+    rows = [row for row in _character_connections(root, cfg) if row.differs]
+    if not rows:
+        return
+    print()
+    print(f"Some characters do not use {model}:")
+    _print_character_connections(rows)
+    if not always:
+        if not interactive:
+            print("Run `yurios configure --clear-character-models` to put them "
+                  "back on the configured model.")
+            return
+        answer = input(f"Clear these character settings so every character uses "
+                       f"{model}? [y/N] ").strip().lower()
+        if answer not in {"y", "yes"}:
+            print("Left the character settings alone.")
+            return
+    registry, _ = _registry_and_profiles(root, cfg)
+    if registry is None:
+        return
+    cleared = overrides.clear(registry, [row.id for row in rows])
+    for character_id, keys in cleared.items():
+        print(f"Cleared {', '.join(keys)} for {character_id}.")
+    if cleared:
+        print("Restart YuriOS for the change to take effect.")
 
 
 def command_download(args) -> int:
@@ -584,6 +691,11 @@ def command_start(args) -> int:
             return 1
         print(f"YuriOS is already running and ready (pid {running}).")
         return 0
+    cfg = _configured_cfg(root)
+    # Before anything is launched, and in both paths: a character whose record
+    # overrides the house model connects somewhere `.env` never named, and the
+    # first sign of it used to be a request to a server nobody configured.
+    _report_character_connections(root, cfg)
     # …before the daemon either way: the foreground path is the one people use
     # when something is already wrong, and it should not be the path that
     # quietly skips a dependency.
@@ -600,7 +712,6 @@ def command_start(args) -> int:
                                 stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT,
                                  start_new_session=True)
     pid_path.write_text(f"{proc.pid}\n", encoding="utf-8")
-    cfg = _configured_cfg(root)
     failure = _wait_for_ready(cfg, proc=proc)
     if failure:
         if proc.poll() is None:
@@ -646,6 +757,9 @@ def main(argv: list[str] | None = None) -> int:
                            help="connection to configure; interactive mode offers all providers")
     configure.add_argument("--base-url", help="LM Studio or Ollama endpoint URL")
     configure.add_argument("--api-key", help="OpenRouter API key (saved in .env)")
+    configure.add_argument("--clear-character-models", action="store_true",
+                           help="clear every character's own model settings so they "
+                                "use the configured one")
     configure.add_argument("--selfie-backend", choices=_SELFIE_BACKENDS,
                            help="configure the selfie route")
     configure.add_argument("--selfie-model", help="OpenRouter image model")

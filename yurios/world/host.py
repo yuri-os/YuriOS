@@ -27,6 +27,7 @@ from yurios.characters import (
     CharacterImporter, CharacterRecord, CharacterRegistry,
     ConnectionProfile, ConnectionProfiles,
 )
+from yurios.characters import overrides as model_overrides
 from yurios.characters import selfiebook
 from yurios.characters import studio as studio_model
 from yurios.characters.appearance import ensure_appearance, refine_appearance
@@ -235,46 +236,27 @@ def telegram_for_character(base: Config, character_id: str,
                                "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID")
 
 
-def _endpoint_field(model: str) -> str | None:
-    """Which base-url knob a model id is served by, or None if it is hosted."""
-    if model.startswith("lm_studio/"):
-        return "lmstudio_base_url"
-    if model.startswith("ollama/"):
-        return "ollama_base_url"
-    return None
-
-
 def _apply_connection(update: dict[str, Any], base: Config, record: CharacterRecord,
                       profile: ConnectionProfile | None,
                       env: Mapping[str, str]) -> None:
     """Point her models at *her* server, with *her* key (SPEC §31.1–§31.2).
 
-    Her record's own endpoint wins over the named profile's: a profile is the
-    house's shared connection and her record is the exception she was given, so
-    the more specific one is the one that means anything. Neither set = the
-    host's `.env`, like every other blank binding.
+    Which url that is — hers, the profile's, or none at all — is decided by
+    `characters.overrides.resolve_endpoint`, so the report `yurios start` prints
+    and the config her runtime is built from cannot drift apart.
 
-    An endpoint names one server, so it re-points the base url of whichever local
-    provider her models actually route to — her chat model's, or her utility
-    model's when only that one is local. A hosted route has no base url to move;
-    it has a key, and `api_key_env` names the variable holding it. The value is
-    read here and never stored: the registry is a file people copy between
-    machines, and a card must never carry a secret (§30.5)."""
-    endpoint = record.connection.endpoint or (profile.endpoint if profile else "")
-    if endpoint:
-        chat = update.get("chat_model", base.chat_model)
-        utility = update.get("utility_model", base.utility_model)
-        field = _endpoint_field(chat) or _endpoint_field(utility)
-        # …unless it is verbatim one of the house's *other* server's urls. The
-        # `default` profile is seeded from whichever provider the host's own
-        # model uses (§31.1), so a character who moves to the other one would
-        # otherwise inherit an endpoint that names the wrong server entirely.
-        # Dropping it puts her back on the host's url for her provider, which is
-        # what "inherit" meant all along.
-        house = {base.lmstudio_base_url: "lmstudio_base_url",
-                 base.ollama_base_url: "ollama_base_url"}
-        if field and house.get(endpoint, field) == field:
-            update[field] = endpoint
+    A hosted route has no base url to move; it has a key, and `api_key_env` names
+    the variable holding it. The value is read here and never stored: the registry
+    is a file people copy between machines, and a card must never carry a secret
+    (§30.5)."""
+    field, endpoint = model_overrides.resolve_endpoint(
+        update.get("chat_model", base.chat_model),
+        update.get("utility_model", base.utility_model),
+        record_endpoint=record.connection.endpoint,
+        profile_endpoint=profile.endpoint if profile else "",
+        lmstudio_url=base.lmstudio_base_url, ollama_url=base.ollama_base_url)
+    if field:
+        update[field] = endpoint
     key_env = record.connection.api_key_env or (profile.api_key_env if profile else "")
     # An empty variable is a key that has not been set yet, not an instruction to
     # forget the host's — she keeps talking on the house key until hers arrives.
@@ -745,8 +727,8 @@ def create_host_app(base: Config, registry: CharacterRegistry | None = None) -> 
         profile = host.connections.get(record.connection.profile)
         # One endpoint names one server: the local provider her models actually
         # route to (hosted routes have a key instead, and no url to show).
-        endpoint_field = (_endpoint_field(effective.chat_model)
-                          or _endpoint_field(effective.utility_model))
+        endpoint_field = (model_overrides.endpoint_field(effective.chat_model)
+                          or model_overrides.endpoint_field(effective.utility_model))
         inherited = {
             "endpoint": getattr(base, endpoint_field) if endpoint_field else "",
             "api_key_env": (profile.api_key_env if profile else "") or "",

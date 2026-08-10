@@ -14,6 +14,7 @@ from .importer import (
     import_character_card,
 )
 from .connections import ConnectionProfile, ConnectionProfiles
+from .overrides import CharacterConnection, Override
 from .creator import create_character, create_from_dict, template_draft
 from .exporter import (
     ExportOptions,
@@ -68,6 +69,7 @@ __all__ = [
     "read_draft",
     "split_sections",
     "template_draft",
+    "CharacterConnection",
     "CharacterImportError",
     "CharacterImporter",
     "CharacterPaths",
@@ -81,6 +83,7 @@ __all__ = [
     "LifecycleFlags",
     "LoopSwitches",
     "ModelBinding",
+    "Override",
     "PNGCardParser",
     "ParsedCard",
     "REGISTRY_SCHEMA_VERSION",

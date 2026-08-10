@@ -228,6 +228,7 @@ class MindLoop:
         what = data.get("path") or data.get("name") or "something"
         verb = {"write_note": "wrote myself a note",
                 "append_note": "added to a note",
+                "edit_note": "edited a note",
                 "delete_note": "cleared a note off my desk",
                 "write_skill": "wrote down how to do something",
                 "delete_skill": "let go of a skill"}.get(tool, "changed")

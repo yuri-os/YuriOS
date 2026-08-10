@@ -57,10 +57,78 @@ def test_writing_and_reading_a_note(desk):
     assert [e.path for e in desk.list() if not e.is_dir] == ["research/boards.md"]
 
 
+def test_read_lines_and_count_are_one_based_and_inclusive(desk):
+    desk.write("report.md", "first\nsecond\nthird\n")
+    text, first, last, count = desk.read_lines("report.md", start_line=2, end_line=3)
+    assert (text, first, last, count) == ("second\nthird\n", 2, 3, 3)
+    assert desk.line_count("report.md") == 3
+
+
 def test_append_adds_a_line_without_rewriting(desk):
     desk.write("log.md", "first")
     desk.append("log.md", "second\n")
     assert desk.read("log.md") == "first\nsecond\n"
+
+
+def test_edit_replaces_one_exact_passage_in_an_existing_note(desk):
+    desk.write("research/boards.md", "# Boards\n\n- Alder: promising\n")
+    desk.edit("research/boards.md", "Alder: promising", "Alder: unavailable")
+    assert desk.read("research/boards.md") == "# Boards\n\n- Alder: unavailable\n"
+
+
+def test_edit_finds_a_unique_heading_despite_its_level_or_number(desk):
+    desk.write("research/report.md", "# Report\n\n### 2. Commercial Divide\n\nOld text\n")
+    desk.edit("research/report.md", "## Commercial Divide",
+              "## Commercial Divide\n\nNew text")
+    assert desk.read("research/report.md") == (
+        "# Report\n\n## Commercial Divide\n\nNew text\n\nOld text\n")
+
+
+def test_edit_refuses_a_no_op_instead_of_claiming_the_note_changed(desk):
+    desk.write("note.md", "unchanged")
+    with pytest.raises(ValueError, match="identical"):
+        desk.edit("note.md", "unchanged", "unchanged")
+
+
+def test_edit_deletes_one_exact_duplicate_passage_with_empty_replacement(desk):
+    desk.write("report.md", "Keep this.\n\nDuplicate text.\n")
+    desk.edit("report.md", "Duplicate text.\n", "")
+    assert desk.read("report.md") == "Keep this.\n\n"
+
+
+def test_edit_deletes_the_later_of_two_identical_passages(desk):
+    desk.write("report.md", "Before\n\nRepeated section\n\nAfter\n\n"
+               "Repeated section\n")
+    desk.edit("report.md", "Repeated section\n", "")
+    assert desk.read("report.md") == "Before\n\nRepeated section\n\nAfter\n"
+
+
+def test_edit_recovers_a_mixed_escaped_newline_passage(desk):
+    desk.write("report.md", "## First\nOne.\n\n## Second\nTwo.\n\n## Third\nThree.\n")
+    desk.edit("report.md", "## First\nOne.\n\n## Second\nTwo.\\n\\n## Third\nThree.\n",
+              "## First\nOne.\n")
+    assert desk.read("report.md") == "## First\nOne.\n"
+
+
+def test_edit_recovers_a_stray_backslash_before_an_escaped_newline(desk):
+    desk.write("report.md", "## First\nOne.\n\n## Second\nTwo.\n\n## Third\nThree.\n")
+    desk.edit("report.md", "## First\nOne.\n\n## Second\nTwo.\\\n\\n## Third\nThree.\n",
+              "## First\nOne.\n")
+    assert desk.read("report.md") == "## First\nOne.\n"
+
+
+def test_edit_lines_deletes_the_later_of_two_identical_sections(desk):
+    desk.write("report.md", "## Keep\n\nFirst.\n\n## Copy\n\nSame.\n\n"
+               "## Copy\n\nSame.\n")
+    desk.edit_lines("report.md", start_line=9, end_line=11, new_text="")
+    assert desk.read("report.md") == "## Keep\n\nFirst.\n\n## Copy\n\nSame.\n"
+
+
+@pytest.mark.parametrize("old_text", ["", "missing", "same"])
+def test_edit_refuses_an_empty_missing_or_ambiguous_passage(desk, old_text):
+    desk.write("note.md", "same\nsame\n")
+    with pytest.raises(ValueError):
+        desk.edit("note.md", old_text, "replacement")
 
 
 def test_delete_removes_the_file_and_says_whether_it_was_there(desk):

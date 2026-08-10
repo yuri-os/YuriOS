@@ -117,10 +117,11 @@ class Guard:
         return True, ""
 
     @staticmethod
-    def truncate(text: str) -> str:
-        if len(text) <= RESULT_MAX_CHARS:
+    def truncate(text: str, *, limit: int | None = None) -> str:
+        limit = RESULT_MAX_CHARS if limit is None else limit
+        if len(text) <= limit:
             return text
-        return text[: RESULT_MAX_CHARS - 1] + "…"
+        return text[:limit - 1] + "…"
 
     # ---- the audit line (SPEC §7.3) ----
 

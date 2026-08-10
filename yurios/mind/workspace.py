@@ -58,6 +58,8 @@ from yurios.app.vaultgit import atomic_write
 log = logging.getLogger("mind.workspace")
 
 FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
+HEADING_RE = re.compile(r"\s{0,3}(?P<marks>#{1,6})\s+(?P<title>.*?)\s*#*\s*")
+HEADING_NUMBER_RE = re.compile(r"^(?:\d+(?:\.\d+)*[.)]?|[A-Za-z][.)])\s+")
 
 #: Written *inside* `workspace/`, for the reason `KnowledgeStore.INDEX_GITIGNORE`
 #: gives at length: a Vault's own `.gitignore` is written once at seed time and
@@ -88,12 +90,12 @@ MAX_FILES = 2_000
 #: from them whether a call just changed the Vault (world/brain.py). A name that
 #: drifts out of one of those lists fails silently — an unrationed hand, or a
 #: write that never gets committed — so there is one list.
-DESK_TOOLS = ("list_notes", "read_note", "write_note", "append_note",
-              "delete_note")
+DESK_TOOLS = ("list_notes", "read_note", "count_note_lines", "write_note",
+              "append_note", "edit_note", "delete_note")
 SKILL_TOOLS = ("read_skill", "write_skill", "delete_skill")
 #: The subset that changes files, and so dirties the Vault.
-DESK_WRITE_TOOLS = ("write_note", "append_note", "delete_note",
-                    "write_skill", "delete_skill")
+DESK_WRITE_TOOLS = ("write_note", "append_note", "edit_note", "delete_note",
+                     "write_skill", "delete_skill")
 
 
 class OutsideTheDesk(PermissionError):
@@ -201,6 +203,28 @@ class Workspace:
             raise FileNotFoundError(f"nothing on the desk at {rel}")
         return path.read_text(encoding="utf-8", errors="replace")
 
+    def read_lines(self, rel: str, *, start_line: int = 1,
+                   end_line: int = 0) -> tuple[str, int, int, int]:
+        """A 1-based, inclusive range plus its actual bounds and line count."""
+        lines = self.read(rel).splitlines(keepends=True)
+        count = len(lines)
+        if start_line < 1:
+            raise ValueError("start_line must be 1 or greater")
+        if count and start_line > count:
+            raise ValueError(f"start_line {start_line} is beyond the last line ({count})")
+        if not count:
+            return "", 0, 0, 0
+        if end_line == 0:
+            end_line = count
+        if end_line < start_line:
+            raise ValueError("end_line must be 0 or no smaller than start_line")
+        end_line = min(end_line, count)
+        return "".join(lines[start_line - 1:end_line]), start_line, end_line, count
+
+    def line_count(self, rel: str) -> int:
+        """The number of logical lines in one note."""
+        return len(self.read(rel).splitlines())
+
     def list(self, sub: str = "", *, recursive: bool = True) -> list[Entry]:
         """Everything under `sub` (the whole desk by default), sorted by path.
 
@@ -263,6 +287,85 @@ class Workspace:
         if prior and not prior.endswith("\n"):
             prior += "\n"
         return self.write(rel, prior + text)
+
+    def edit(self, rel: str, old_text: str, new_text: str) -> Entry:
+        """Replace one exact passage in an existing note.
+
+        Requiring exactly one match makes a stale read or underspecified edit a
+        refusal instead of a quiet change to the wrong repeated passage. A
+        single Markdown heading also matches its title without caring about its
+        nesting level or number, so a model can address a section reliably.
+        """
+        if not old_text:
+            raise ValueError("old_text must be a non-empty exact passage from the note")
+        if old_text == new_text:
+            raise ValueError("old_text and new_text are identical; set new_text to "
+                             "an empty string to delete a duplicate passage")
+        prior = self.read(rel)
+        matched_text = old_text
+        matches = prior.count(matched_text)
+        if matches == 0 and "\n" in old_text and r"\n" in old_text:
+            # Models occasionally double-escape a newline, sometimes leaving a
+            # stray backslash before the real line break. Only recover this
+            # mixed representation, not all text.
+            matched_text = (old_text.replace("\\\r\n", "\n").replace("\\\n", "\n")
+                              .replace(r"\r\n", "\n").replace(r"\n", "\n"))
+            matches = prior.count(matched_text)
+        if matches == 0:
+            requested = self._heading_title(matched_text)
+            heading_matches = [] if requested is None else [
+                match for match in re.finditer(r"^.*$", prior, re.MULTILINE)
+                if self._heading_title(match.group()) == requested]
+            if len(heading_matches) == 1:
+                match = heading_matches[0]
+                return self.write(rel, prior[:match.start()] + new_text + prior[match.end():])
+            if len(heading_matches) > 1:
+                raise ValueError("that heading appears more than once; include its exact text")
+            raise ValueError("old_text does not appear in that note; read it again first")
+        if matches > 1:
+            if not new_text:
+                # A duplicate-deletion request should keep the original and
+                # remove the later copy, rather than asking the model to
+                # reconstruct a fragile line range solely to select it.
+                index = prior.rfind(matched_text)
+                data = prior[:index] + prior[index + len(matched_text):]
+                if index + len(matched_text) == len(prior):
+                    data = data.rstrip()
+                return self.write(rel, data)
+            raise ValueError("old_text appears more than once; include more surrounding text")
+        return self.write(rel, prior.replace(matched_text, new_text, 1))
+
+    def edit_lines(self, rel: str, *, start_line: int, end_line: int,
+                   new_text: str) -> Entry:
+        """Replace one 1-based, inclusive line range; empty text deletes it."""
+        prior = self.read(rel)
+        lines = prior.splitlines(keepends=True)
+        count = len(lines)
+        if start_line < 1 or end_line < start_line or end_line > count:
+            raise ValueError(
+                f"line range must be within 1-{count}, with end_line no smaller "
+                "than start_line")
+        replacement = new_text
+        if replacement and not replacement.endswith("\n"):
+            replacement += "\n"
+        data = "".join(lines[:start_line - 1]) + replacement + "".join(lines[end_line:])
+        if not replacement and end_line == count:
+            data = data.rstrip()
+        return self.write(rel, data)
+
+    @staticmethod
+    def _heading_title(text: str) -> str | None:
+        """Normalize one ATX heading's title for the narrow heading fallback."""
+        heading = Workspace._heading(text)
+        return heading[1] if heading is not None else None
+
+    @staticmethod
+    def _heading(text: str) -> tuple[int, str] | None:
+        match = HEADING_RE.fullmatch(text)
+        if match is None:
+            return None
+        title = HEADING_NUMBER_RE.sub("", match.group("title")).strip().casefold()
+        return len(match.group("marks")), title
 
     def delete(self, rel: str) -> bool:
         """Remove one file. Directories are left alone — an empty folder costs

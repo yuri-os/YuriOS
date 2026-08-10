@@ -31,9 +31,11 @@ reports the truth (`"mcp"` / `"fake"` / `"off"` / `"failed: …"`).
 | `read_page` | `url` | reads one page and shelves it | `SEARCH_BACKEND` is not `off` |
 | `research` | `topic`, `depth?` | reads several pages off-turn and posts what she found | `SEARCH_BACKEND` is not `off` |
 | `list_notes` | `folder?` | lists files on Yuri's workspace desk | `WORKSPACE_ENABLED=true` |
-| `read_note` | `path` | reads one workspace note | `WORKSPACE_ENABLED=true` |
+| `read_note` | `path`, `start_line?`, `end_line?` | reads all or an inclusive line range | `WORKSPACE_ENABLED=true` |
+| `count_note_lines` | `path` | counts the lines in a workspace note | `WORKSPACE_ENABLED=true` |
 | `write_note` | `path`, `text` | replaces a workspace note | `WORKSPACE_ENABLED=true` |
 | `append_note` | `path`, `text` | adds text to a workspace note | `WORKSPACE_ENABLED=true` |
+| `edit_note` | `path`, `old_text`, `new_text` | replaces one exact passage | `WORKSPACE_ENABLED=true` |
 | `delete_note` | `path` | removes a workspace note | `WORKSPACE_ENABLED=true` |
 | `read_skill` | `name` | reads a skill's full instructions | `SKILLS_ENABLED=true` |
 | `write_skill` | `name`, `description`, `instructions` | saves or replaces a skill | `SKILLS_ENABLED=true` |
@@ -77,8 +79,14 @@ TOOL_RATE_MUSIC=6
 
 The desk calls operate only inside `vault/workspace/`: relative paths only, no `..`, dotfiles, or
 paths outside the desk. `write_note` replaces a whole file; use `append_note` for a running log.
-`list_notes` returns names and sizes, and `read_note` returns the content. Notes are scratch space,
-so they are not versioned in the Vault.
+Read an existing note before changing it: `edit_note` replaces one unique passage and refuses a
+no-op; set `new_text` to an empty string to remove one unique obsolete or duplicate passage. It
+can also replace or delete a 1-based inclusive line range using `start_line` and `end_line`.
+When that exact passage appears more than once, an empty replacement removes the later copy and
+preserves the first.
+`append_note` is only for text that belongs at the end. `list_notes` returns names and sizes, and
+`read_note` returns up to 4,000 characters of content. Notes are scratch space, so they are not
+versioned in the Vault.
 
 Skills live in `vault/skills/`. `read_skill` loads the instructions for one named skill;
 `write_skill` stores a lowercase-hyphenated name, a short description that says when to use it,

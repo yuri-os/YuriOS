@@ -172,7 +172,7 @@ Backend-specific keys (`QWEN_*`, `SOVITS_*`) are in [Voice](voice.md).
 | `TOOL_TIMEOUT_S` | `10` | |
 | `TOOL_RATE_TIMER` / `_MUSIC` / `_SELFIE` / `_PICTURE` / `_DESK` | `6` / `6` / `2` / `2` / `20` | calls per minute |
 | `TIMER_MAX_MINUTES` | `180` | |
-| `WORKSPACE_ENABLED` | `true` | enables `list_notes`, `read_note`, `write_note`, `append_note`, and `delete_note` |
+| `WORKSPACE_ENABLED` | `true` | enables `list_notes`, `read_note`, `count_note_lines`, `write_note`, `append_note`, `edit_note`, and `delete_note` |
 | `WORKSPACE_DIGEST_FILES` | `20` | newest workspace files named in Yuri's prompt |
 | `SKILLS_ENABLED` | `true` | enables `read_skill`, `write_skill`, and `delete_skill` |
 | `MCP_SERVERS` | *(unset)* | path to `mcp-servers.json` — third-party servers |

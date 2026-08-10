@@ -27,6 +27,8 @@ from yurios.mind.workspace import (DeskFull, OutsideTheDesk, SkillStore,
 from .fetch import PageFetcher, build_fetcher, gist
 from .search import SearchProvider, build_provider
 
+NOTE_READ_MAX_CHARS = 4_000
+
 # The catalog lives in the *type*, not in prose: an annotated Literal becomes an
 # `enum` in the tool's JSON schema, which is the only form of the list a model
 # reliably obeys. A description that merely names the tracks is a suggestion —
@@ -343,16 +345,27 @@ def build_server(*, max_minutes: float | None = None,
                     "desk_files": count, "desk_bytes": total}
 
         @mcp.tool()
-        def read_note(path: str) -> dict:
+        def read_note(path: str, start_line: int = 1, end_line: int = 0) -> dict:
             """Read one of your own notes back. `path` is what `list_notes`
-            showed you, like "research/paddleboards.md"."""
+            showed you, like "research/paddleboards.md". `start_line` is a
+            1-based first line; `end_line` is an inclusive last line, or 0 for
+            the rest of the note. Use line ranges to inspect a long note before
+            editing it."""
             try:
-                return {"path": path, "text": workspace.read(path)}
+                text, first, last, count = workspace.read_lines(
+                    path, start_line=start_line, end_line=end_line)
+                shown = text[:NOTE_READ_MAX_CHARS]
+                if len(text) > NOTE_READ_MAX_CHARS and "\n" in shown:
+                    shown = shown[:shown.rfind("\n") + 1]
+                shown_lines = len(shown.splitlines())
+                return {"path": path, "text": shown, "start_line": first,
+                        "end_line": first + shown_lines - 1 if shown_lines else 0,
+                        "line_count": count, "truncated": len(shown) < len(text)}
             except FileNotFoundError:
                 raise ValueError(
                     f"nothing on your desk at {path} — `list_notes` shows what "
                     "is there") from None
-            except OutsideTheDesk as e:
+            except (OutsideTheDesk, ValueError) as e:
                 raise _refusal(e) from None
 
         @mcp.tool()
@@ -384,6 +397,44 @@ def build_server(*, max_minutes: float | None = None,
             except (OutsideTheDesk, DeskFull) as e:
                 raise _refusal(e) from None
             return {"path": entry.path, "bytes": entry.bytes, "appended": True}
+
+        @mcp.tool()
+        def edit_note(path: str, new_text: str, old_text: str = "",
+                      start_line: int = 0, end_line: int = 0) -> dict:
+            """Change one passage in an existing note without rewriting all of
+            it. `path` names the note to change. For exact-text editing,
+            `old_text` is a non-empty passage copied from the note that occurs
+            once, and `new_text` replaces it. An empty `new_text` deletes the
+            matched text; if that exact block repeats, the later copy is deleted.
+            For a repeated block you need to replace, leave `old_text` empty and
+            give its 1-based inclusive `start_line` and `end_line`; `new_text`
+            replaces that range. Use `read_note` first."""
+            try:
+                if old_text:
+                    if start_line or end_line:
+                        raise ValueError("use either old_text or a line range, not both")
+                    entry = workspace.edit(path, old_text, new_text)
+                else:
+                    if not start_line or not end_line:
+                        raise ValueError("provide old_text or both start_line and end_line")
+                    entry = workspace.edit_lines(
+                        path, start_line=start_line, end_line=end_line,
+                        new_text=new_text)
+            except (OutsideTheDesk, DeskFull, FileNotFoundError, ValueError) as e:
+                raise _refusal(e) from None
+            return {"path": entry.path, "bytes": entry.bytes, "edited": True}
+
+        @mcp.tool()
+        def count_note_lines(path: str) -> dict:
+            """Count the lines in one note before choosing an edit range. `path`
+            names the note. `read_note` also returns this count with its text,
+            so use this only when you need the count without the contents."""
+            try:
+                return {"path": path, "lines": workspace.line_count(path)}
+            except FileNotFoundError:
+                raise ValueError(f"nothing on your desk at {path}") from None
+            except OutsideTheDesk as e:
+                raise _refusal(e) from None
 
         @mcp.tool()
         def delete_note(path: str) -> dict:

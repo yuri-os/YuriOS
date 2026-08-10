@@ -28,7 +28,12 @@ SPECS = [
     ToolSpec("list_notes", "List what's on your desk — the notes and drafts "
              "you've written for yourself. `folder` narrows it to one subfolder.",
              {"properties": {"folder": {"type": "string"}}, "required": []}),
-    ToolSpec("read_note", "Read one of your own notes back.",
+    ToolSpec("read_note", "Read one of your own notes back. `start_line` and "
+             "`end_line` select an inclusive 1-based range.",
+             {"properties": {"path": {"type": "string"},
+                             "start_line": {"type": "integer"},
+                             "end_line": {"type": "integer"}}, "required": ["path"]}),
+    ToolSpec("count_note_lines", "Count the lines in one note.",
              {"properties": {"path": {"type": "string"}}, "required": ["path"]}),
     ToolSpec("write_note", "Write something down for yourself and keep it. "
              "`text` REPLACES the whole file.",
@@ -36,10 +41,18 @@ SPECS = [
                              "text": {"type": "string"}},
               "required": ["path", "text"]}),
     ToolSpec("append_note", "Add to the end of one of your notes without "
-             "rewriting it.",
+              "rewriting it.",
+              {"properties": {"path": {"type": "string"},
+                              "text": {"type": "string"}},
+               "required": ["path", "text"]}),
+    ToolSpec("edit_note", "Change one exact passage or inclusive line range in "
+             "an existing note. `old_text` or `start_line` and `end_line` identify it.",
              {"properties": {"path": {"type": "string"},
-                             "text": {"type": "string"}},
-              "required": ["path", "text"]}),
+                              "old_text": {"type": "string"},
+                              "new_text": {"type": "string"},
+                              "start_line": {"type": "integer"},
+                              "end_line": {"type": "integer"}},
+                "required": ["path", "new_text"]}),
     ToolSpec("delete_note", "Throw away one of your notes.",
              {"properties": {"path": {"type": "string"}}, "required": ["path"]}),
     ToolSpec("read_skill", "Open one of your skills and get the instructions.",
@@ -130,11 +143,16 @@ class FakeToolRunner:
                                           "bytes": 1220}]})
         if tool == "read_note":
             return json.dumps({"path": args.get("path"), "text": FAKE_NOTE,
-                               "bytes": len(FAKE_NOTE)})
-        if tool in ("write_note", "append_note"):
+                                "start_line": 1, "end_line": 3, "line_count": 3,
+                                "truncated": False})
+        if tool == "count_note_lines":
+            return json.dumps({"path": args.get("path"), "lines": 3})
+        if tool in ("write_note", "append_note", "edit_note"):
             return json.dumps({"path": args.get("path"),
-                               "bytes": len(args.get("text") or ""),
-                               ("wrote" if tool == "write_note" else "appended"): True})
+                                "bytes": len(args.get("new_text") or args.get("text") or ""),
+                                ("wrote" if tool == "write_note" else
+                                 "appended" if tool == "append_note" else
+                                  "edited"): True})
         if tool == "delete_note":
             return json.dumps({"path": args.get("path"), "deleted": True,
                                "note": ""})

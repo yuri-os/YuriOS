@@ -392,8 +392,10 @@ async def test_the_desk_hands_appear_only_when_a_vault_is_wired(tmp_path):
     async with create_connected_server_and_client_session(
             desk_server(tmp_path)._mcp_server) as s:
         names = {t.name for t in (await s.list_tools()).tools}
-    assert {"list_notes", "read_note", "write_note", "append_note",
-            "delete_note", "read_skill", "write_skill", "delete_skill"} <= names
+    assert {"list_notes", "read_note", "count_note_lines", "write_note", "append_note",
+             "edit_note", "delete_note", "read_skill", "write_skill", "delete_skill"} <= names
+    assert not names & {"remove_note_text", "append_to_note_section",
+                        "deduplicate_note_sections"}
 
 
 async def test_a_note_round_trips_through_the_tools(tmp_path):
@@ -408,6 +410,57 @@ async def test_a_note_round_trips_through_the_tools(tmp_path):
         listed = json.loads(result_text(await s.call_tool("list_notes", {})))
         assert [f["path"] for f in listed["files"]] == ["research/boards.md"]
     assert (tmp_path / "workspace" / "research" / "boards.md").is_file()
+
+
+async def test_reading_a_normal_sized_note_reaches_the_model_intact(tmp_path):
+    from yurios.world.tools.server import NOTE_READ_MAX_CHARS
+
+    text = "x" * (NOTE_READ_MAX_CHARS - 1)
+    async with create_connected_server_and_client_session(
+            desk_server(tmp_path)._mcp_server) as s:
+        await s.call_tool("write_note", {"path": "research/report.md", "text": text})
+        read = json.loads(result_text(await s.call_tool(
+            "read_note", {"path": "research/report.md"})))
+    assert read["text"] == text + "\n"
+    assert read["truncated"] is False
+
+
+async def test_a_note_can_be_read_and_edited_by_line_range(tmp_path):
+    async with create_connected_server_and_client_session(
+            desk_server(tmp_path)._mcp_server) as s:
+        await s.call_tool("write_note", {
+            "path": "research/report.md", "text": "first\nsecond\nthird"})
+        count = json.loads(result_text(await s.call_tool(
+            "count_note_lines", {"path": "research/report.md"})))
+        assert count["lines"] == 3
+        read = json.loads(result_text(await s.call_tool("read_note", {
+            "path": "research/report.md", "start_line": 2, "end_line": 3})))
+        assert read["text"] == "second\nthird\n"
+        assert (read["start_line"], read["end_line"]) == (2, 3)
+        edited = json.loads(result_text(await s.call_tool("edit_note", {
+            "path": "research/report.md", "start_line": 2, "end_line": 3,
+            "new_text": "revised"})))
+        assert edited["edited"] is True
+        final = json.loads(result_text(await s.call_tool(
+            "read_note", {"path": "research/report.md"})))
+        assert final["text"] == "first\nrevised\n"
+
+
+async def test_a_note_passage_can_be_edited_without_rewriting_the_note(tmp_path):
+    async with create_connected_server_and_client_session(
+            desk_server(tmp_path)._mcp_server) as s:
+        await s.call_tool("write_note", {
+            "path": "research/boards.md",
+            "text": "# Boards\n\n- Alder: promising\n- Cedar: unavailable"})
+        edited = json.loads(result_text(await s.call_tool("edit_note", {
+            "path": "research/boards.md",
+            "old_text": "Alder: promising",
+            "new_text": "Alder: unavailable"})))
+        assert edited["edited"] is True
+        read = json.loads(result_text(await s.call_tool(
+            "read_note", {"path": "research/boards.md"})))
+        assert "Alder: unavailable" in read["text"]
+        assert "Cedar: unavailable" in read["text"]
 
 
 async def test_the_sandbox_refuses_and_says_what_to_do_instead(tmp_path):

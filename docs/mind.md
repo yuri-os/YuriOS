@@ -285,8 +285,9 @@ SENSE, `soul/` only through the gated self-edit flow. That's the right shape for
 *is*, and the wrong shape for the things she is *doing*.
 
 **`vault/workspace/`** is her desk: a corner of the Vault with no schema and no ceremony, which she
-reads and writes freely through `list_notes` / `read_note` / `write_note` / `append_note` /
-`delete_note`. Drafts, research scratch, the middle of a thought. You can drop files in too.
+reads and writes freely through `list_notes` / `read_note` / `count_note_lines` / `write_note` /
+`append_note` / `edit_note` / `delete_note`. Drafts, research scratch, the middle of a thought.
+You can drop files in too.
 
 **`vault/skills/`** is the same primitive pointed at instructions. One folder per skill, each with
 a `SKILL.md`:

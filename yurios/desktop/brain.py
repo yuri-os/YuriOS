@@ -133,7 +133,11 @@ class BrainAdapter:
         if desk:
             parts.append(
                 "## YOUR DESK\n\nFiles you have written for yourself, newest "
-                "first. `read_note` opens one, `write_note` saves one. This is "
+                "first. Before changing one, call `read_note` first. Use "
+                "`write_note` only to replace the entire note, `append_note` "
+                "only when text belongs at the end, and `edit_note` to replace "
+                "one unique passage. Set `new_text` to an empty string to remove "
+                "a duplicate passage. This is "
                 "your scratch space — use it when a thought needs somewhere to "
                 "live between now and later.\n"
                 # Asked "where is the document?", the live model answered "I've "

@@ -142,11 +142,14 @@ svg{ width:1.1em; height:1.1em; fill:none; stroke:currentColor; stroke-width:1.7
 
 /* ---- the transcript ---- */
 .reader{
-  flex:1; min-height:0; overflow-y:auto; padding:26px var(--gutter) 30px;
+  flex:1; min-height:0; display:flex; overflow:hidden;
   background:var(--void);
+}
+#messages{
+  flex:1; min-height:0; overflow-y:auto; padding:26px var(--gutter) 30px;
+  display:flex; flex-direction:column; gap:14px;
   scrollbar-width:thin; scrollbar-color:var(--rule) transparent;
 }
-#messages{ display:flex; flex-direction:column; gap:14px; }
 .msg{
   max-width:min(72%, 62ch); padding:13px 16px;
   border:1px solid var(--rule); border-radius:2px;
@@ -281,8 +284,11 @@ svg{ width:1.1em; height:1.1em; fill:none; stroke:currentColor; stroke-width:1.7
 
 /* ---- the inner-life panel (SPEC §24.3): js/mind.js, the second tab ---- */
 #innerlife{
-  font-size:13px; line-height:1.65; max-width:74ch;
+  flex:1; min-height:0; overflow-y:auto; padding:26px var(--gutter) 30px;
+  font-size:13px; line-height:1.65;
+  scrollbar-width:thin; scrollbar-color:var(--rule) transparent;
 }
+#innerlife > *{ max-width:74ch; }
 .il-sec{ margin-bottom:30px; }
 .il-sec h3{
   margin-bottom:12px; padding-bottom:9px; border-bottom:1px solid var(--rule);

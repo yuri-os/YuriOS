@@ -17,6 +17,7 @@
        The same mark and the same acid the switchboard's tab carries. -->
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M8 1.5 14.5 8 8 14.5 1.5 8Z' fill='none' stroke='%23d7ff58' stroke-width='1.6'/></svg>">
   <link rel="stylesheet" href="sanctuary.css">
+  <link rel="stylesheet" href="files.css">
   <!-- the settings panel's shared stylesheet, served raw at /shared/ (SPEC §11) -->
   <link rel="stylesheet" href="/shared/settings.css">
   <!-- Desktop-pet mode (opened by world/window.py with ?desktop=1 — SPEC §6.5):
@@ -147,10 +148,12 @@
       <nav class="chat-tabs">
         <button id="tab-chat" class="tab on">chat</button>
         <button id="tab-mind" class="tab">inner life</button>
+        <button id="tab-files" class="tab">files</button>
       </nav>
     </header>
     <div id="messages" aria-live="polite"></div>
     <div id="innerlife" hidden></div>
+    <div id="files" hidden></div>
     <div class="composer">
       <input id="text" type="text" placeholder="…or type to her" autocomplete="off">
       <!-- Enter still sends (voice.js); this is the visible half of the same
@@ -193,6 +196,7 @@
   <script type="module" src="js/model-setup.js"></script>
   <script type="module" src="js/chat.js"></script>
   <script type="module" src="js/mind.js"></script>
+  <script type="module" src="js/files.js"></script>
   <script type="module" src="js/main.js"></script>
   <!-- the settings panel, from the raw /shared/ mount (not bundled): the exact
        same file the Live2D client loads. Absolute src so Vite leaves it alone. -->

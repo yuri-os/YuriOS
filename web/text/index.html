@@ -21,6 +21,7 @@
   <!-- her ◇ as an inline SVG favicon, the same mark and acid the room's tab wears -->
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M8 1.5 14.5 8 8 14.5 1.5 8Z' fill='none' stroke='%23d7ff58' stroke-width='1.6'/></svg>">
   <link rel="stylesheet" href="./text.css">
+  <link rel="stylesheet" href="../files.css">
   <!-- the .env panel's shared stylesheet, served raw at /shared/ (SPEC §11) -->
   <link rel="stylesheet" href="/shared/settings.css">
 </head>
@@ -53,11 +54,12 @@
   </header>
 
   <nav class="subbar">
-    <!-- the same two panels the sanctuary's column carries: the transcript and
-         the inner-life panel (SPEC §24.3, js/mind.js) -->
+    <!-- the same panels the sanctuary's column carries: transcript, inner life,
+         and the editable desk / read-only research shelf. -->
     <div class="tabs">
-      <button id="tab-chat" class="tab on">chat</button>
-      <button id="tab-mind" class="tab">inner life</button>
+        <button id="tab-chat" class="tab on">chat</button>
+        <button id="tab-mind" class="tab">inner life</button>
+        <button id="tab-files" class="tab">files</button>
     </div>
     <!-- the ways into her other rooms. text.js re-points these at
          /characters/<id>/… when this page is a per-character route. -->
@@ -72,6 +74,7 @@
          accumulating draft while she speaks, selfies (SPEC §7.6) -->
     <div id="messages" aria-live="polite"></div>
     <div id="innerlife" hidden></div>
+    <div id="files" hidden></div>
   </main>
 
   <!-- voice.js writes the sentence currently being spoken here. Hidden, like the
@@ -148,6 +151,7 @@
   <script type="module" src="../js/boot.js"></script>
   <script type="module" src="../js/chat.js"></script>
   <script type="module" src="../js/mind.js"></script>
+  <script type="module" src="../js/files.js"></script>
   <script type="module" src="./text.js"></script>
   <!-- the .env panel, from the raw /shared/ mount (not bundled): the exact same
        file the other two pages load. Absolute src so Vite leaves it alone. -->

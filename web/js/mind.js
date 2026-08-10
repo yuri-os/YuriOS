@@ -18,10 +18,12 @@ import { STATE_META, canonicalState } from '../shared/activity-state.js';
     : import('/shared/runtime.js').catch(() => {});
   const apiPath = (path) => window.YuriOSRuntime?.apiPath(path) || path;
   const panel = document.getElementById('innerlife');
+  const filesPanel = document.getElementById('files');
   const messagesEl = document.getElementById('messages');
   const tabChat = document.getElementById('tab-chat');
   const tabMind = document.getElementById('tab-mind');
-  if (!panel || !tabChat || !tabMind) return;
+  const tabFiles = document.getElementById('tab-files');
+  if (!panel || !filesPanel || !tabChat || !tabMind || !tabFiles) return;
 
   let open = false;
   let refreshTimer = null;
@@ -351,12 +353,16 @@ import { STATE_META, canonicalState } from '../shared/activity-state.js';
     watchTimer = n > 0 && !open ? setTimeout(watch, SLOW) : null;
   }
 
-  function show(mind) {
+  function show(view) {
+    const mind = view === 'mind';
+    const files = view === 'files';
     open = mind;
     panel.hidden = !mind;
-    if (messagesEl) messagesEl.style.display = mind ? 'none' : '';
+    filesPanel.hidden = !files;
+    if (messagesEl) messagesEl.style.display = view === 'chat' ? '' : 'none';
     tabMind.classList.toggle('on', mind);
-    tabChat.classList.toggle('on', !mind);
+    tabFiles.classList.toggle('on', files);
+    tabChat.classList.toggle('on', view === 'chat');
     clearTimeout(refreshTimer);
     refreshTimer = null;
     clearTimeout(watchTimer);
@@ -364,6 +370,8 @@ import { STATE_META, canonicalState } from '../shared/activity-state.js';
     markTab(liveN);
     if (mind) {
       render().then(pace);
+    } else if (files) {
+      window.dispatchEvent(new Event('files-open'));
     } else {
       // anything she said while this panel covered the transcript couldn't be
       // scrolled to — a hidden box has no height. Pin the bottom on the way back.
@@ -372,8 +380,9 @@ import { STATE_META, canonicalState } from '../shared/activity-state.js';
     }
   }
 
-  tabChat.addEventListener('click', () => show(false));
-  tabMind.addEventListener('click', () => show(true));
+  tabChat.addEventListener('click', () => show('chat'));
+  tabMind.addEventListener('click', () => show('mind'));
+  tabFiles.addEventListener('click', () => show('files'));
 
   // live nudges off the one bus: a journal line, a state change, or a research
   // run starting or ending while the panel is open re-renders it — and re-paces
@@ -382,7 +391,9 @@ import { STATE_META, canonicalState } from '../shared/activity-state.js';
     const t = ev.detail?.type;
     if (open && (t === 'journal' || t === 'mind' || t === 'research_status')) {
       render().then(pace);
-    } else if (!open && (t === 'research_status' || t === 'mind')) {
+    } else if (!open && !filesPanel.hidden && t === 'workspace') {
+      window.dispatchEvent(new Event('files-refresh'));
+    } else if (!open && filesPanel.hidden && (t === 'research_status' || t === 'mind')) {
       // a run starting is the whole reason for the mark; a tick is the only
       // beat a read off the shelf — which fires no research event — arrives on
       watch();

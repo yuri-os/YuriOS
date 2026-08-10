@@ -210,7 +210,7 @@ class MindLoop:
             tier="utility")
         return text
 
-    def _desk_written(self, tool: str, data: dict) -> None:
+    def _desk_written(self, tool: str, data: dict, *, notify: bool = True) -> None:
         """A desk tool changed a file, from the tool server's process (§34.2).
 
         The journal is the whole consequence. `workspace/` is not versioned
@@ -233,6 +233,17 @@ class MindLoop:
                 "write_skill": "wrote down how to do something",
                 "delete_skill": "let go of a skill"}.get(tool, "changed")
         self._desk_notes.append(f"{verb}: {what}")
+        action = {"write_note": "write", "append_note": "append",
+                  "edit_note": "edit", "delete_note": "delete"}.get(tool)
+        if action and notify:
+            event = {"action": action, "path": what}
+            if "bytes" in data:
+                event["bytes"] = data["bytes"]
+            self.hub.publish("workspace", event)
+
+    def workspace_written(self, path: str) -> None:
+        """Record a human editor write with the same journal semantics as a tool."""
+        self._desk_written("write_note", {"path": path}, notify=False)
 
     def _brain_session(self) -> str:
         if self._session is None:

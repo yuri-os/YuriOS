@@ -39,6 +39,43 @@ def test_api_mind_snapshot(client_with_mind):
     assert "pending_edits" in snap and "goals" in snap
 
 
+def test_workspace_routes_list_read_and_write_through_the_desk(client_with_mind, monkeypatch):
+    c, rig = client_with_mind
+    events = []
+    monkeypatch.setattr(c.app.state.rt.hub, "publish",
+                        lambda type_, payload: events.append((type_, payload)))
+    rig.mind.workspace.write("research/field-notes.md", "first observation")
+
+    files = c.get("/api/mind/workspace").json()["files"]
+    assert {entry["path"] for entry in files} >= {"research", "research/field-notes.md"}
+    assert c.get("/api/mind/workspace/file", params={"path": "research/field-notes.md"}).json(
+    )["text"] == "first observation\n"
+
+    saved = c.put("/api/mind/workspace/file", json={
+        "path": "research/field-notes.md", "text": "revised observation"})
+    assert saved.status_code == 200
+    assert rig.mind.workspace.read("research/field-notes.md") == "revised observation\n"
+    assert rig.mind._desk_notes[-1] == "wrote myself a note: research/field-notes.md"
+    assert [type_ for type_, _payload in events] == ["workspace"]
+    event = events[0][1]
+    assert event["action"] == "write" and event["path"] == "research/field-notes.md"
+    assert event["bytes"] == len("revised observation\n")
+    assert event["dir"] is False and event["mtime"] > 0
+    assert c.get("/api/mind/workspace/file", params={"path": "../soul/USER.md"}).status_code == 400
+
+
+def test_research_routes_list_and_read_sources_without_exposing_paths(client_with_mind):
+    c, rig = client_with_mind
+    source = rig.mind.vault.vault / "knowledge" / "reference" / "web-rain.md"
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source.write_text("# Rain\n\nSource: https://example.test/rain\n", encoding="utf-8")
+
+    assert c.get("/api/mind/research").json()["files"][0]["name"] == "web-rain.md"
+    assert c.get("/api/mind/research/file", params={"name": "web-rain.md"}).json()[
+        "text"].startswith("# Rain")
+    assert c.get("/api/mind/research/file", params={"name": "../USER.md"}).status_code == 400
+
+
 async def test_api_journal_serves_her_day(client_with_mind):
     c, rig = client_with_mind
     rig.mind.journal.write("reorganised the shelf")

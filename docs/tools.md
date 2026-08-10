@@ -1,9 +1,10 @@
 # Tools — her hands
 
-She has eight tools, reached over a real **MCP** connection: an in-repo MCP server
+Her hands are reached over a real **MCP** connection: an in-repo MCP server
 (`yurios/world/tools/server.py`, FastMCP over stdio) that the brain connects to as a genuine MCP
-client, discovering the tools with `list_tools` rather than hardcoding them. Three of the eight
-are the web hands, and they're off until you configure them.
+client, discovering the calls with `list_tools` rather than hardcoding them. There are fifteen
+built-in calls when every optional group is enabled, plus any third-party MCP calls you mount.
+Disabled groups are not advertised at all.
 
 ```ini
 TOOLS_BACKEND=mcp                 # mcp | fake | off
@@ -20,18 +21,27 @@ reports the truth (`"mcp"` / `"fake"` / `"off"` / `"failed: …"`).
 
 ## The hands
 
-| Tool | Arguments | Effect |
-|---|---|---|
-| `set_timer` | `minutes` (0 < m ≤ `TIMER_MAX_MINUTES`), `label?` | the host schedules the announcement |
-| `play_music` | `action`, `track?`, `volume?` | drives the browser-side synthesized ambience |
-| `take_selfie` | `look?`, `scene?`, `framing?`, `lighting?`, `mood?`, `wardrobe?`, `avoid?` | starts a render off-turn — see [Selfies](selfies.md) |
-| `show_picture` | `subject`, `avoid?` | the same camera, pointed at something that isn't her |
-| `web_search` | `query`, `k?` | titles, links and snippets from your own SearXNG |
-| `read_page` | `url` | reads one page; the whole thing goes on her shelf |
-| `research` | `topic`, `depth?` | reads several, off-turn, and tells you what she found |
+| Tool | Arguments | Effect | Available when |
+|---|---|---|---|
+| `set_timer` | `minutes` (0 < m <= `TIMER_MAX_MINUTES`), `label?` | schedules a spoken announcement | always |
+| `play_music` | `action`, `track?`, `volume?` | drives browser-side synthesized ambience | always |
+| `take_selfie` | `look?`, `scene?`, `framing?`, `lighting?`, `mood?`, `wardrobe?`, `avoid?` | starts a render off-turn | `SELFIE_BACKEND` is not `off` |
+| `show_picture` | `subject`, `avoid?` | starts a render of something other than Yuri | `SELFIE_BACKEND` is not `off` |
+| `web_search` | `query`, `k?` | returns titles, links, and snippets from SearXNG | `SEARCH_BACKEND` is not `off` |
+| `read_page` | `url` | reads one page and shelves it | `SEARCH_BACKEND` is not `off` |
+| `research` | `topic`, `depth?` | reads several pages off-turn and posts what she found | `SEARCH_BACKEND` is not `off` |
+| `list_notes` | `folder?` | lists files on Yuri's workspace desk | `WORKSPACE_ENABLED=true` |
+| `read_note` | `path` | reads one workspace note | `WORKSPACE_ENABLED=true` |
+| `write_note` | `path`, `text` | replaces a workspace note | `WORKSPACE_ENABLED=true` |
+| `append_note` | `path`, `text` | adds text to a workspace note | `WORKSPACE_ENABLED=true` |
+| `delete_note` | `path` | removes a workspace note | `WORKSPACE_ENABLED=true` |
+| `read_skill` | `name` | reads a skill's full instructions | `SKILLS_ENABLED=true` |
+| `write_skill` | `name`, `description`, `instructions` | saves or replaces a skill | `SKILLS_ENABLED=true` |
+| `delete_skill` | `name` | removes a skill | `SKILLS_ENABLED=true` |
 
-The surface doesn't grow a shell. Heavy sandboxed hands are a named later rung, not an omission
-to be patched around.
+Third-party calls configured through `MCP_SERVERS` are discovered and admitted through the same
+guard, with `TOOL_RATE_EXTERNAL` as their default rate. The surface doesn't grow a shell. Heavy
+sandboxed hands are a named later rung, not an omission to be patched around.
 
 ### set_timer
 
@@ -61,6 +71,24 @@ has to match a generator that exists.
 
 ```ini
 TOOL_RATE_MUSIC=6
+```
+
+### Workspace notes and skills
+
+The desk calls operate only inside `vault/workspace/`: relative paths only, no `..`, dotfiles, or
+paths outside the desk. `write_note` replaces a whole file; use `append_note` for a running log.
+`list_notes` returns names and sizes, and `read_note` returns the content. Notes are scratch space,
+so they are not versioned in the Vault.
+
+Skills live in `vault/skills/`. `read_skill` loads the instructions for one named skill;
+`write_skill` stores a lowercase-hyphenated name, a short description that says when to use it,
+and its full instructions; `delete_skill` removes it. Skills are versioned. See [The mind](mind.md#her-desk-and-her-skills)
+for the storage layout and prompt behavior.
+
+```ini
+WORKSPACE_ENABLED=true             # false = no note calls or desk context
+SKILLS_ENABLED=true                # false = no skill calls or catalog context
+TOOL_RATE_DESK=20                  # calls per minute across notes and skills
 ```
 
 ### web_search, read_page and research
@@ -203,7 +231,7 @@ refused too, and the body stops at `FETCH_MAX_BYTES`.
 
 Her camera has its own page: [Selfies](selfies.md). Two hands share it — `take_selfie` for a
 picture of her, `show_picture` for a picture of anything else — and with `SELFIE_BACKEND=off`
-neither is advertised at all: `list_tools` returns three.
+neither is advertised at all.
 
 ## How a tool call actually happens
 

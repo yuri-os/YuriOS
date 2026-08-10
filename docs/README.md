@@ -49,7 +49,7 @@ as well. For the first few days, watch the numbers on the inner-life tab.
 | [Bodies](bodies.md) | The VRM stage, the sanctuary room, Live2D, the transparent desktop window |
 | [Voice](voice.md) | Ears, voice and turn-taking: faster-whisper, kokoro, Qwen3-TTS, GPT-SoVITS, silero |
 | [Selfies](selfies.md) | Her camera: OpenRouter, local SDXL, Krea 2, the template library, provenance |
-| [Tools](tools.md) | The five MCP hands, the guard, the audit log |
+| [Tools](tools.md) | Every built-in and third-party MCP call, the guard, the audit log |
 | [The mind](mind.md) | The tick loop, activity states, the two gates, goals, DREAM, the shelf, self-edits, the debug page |
 | [Channels](channels.md) | The web page, the terminal client, Telegram, and what's planned |
 

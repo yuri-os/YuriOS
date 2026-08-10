@@ -231,7 +231,7 @@ flowchart TB
     TURNS["Text-turn runner<br/>shared, per-channel"]
     BRAIN["ToolBrain<br/>brain + in-stream MCP tool loop"]
     MEM["MemoryStore + Vault<br/>git-backed files"]
-    MCP["MCP server — 4 tools<br/>timer · music · selfie · picture"]
+    MCP["MCP server — discovered tool surface<br/>timer · media · web · desk · skills"]
     FORGE["SelfieLab → ImageForge"]
     VRM["VrmController<br/>the puppet strings"]
     HUB["EventHub<br/>one outbound bus"]
@@ -276,9 +276,10 @@ expression, gaze, bone, mouth, material, animation, and scene channels. Lip-sync
 the RMS amplitude of the audio actually playing, so mouth and voice cannot drift. A second,
 Live2D body is available on the same bus.
 
-**The hands** (`yurios/world/tools`) are exactly five tools exposed over a real Model Context
-Protocol server: `set_timer`, `play_music`, `take_selfie`, and `show_picture`.
-Tools are emitted
+**The hands** (`yurios/world/tools`) are a discovered tool surface exposed over a real Model Context
+Protocol server. The always-present calls are `set_timer` and `play_music`; camera, web, workspace,
+and skill calls are advertised only when their configured backends are enabled. Third-party MCP
+servers can add calls as well. Tools are emitted
 *in the token stream* (`[[tool {json}]]`), stripped from speech, and pass a guard (allowlist,
 one-per-turn dedupe, per-tool rate limits, per-turn cap, timeout, audit log) before execution.
 The slow tools

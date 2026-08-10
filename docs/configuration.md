@@ -170,8 +170,11 @@ Backend-specific keys (`QWEN_*`, `SOVITS_*`) are in [Voice](voice.md).
 | `TOOLS_BACKEND` | `mcp` | `mcp` · `fake` · `off` |
 | `TOOL_MAX_CALLS_PER_TURN` | `2` | |
 | `TOOL_TIMEOUT_S` | `10` | |
-| `TOOL_RATE_TIMER` / `_MUSIC` / `_SELFIE` / `_PICTURE` | `6` / `6` / `2` / `2` | calls per minute |
+| `TOOL_RATE_TIMER` / `_MUSIC` / `_SELFIE` / `_PICTURE` / `_DESK` | `6` / `6` / `2` / `2` / `20` | calls per minute |
 | `TIMER_MAX_MINUTES` | `180` | |
+| `WORKSPACE_ENABLED` | `true` | enables `list_notes`, `read_note`, `write_note`, `append_note`, and `delete_note` |
+| `WORKSPACE_DIGEST_FILES` | `20` | newest workspace files named in Yuri's prompt |
+| `SKILLS_ENABLED` | `true` | enables `read_skill`, `write_skill`, and `delete_skill` |
 | `MCP_SERVERS` | *(unset)* | path to `mcp-servers.json` — third-party servers |
 | `TOOL_RATE_EXTERNAL` | `4` | default bucket for a tool found by discovery |
 

@@ -51,3 +51,64 @@ def test_available_lmstudio_embeddings_keep_the_configured_backend(monkeypatch):
 
     assert isinstance(embedder, WorkingLMStudioEmbedder)
     assert cfg.embed_backend == "lm_studio"
+
+
+# ---- the local embedder loads offline once the model is cached ----------------
+
+def _fake_sentence_transformers(monkeypatch, recorder, failures=()):
+    """A SentenceTransformer seam: `failures` are raised for the first calls."""
+    import sys
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(sentence_tf, "_shared", {})   # no model leaks between tests
+    calls = []
+
+    class SentenceTransformer:
+        def __init__(self, model_name, **kwargs):
+            calls.append(kwargs)
+            if len(calls) <= len(failures):
+                raise failures[len(calls) - 1]
+            recorder.append((model_name, kwargs))
+
+        def get_embedding_dimension(self):
+            return 384
+
+    monkeypatch.setitem(sys.modules, "sentence_transformers",
+                        SimpleNamespace(SentenceTransformer=SentenceTransformer))
+    return calls
+
+
+def test_a_cached_embedding_model_loads_without_touching_the_hub(monkeypatch):
+    loaded = []
+    _fake_sentence_transformers(monkeypatch, loaded)
+
+    embedder = sentence_tf.SentenceTFEmbedder()
+
+    assert loaded == [(sentence_tf.DEFAULT_MODEL, {"local_files_only": True})]
+    assert embedder.dim == 384
+
+
+def test_an_uncached_embedding_model_downloads_once_then_loads(monkeypatch):
+    loaded = []
+    calls = _fake_sentence_transformers(monkeypatch, loaded,
+                                        failures=[OSError("not in the local cache")])
+
+    embedder = sentence_tf.SentenceTFEmbedder()
+
+    assert calls == [{"local_files_only": True}, {}]   # offline tried, then the hub
+    assert loaded == [(sentence_tf.DEFAULT_MODEL, {})]
+    assert embedder.dim == 384
+
+
+def test_every_characters_embedder_shares_one_loaded_model(monkeypatch):
+    # One Runtime per character used to mean one full model load per character:
+    # three residents, three copies of identical weights in RSS.
+    loaded = []
+    _fake_sentence_transformers(monkeypatch, loaded)
+
+    first = sentence_tf.SentenceTFEmbedder()
+    second = sentence_tf.SentenceTFEmbedder()
+    third = sentence_tf.SentenceTFEmbedder()
+
+    assert len(loaded) == 1                      # loaded once, not per character
+    assert first._model is second._model is third._model

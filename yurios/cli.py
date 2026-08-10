@@ -61,6 +61,14 @@ def _health_url(cfg: Config) -> str:
     return f"http://{cfg.host}:{cfg.port}/api/health"
 
 
+def _characters_url(cfg: Config) -> str:
+    return f"http://{cfg.host}:{cfg.port}/api/characters"
+
+
+def _character_health_url(cfg: Config, character_id: str) -> str:
+    return f"http://{cfg.host}:{cfg.port}/api/characters/{character_id}/health"
+
+
 def _wait_for_ready(cfg: Config, *, proc: subprocess.Popen | None = None) -> str | None:
     """Return an error when the server fails to become healthy before the deadline."""
     deadline = time.monotonic() + _START_TIMEOUT_SECONDS
@@ -325,6 +333,92 @@ def command_download(args) -> int:
     return 0
 
 
+def _status_line(label: str, value: object, *, indent: str = "  ") -> str:
+    return f"{indent}{label:<10} {value}"
+
+
+def _status_row(label: str, value: object) -> None:
+    print(_status_line(label, value))
+
+
+def _voice_status(voice: object) -> str:
+    """Make the health endpoint's voice details useful in a terminal."""
+    if not isinstance(voice, dict):
+        return str(voice or "unknown")
+    if voice.get("state"):
+        return str(voice["state"])
+    state = "ready" if voice.get("ready") else (
+        "loaded" if voice.get("loaded") else "unloaded")
+    parts = [f"{voice.get('listeners', 0)} listeners",
+             f"{voice.get('loads', 0)} loads"]
+    for name in ("stt", "tts", "vad"):
+        if voice.get(name):
+            parts.append(f"{name.upper()} {voice[name]}")
+    return f"{state} ({'; '.join(parts)})"
+
+
+def _context_status(context: object) -> str:
+    """Summarise the last prompt measurement without inventing a window size."""
+    if not isinstance(context, dict):
+        return "unavailable"
+    used = context.get("used")
+    if not isinstance(used, int):
+        return "unavailable"
+    reserve = context.get("reserve")
+    reserve_text = f"; {reserve:,} reserved" if isinstance(reserve, int) else ""
+    exact = "exact" if context.get("exact") else "estimated"
+    limit = context.get("limit")
+    if not isinstance(limit, int) or limit <= 0:
+        return f"{used:,} tokens ({exact}; window unknown{reserve_text})"
+    pct = context.get("pct")
+    pct_text = f"; {pct:g}%" if isinstance(pct, (int, float)) else ""
+    source = context.get("limit_source")
+    source_text = f"; {source}" if source else ""
+    return f"{used:,} / {limit:,} tokens ({exact}{pct_text}{source_text}{reserve_text})"
+
+
+def _character_records(payload: object) -> tuple[object, list[dict]] | None:
+    """Return the host registry, or None for a direct single-character server."""
+    if not isinstance(payload, dict) or not isinstance(payload.get("characters"), list):
+        return None
+    return payload.get("primary"), [
+        character for character in payload["characters"] if isinstance(character, dict)]
+
+
+def _runtime_rows(status: dict, *, indent: str, configured_model: object = None) -> list[str]:
+    """The per-character portion of `status`, shared by root and host output."""
+    rows = []
+    active_model = status.get("model") or "unknown"
+    rows.append(_status_line("Model", active_model, indent=indent))
+    if configured_model and active_model != configured_model:
+        rows.append(_status_line("Configured", f"{configured_model} (restart required)",
+                                 indent=indent))
+    if not status.get("model_configured", True):
+        rows.append(_status_line(
+            "Setup", "model selection required (`yurios configure` or dashboard)",
+            indent=indent))
+    rows.append(_status_line("Utility", status.get("utility_model") or "disabled",
+                             indent=indent))
+    rows.append(_status_line("Context", _context_status(status.get("context")), indent=indent))
+    rows.append(_status_line("Voice", _voice_status(status.get("voice")), indent=indent))
+    tools = status.get("tools") or "unknown"
+    count = status.get("tool_count")
+    tools_text = (f"{tools} ({count} discovered)"
+                  if isinstance(count, int) and count else tools)
+    rows.append(_status_line("Tools", tools_text, indent=indent))
+    rows.append(_status_line("Web", status.get("web") or "off", indent=indent))
+    rows.append(_status_line("Camera", status.get("selfies") or "off", indent=indent))
+    mind = status.get("mind") or "unknown"
+    activity = status.get("activity")
+    rows.append(_status_line("Mind", f"{mind} ({activity})" if activity else mind,
+                             indent=indent))
+    rows.append(_status_line("Channels", status.get("channels") or "off", indent=indent))
+    viewers = status.get("viewers")
+    rows.append(_status_line("Viewers", viewers if isinstance(viewers, int) else "unknown",
+                             indent=indent))
+    return rows
+
+
 def command_status(args) -> int:
     root = _root()
     cfg = _configured_cfg(root)
@@ -333,19 +427,59 @@ def command_status(args) -> int:
         response = httpx.get(_health_url(cfg), timeout=2.0)
         response.raise_for_status()
         status = response.json()
-    except httpx.HTTPError:
-        print("YuriOS: stopped")
-        print(f"Model: {cfg.chat_model}")
+        if not isinstance(status, dict):
+            raise ValueError("health endpoint did not return an object")
+    except (httpx.HTTPError, ValueError):
+        print("YuriOS status")
+        _status_row("Daemon", "stopped")
+        _status_row("Address", f"http://{cfg.host}:{cfg.port}")
+        _status_row("Model", f"configured: {cfg.chat_model}")
         return 1
-    print("YuriOS: running" + (f" (pid {pid})" if pid else ""))
-    print(f"URL: http://{cfg.host}:{cfg.port}")
-    active_model = status.get("model")
-    print(f"Model: {active_model}")
-    if active_model != cfg.chat_model:
-        print(f"Configured model: {cfg.chat_model} (restart required)")
-    if not status.get("model_configured", True):
-        print("Setup: model selection required (`yurios configure` or open the dashboard)")
-    print(f"Voice: {status.get('voice', {}).get('state', status.get('voice'))}")
+    try:
+        characters_response = httpx.get(_characters_url(cfg), timeout=2.0)
+        characters_response.raise_for_status()
+        characters = _character_records(characters_response.json())
+    except (httpx.HTTPError, ValueError):
+        # A direct single-character server does not mount the character registry.
+        characters = None
+    print("YuriOS status")
+    _status_row("Daemon", "running" + (f" (pid {pid})" if pid else ""))
+    _status_row("Address", f"http://{cfg.host}:{cfg.port}")
+    if characters is None:
+        _status_row("Primary", status.get("character") or "unknown")
+        for row in _runtime_rows(status, indent="  ", configured_model=cfg.chat_model):
+            print(row)
+        return 0
+
+    primary, records = characters
+    print("  Characters")
+    for index, record in enumerate(records):
+        character_id = str(record.get("id") or "unknown")
+        name = str(record.get("name") or character_id)
+        marker = "*" if character_id == primary else " "
+        print(f"    {marker} {name} [{character_id}]")
+        character_status = status if character_id == primary else None
+        if character_status is None and record.get("runtime_state") == "ready":
+            try:
+                detail_response = httpx.get(_character_health_url(cfg, character_id), timeout=2.0)
+                detail_response.raise_for_status()
+                detail = detail_response.json()
+                character_status = detail if isinstance(detail, dict) else None
+            except (httpx.HTTPError, ValueError):
+                character_status = None
+        if character_status is not None:
+            for row in _runtime_rows(character_status, indent="      ",
+                                     configured_model=record.get("model")):
+                print(row)
+        else:
+            runtime = str(record.get("runtime_state") or "unknown")
+            state = str(record.get("state") or runtime)
+            detail = runtime if runtime == state else f"{runtime}; {state}"
+            if record.get("error"):
+                detail += f"; {record['error']}"
+            print(_status_line("Status", detail, indent="      "))
+        if index < len(records) - 1:
+            print()
     return 0
 
 

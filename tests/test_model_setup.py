@@ -388,8 +388,16 @@ def test_status_distinguishes_saved_model_from_active_daemon(tmp_path, monkeypat
             pass
 
         def json(self):
-            return {"model": "NONE", "model_configured": False,
-                    "voice": {"state": "unloaded"}}
+            return {
+                "character": "Yuri", "model": "NONE", "model_configured": False,
+                "utility_model": "ollama/qwen3", "voice": {
+                    "ready": False, "loaded": False, "listeners": 0, "loads": 0,
+                    "stt": "unloaded", "tts": "unloaded", "vad": "unloaded"},
+                "tools": "mcp", "tool_count": 15, "web": "searxng",
+                "selfies": "mock", "mind": "running", "activity": "idle",
+                "channels": "telegram · @yuri_bot", "viewers": 2,
+                "context": {"used": 1200, "limit": 8192, "limit_source": "env",
+                            "reserve": 800, "exact": True, "pct": 14.6}}
 
     monkeypatch.setattr(cli, "_root", lambda: tmp_path)
     monkeypatch.setattr(cli, "_read_pid", lambda path: 1234)
@@ -398,8 +406,90 @@ def test_status_distinguishes_saved_model_from_active_daemon(tmp_path, monkeypat
     assert cli.command_status(Namespace()) == 0
 
     output = capsys.readouterr().out
-    assert "Model: NONE" in output
-    assert "Configured model: ollama/qwen3 (restart required)" in output
+    assert "YuriOS status" in output
+    assert "Model      NONE" in output
+    assert "Configured ollama/qwen3 (restart required)" in output
+    assert "Context    1,200 / 8,192 tokens (exact; 14.6%; env; 800 reserved)" in output
+    assert "Voice      unloaded (0 listeners; 0 loads; STT unloaded; TTS unloaded; VAD unloaded)" in output
+    assert "Tools      mcp (15 discovered)" in output
+    assert "Mind       running (idle)" in output
+    assert "Channels   telegram · @yuri_bot" in output
+    assert "Viewers    2" in output
+
+
+def test_status_reports_the_configured_runtime_when_the_daemon_is_stopped(
+        tmp_path, monkeypatch, capsys):
+    from argparse import Namespace
+
+    from yurios import cli
+
+    (tmp_path / ".env").write_text("CHAT_MODEL=ollama/qwen3\n", encoding="utf-8")
+    monkeypatch.setattr(cli, "_root", lambda: tmp_path)
+
+    def unavailable(*args, **kwargs):
+        raise cli.httpx.ConnectError("connection refused")
+
+    monkeypatch.setattr(cli.httpx, "get", unavailable)
+
+    assert cli.command_status(Namespace()) == 1
+
+    output = capsys.readouterr().out
+    assert "Daemon     stopped" in output
+    assert "Address    http://127.0.0.1:8768" in output
+    assert "Model      configured: ollama/qwen3" in output
+
+
+def test_status_lists_all_characters_from_a_host(tmp_path, monkeypatch, capsys):
+    from argparse import Namespace
+
+    from yurios import cli
+
+    (tmp_path / ".env").write_text("CHAT_MODEL=ollama/qwen3\n", encoding="utf-8")
+
+    class Response:
+        def __init__(self, payload):
+            self.payload = payload
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return self.payload
+
+    health = {"character": "Virelle", "model": "ollama/qwen3",
+              "model_configured": True, "context": {"used": 10, "limit": 100,
+                                                       "reserve": 20, "exact": True,
+                                                       "pct": 10.0}}
+    characters = {"primary": "virelle", "characters": [
+        {"id": "virelle", "name": "Virelle", "runtime_state": "ready",
+         "state": "dormant"},
+        {"id": "yuri", "name": "Yuri", "runtime_state": "ready", "state": "idle"},
+    ]}
+    yuri_health = {"character": "Yuri", "model": "ollama/qwen3",
+                   "model_configured": True, "mind": "running", "activity": "ENGAGED",
+                   "context": {"used": 60, "limit": 100, "reserve": 20,
+                               "exact": True, "pct": 60.0}}
+    monkeypatch.setattr(cli, "_root", lambda: tmp_path)
+
+    def get(url, **kwargs):
+        if url.endswith("/api/health"):
+            return Response(health)
+        if url.endswith("/api/characters"):
+            return Response(characters)
+        return Response(yuri_health)
+
+    monkeypatch.setattr(cli.httpx, "get", get)
+
+    assert cli.command_status(Namespace()) == 0
+
+    output = capsys.readouterr().out
+    assert "  Characters" in output
+    assert "* Virelle [virelle]" in output
+    assert "  Yuri [yuri]" in output
+    assert "Context    10 / 100 tokens (exact; 10%; 20 reserved)" in output
+    assert "Context    60 / 100 tokens (exact; 60%; 20 reserved)" in output
+    assert "Mind       running (ENGAGED)" in output
+    assert "Viewers    unknown\n\n      Yuri" in output
 
 
 def test_uninstall_removes_only_the_global_launcher_and_venv(tmp_path, monkeypatch, capsys):

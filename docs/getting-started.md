@@ -51,7 +51,7 @@ embeddings are not supported. See [Models & connections](models.md).
 ## 3. Run her
 
 ```bash
-yurios status                      # → http://localhost:8768
+yurios status                      # runtime health, characters, configuration, and address
 ```
 
 The installer has already started the daemon. That address opens the **character switchboard**. Select a card to enter her sanctuary; leaving

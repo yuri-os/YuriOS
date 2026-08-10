@@ -166,6 +166,7 @@ def test_mindless_app_reports_503(cfg):
         assert c.get("/api/mind").status_code == 503
         health = c.get("/api/health").json()
         assert health["mind"] == "disabled"            # the truth, not a guess
+        assert health["tool_count"] == 0                # no hands were configured
 
 
 # ---------------------------------------------- /api/mind/reading (SPEC §24.3)

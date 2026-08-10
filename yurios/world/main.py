@@ -221,6 +221,7 @@ class Runtime:
             self.brain.set_prompt_log(PromptLog.from_config(cfg, self.clock))
         self._tool_runner = tool_runner        # injected, or built at startup
         self.tools_status = "off"
+        self.tool_count = 0
         # the inbound inbox (SPEC §16): everything that happens to her becomes a
         # typed signal here, and the mind's SENSE drains it. Producers (the
         # voice route, the events route, a landed timer) post facts; the loop
@@ -569,6 +570,7 @@ class Runtime:
                                      "server)", spec.name, rate, name)
                 self.brain.set_tools(runner, specs)
                 self._tool_runner = runner
+                self.tool_count = len(specs)
                 self.tools_status = ("fake" if type(runner).__name__ == "FakeToolRunner"
                                      else "mcp")
                 detail = f"{self.tools_status} · {len(specs)} tools"
@@ -584,6 +586,7 @@ class Runtime:
                 why = start_failure(e)
                 log.warning("tool backend failed — she has no hands this run: %s", why)
                 self.tools_status = f"failed: {why}"
+                self.tool_count = 0
                 self._tool_runner = None
                 self.boot.done("tools", state="failed", detail=why[:80])
         elif self.cfg.tools_backend != "off":

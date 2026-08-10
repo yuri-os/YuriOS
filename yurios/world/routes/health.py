@@ -29,6 +29,7 @@ async def health(request: Request) -> dict:
         # somebody opens /ws/voice.
         "voice": rt.voice.status(),
         "tools": rt.tools_status,          # "mcp" | "fake" | "off" | "failed: …"
+        "tool_count": rt.tool_count,       # discovered calls admitted to the brain
         "mind": rt.mind_status,            # "running" | "disabled" | "failed: …" (§15)
         "activity": rt.mind.activity.state if rt.mind else None,
         "selfies": rt.selfies_status,      # "openrouter" | "mock" | "mock (no key…)" | "off" (§7.6)

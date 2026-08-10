@@ -10,7 +10,7 @@ voice, camera, or desktop backend is still an extra.
 ```bash
 cd YuriOS
 ./install.sh
-yurios status                      # → http://localhost:8768
+yurios status                      # runtime health, characters, configuration, and address
 ```
 
 With no options this installs her body, local memory, MCP tools and real voice (faster-whisper ears,

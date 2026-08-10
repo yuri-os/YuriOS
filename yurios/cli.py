@@ -700,6 +700,16 @@ def command_start(args) -> int:
     # when something is already wrong, and it should not be the path that
     # quietly skips a dependency.
     _start_search_instance(root)
+    # A gguf/ route pays its one-time llama.cpp preflight on the first model use
+    # after start — minutes of what looks like a hang. Say so up front; the
+    # record the preflight leaves behind makes every later start skip it.
+    if (cfg.chat_model or "").startswith("gguf/"):
+        from yurios.app.providers import gguf
+
+        if gguf.preflight_pending(cfg.chat_model, cfg):
+            print("Note: her first reply after start runs a one-time llama.cpp "
+                  "preflight — the model loads in a sacrificial process, which can "
+                  "take minutes. It is recorded and never runs again.")
     if args.foreground:
         from yurios.world.__main__ import main
 

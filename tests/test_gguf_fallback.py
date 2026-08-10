@@ -394,3 +394,105 @@ def test_park_with_nothing_resident_still_gates_loads(gguf_state):
     assert not gguf._load_gate.is_set()
     gguf.unpark([])
     assert gguf._load_gate.is_set()
+
+
+# ---- the sidecar: resolved offline, preflighted once ever ---------------------
+
+def test_resolve_records_the_file_and_later_loads_work_offline(tmp_path, monkeypatch):
+    class HfApi:
+        def list_repo_files(self, **kwargs):
+            return ["model-Q4_K_M.gguf"]
+
+    def download(**kwargs):
+        return _gguf_file(tmp_path / "hub" / kwargs["filename"])
+
+    (tmp_path / "hub").mkdir()
+    monkeypatch.setitem(sys.modules, "huggingface_hub", SimpleNamespace(
+        HfApi=HfApi, hf_hub_download=download))
+    cfg = Config(_env_file=None, gguf_cache_dir=str(tmp_path))
+
+    first = gguf.resolve_model_file("gguf/example/model", cfg)
+
+    # No hub client at all: any network attempt now fails the test.
+    monkeypatch.setitem(sys.modules, "huggingface_hub", None)
+    assert gguf.resolve_model_file("gguf/example/model", cfg) == first
+
+
+def test_preflight_runs_once_and_its_fallback_options_survive_a_restart(tmp_path, monkeypatch):
+    path = _gguf_file(tmp_path / "model.gguf")
+    monkeypatch.setattr(gguf, "resolve_model_file", lambda *_args: path)
+    probes = []
+    monkeypatch.setattr(gguf, "_probe_model",
+                        lambda _p, requested: probes.append(requested)
+                        or replace(requested, gpu_layers=-1))   # a settled fallback
+    loaded_with = []
+    monkeypatch.setattr(gguf, "_load_llama",
+                        lambda _p, options: loaded_with.append(options) or _Llama())
+    cfg = Config(_env_file=None, chat_model="gguf/example/model-GGUF",
+                 gguf_cache_dir=str(tmp_path), gguf_n_gpu_layers=20)
+
+    def fresh_run():
+        # A "restart": in-process state is gone, the sidecar next to the
+        # weights is what survives.
+        monkeypatch.setattr(gguf, "_models", {})
+        monkeypatch.setattr(gguf, "_probed", {})
+        return gguf.get_model(cfg.chat_model, cfg)
+
+    fresh_run()
+    assert len(probes) == 1
+    assert loaded_with[0].gpu_layers == -1
+
+    fresh_run()
+    assert len(probes) == 1                 # no second preflight, ever
+    assert loaded_with[1].gpu_layers == -1  # the fallback the probe settled on
+
+
+def test_a_failed_unpark_reload_forgets_the_record_and_reprobes(tmp_path, monkeypatch):
+    monkeypatch.setattr(gguf, "_models", {})
+    monkeypatch.setattr(gguf, "_registry", {})
+    monkeypatch.setattr(gguf, "_probed", {})
+    gguf._load_gate.set()
+    path = _gguf_file(tmp_path / "model.gguf")
+    monkeypatch.setattr(gguf, "resolve_model_file", lambda *_args: path)
+    probes = []
+    monkeypatch.setattr(gguf, "_probe_model",
+                        lambda _p, requested: probes.append(requested) or requested)
+    monkeypatch.setattr(gguf, "_load_llama", lambda _p, _o: _Llama())
+    cfg = Config(_env_file=None, chat_model="gguf/example/model-GGUF",
+                 gguf_cache_dir=str(tmp_path))
+
+    gguf.get_model(cfg.chat_model, cfg)
+    assert len(probes) == 1
+
+    handles = gguf.park()
+    monkeypatch.setattr(gguf, "_load_llama",
+                        lambda *_a: (_ for _ in ()).throw(RuntimeError("out of VRAM")))
+    gguf.unpark(handles)                  # reload fails — the stale proof is forgotten
+
+    monkeypatch.setattr(gguf, "_load_llama", lambda _p, _o: _Llama())
+    gguf.get_model(cfg.chat_model, cfg)
+    assert len(probes) == 2               # re-probes once, and is marked again
+    gguf._load_gate.set()
+
+
+def test_preflight_pending_until_the_first_probe_passes(tmp_path, monkeypatch):
+    class HfApi:
+        def list_repo_files(self, **kwargs):
+            return ["model-Q4_K_M.gguf"]
+
+    def download(**kwargs):
+        return _gguf_file(tmp_path / "hub" / kwargs["filename"])
+
+    (tmp_path / "hub").mkdir()
+    monkeypatch.setitem(sys.modules, "huggingface_hub", SimpleNamespace(
+        HfApi=HfApi, hf_hub_download=download))
+    monkeypatch.setattr(gguf, "_models", {})
+    monkeypatch.setattr(gguf, "_probed", {})
+    monkeypatch.setattr(gguf, "_probe_model", lambda _p, requested: requested)
+    monkeypatch.setattr(gguf, "_load_llama", lambda _p, _o: _Llama())
+    cfg = Config(_env_file=None, chat_model="gguf/example/model",
+                 gguf_cache_dir=str(tmp_path))
+
+    assert gguf.preflight_pending(cfg.chat_model, cfg) is True
+    gguf.get_model(cfg.chat_model, cfg)   # real resolve, then the first probe
+    assert gguf.preflight_pending(cfg.chat_model, cfg) is False

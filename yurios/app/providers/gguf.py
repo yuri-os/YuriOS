@@ -3,7 +3,10 @@
 The configured ``gguf/<repo>`` name doubles as the Hugging Face repository. We
 resolve its Q4_K_M (or configured) GGUF on first use, preflight the llama.cpp
 options out of process so a native assertion cannot kill the daemon, then keep
-one context per file/options tuple for both chat and utility work.
+one context per file/options tuple for both chat and utility work. Both facts —
+which file a repo resolved to, and which option tuples already proved they load
+— are recorded next to the weights, so a daemon restart works offline and never
+re-runs a preflight that already passed.
 
 Because those contexts live in THIS process, a local selfie render that needs
 their VRAM can't evict them over HTTP the way it does LM Studio's models —
@@ -14,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import gc
+import json
 import logging
 import os
 import re
@@ -260,14 +264,117 @@ def _repo_for(model: str, cfg) -> str:
     raise ValueError(f"GGUF needs a gguf/<Hugging Face repo> model, got {model!r}")
 
 
+# --- the sidecar: what a previous run already proved --------------------------
+#
+# A cold load used to pay two network round trips (list_repo_files, then the
+# hf_hub_download etag HEAD) and a sacrificial-process preflight on EVERY
+# daemon start, though neither answer ever changes for a cached file. Both are
+# recorded in a small JSON sidecar next to the weights: the repo → file
+# resolution, so later loads work fully offline, and the option tuple the
+# preflight actually settled on — fallbacks included — so it runs once per
+# file/options, ever. State for weights outside the cache dir (tests, ad-hoc
+# paths) stays in memory: the record belongs with the weights it describes.
+_STORE_NAME = "yurios-gguf.json"
+
+
+def _store_base(cfg) -> Path:
+    if cfg.gguf_cache_dir:
+        return Path(cfg.gguf_cache_dir).expanduser()
+    return Path.home() / ".cache" / "huggingface" / "hub"
+
+
+def _store_path_for(cfg, path: Path | None = None) -> Path | None:
+    """The sidecar file, or None when `path` lives outside the cache dir."""
+    base = _store_base(cfg)
+    if path is not None:
+        try:
+            path.resolve().relative_to(base.resolve())
+        except (OSError, ValueError):
+            return None
+    return base / _STORE_NAME
+
+
+def _read_store(store: Path | None) -> dict:
+    if store is None:
+        return {}
+    try:
+        data = json.loads(store.read_text(encoding="utf-8"))
+        if isinstance(data, dict):
+            return data
+    except (OSError, ValueError):
+        pass
+    return {}
+
+
+def _write_store(store: Path, data: dict) -> None:
+    try:
+        store.parent.mkdir(parents=True, exist_ok=True)
+        store.write_text(json.dumps(data, indent=1) + "\n", encoding="utf-8")
+    except OSError as e:
+        log.warning("could not record GGUF state at %s (%s)", store, e)
+
+
+def _probed_key(key: tuple) -> str:
+    return json.dumps([str(key[0]), *key[1:]])
+
+
+def _preflight_lookup(store: Path | None, key: tuple) -> "_Options | None":
+    """The options a previous run's preflight settled on for this tuple."""
+    record = _read_store(store).get("probed", {}).get(_probed_key(key))
+    if not isinstance(record, list) or len(record) != 4:
+        return None
+    try:
+        return _Options(context_length=int(record[0]), gpu_layers=int(record[1]),
+                        threads=int(record[2]), flash_attn=bool(record[3]))
+    except (TypeError, ValueError):
+        return None
+
+
+def _preflight_mark(store: Path | None, key: tuple, options: _Options) -> None:
+    if store is None:
+        return
+    data = _read_store(store)
+    data.setdefault("probed", {})[_probed_key(key)] = [
+        options.context_length, options.gpu_layers, options.threads,
+        options.flash_attn]
+    _write_store(store, data)
+
+
+def _preflight_forget(store: Path | None, key: tuple) -> None:
+    """A reload with the recorded options FAILED — the proof is stale, so the
+    next load re-probes and can fall back to gentler options again."""
+    if store is None:
+        return
+    data = _read_store(store)
+    if data.get("probed", {}).pop(_probed_key(key), None) is not None:
+        _write_store(store, data)
+
+
 def resolve_model_file(model: str, cfg) -> Path:
-    """Download the configured repo's matching quant once into the HF cache."""
+    """The configured repo's matching quant — resolved once, then offline.
+
+    The first resolution asks Hugging Face which file matches GGUF_QUANT and
+    downloads it; the answer is recorded in the cache sidecar, and every later
+    load — restart included — opens the recorded file directly, no network.
+    """
+    repo = _repo_for(model, cfg)
+    store = _store_path_for(cfg)
+    record_key = f"{repo} :: {cfg.gguf_quant}"
+    recorded = _read_store(store).get("resolved", {}).get(record_key)
+    if recorded:
+        cached = Path(recorded)
+        if cached.is_file():
+            try:
+                _validate_gguf_file(cached)
+                return cached.resolve()
+            except RuntimeError as e:
+                log.warning("recorded GGUF %s failed validation (%s) — resolving "
+                            "again from Hugging Face", cached.name, e)
     try:
         from huggingface_hub import HfApi, hf_hub_download
     except ImportError as e:
         raise RuntimeError("GGUF fallback needs `pip install -e '.[llm]'`") from e
 
-    repo = _repo_for(model, cfg)
     # GGUF publishers use dots, dashes, or underscores before quant labels.
     quant_file = re.compile(rf"(?:^|[._-]){re.escape(cfg.gguf_quant)}\.gguf$", re.IGNORECASE)
     files = HfApi().list_repo_files(repo_id=repo, repo_type="model")
@@ -278,7 +385,29 @@ def resolve_model_file(model: str, cfg) -> Path:
             f"to one of: {', '.join(Path(name).stem.rsplit('.', 1)[-1] for name in files if name.lower().endswith('.gguf'))}")
     path = hf_hub_download(repo_id=repo, filename=matches[0], repo_type="model",
                            cache_dir=cfg.gguf_cache_dir or None)
-    return Path(path).resolve()
+    path = Path(path).resolve()
+    if store is not None:
+        data = _read_store(store)
+        data.setdefault("resolved", {})[record_key] = str(path)
+        _write_store(store, data)
+    return path
+
+
+def preflight_pending(model: str, cfg) -> bool:
+    """Would the next load of this model run the sacrificial-process preflight?
+
+    Backs the `yurios start` heads-up: True until some run has recorded a
+    passing preflight for the resolved file and the configured options."""
+    try:
+        store = _store_path_for(cfg)
+        data = _read_store(store)
+        recorded = data.get("resolved", {}).get(
+            f"{_repo_for(model, cfg)} :: {cfg.gguf_quant}")
+        if not recorded:
+            return True
+        return _preflight_lookup(store, _key_for(Path(recorded), cfg)) is None
+    except Exception:
+        return False
 
 
 class _LoadedModel:
@@ -338,11 +467,31 @@ def get_model(model: str, cfg) -> _LoadedModel:
         requested = _Options(context_length=key[1], gpu_layers=key[2],
                              threads=key[3], flash_attn=key[4])
         # A reload after a park skips the sacrificial-process preflight:
-        # this exact tuple already proved it loads, earlier this run.
+        # this exact tuple already proved it loads, earlier this run — or in
+        # any earlier run, per the sidecar record next to the weights. The
+        # recorded options are the ones the probe SETTLED on, fallbacks and
+        # all, so a restart goes straight to the configuration that worked.
         options = _probed.get(key)
         if options is None:
-            options = _probe_model(path, requested)
-            _probed[key] = options
+            store = _store_path_for(cfg, path)
+            options = _preflight_lookup(store, key)
+            if options is not None:
+                _probed[key] = options
+                log.info("GGUF %s: preflight already proven (%s) — loading "
+                         "directly", path.name, _describe_options(options))
+            else:
+                log.warning(
+                    "GGUF %s: one-time llama.cpp preflight starting — the model "
+                    "loads in a sacrificial process first, so this can take "
+                    "minutes. It runs once per model and options, then never "
+                    "again.", path.name)
+                options = _probe_model(path, requested)
+                _probed[key] = options
+                _preflight_mark(store, key, options)
+                if options != requested:
+                    log.warning("GGUF %s: preflight settled on %s — recorded, "
+                                "and future starts use it directly",
+                                path.name, _describe_options(options))
         loaded = _LoadedModel(path, context_length=options.context_length,
                               gpu_layers=options.gpu_layers, threads=options.threads,
                               flash_attn=options.flash_attn)
@@ -431,7 +580,10 @@ def unpark(handles: list[tuple[str, object]]) -> None:
             log.warning("GGUF unpark: %s would not reload (%s) — the next turn "
                         "retries with a fresh preflight", model, e)
             try:
-                _probed.pop(_key_for(resolve_model_file(model, cfg), cfg), None)
+                path = resolve_model_file(model, cfg)
+                key = _key_for(path, cfg)
+                _probed.pop(key, None)
+                _preflight_forget(_store_path_for(cfg, path), key)
             except Exception:
                 pass
 

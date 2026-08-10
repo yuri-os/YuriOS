@@ -85,6 +85,17 @@ async def test_research_answers_started_without_doing_any_of_it():
     assert fetcher.fetched == []                # nothing was read on the turn
 
 
+async def test_research_defaults_to_the_configured_page_maximum():
+    srv = server(search=FakeSearch(), fetcher=FakeFetcher(), max_pages=4)
+    async with create_connected_server_and_client_session(srv._mcp_server) as s:
+        tools = await s.list_tools()
+        research = next(tool for tool in tools.tools if tool.name == "research")
+        out = json.loads(result_text(await s.call_tool("research", {"topic": "tea"})))
+    assert out["depth"] == 4
+    assert "1 to 4" in research.description
+    assert "configured maximum (4)" in research.description
+
+
 async def test_research_refuses_an_empty_topic():
     async with create_connected_server_and_client_session(
             web_server()._mcp_server) as s:
@@ -345,7 +356,7 @@ async def test_the_call_that_failed_now_lands():
         payload = json.loads(result_text(result))
         assert payload["status"] == "started"
         assert payload["topic"] == "AI roleplay escalation"
-        assert payload["depth"] == 3                    # the tool's own default
+        assert payload["depth"] == 5                    # RESEARCH_MAX_PAGES default
 
 
 async def test_every_argument_is_documented_where_she_reads_it():

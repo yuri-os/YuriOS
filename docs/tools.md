@@ -184,6 +184,9 @@ is ten. So `research` follows the camera's rule (§7.6): the server validates th
 off-turn in `yurios/world/research.py`. What she found arrives in the chat as a message a while
 later, routed back to the channel that asked, followed by one soft spoken line if she's free.
 
+`depth` controls how many pages a run reads. When Yuri leaves it out, it defaults to
+`RESEARCH_MAX_PAGES`; raise that setting to allow and default to a larger run.
+
 A page that won't open — a paywall, a 404, a PDF — is skipped, not fatal. A run where nothing
 opens still ends in her saying so.
 

@@ -164,8 +164,21 @@ def build_server(*, max_minutes: float | None = None,
                     "text": text,
                     "status": "read"}
 
-        @mcp.tool()
-        async def research(topic: str, depth: int = 3) -> dict:
+        @mcp.tool(description=(
+            "Go and find out about something properly — several searches' "
+            "worth of reading, shelved so you keep it. Use this instead of "
+            "`web_search` when the answer is going to take more than one page: "
+            "\"what's the current state of X\", \"read up on Y for me\". "
+            "`topic` is the whole thing you want to know, in one line and in "
+            "your own words — put every angle you care about in there, because "
+            "it is the only place they fit. `depth` is a plain NUMBER and "
+            f"nothing else: how many pages to read, 1 to {max_pages}. Leave it "
+            f"out to read the configured maximum ({max_pages}); use 1 when you "
+            "want it quick. It takes a while, so it happens in the background: "
+            "this answers immediately and what you found arrives in the chat "
+            "when it's done. Say you're looking into it and carry on talking — "
+            "never call it twice for the same topic, and never wait for it."))
+        async def research(topic: str, depth: int = max_pages) -> dict:
             """Go and find out about something properly — several searches'
             worth of reading, shelved so you keep it. Use this instead of
             `web_search` when the answer is going to take more than one page:
@@ -173,8 +186,9 @@ def build_server(*, max_minutes: float | None = None,
             the whole thing you want to know, in one line and in your own words
             — put every angle you care about in there, because it is the only
             place they fit. `depth` is a plain NUMBER and nothing else: how many
-            pages to read, 1 to 5. Leave it out unless you want it quick (1) or
-            thorough (5). It takes a while, so it happens in the background:
+            pages to read, 1 to the configured maximum. Leave it out for the
+            configured maximum, or use 1 when you want it quick. It takes a while,
+            so it happens in the background:
             this answers immediately and what you found arrives in the chat when
             it's done. Say you're looking into it and carry on talking — never
             call it twice for the same topic, and never wait for it."""
@@ -187,7 +201,7 @@ def build_server(*, max_minutes: float | None = None,
             # world/research.py is where it lands).
             return {"id": uuid.uuid4().hex[:8],
                     "topic": topic,
-                    "depth": max(1, min(int(depth or 3), max_pages)),
+                    "depth": max(1, min(int(depth or max_pages), max_pages)),
                     "kind": "research",
                     "status": "started",
                     "note": "what you find will appear in the chat shortly — "

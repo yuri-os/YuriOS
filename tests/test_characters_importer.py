@@ -93,6 +93,10 @@ def test_generic_import_is_disabled_reviewable_and_complete(tmp_path):
     assert soul.personality == "dry, observant, kind"
     assert soul.bootstrap == "You made it."
     assert [entry.name for entry in soul.lorebook] == ["Library"]
+    skill = (record.paths.vault / "skills" / "document-editing" / "SKILL.md").read_text(
+        encoding="utf-8")
+    assert "name: document-editing" in skill
+    assert "edit_note" in skill
     assert (record.paths.vault / ".git").is_dir() == bool(shutil.which("git"))
     if shutil.which("git"):
         result = subprocess.run(

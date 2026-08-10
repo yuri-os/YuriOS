@@ -247,6 +247,50 @@ door, this folder IS version-controlled: what she knows how to do is worth being
 able to read back and revert.
 """
 
+DOCUMENT_EDITING_SKILL = """---
+name: document-editing
+description: when asked to create, revise, reorder, or remove content from a workspace document
+author: YuriOS
+enabled: true
+---
+
+# Document Editing
+
+Treat the document on disk as the source of truth. Do not claim an edit happened until its tool call succeeds.
+
+## Choose the right tool
+
+- Create or deliberately replace the entire note: `write_note`.
+- Add text only when it belongs at the end of the note: `append_note`.
+- Change, move, or remove part of an existing note: `edit_note`.
+- Remove the whole note: `delete_note`.
+
+Never use `append_note` to add material to a named section in the middle of a document.
+
+## Safe edit order
+
+1. Call `read_note` before changing an existing document. It returns line numbers and a total line count.
+2. For a long document, call `read_note` again with `start_line` and `end_line` around the target. Line numbers are 1-based and inclusive.
+3. Make the smallest edit that achieves the request. Use exact text when the target occurs once. Use a line range when the same text or section appears more than once.
+4. When making more than one independent edit, work from the bottom of the document upward so earlier line numbers do not shift.
+5. After an important or destructive edit, read the affected lines again before saying it is complete.
+
+## Duplicates
+
+Keep the first/canonical section unless the user says otherwise. Read both copies and decide exactly which one to remove.
+
+- If the duplicate block is unique, call `edit_note` with that exact block as `old_text` and `new_text` as an empty string.
+- If both copies are identical, call `edit_note` with the repeated block as `old_text` and `new_text` empty. It preserves the first copy and removes the later one.
+- Include the duplicate heading and its body in the deletion range, but do not remove the next section's heading.
+- Do not rewrite the whole document or append a replacement just to fix a duplicate.
+
+## Failure handling
+
+- If an exact edit says the text is missing or ambiguous, stop guessing. Read the relevant lines and retry with the current text or a line range.
+- If `read_note` says `truncated: true`, narrow the line range before editing.
+- A failed call did not change the document. Do not say that it did.
+"""
+
 
 def _write_partner_model(soul: Path) -> None:
     """`USER.md`, empty. The relationship starts at zero.
@@ -463,6 +507,7 @@ def _create_vault(vault: Path, fields: Mapping[str, Any], name: str,
     _write(vault / "workspace" / ".gitignore", WORKSPACE_GITIGNORE)
     _write(vault / "workspace" / "README.md", WORKSPACE_README)
     _write(vault / "skills" / "README.md", SKILLS_README)
+    _write(vault / "skills" / "document-editing" / "SKILL.md", DOCUMENT_EDITING_SKILL)
     _write(vault / "world" / "beliefs.jsonl", "")
     # Where she is, from her own card (characters/setting.py). Mechanical and
     # synchronous, so an import with no network and no key still leaves her

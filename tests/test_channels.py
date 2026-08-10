@@ -79,6 +79,41 @@ def test_api_chat_hides_reasoning_blocks_from_the_message(cfg):
     assert "<think>private model work</think>" in brain.persisted[2]
 
 
+def test_api_chat_hides_gemma_channel_markup_from_the_message(cfg):
+    """Gemma 4 can regenerate its channel markup in the completion itself
+    (llama.cpp renders its template but has no Gemma-4 output parser); the
+    thought channel is private model work, exactly like a <think> block."""
+    class ChannelBrain(FakeBrain):
+        async def stream_reply(self, session_id, text):
+            yield "<|chan"
+            yield "nel>thought\nprivate model work\n<chan"
+            yield "nel|>"
+            yield "[happy] I'm glad you're here."
+
+    brain = ChannelBrain()
+    with TestClient(make_app(cfg, brain)) as c:
+        entry = c.post("/api/chat", json={"text": "hi"}).json()["message"]
+
+    assert entry["text"] == "I'm glad you're here."
+    assert brain.persisted is not None
+    assert "<|channel>thought" in brain.persisted[2]   # raw kept for the corpus
+
+
+def test_api_chat_strips_turn_markers_but_keeps_a_speech_channel(cfg):
+    """Only the *thought* channel is private; turn markers and any other
+    channel's markers are structure — dropped, with the content kept."""
+    class MarkerBrain(FakeBrain):
+        async def stream_reply(self, session_id, text):
+            yield "<|turn>model\n<|channel>content\nHello there, you made it back."
+            yield "<channel|><turn|>"
+
+    brain = MarkerBrain()
+    with TestClient(make_app(cfg, brain)) as c:
+        entry = c.post("/api/chat", json={"text": "hi"}).json()["message"]
+
+    assert entry["text"] == "Hello there, you made it back."
+
+
 def test_api_chat_session_continues_and_rejects_noise(cfg):
     app = make_app(cfg)
     with TestClient(app) as c:

@@ -21,7 +21,14 @@ module does three jobs, all on the hot path:
     3b. A reasoning model may ignore its no-think setting and emit a
       `<think>…</think>` block. This is private model work, never speech, so it
       is dropped even when its tags arrive in separate stream chunks.
-   3c. A chat model also narrates *inside brackets* — `[She goes still, a long
+    3c. Gemma 4 marks its output up in *channels* — `<|channel>thought\n…
+      \n<channel|>` for private reasoning, then the spoken content — and llama.cpp
+      has no Gemma-4-aware output parser, so a completion that regenerates its
+      channel markup streams it to the user verbatim. The thought channel is the
+      same private work as 3b and is dropped to its `<channel|>` close; the
+      markers themselves (`<|channel>`, `<channel|>`, `<|turn>`, `<turn|>`) are
+      structure, never speech, and are dropped whatever wraps them.
+    3d. A chat model also narrates *inside brackets* — `[She goes still, a long
      breath.]` — reusing the same brackets it was told to use for expression tags.
      A real tag is one short palette word; anything longer in brackets is a stage
      direction and is dropped to the closing `]`, never spoken (this is what TTS
@@ -50,6 +57,16 @@ _REASONING_TAG = re.compile(
     r"<\s*(?P<close>/)?\s*(?P<name>think|thought|thinking|reasoning|scratchpad)\s*>",
     re.IGNORECASE,
 )
+
+# Gemma 4's channel markup (job 3c). A `<|channel>` opens a named channel; the
+# name runs to the first whitespace, the content to `<channel|>`. Names in
+# _PRIVATE_CHANNELS are the model's reasoning — dropped like a <think> block;
+# any other channel's content is speech and only the markers go. Turn markers
+# bracket whole turns and are never content.
+_PRIVATE_CHANNELS = ("thought", "think", "thinking", "reasoning")
+_TURN_MARKERS = ("<turn|>", "<|think|>")
+#: Role names a `<|turn>` marker carries — structure, never speech.
+_TURN_ROLES = ("system", "user", "model", "developer", "tool")
 
 # The palette the model is told to use (SPEC §6.1). Names only — the *mapping*
 # from name → Live2D parameters lives in web/avatar.js, so the brain stays
@@ -110,6 +127,7 @@ class EmotionParser:
     _drop_bracket: bool = False                      # inside an over-long […] span
     _angle_buf: str = ""                             # a possible reasoning tag
     _reasoning_tag: str = ""                         # tag whose contents are private
+    _channel_name: str = ""                          # after `<|channel>`: its name
 
     def push(self, token: str) -> str:
         """Consume one model token; return the newly-speakable clean text.
@@ -120,6 +138,10 @@ class EmotionParser:
         for ch in token:
             if self._reasoning_tag:
                 self._push_reasoning(ch)
+            elif self._angle_buf == "<|channel>":
+                self._push_channel_name(ch)
+            elif self._angle_buf == "<|turn>":
+                self._push_turn_role(ch)
             elif self._angle_buf:
                 self._push_angle(ch)
             elif ch == "<":
@@ -162,13 +184,60 @@ class EmotionParser:
         if self._angle_buf:
             self._angle_buf += ch
             if ch == ">":
-                match = _REASONING_TAG.fullmatch(self._angle_buf)
-                if (match and match.group("close")
-                        and match.group("name").lower() == self._reasoning_tag):
+                if self._closes_reasoning(self._angle_buf):
                     self._reasoning_tag = ""
                 self._angle_buf = ""
+            elif len(self._angle_buf) > 64:
+                self._angle_buf = ""      # a '<' in the reasoning, not a tag
         elif ch == "<":
             self._angle_buf = ch
+
+    def _closes_reasoning(self, tag: str) -> bool:
+        """Is `tag` the closer for the private block currently being dropped?"""
+        if self._reasoning_tag == "channel":
+            return tag == "<channel|>"
+        match = _REASONING_TAG.fullmatch(tag)
+        return bool(match and match.group("close")
+                    and match.group("name").lower() == self._reasoning_tag)
+
+    def _push_channel_name(self, ch: str) -> None:
+        """Read the name after `<|channel>`; decide whether its content is speech.
+
+        The name runs to the first whitespace (or to another markup tag). A
+        `thought` channel is the model's private reasoning and drops to
+        `<channel|>` like a <think> block; anything else's content is kept and
+        only the markers are dropped (job 3c)."""
+        if ch == "<":
+            self._open_channel()
+            self._angle_buf = ch
+        elif ch.isspace():
+            self._open_channel()
+            if not self._reasoning_tag:
+                self.clean += ch            # a kept channel's separator is content
+        else:
+            self._channel_name += ch
+
+    def _open_channel(self) -> None:
+        if self._channel_name.strip().lower() in _PRIVATE_CHANNELS:
+            self._reasoning_tag = "channel"
+        self._channel_name = ""
+        self._angle_buf = ""
+
+    def _push_turn_role(self, ch: str) -> None:
+        """Read the role name after `<|turn>`; it is structure, never speech.
+
+        A known role (`model`, `user`, …) is dropped with its separator. An
+        unknown one means the markup was literal text after all — flush it."""
+        if ch == "<":
+            self._channel_name = ""
+            self._angle_buf = ch
+        elif ch.isspace():
+            if self._channel_name.strip().lower() not in _TURN_ROLES:
+                self.clean += "<|turn>" + self._channel_name + ch
+            self._channel_name = ""
+            self._angle_buf = ""
+        else:
+            self._channel_name += ch
 
     def _push_angle(self, ch: str) -> None:
         """Recognise a reasoning tag without swallowing ordinary angle-bracket text."""
@@ -178,13 +247,20 @@ class EmotionParser:
                 self.clean += self._angle_buf
                 self._angle_buf = ""
             return
-        match = _REASONING_TAG.fullmatch(self._angle_buf)
+        tag = self._angle_buf
+        if tag in ("<|channel>", "<|turn>"):
+            return                          # keep buf: a name/role follows
+        if tag == "<channel|>" or tag in _TURN_MARKERS:
+            # channel/turn markup is structure, never speech (job 3c) — and a
+            # stray closer is model markup too, so it is never shown.
+            self._angle_buf = ""
+            return
+        match = _REASONING_TAG.fullmatch(tag)
         if match:
             if not match.group("close"):
                 self._reasoning_tag = match.group("name").lower()
-            # A stray closer is model markup too, so it is never shown.
         else:
-            self.clean += self._angle_buf
+            self.clean += tag
         self._angle_buf = ""
 
     def finish(self) -> str:
@@ -196,6 +272,10 @@ class EmotionParser:
         stray asterisk and half a stage direction."""
         if self._reasoning_tag:
             self._reasoning_tag, self._angle_buf = "", ""
+            return ""
+        if self._angle_buf in ("<|channel>", "<|turn>"):
+            # a markup opener whose name never finished is markup, not text
+            self._angle_buf, self._channel_name = "", ""
             return ""
         if self._in_tag:
             tail = "[" + self._buf

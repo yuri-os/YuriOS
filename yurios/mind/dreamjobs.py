@@ -29,6 +29,16 @@ The disciplines are `dream.py`'s, generalised from one job to N:
     oldest item is a backlog that wedges on it forever.
   * **A failed job is a failed job.** It is caught, reported, and does not mark
     its day done — so it retries tomorrow — and the rest of the night runs.
+  * **One night at a time, process-wide.** Every character keeps her own
+    runner, ledger and vault, but the window opens for all of them at the same
+    hour, and the work a night makes is not shareable: every prompt reaches one
+    utility model, and a dreamt selfie reaches one camera. Two nights running
+    at once interleave those calls and the renders answer the wrong dream. So
+    `run` holds a process-wide lock (`_NIGHT_LOCK` below); a second night —
+    another character's tick, or this one's debug button — queues until the
+    running one finishes its chunk. The wait is bounded by design: the night is
+    chunked (`mind_dream_cadence_s`), so the lock changes hands every few
+    seconds of model work rather than every morning.
 
 Everything a job needs arrives in a `DreamContext`, including `ask()`, the one
 way to reach the utility model. `ask` records every exchange on the context, and
@@ -38,6 +48,7 @@ parsed out of it.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from dataclasses import dataclass, field
@@ -637,6 +648,14 @@ BUILTIN_JOBS: tuple[type[DreamJob], ...] = (DiaryJob, StrategyJob, SelfieJob)
 # --------------------------------------------------------------------- runner
 
 
+#: The one-night-at-a-time lock, shared by every runner in the process. It is
+#: module-global rather than handed in by the host for the same reason the
+#: roster is: characters each build their own `DreamRunner` and nothing else in
+#: the system should have to know they must not dream at once. Held for one
+#: `run` call — one tick's chunk, or one manual run — never for a whole night.
+_NIGHT_LOCK = asyncio.Lock()
+
+
 @dataclass
 class NightReport:
     jobs: list[JobReport] = field(default_factory=list)
@@ -774,7 +793,21 @@ class DreamRunner:
         separately they are how you catch up one job that fell behind. With
         neither, this is the night: every enabled job, priority order, shared
         budget.
+
+        Queues on `_NIGHT_LOCK` first: a night that starts while another
+        character's is running waits for that chunk to finish rather than
+        interleaving its model calls and camera work with hers.
         """
+        if _NIGHT_LOCK.locked():
+            log.info("DREAM for %s queued: another night is running",
+                     getattr(self.cfg, "companion_name", "?") or "?")
+        async with _NIGHT_LOCK:
+            return await self._run(token_budget=token_budget, only=only,
+                                   day=day, dry_run=dry_run)
+
+    async def _run(self, *, token_budget: int, only: str | None,
+                   day: str | None, dry_run: bool) -> NightReport:
+        """The night itself, run under the lock — see `run` for the contract."""
         report = NightReport(dry_run=dry_run)
         jobs = [j for j in self.enabled_jobs() if only is None or j.name == only]
         if only is not None and not jobs:

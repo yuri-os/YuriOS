@@ -311,6 +311,46 @@ async def test_the_prompts_claim_her_own_stage_directions_for_her(rig):
 
 # ------------------------------------------------------------------- isolation
 
+async def test_two_characters_never_dream_at_the_same_time(tmp_path, cfg):
+    """The window opens for every character at the same hour, and a night's
+    calls are not shareable — one utility model, one camera. Two runs started
+    together must queue behind `_NIGHT_LOCK`, not interleave: the second
+    character's diary prompt must not reach the model while the first
+    character's night is still inside one."""
+    import asyncio
+    active = peak = 0
+    fake = FakeUtility()
+
+    async def guarded(messages, **kw):
+        nonlocal active, peak
+        active += 1
+        peak = max(peak, active)
+        await asyncio.sleep(0)          # a real yield: unlocked runs interleave here
+        try:
+            return await fake.complete(messages, **kw)
+        finally:
+            active -= 1
+
+    runners = []
+    for who in ("one", "two"):
+        clock = VirtualClock(start=SIM_START.timestamp())
+        vault = MindVault(tmp_path / who / "vault")
+        store = FileMemoryStore(tmp_path / who / "vault", FakeEmbedder(),
+                                embed_dim=FakeEmbedder.dim)
+        runner = DreamRunner(
+            vault, store, clock, cfg.model_copy(update={"selfie_backend": "off"}),
+            consolidator=DreamConsolidator(vault, store, clock, utility=guarded),
+            workspace=Workspace(tmp_path / who / "vault" / "workspace"),
+            utility=guarded)
+        _day_file(tmp_path / who / "vault", "2026-07-04",
+                  ["user: hello  ⇄  yuri: hi"])
+        runners.append(runner)
+
+    await asyncio.gather(*(r.run(only="diary", token_budget=40000)
+                           for r in runners))
+    assert peak == 1, "two nights reached the model at the same time"
+
+
 async def test_a_failing_job_does_not_take_the_night_with_it(rig):
     runner, _clock, vault = rig
     _day_file(vault, "2026-07-04", ["user: remember the boat  ⇄  yuri: noted"])

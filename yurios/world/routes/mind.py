@@ -13,10 +13,25 @@ import datetime
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
+from pydantic import BaseModel, Field, StrictInt, field_validator
 
+from yurios.mind.journal import canonical_day
 from yurios.mind.workspace import DeskFull, OutsideTheDesk, Workspace
 
 router = APIRouter()
+
+
+class DreamRunRequest(BaseModel):
+    job: str | None = Field(default=None, max_length=64,
+                            pattern=r"^[a-z0-9_-]+$")
+    day: str | None = Field(default=None, max_length=10)
+    dry_run: bool = False
+    budget: StrictInt | None = None
+
+    @field_validator("day")
+    @classmethod
+    def valid_day(cls, value: str | None) -> str | None:
+        return canonical_day(value) if value is not None else None
 
 
 def _mind(request: Request):
@@ -214,7 +229,7 @@ async def dream_status(request: Request) -> dict:
 
 
 @router.post("/api/mind/dream/run")
-async def dream_run(request: Request) -> dict:
+async def dream_run(request: Request, body: DreamRunRequest | None = None) -> dict:
     """Run DREAM now, by hand.
 
     Body, all optional:
@@ -234,20 +249,18 @@ async def dream_run(request: Request) -> dict:
     self-edit route next door and deliberately so: a decision belongs to the
     loop's next tick, but a test you are watching has to answer *you*.
     """
-    body = {}
-    try:
-        body = await request.json()
-    except Exception:  # noqa: BLE001 — an empty body means "the whole night"
-        pass
+    body = body or DreamRunRequest()
     mind = _mind(request)
     if not mind.cfg.dream_enabled:
         raise HTTPException(409, "DREAM is off for this character (DREAM_ENABLED)")
-    kw = {"dry_run": bool(body.get("dry_run")),
-          "token_budget": int(body.get("budget") or mind.cfg.mind_dream_tick_tokens)}
-    if body.get("job"):
-        kw["only"] = str(body["job"])
-    if body.get("day"):
-        kw["day"] = str(body["day"])
+    configured = max(1, int(mind.cfg.mind_dream_tick_tokens))
+    requested = configured if body.budget is None else body.budget
+    kw = {"dry_run": body.dry_run,
+          "token_budget": max(1, min(requested, configured))}
+    if body.job:
+        kw["only"] = body.job
+    if body.day:
+        kw["day"] = body.day
     try:
         report = await mind.dream_now(**kw)
     except KeyError as e:

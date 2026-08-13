@@ -24,7 +24,8 @@ from yurios.app import vaultgit
 from yurios.mind.workspace import WORKSPACE_GITIGNORE
 
 from .appearance import mechanical_identity, write_appearance
-from .card import CardLimits, CardParseError, card_fields, parse_png_card
+from .card import (CardLimits, CardParseError, card_fields, parse_png_card,
+                   preflight_image)
 from .cardsplit import clean_version, split_description
 from .privacy import PRIVATE_SOUL_FILES
 from .setting import mechanical_place, opening_situation, write_setting
@@ -535,15 +536,20 @@ def _create_vault(vault: Path, fields: Mapping[str, Any], name: str,
 
 def _sanitize_portrait(png: bytes, limits: CardLimits) -> bytes:
     try:
+        header = preflight_image(png, limits=limits)
+    except CardParseError as exc:
+        raise CharacterImportError(str(exc)) from exc
+    try:
         with Image.open(io.BytesIO(png)) as image:
-            if image.format != "PNG":
-                raise CharacterImportError("source card is not a PNG image")
+            if image.format != header.format:
+                raise CharacterImportError("image format does not match its header")
             image.load()
             image.seek(0)
             portrait = ImageOps.exif_transpose(image)
             has_alpha = portrait.mode in ("RGBA", "LA") or "transparency" in portrait.info
             portrait = portrait.convert("RGBA" if has_alpha else "RGB")
-            if portrait.width * portrait.height > limits.max_pixels:
+            if (image.width != header.width or image.height != header.height or
+                    portrait.width * portrait.height > limits.max_pixels):
                 raise CharacterImportError("portrait dimensions exceed limits")
             output = io.BytesIO()
             portrait.save(output, format="PNG")
@@ -658,13 +664,13 @@ class CharacterImporter:
         native = _is_yurios_card(parsed.data, fields)
         block = _yurios_block(parsed.data, fields) if native else {}
         soul_files = _soul_payload(block) if native else None
-        # A file the parser had to disambiguate is never trusted enough to start
-        # on its own, however native it claims to be — a human reads it first.
-        trusted = native and not parsed.warnings
+        # A marker inside an imported payload cannot attest to that payload. Every
+        # card lands parked; the native marker is used only to restore its richer
+        # SOUL representation without flattening it.
         lifecycle = LifecycleFlags(
-            enabled=(trusted if enabled is None else bool(enabled)) if trusted else False,
-            autostart=bool(autostart) if trusted else False,
-            review_required=not trusted,
+            enabled=False,
+            autostart=False,
+            review_required=True,
         )
         record = CharacterRecord(
             id=character_id,

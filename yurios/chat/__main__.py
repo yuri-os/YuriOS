@@ -400,6 +400,8 @@ async def main() -> int:
         description="character-aware terminal chat for a running YuriOS host")
     parser.add_argument("--url", default=DEFAULT_URL,
                         help="the server origin (default: %(default)s)")
+    parser.add_argument("--token", default=os.environ.get("YURIOS_OWNER_TOKEN", ""),
+                        help="remote owner token (prefer YURIOS_OWNER_TOKEN to command history)")
     parser.add_argument("--character", help="character card to enter")
     parser.add_argument("--model", help="set the selected card's reply model before chatting")
     parser.add_argument("--utility-model", help="set the selected card's utility model before chatting")
@@ -411,7 +413,8 @@ async def main() -> int:
                              "awaiting": False, "switching": False, "character_id": None,
                              "session_id": None, "event_path": ""}
 
-    async with httpx.AsyncClient(base_url=url) as client:
+    headers = {"Authorization": f"Bearer {args.token}"} if args.token else {}
+    async with httpx.AsyncClient(base_url=url, headers=headers) as client:
         try:
             cards, primary = await discover_host(client)
             if cards is None:

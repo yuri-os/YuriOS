@@ -39,6 +39,8 @@ from typing import Any, Mapping
 
 import yaml
 
+from yurios.app.providers.admission import InferenceBusy
+
 from .soulfiles import parse_md, split_sections
 
 log = logging.getLogger("characters.setting")
@@ -186,7 +188,8 @@ def _parse(raw: str) -> str:
 
 
 async def derive_place(utility, *, name: str, scenario: str = "",
-                       description: str = "", first_mes: str = "") -> str:
+                       description: str = "", first_mes: str = "",
+                       busy_is_error: bool = False) -> str:
     """Ask the utility model where she lives. Never raises: a failure here must
     not fail an import, so the caller gets the mechanical answer and she still
     ends up standing somewhere of her own."""
@@ -208,6 +211,11 @@ async def derive_place(utility, *, name: str, scenario: str = "",
             {"role": "user", "content":
                 f"Character name: {_clean(name)}\n\n{material[:6000]}"},
         ])
+    except InferenceBusy:
+        if busy_is_error:
+            raise
+        log.info("setting: inference busy for %s; using the card's own words", name)
+        return mechanical
     except Exception:
         log.exception("setting: the utility model couldn't place %s — falling "
                       "back to the card's own words", name)

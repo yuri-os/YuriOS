@@ -170,6 +170,41 @@ def test_an_unknown_dream_job_is_404(client_with_mind):
     assert r.status_code == 404
 
 
+def test_manual_dream_validates_day_and_clamps_budget(client_with_mind, monkeypatch):
+    c, rig = client_with_mind
+    received = []
+    original = rig.mind.dream_now
+
+    async def capture(**kwargs):
+        received.append(kwargs)
+        return await original(**kwargs)
+
+    monkeypatch.setattr(rig.mind, "dream_now", capture)
+    assert c.post("/api/mind/dream/run", json={
+        "dry_run": True, "budget": 10 ** 9}).status_code == 200
+    assert received[-1]["token_budget"] == rig.mind.cfg.mind_dream_tick_tokens
+    assert c.post("/api/mind/dream/run", json={
+        "dry_run": True, "budget": -10}).status_code == 200
+    assert received[-1]["token_budget"] == 1
+    for payload in ({"day": "../USER"}, {"day": "2026-02-30"},
+                    {"budget": "many"}, {"budget": True}):
+        assert c.post("/api/mind/dream/run", json=payload).status_code == 422
+
+
+def test_manual_dream_maps_inference_capacity_to_503(client_with_mind, monkeypatch):
+    from yurios.app.providers.admission import InferenceBusy
+
+    c, rig = client_with_mind
+
+    async def busy(**_kwargs):
+        raise InferenceBusy("full")
+
+    monkeypatch.setattr(rig.mind, "dream_now", busy)
+    response = c.post("/api/mind/dream/run", json={"dry_run": True})
+    assert response.status_code == 503
+    assert response.headers["retry-after"] == "1"
+
+
 def test_start_async_builds_the_mind_over_the_real_brain(cfg, seeded_vault):
     """The `python -m yurios.world` path: create_app with the real brain
     (fake models) boots the mind on the server's event loop (SPEC §15)."""

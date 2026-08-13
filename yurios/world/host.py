@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import asyncio
-import base64
+import copy
 import datetime
 import json
 import logging
 import os
 import re
+import secrets
 import shutil
+import time
 from collections.abc import Mapping
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -24,22 +26,23 @@ from fastapi.responses import (FileResponse, JSONResponse, RedirectResponse,
 from starlette.staticfiles import StaticFiles
 
 from yurios.characters import (
-    CharacterImporter, CharacterRecord, CharacterRegistry,
+    CardLimits, CharacterImporter, CharacterRecord, CharacterRegistry,
     ConnectionProfile, ConnectionProfiles,
 )
 from yurios.characters import overrides as model_overrides
 from yurios.characters import selfiebook
 from yurios.characters import studio as studio_model
-from yurios.characters.appearance import ensure_appearance, refine_appearance
+from yurios.characters.appearance import ensure_appearance
 from yurios.characters import setting as setting_model
-from yurios.characters.setting import ensure_setting, refine_setting
+from yurios.characters.setting import ensure_setting
 from yurios.characters.creator import create_character, template_draft
 from yurios.characters.exporter import ExportOptions, build_export, preview_export
 from yurios.characters.optimize import CardOptimizeError, optimize_draft
 from yurios.characters.privacy import CardExportError
 from yurios.app.providers.catalog import provider_models
-from yurios.mind.journal import parse_day_entries
+from yurios.mind.journal import canonical_day, is_canonical_day, parse_day_entries
 from yurios.mind.util import jsonl_page
+from yurios.desktop.voice.ws_limits import VoiceConnectionLimiter
 
 from yurios.app import vaultgit
 
@@ -150,6 +153,19 @@ def _tail_jsonl(path: Path, limit: int = 100) -> list[dict[str, Any]]:
 
 
 JOURNAL_PAGE_SIZE = 20  # diary days per page, newest first
+PURGE_CHALLENGE_TTL_S = 60
+MAX_OPTIMIZER_INSTRUCTIONS = 16_384
+MAX_OPTIMIZER_DRAFT_BYTES = 1024 * 1024
+_IMAGE_LIMITS = CardLimits()
+
+
+def _image_field(value: object, field: str) -> bytes:
+    from yurios.security import decode_bounded_base64
+    try:
+        return decode_bounded_base64(
+            value, maximum=_IMAGE_LIMITS.max_file_bytes, field=field)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
 
 
 def _log_sort_key(row: dict[str, Any]) -> float:
@@ -237,31 +253,38 @@ def telegram_for_character(base: Config, character_id: str,
 
 
 def _apply_connection(update: dict[str, Any], base: Config, record: CharacterRecord,
-                      profile: ConnectionProfile | None,
-                      env: Mapping[str, str]) -> None:
+                       profile: ConnectionProfile | None,
+                       env: Mapping[str, str]) -> None:
     """Point her models at *her* server, with *her* key (SPEC §31.1–§31.2).
 
-    Which url that is — hers, the profile's, or none at all — is decided by
+    Which url that is — the profile's, or none at all — is decided by
     `characters.overrides.resolve_endpoint`, so the report `yurios start` prints
     and the config her runtime is built from cannot drift apart.
 
-    A hosted route has no base url to move; it has a key, and `api_key_env` names
-    the variable holding it. The value is read here and never stored: the registry
-    is a file people copy between machines, and a card must never carry a secret
-    (§30.5)."""
+    A hosted route has no base url to move; it has a key, and the host-owned
+    profile names the variable holding it. The value is read here and never
+    stored: the registry is a file people copy between machines, and a card must
+    never carry a secret (§30.5)."""
     field, endpoint = model_overrides.resolve_endpoint(
         update.get("chat_model", base.chat_model),
         update.get("utility_model", base.utility_model),
-        record_endpoint=record.connection.endpoint,
         profile_endpoint=profile.endpoint if profile else "",
         lmstudio_url=base.lmstudio_base_url, ollama_url=base.ollama_base_url)
     if field:
         update[field] = endpoint
-    key_env = record.connection.api_key_env or (profile.api_key_env if profile else "")
-    # An empty variable is a key that has not been set yet, not an instruction to
-    # forget the host's — she keeps talking on the house key until hers arrives.
-    if key_env and env.get(key_env, "").strip():
-        update["openrouter_api_key"] = env[key_env].strip()
+    update["connection_api_key"] = ""
+    key_env = profile.api_key_env if profile else ""
+    if field:
+        # Endpoint and credential come from the same host-owned profile. Never
+        # substitute the house OpenRouter key when the profile key is absent.
+        if key_env:
+            update["connection_api_key"] = env.get(key_env, "").strip()
+    elif profile and not profile.endpoint and key_env:
+        # A key-only profile is an explicit hosted-OpenRouter credential grant.
+        update["openrouter_api_key"] = (
+            base.openrouter_api_key if key_env == "OPENROUTER_API_KEY"
+            else env.get(key_env, "").strip()
+        )
 
 
 def config_for_character(base: Config, record: CharacterRecord,
@@ -313,8 +336,6 @@ def config_for_character(base: Config, record: CharacterRecord,
     return base.model_copy(update=update)
 
 
-_KEY_ENV_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-
 # The knobs that live in `models.options` rather than in a named binding — the
 # profile form accepts them alongside the two model ids (SPEC §31.2).
 _OPTION_KEYS = frozenset(
@@ -351,21 +372,25 @@ def brain_overrides(record: CharacterRecord) -> dict[str, Any]:
             if key in record.models.options:
                 values[key] = record.models.options[key]
             continue
-        holder = record.connection if store in ("endpoint", "api_key_env") else record.models
-        current = getattr(holder, store, "") or ""
+        current = getattr(record.models, store, "") or ""
         if current:
             values[key] = current
     return values
 
 
 def save_brain_overrides(record: CharacterRecord, body: Mapping[str, Any],
-                         base: Config) -> list[str]:
+                          base: Config) -> list[str]:
     """Write the submitted overrides onto *record*; return the keys that moved.
 
     A key that is absent is left alone; a key sent **empty** is *cleared*, which
     is how the screen says "go back to inheriting the house's". Values are
     coerced and validated here, before anything is persisted — a bad number must
     fail the request, not the next turn."""
+    forbidden = {"endpoint", "api_key_env"}.intersection(body)
+    if forbidden:
+        raise ValueError(
+            f"{sorted(forbidden)[0]} is host-owned; select a connection_profile instead"
+        )
     touched: list[str] = []
     for spec in rewire.OVERRIDE_SCHEMA:
         key, store = spec["key"], spec["store"]
@@ -386,11 +411,8 @@ def save_brain_overrides(record: CharacterRecord, body: Mapping[str, Any],
                 touched.append(key)
             continue
         value = "" if blank else str(raw).strip()
-        if key == "api_key_env" and value and not _KEY_ENV_RE.fullmatch(value):
-            raise ValueError("api_key_env must be an environment variable name")
-        holder = record.connection if store in ("endpoint", "api_key_env") else record.models
-        if (getattr(holder, store) or "") != value:
-            setattr(holder, store, value)
+        if (getattr(record.models, store) or "") != value:
+            setattr(record.models, store, value)
             touched.append(key)
     return touched
 
@@ -422,6 +444,8 @@ class CharacterHost:
                 name="default", endpoint=endpoint,
                 api_key_env="" if endpoint else "OPENROUTER_API_KEY"))
         self.apps: dict[str, FastAPI] = {}
+        # One process-wide budget, not one allowance per character runtime.
+        self.voice_ws_limiter = VoiceConnectionLimiter(base.voice_ws_max_connections)
         self.states: dict[str, str] = {r.id: "offline" for r in registry}
         self.errors: dict[str, str] = {}
         self.primary_id: str | None = next((
@@ -437,8 +461,10 @@ class CharacterHost:
 
     def effective_config(self, record: CharacterRecord) -> Config:
         """Her `.env`, with her record's overrides laid over it (SPEC §31.2)."""
-        return config_for_character(
-            self.base, record, self.connections.get(record.connection.profile))
+        profile = self.connections.get(record.connection.profile)
+        if profile is None:
+            raise ValueError(f"unknown connection profile: {record.connection.profile}")
+        return config_for_character(self.base, record, profile)
 
     async def retune(self, record: CharacterRecord) -> dict[str, Any]:
         """Move a *running* character onto her current brain settings, live.
@@ -489,7 +515,9 @@ class CharacterHost:
             ensure_setting(record)      # …and her own room, before her prompt (§2.5)
             try:
                 app = create_app(self.effective_config(record),
-                                 manage_lifespan=False, mount_frontend=False)
+                                 manage_lifespan=False, mount_frontend=False,
+                                 protect_access=False, limit_http_body=False)
+                app.state.rt.voice_ws_limiter = self.voice_ws_limiter
                 await app.state.rt.start_async()
                 self.apps[character_id] = app
                 self.states[character_id] = "ready"
@@ -681,8 +709,14 @@ def create_host_app(base: Config, registry: CharacterRegistry | None = None) -> 
         yield
         await host.stop_all()
 
-    app = FastAPI(title="YuriOS Host", docs_url=None, redoc_url=None, lifespan=lifespan)
+    app = FastAPI(title="YuriOS Host", docs_url=None, redoc_url=None,
+                  openapi_url=None, lifespan=lifespan)
     app.state.host = host
+    app.state.lifecycle_lock = asyncio.Lock()
+    app.state.purge_challenges = {}
+    from yurios.security import install_http_boundaries, install_owner_security
+    install_http_boundaries(app)
+    install_owner_security(app, base)
 
     def require(character_id: str) -> CharacterRecord:
         record = registry.get(character_id)
@@ -697,12 +731,40 @@ def create_host_app(base: Config, registry: CharacterRegistry | None = None) -> 
 
     @app.get("/api/connections")
     async def connections():
+        env = _env_values(base, None)
         return {"profiles": [
             {"name": item.name, "backend": item.backend, "endpoint": item.endpoint,
              "api_key_env": item.api_key_env, "secret_configured":
-             bool(item.api_key_env and os.environ.get(item.api_key_env))}
+             bool(item.api_key_env and env.get(item.api_key_env, "").strip())}
             for item in host.connections.list()
         ]}
+
+    @app.put("/api/connections/{profile_name}")
+    async def save_connection(profile_name: str, request: Request):
+        body = await request.json()
+        if not isinstance(body, Mapping):
+            raise HTTPException(400, "connection profile must be a JSON object")
+        try:
+            profile = ConnectionProfile(
+                name=profile_name,
+                backend=str(body.get("backend") or "litellm").strip(),
+                endpoint=str(body.get("endpoint") or "").strip(),
+                api_key_env=str(body.get("api_key_env") or "").strip(),
+            )
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        host.connections.upsert(profile)
+        applied: dict[str, list[str]] = {}
+        for record in registry:
+            if record.connection.profile == profile.name and host.runtime(record.id) is not None:
+                applied[record.id] = (await host.retune(record))["applied"]
+        env = _env_values(base, None)
+        return {"profile": {
+            "name": profile.name, "backend": profile.backend,
+            "endpoint": profile.endpoint, "api_key_env": profile.api_key_env,
+            "secret_configured": bool(
+                profile.api_key_env and env.get(profile.api_key_env, "").strip()),
+        }, "applied": applied}
 
     # ---- her own brain (SPEC §31.2, §31.4) --------------------------------
     #
@@ -730,10 +792,10 @@ def create_host_app(base: Config, registry: CharacterRegistry | None = None) -> 
         endpoint_field = (model_overrides.endpoint_field(effective.chat_model)
                           or model_overrides.endpoint_field(effective.utility_model))
         inherited = {
-            "endpoint": getattr(base, endpoint_field) if endpoint_field else "",
+            "endpoint": getattr(effective, endpoint_field) if endpoint_field else "",
             "api_key_env": (profile.api_key_env if profile else "") or "",
         }
-        key_env = record.connection.api_key_env or inherited["api_key_env"]
+        key_env = inherited["api_key_env"]
         return {
             "character": record.id,
             "name": record.display.name,
@@ -755,14 +817,15 @@ def create_host_app(base: Config, registry: CharacterRegistry | None = None) -> 
         }
 
     async def _save_brain(record: CharacterRecord, body: Mapping[str, Any]) -> dict:
+        candidate = copy.deepcopy(record)
         try:
-            changed = save_brain_overrides(record, body, base)
+            changed = save_brain_overrides(candidate, body, base)
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
         if changed:
-            registry.upsert(record)
-        result = await host.retune(record)
-        return {**_brain_payload(record), "changed": changed,
+            registry.upsert(candidate)
+        result = await host.retune(candidate)
+        return {**_brain_payload(candidate), "changed": changed,
                 "applied": result["applied"]}
 
     @app.get("/api/characters/{character_id}/brain")
@@ -771,7 +834,10 @@ def create_host_app(base: Config, registry: CharacterRegistry | None = None) -> 
 
     @app.patch("/api/characters/{character_id}/brain")
     async def save_brain(character_id: str, request: Request):
-        return await _save_brain(require(character_id), await request.json())
+        body = await request.json()
+        if not isinstance(body, Mapping):
+            raise HTTPException(400, "brain settings must be a JSON object")
+        return await _save_brain(require(character_id), body)
 
     @app.get("/api/brain")
     async def primary_brain():
@@ -779,45 +845,18 @@ def create_host_app(base: Config, registry: CharacterRegistry | None = None) -> 
 
     @app.patch("/api/brain")
     async def save_primary_brain(request: Request):
-        return await _save_brain(_require_primary(), await request.json())
+        body = await request.json()
+        if not isinstance(body, Mapping):
+            raise HTTPException(400, "brain settings must be a JSON object")
+        return await _save_brain(_require_primary(), body)
 
     @app.post("/api/characters/import")
     async def import_card(file: UploadFile):
         payload = await file.read(32 * 1024 * 1024 + 1)
         try:
-            record = CharacterImporter(registry).import_card(payload, autostart=True)
+            record = CharacterImporter(registry).import_card(payload)
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
-        # The importer already left her a likeness taken straight from her
-        # card's own words; this rewrites it as prose a renderer can use
-        # (characters/appearance.py). Before the start, so her camera is built
-        # on the better one — and never fatal: an import that succeeded must not
-        # be undone by a model that was busy.
-        try:
-            from yurios.app.main import build_utility_model
-            utility = build_utility_model(host.effective_config(record))
-        except Exception:
-            log.exception("import: no utility model for %s — keeping the face "
-                          "and the room read straight from her card", record.id)
-            utility = None
-        if utility is not None:
-            try:
-                await refine_appearance(record, utility)
-            except Exception:
-                log.exception("appearance: couldn't refine %s's likeness — "
-                              "keeping the one read from her card", record.id)
-            # …and the same pass over where she is (characters/setting.py). The
-            # importer already read a place out of her card; this turns the
-            # card's own phrasing into the second-person present tense the
-            # situation block is written in. Separately guarded: a room that
-            # failed to improve must not cost her the better face.
-            try:
-                await refine_setting(record, utility)
-            except Exception:
-                log.exception("setting: couldn't refine %s's room — keeping the "
-                              "one read from her card", record.id)
-        if record.lifecycle.enabled and not record.lifecycle.review_required:
-            await host.start(record.id)
         return {"character": host.summary(record)}
 
     @app.get("/api/characters/{character_id}/portrait")
@@ -851,11 +890,7 @@ def create_host_app(base: Config, registry: CharacterRegistry | None = None) -> 
     def _options(body: Mapping[str, Any]) -> ExportOptions:
         image_bytes = None
         if body.get("image_data"):
-            try:
-                raw = str(body["image_data"]).split(",", 1)[-1]
-                image_bytes = base64.b64decode(raw, validate=True)
-            except (ValueError, TypeError) as exc:
-                raise HTTPException(400, "image_data must be base64") from exc
+            image_bytes = _image_field(body["image_data"], "image_data")
         try:
             return ExportOptions(
                 spec=str(body.get("spec", "v3")),
@@ -936,19 +971,32 @@ def create_host_app(base: Config, registry: CharacterRegistry | None = None) -> 
     @app.post("/api/studio/optimize")
     async def studio_optimize(request: Request):
         body = await request.json()
+        if not isinstance(body, Mapping):
+            raise HTTPException(400, "optimizer request must be a JSON object")
+        try:
+            draft_size = len(json.dumps(body.get("draft") or {}, ensure_ascii=False).encode())
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(422, "draft must be JSON data") from exc
+        if draft_size > MAX_OPTIMIZER_DRAFT_BYTES:
+            raise HTTPException(422, "draft exceeds the optimizer input limit")
         draft = studio_model.Draft.from_dict(body.get("draft") or {})
         record = registry.get(str(body.get("character") or "")) or None
         cfg = host.effective_config(record) if record else base
         # A model named in the dialog is used as given — it is a full LiteLLM id,
         # prefix and all, so the picker's provider choice is already in it. With
         # none named she is optimised by whatever her own utility model is.
-        model = str(body.get("model") or "").strip() or cfg.utility_model
-        from yurios.app.main import model_api_base
+        model = str(body.get("model") or "").strip()
+        if len(model) > 512:
+            raise HTTPException(422, "model name is too long")
+        model = model or cfg.utility_model
+        from yurios.app.main import model_api_base, model_api_key
         from yurios.app.providers.openrouter import LiteLLMUtilityModel
         utility = LiteLLMUtilityModel(
-            model, cfg.openrouter_api_key, thinking=cfg.utility_thinking,
+            model, model_api_key(cfg, model), thinking=cfg.utility_thinking,
             api_base=model_api_base(cfg, model))
         instructions = str(body.get("instructions") or "")
+        if len(instructions) > MAX_OPTIMIZER_INSTRUCTIONS:
+            raise HTTPException(422, "optimizer instructions are too long")
         # Three sequential passes over a long card is minutes of nothing to look
         # at. A client that asks for the stream gets one line per pass as it
         # happens; everyone else gets the single JSON object this has always
@@ -973,11 +1021,7 @@ def create_host_app(base: Config, registry: CharacterRegistry | None = None) -> 
         draft = studio_model.Draft.from_dict(body.get("draft") or {})
         portrait = None
         if body.get("portrait"):
-            try:
-                portrait = base64.b64decode(str(body["portrait"]).split(",", 1)[-1],
-                                            validate=True)
-            except (ValueError, TypeError) as exc:
-                raise HTTPException(400, "portrait must be base64") from exc
+            portrait = _image_field(body["portrait"], "portrait")
         try:
             record = create_character(registry, draft, portrait=portrait,
                                       character_id=body.get("character_id") or None)
@@ -1056,15 +1100,15 @@ def create_host_app(base: Config, registry: CharacterRegistry | None = None) -> 
         body = await request.json() if await request.body() else {}
         cfg = host.effective_config(record)
         model = str((body or {}).get("model") or "").strip() or cfg.utility_model
-        from yurios.app.main import model_api_base
+        from yurios.app.main import model_api_base, model_api_key
         from yurios.app.providers.openrouter import LiteLLMUtilityModel
         utility = LiteLLMUtilityModel(
-            model, cfg.openrouter_api_key, thinking=cfg.utility_thinking,
+            model, model_api_key(cfg, model), thinking=cfg.utility_thinking,
             api_base=model_api_base(cfg, model))
         name, scenario, description, first_mes = setting_model.card_material(record)
         place = await setting_model.derive_place(
             utility, name=name or record.display.name, scenario=scenario,
-            description=description, first_mes=first_mes)
+            description=description, first_mes=first_mes, busy_is_error=True)
         if not place:
             raise HTTPException(502, "the model had nothing to say about where "
                                      "she is — her card may not say either")
@@ -1177,15 +1221,12 @@ def create_host_app(base: Config, registry: CharacterRegistry | None = None) -> 
                 raise HTTPException(404, "no such selfie")
             raw = path.read_bytes()
         elif body.get("image"):
-            try:
-                raw = base64.b64decode(str(body["image"]).split(",", 1)[-1], validate=True)
-            except (ValueError, TypeError) as exc:
-                raise HTTPException(400, "image must be base64") from exc
+            raw = _image_field(body["image"], "image")
         else:
             raise HTTPException(400, "send a selfie name or a base64 image")
         try:
             record.paths.portrait.parent.mkdir(parents=True, exist_ok=True)
-            record.paths.portrait.write_bytes(_sanitize_portrait(raw, CardLimits()))
+            record.paths.portrait.write_bytes(_sanitize_portrait(raw, _IMAGE_LIMITS))
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
         return {"portrait_url": f"/api/characters/{record.id}/portrait"}
@@ -1194,13 +1235,13 @@ def create_host_app(base: Config, registry: CharacterRegistry | None = None) -> 
     async def get_settings(character_id: str):
         record = require(character_id)
         _, card = _card_values(record)
+        profile = host.connections.get(record.connection.profile)
         return {"settings": {
             "name": record.display.name, "description": record.display.description,
             "model": record.models.chat, "utility_model": record.models.utility,
-            "voice": record.voice.voice_id, "connection": record.connection.backend,
+            "voice": record.voice.voice_id,
+            "connection": profile.backend if profile else "",
             "connection_profile": record.connection.profile,
-            "endpoint": record.connection.endpoint or "",
-            "api_key_env": record.connection.api_key_env or "",
             "body_backend": record.body.backend, "body_model": record.body.model,
             "enabled": record.lifecycle.enabled, "review_required": record.lifecycle.review_required,
             "mind": record.loops.mind, "utility": record.loops.utility,
@@ -1212,9 +1253,17 @@ def create_host_app(base: Config, registry: CharacterRegistry | None = None) -> 
 
     @app.patch("/api/characters/{character_id}/profile")
     async def save_settings(character_id: str, request: Request):
-        record = require(character_id)
+        current = require(character_id)
         body = await request.json()
-        built_with = _construction_fingerprint(record)
+        if not isinstance(body, Mapping):
+            raise HTTPException(400, "character profile must be a JSON object")
+        forbidden = {"endpoint", "api_key_env"}.intersection(body)
+        if forbidden:
+            field = sorted(forbidden)[0]
+            raise HTTPException(
+                400, f"{field} is host-owned; select a connection_profile instead")
+        record = copy.deepcopy(current)
+        built_with = _construction_fingerprint(current)
         if "name" in body and str(body["name"]).strip():
             record.display.name = str(body["name"]).strip()
         if "description" in body:
@@ -1237,15 +1286,6 @@ def create_host_app(base: Config, registry: CharacterRegistry | None = None) -> 
             record.body.backend = backend
         if "body_model" in body:
             record.body.model = str(body["body_model"])
-        # Her own connection, the two fields a profile cannot hold for her: the
-        # server she is reached on, and the variable her key is read from.
-        if "endpoint" in body:
-            record.connection.endpoint = str(body["endpoint"]).strip()
-        if "api_key_env" in body:
-            key_env = str(body["api_key_env"]).strip()
-            if key_env and not _KEY_ENV_RE.fullmatch(key_env):
-                raise HTTPException(400, "api_key_env must be an environment variable name")
-            record.connection.api_key_env = key_env
         # …and her own model knobs, accepted here too, so one save can move a
         # model and the temperature it wants together (an empty value clears).
         try:
@@ -1358,12 +1398,18 @@ def create_host_app(base: Config, registry: CharacterRegistry | None = None) -> 
         record = require(character_id)
         episodic = Path(record.paths.vault) / "memory" / "episodic"
         if day:
+            try:
+                day = canonical_day(day)
+            except ValueError as exc:
+                raise HTTPException(400, str(exc)) from exc
             path = episodic / f"{day}.md"
             text = path.read_text(encoding="utf-8") if path.is_file() else ""
             entries = parse_day_entries(text)
             entries.reverse()
             return {"day": day, "entries": entries}
-        all_days = sorted((p.stem for p in episodic.glob("*.md")), reverse=True) if episodic.is_dir() else []
+        all_days = sorted((p.stem for p in episodic.glob("*.md")
+                           if is_canonical_day(p.stem)), reverse=True) \
+            if episodic.is_dir() else []
         page = max(0, page)
         start = page * JOURNAL_PAGE_SIZE
         page_days = all_days[start:start + JOURNAL_PAGE_SIZE]
@@ -1530,30 +1576,119 @@ def create_host_app(base: Config, registry: CharacterRegistry | None = None) -> 
 
     @app.post("/api/characters/{character_id}/archive")
     async def archive(character_id: str):
-        record = require(character_id)
-        await host.stop(character_id)
-        archive_root = registry.data_root / "archives"
-        archive_root.mkdir(parents=True, exist_ok=True)
-        stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-        target = archive_root / f"{record.id}-{stamp}"
-        if target.exists():
-            raise HTTPException(409, "archive target already exists")
-        os.replace(record.paths.root, target)
-        registry.remove(character_id)
-        host.states.pop(character_id, None)
-        if host.primary_id == character_id:
-            host.primary_id = next((r.id for r in registry if r.lifecycle.enabled), None)
-        return {"archived": True, "id": character_id}
+        async with app.state.lifecycle_lock:
+            record = require(character_id)
+            was_running = host.runtime(character_id) is not None
+            await host.stop(character_id)
+            archive_root = registry.data_root / "archives"
+            archive_root.mkdir(parents=True, exist_ok=True)
+            stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+            target = archive_root / f"{record.id}-{stamp}"
+            if target.exists():
+                if was_running:
+                    await host.start(character_id)
+                raise HTTPException(409, "archive target already exists")
+            try:
+                os.replace(record.paths.root, target)
+            except OSError as exc:
+                if was_running:
+                    await host.start(character_id)
+                raise HTTPException(500, "could not move character into archive") from exc
+            try:
+                registry.remove(character_id)
+            except Exception as exc:
+                try:
+                    os.replace(target, record.paths.root)
+                except OSError as rollback:
+                    log.exception("archive rollback failed for %s", character_id)
+                    raise HTTPException(
+                        500, "archive registry update failed and data rollback failed") \
+                        from rollback
+                if was_running:
+                    try:
+                        await host.start(character_id)
+                    except Exception:
+                        log.exception("archive runtime restore failed for %s", character_id)
+                raise HTTPException(500, "archive registry update failed; data restored") from exc
+            host.states.pop(character_id, None)
+            if host.primary_id == character_id:
+                host.primary_id = next((r.id for r in registry if r.lifecycle.enabled), None)
+            return {"archived": True, "id": character_id}
+
+    @app.post("/api/characters/{character_id}/purge/prepare")
+    async def prepare_purge(character_id: str):
+        require(character_id)
+        now = time.monotonic()
+        challenges: dict[str, tuple[str, float]] = app.state.purge_challenges
+        for token, (_owner, expires) in list(challenges.items()):
+            if expires <= now:
+                challenges.pop(token, None)
+        while len(challenges) >= 128:
+            challenges.pop(next(iter(challenges)))
+        challenge = secrets.token_urlsafe(24)
+        challenges[challenge] = (character_id, now + PURGE_CHALLENGE_TTL_S)
+        return JSONResponse(
+            {"challenge": challenge, "expires_in": PURGE_CHALLENGE_TTL_S},
+            headers={"Cache-Control": "no-store"})
 
     @app.delete("/api/characters/{character_id}/purge")
-    async def purge(character_id: str, confirm: str):
-        record = require(character_id)
-        if confirm not in {record.id, record.display.name}:
-            raise HTTPException(400, "confirmation does not match character")
-        await host.stop(character_id)
-        registry.remove(character_id)
-        shutil.rmtree(record.paths.root)
-        return {"purged": True, "id": character_id}
+    async def purge(character_id: str, request: Request):
+        if request.headers.get("content-type", "").split(";", 1)[0].lower() != \
+                "application/json":
+            raise HTTPException(415, "purge confirmation must be a JSON body")
+        try:
+            body = await request.json()
+        except (TypeError, ValueError):
+            raise HTTPException(400, "purge confirmation must be valid JSON") from None
+        challenge = body.get("challenge") if isinstance(body, Mapping) else None
+        if not isinstance(challenge, str) or len(challenge) > 128:
+            raise HTTPException(400, "valid purge challenge required")
+        entry = app.state.purge_challenges.pop(challenge, None)
+        if (entry is None or entry[0] != character_id or
+                entry[1] <= time.monotonic()):
+            raise HTTPException(400, "purge challenge is invalid or expired")
+
+        async with app.state.lifecycle_lock:
+            record = require(character_id)
+            was_running = host.runtime(character_id) is not None
+            await host.stop(character_id)
+            tombstone_root = registry.data_root / ".purging"
+            tombstone_root.mkdir(parents=True, exist_ok=True)
+            tombstone = tombstone_root / f"{record.id}-{secrets.token_hex(12)}"
+            try:
+                os.replace(record.paths.root, tombstone)
+            except OSError as exc:
+                if was_running:
+                    await host.start(character_id)
+                raise HTTPException(500, "could not stage character for purge") from exc
+            try:
+                registry.remove(character_id)
+            except Exception as exc:
+                try:
+                    os.replace(tombstone, record.paths.root)
+                except OSError as rollback:
+                    log.exception("purge rollback failed for %s", character_id)
+                    raise HTTPException(
+                        500, "purge registry update failed and data rollback failed") \
+                        from rollback
+                if was_running:
+                    try:
+                        await host.start(character_id)
+                    except Exception:
+                        log.exception("purge runtime restore failed for %s", character_id)
+                raise HTTPException(500, "purge registry update failed; data restored") from exc
+
+            host.states.pop(character_id, None)
+            if host.primary_id == character_id:
+                host.primary_id = next((r.id for r in registry if r.lifecycle.enabled), None)
+            cleanup_pending = False
+            try:
+                shutil.rmtree(tombstone)
+            except OSError:
+                cleanup_pending = True
+                log.exception("purge tombstone cleanup failed for %s", character_id)
+            return {"purged": True, "id": character_id,
+                    "cleanup_pending": cleanup_pending}
 
     @app.get("/")
     async def dashboard(request: Request):

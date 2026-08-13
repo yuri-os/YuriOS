@@ -23,6 +23,9 @@ class FakeSTT:
         self.transcript = transcript
         self.frames = 0
 
+    def create_session(self) -> "FakeSTT":
+        return FakeSTT(self.transcript)
+
     def reset(self) -> None:
         self.frames = 0
 

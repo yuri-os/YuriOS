@@ -210,8 +210,34 @@
     const input = el("input", {
       id, className: "set-input",
       type: f.type === "password" ? "password" : (f.type === "number" ? "number" : "text"),
-      value: f.value == null ? "" : f.value,
+      value: f.type === "password" ? "" : (f.value == null ? "" : f.value),
     });
+    if (f.type === "password") {
+      input.autocomplete = "new-password";
+      input.placeholder = f.configured
+        ? "configured — leave blank to keep"
+        : "not configured";
+      let removeRequested = false;
+      const remove = el("button", {
+        type: "button", className: "set-reveal", textContent: "remove",
+        disabled: !f.configured,
+      });
+      remove.addEventListener("click", () => {
+        removeRequested = true;
+        input.value = "";
+        input.placeholder = "will be removed on save";
+        remove.disabled = true;
+      });
+      input.addEventListener("input", () => {
+        if (input.value) {
+          removeRequested = false;
+          remove.disabled = false;
+          input.placeholder = "replacement owner secret";
+        }
+      });
+      return { node: input, read: () => removeRequested ? null : input.value,
+        input, remove };
+    }
     if (f.step) input.step = f.step;
     if (f.min != null) input.min = f.min;
     if (f.max != null) input.max = f.max;
@@ -309,6 +335,7 @@
           reveal.textContent = hidden ? "hide" : "show";
         });
         wrap.append(reveal);
+        wrap.append(ctl.remove);
       }
     }
 

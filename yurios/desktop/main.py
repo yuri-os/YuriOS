@@ -23,6 +23,7 @@ from .brain import BrainAdapter
 from .config import Config
 from .voice.fillers import FillerBank
 from .voice.protocols import STT, TTS, VAD
+from .voice.ws_limits import VoiceConnectionLimiter
 
 log = logging.getLogger("desktop.main")
 WEB_DIR = Path(__file__).resolve().parent.parent.parent / "web"
@@ -119,6 +120,7 @@ class Runtime:
         # voice-warm wait several connections can park in `voice_ready.wait` and
         # release together, so without this every one of them would greet at once.
         self.greeted: set[str] = set()
+        self.voice_ws_limiter = VoiceConnectionLimiter(cfg.voice_ws_max_connections)
         self.voice_ready = threading.Event()
         threading.Thread(target=self._warm_voice, daemon=True,
                          name="voice-warmup").start()
@@ -144,9 +146,13 @@ class Runtime:
 def create_app(cfg: Config | None = None, *, brain=None, chat_model=None,
                utility_model=None, embedder=None) -> FastAPI:
     cfg = cfg or Config()
-    app = FastAPI(title="desktop-companion", docs_url=None, redoc_url=None)
+    app = FastAPI(title="desktop-companion", docs_url=None, redoc_url=None,
+                  openapi_url=None)
     app.state.rt = Runtime(cfg, brain=brain, chat_model=chat_model,
                            utility_model=utility_model, embedder=embedder)
+    from yurios.security import install_http_boundaries, install_owner_security
+    install_http_boundaries(app)
+    install_owner_security(app, cfg)
 
     from .routes import voice_ws, health, avatar, settings
     app.include_router(health.router)

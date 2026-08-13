@@ -157,6 +157,11 @@ def model_api_base(cfg: Config, model: str) -> str:
     return ""
 
 
+def model_api_key(cfg: Config, model: str) -> str:
+    """Credential for this route, kept paired with the endpoint it authenticates."""
+    return cfg.connection_api_key if model_api_base(cfg, model) else cfg.openrouter_api_key
+
+
 def _lmstudio_available(cfg: Config) -> bool:
     """Can the configured OpenAI-compatible LM Studio endpoint answer requests?
 
@@ -222,7 +227,7 @@ def build_chat_model(cfg: Config, *, meter=None):
         from yurios.app.providers.gguf import GGUFChatModel
         return GGUFChatModel(cfg.chat_model, cfg, temperature=cfg.temperature, meter=meter)
     from yurios.app.providers.openrouter import LiteLLMChatModel
-    return LiteLLMChatModel(cfg.chat_model, cfg.openrouter_api_key, cfg.temperature,
+    return LiteLLMChatModel(cfg.chat_model, model_api_key(cfg, cfg.chat_model), cfg.temperature,
                             api_base=model_api_base(cfg, cfg.chat_model),
                             thinking=cfg.chat_thinking, meter=meter)
 
@@ -238,7 +243,7 @@ def build_utility_model(cfg: Config):
         return GGUFUtilityModel(cfg.utility_model, cfg, max_tokens=cfg.utility_max_tokens,
                                 thinking=cfg.utility_thinking)
     from yurios.app.providers.openrouter import LiteLLMUtilityModel
-    return LiteLLMUtilityModel(cfg.utility_model, cfg.openrouter_api_key,
+    return LiteLLMUtilityModel(cfg.utility_model, model_api_key(cfg, cfg.utility_model),
                                max_tokens=cfg.utility_max_tokens,
                                thinking=cfg.utility_thinking,
                                api_base=model_api_base(cfg, cfg.utility_model))
@@ -277,12 +282,18 @@ def create_app(cfg: Config | None = None, *, chat_model=None, utility_model=None
     # rebuild the recall cache if the embedder changed since it was last built (§4.3)
     _ensure_index_matches_embedder(store, cfg)
 
-    app = FastAPI(title="minimum-viable-waifu", docs_url=None, redoc_url=None)
+    app = FastAPI(title="minimum-viable-waifu", docs_url=None, redoc_url=None,
+                  openapi_url=None)
     app.state.mvw = AppState(
         cfg=cfg, soul_loader=loader, soul_name=soul_name, store=store,
         sessions=SessionStore(cfg.vault_dir), corpus=CorpusLogger(cfg.corpus_dir),
         utility_log=utility_log,
         chat=chat_model, utility=utility_model, embedder=embedder)
+    from yurios.app.providers.admission import InferenceAdmission
+    app.state.turn_admission = InferenceAdmission(active=1, queue=2)
+    from yurios.security import install_http_boundaries, install_owner_security
+    install_http_boundaries(app)
+    install_owner_security(app, cfg)
 
     for r in (chat, greeting, session, rate, health):
         app.include_router(r.router)

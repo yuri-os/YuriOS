@@ -20,6 +20,7 @@ from typing import AsyncIterator
 import litellm
 
 from yurios import attribution
+from yurios.app.providers.admission import inference_admission
 from yurios.app.providers.usage import chunk_prompt_tokens, chunk_text
 
 
@@ -104,34 +105,35 @@ class LiteLLMChatModel:
         self.meter = meter
 
     async def stream(self, messages: list[dict], **params) -> AsyncIterator[str]:
-        extra = {}
-        if not self.thinking:
-            messages = _no_think_messages(messages)
-            extra["extra_body"] = _NO_THINK_BODY
-        if self.meter is not None:
-            self.meter.note_prompt(messages)      # the estimate, before the call
-        response = await litellm.acompletion(
-            model=self.model,
-            messages=messages,
-            api_key=self.api_key,
-            api_base=self.api_base,
-            temperature=params.get("temperature", self.temperature),
-            max_tokens=params.get("max_tokens", 1024),
-            stream=True,
-            **_attribution(self.model),
-            **_ask_for_usage(self.model, self.meter),
-            **extra,
-        )
-        async for chunk in response:
-            # usage rides a final choice-less chunk when the server volunteers it
-            # at all; providers/usage.py holds both hazards and the reasoning
+        async with inference_admission():
+            extra = {}
+            if not self.thinking:
+                messages = _no_think_messages(messages)
+                extra["extra_body"] = _NO_THINK_BODY
             if self.meter is not None:
-                prompt_tokens = chunk_prompt_tokens(chunk)
-                if prompt_tokens:
-                    self.meter.note_usage(prompt_tokens)
-            text = chunk_text(chunk)
-            if text:
-                yield text
+                self.meter.note_prompt(messages)      # the estimate, before the call
+            response = await litellm.acompletion(
+                model=self.model,
+                messages=messages,
+                api_key=self.api_key,
+                api_base=self.api_base,
+                temperature=params.get("temperature", self.temperature),
+                max_tokens=params.get("max_tokens", 1024),
+                stream=True,
+                **_attribution(self.model),
+                **_ask_for_usage(self.model, self.meter),
+                **extra,
+            )
+            async for chunk in response:
+                # usage rides a final choice-less chunk when the server volunteers it
+                # at all; providers/usage.py holds both hazards and the reasoning
+                if self.meter is not None:
+                    prompt_tokens = chunk_prompt_tokens(chunk)
+                    if prompt_tokens:
+                        self.meter.note_usage(prompt_tokens)
+                text = chunk_text(chunk)
+                if text:
+                    yield text
 
 
 class LiteLLMUtilityModel:
@@ -182,23 +184,24 @@ class LiteLLMUtilityModel:
             body["reasoning_effort"] = params["reasoning_effort"]
         if body:
             extra["extra_body"] = body
-        response = await litellm.acompletion(
-            model=self.model,
-            messages=messages,
-            api_key=self.api_key,
-            api_base=self.api_base,
-            temperature=params.get("temperature", 0.2),
-            max_tokens=params.get("max_tokens", self.max_tokens),
-            **_attribution(self.model),
-            **extra,
-        )
-        choice = response.choices[0]
-        usage = getattr(response, "usage", None)
-        details = getattr(usage, "completion_tokens_details", None)
-        return (choice.message.content or "", {
-            "finish_reason": getattr(choice, "finish_reason", "") or "",
-            "prompt_tokens": getattr(usage, "prompt_tokens", 0) or 0,
-            "completion_tokens": getattr(usage, "completion_tokens", 0) or 0,
-            "total_tokens": getattr(usage, "total_tokens", 0) or 0,
-            "reasoning_tokens": getattr(details, "reasoning_tokens", 0) or 0,
-        })
+        async with inference_admission():
+            response = await litellm.acompletion(
+                model=self.model,
+                messages=messages,
+                api_key=self.api_key,
+                api_base=self.api_base,
+                temperature=params.get("temperature", 0.2),
+                max_tokens=params.get("max_tokens", self.max_tokens),
+                **_attribution(self.model),
+                **extra,
+            )
+            choice = response.choices[0]
+            usage = getattr(response, "usage", None)
+            details = getattr(usage, "completion_tokens_details", None)
+            return (choice.message.content or "", {
+                "finish_reason": getattr(choice, "finish_reason", "") or "",
+                "prompt_tokens": getattr(usage, "prompt_tokens", 0) or 0,
+                "completion_tokens": getattr(usage, "completion_tokens", 0) or 0,
+                "total_tokens": getattr(usage, "total_tokens", 0) or 0,
+                "reasoning_tokens": getattr(details, "reasoning_tokens", 0) or 0,
+            })

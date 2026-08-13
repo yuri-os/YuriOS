@@ -1448,12 +1448,14 @@ changes; a runtime does not know it has neighbours.
   staging directory on the same filesystem and made visible with **one rename**; the registry
   entry is added last. A failure at any point **MUST** leave no partial character behind. The
   portrait is re-encoded from the PNG's pixels rather than copied, so no chunk of the uploaded
-  file survives into the served image.
-- §30.3 **Generic cards arrive under review.** A card that does not declare itself a YuriOS card
-  (a `yurios` key on the card, its fields, or its `extensions`) is imported **disabled**, with
-  `review_required` set: her capabilities do not run and no mind wakes. Saving her profile once
-  (§30.4) is the human act that accepts the review and starts her. A YuriOS-native card may
-  import enabled. The switchboard **MUST** show a character under review as needing attention.
+  file survives into the served image. The source PNG, parsed card payload, and a valid portable
+  SOUL extension **MUST** otherwise retain their lossless fidelity.
+- §30.3 **Every imported card arrives under review.** A `yurios` key inside a card is
+  self-declared data, not an attestation. Every import is **disabled**, non-autostarting, and has
+  `review_required` set regardless of that marker: her capabilities do not run, no mind wakes,
+  and no utility-model refinement runs before review. Saving her profile once (§30.4) or approving
+  explicitly is the human act that accepts the review and starts her. The switchboard **MUST**
+  show a character under review as needing attention.
 - §30.4 **The SOUL files are authoritative; the card is the interchange format.** Editing a
   character's profile writes `card.json` *and* rewrites the corresponding SOUL sections in her
   Vault (`description`/`system_prompt`/`post_history_instructions` → `CONSTITUTION.md`,
@@ -1515,7 +1517,11 @@ changes; a runtime does not know it has neighbours.
   *which environment variable* holds the key. It **MUST NOT** contain a secret; keys live in the
   host `.env` and are read from the environment by name. On a first run with no file, the host
   seeds `default` and `legacy-default` from the host's own `.env` route, so an upgraded
-  single-companion install already has the profile its characters point at.
+  single-companion install already has the profile its characters point at. Profile endpoints
+  **MUST** be HTTP(S) URLs without embedded credentials, query, or fragment; `api_key_env`
+  **MUST** be `OPENROUTER_API_KEY` or use the dedicated `YURIOS_MODEL_API_KEY_*` namespace, so a
+  profile cannot select unrelated process secrets. A custom endpoint **MUST NOT** be paired with
+  `OPENROUTER_API_KEY`.
 - §31.2 **A character's record overrides the host default, field by field.** `config_for_character`
   builds a runtime `Config` from the host's, always replacing the character-scoped identity and
   paths (name, vault, corpus, traces, tool logs, selfies, the loop switches, her Telegram pair),
@@ -1525,11 +1531,14 @@ changes; a runtime does not know it has neighbours.
   coerced to that field's own type — the registry is JSON, and a value that will not coerce is
   dropped with a warning rather than taking her runtime down. A blank binding therefore means
   *inherit*, which is what makes one `.env` still configure a house.
-  **Her own connection wins over the profile she points at**: a profile is the house's shared
-  connection and her record is the exception she was given, so `connection.endpoint` (else the
-  profile's) re-points the LM Studio or Ollama base url her models actually route to, and
-  `connection.api_key_env` (else the profile's) names the variable her key is read from. The key
-  is read from the environment at resolution time and **MUST NOT** be written to the registry.
+  **A named profile is the only custom connection grant**: a character record may select a
+  profile but **MUST NOT** select an endpoint or environment variable directly. Character API
+  writes carrying `endpoint` or `api_key_env` are rejected before any mutation. The profile's
+  endpoint re-points the LM Studio or Ollama base url her models actually route to, and its
+  `api_key_env` names the variable her custom-server key is read from. The endpoint and key
+  **MUST** be applied as one provider rebuild. The host's OpenRouter key **MUST NEVER** be sent to
+  a local/custom endpoint; a key-only profile may select a hosted OpenRouter credential. Keys are
+  read from the environment at resolution time and **MUST NOT** be written to the registry.
   An inherited endpoint that is verbatim the host's url for the *other* local provider is
   ignored — the seeded `default` profile carries whichever provider the host's own model uses
   (§31.1), and a character who moves to the other one inherits the host's url for hers.

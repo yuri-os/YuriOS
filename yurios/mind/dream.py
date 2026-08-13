@@ -29,8 +29,10 @@ import logging
 from typing import Awaitable, Callable
 
 from yurios.world.clock import Clock
+from yurios.app.providers.admission import InferenceBusy
 
 from .util import day_of, read_json, utc_iso_of, write_json
+from .journal import is_canonical_day
 from .vaultio import MindVault
 
 log = logging.getLogger("mind.dream")
@@ -69,7 +71,7 @@ class DreamConsolidator:
         done = set(progress.get("consolidated_days", []))
         today = day_of(self.clock.now())
         days = sorted(p.stem for p in self.episodic.glob("*.md")
-                      if p.stem < today)          # never today's live journal
+                      if is_canonical_day(p.stem) and p.stem < today)
         return [d for d in days if d not in done]
 
     # ------------------------------------------------------------ consolidate
@@ -136,6 +138,8 @@ class DreamConsolidator:
                 {"role": "user", "content": f"Journal for {day}:\n{text[:6000]}"}])
             facts = [l.strip("-• ").strip() for l in raw.splitlines() if l.strip()]
             return [f for f in facts if len(f) > 3][:5]
+        except InferenceBusy:
+            raise
         except Exception:  # noqa: BLE001 — a failed night leaves the backlog intact
             log.exception("DREAM summarise failed for %s", day)
             return []

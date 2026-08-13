@@ -27,9 +27,11 @@ validates the POST, so the two can never disagree; values are read from the live
 always see the effective setting; and writes are surgical — only changed fields, upserted line by
 line, so the comments in your `.env` survive.
 
-It is **loopback-only**, because it hands the browser the keys it renders. A field the running
-build has no knob for is dropped rather than shown dead, and a key that differs per companion (her
-Telegram pair) resolves to *hers*.
+Secret controls are write-only: the API reports `configured: true` but never returns the value.
+Leaving one blank preserves it, typing replaces it, and the separate remove action clears it. A
+field the running build has no knob for is dropped rather than shown dead, and a key that differs
+per companion (her Telegram pair) resolves to *hers*. The panel is available on loopback or to an
+authenticated remote owner.
 
 Groups: Brain · Embeddings · Storage · Server · Speech-to-text · Text-to-speech · Turn-taking ·
 The loop · Channels · Desktop window.
@@ -136,8 +138,25 @@ defaults a single-companion install and the migration start from.
 
 | Key | Default | |
 |---|---|---|
-| `HOST` | `127.0.0.1` | keeps her local-only. The settings panel refuses non-loopback callers regardless |
+| `HOST` | `127.0.0.1` | keeps her local-only; a non-loopback value refuses to start without `OWNER_TOKEN` |
 | `PORT` | `8768` | chosen to dodge the local-AI stack's defaults |
+| `OWNER_TOKEN` | *(empty)* | 32+ character owner secret required for remote access |
+
+Generate a token with:
+
+```bash
+python -c "import secrets; print(secrets.token_urlsafe(32))"
+```
+
+On a non-loopback bind, every page, API, SSE stream and WebSocket requires the token. Opening the
+site in a browser shows a login form that exchanges it for an HttpOnly, `SameSite=Strict` session
+cookie. API clients send `Authorization: Bearer <token>`; terminal chat accepts the safer
+`YURIOS_OWNER_TOKEN` environment variable. Cross-site browser origins are rejected in both local
+and remote modes.
+
+The token is authentication, not transport encryption. Prefer Tailscale or an SSH tunnel. If a
+reverse proxy exposes YuriOS beyond a trusted private network, terminate TLS and authentication at
+that proxy; YuriOS intentionally does not own public certificates or Internet-facing TLS.
 
 ## Voice
 

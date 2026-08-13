@@ -22,11 +22,13 @@ import asyncio
 import ipaddress
 import logging
 import socket
+from collections.abc import AsyncIterable, Iterable
 from html import unescape
 from html.parser import HTMLParser
 from typing import Protocol
 from urllib.parse import urlparse, urljoin
 
+import httpcore
 import httpx
 
 log = logging.getLogger("world.fetch")
@@ -72,6 +74,29 @@ async def system_resolver(host: str, port: int) -> list[str]:
     return [info[4][0] for info in infos]
 
 
+async def _validated_addresses(url: str, resolve) -> list[str]:
+    """Return every address after applying the public-endpoint policy."""
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise UnsafeURL(
+            f"only http and https can be read, not {parsed.scheme or 'that'}")
+    host = parsed.hostname
+    if not host:
+        raise UnsafeURL("that url has no host")
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    addresses = await resolve(host, port)
+    if not addresses:
+        raise UnsafeURL(f"couldn't resolve {host}")
+    for raw in addresses:
+        addr = ipaddress.ip_address(raw)
+        if (addr.is_private or addr.is_loopback or addr.is_link_local
+                or addr.is_reserved or addr.is_multicast or addr.is_unspecified):
+            raise UnsafeURL(
+                f"{host} is on this machine or this network — pages she reads "
+                "have to be on the public internet")
+    return addresses
+
+
 async def check_url(url: str, resolve=system_resolver) -> str:
     """Reject anything that isn't a public http(s) address. Returns the url.
 
@@ -86,29 +111,130 @@ async def check_url(url: str, resolve=system_resolver) -> str:
     it. A security check with a test-mode bypass is a security check that gets
     tested in the mode nobody ships.
 
-    A determined DNS-rebinding attack can still move the name between this
-    check and the connection. Closing that gap means connecting to the resolved
-    address with an explicit Host header, which is a bigger change than it
-    sounds and is worth doing if this ever faces a hostile page rather than a
-    confused model. The gap is named here so it is a known trade-off and not an
-    oversight.
+    The production transport connects only to the addresses returned by this
+    policy check. The logical URL remains unchanged for HTTP Host and TLS.
     """
-    parsed = urlparse(url)
-    if parsed.scheme not in ("http", "https"):
-        raise UnsafeURL(
-            f"only http and https can be read, not {parsed.scheme or 'that'}")
-    host = parsed.hostname
-    if not host:
-        raise UnsafeURL("that url has no host")
-    port = parsed.port or (443 if parsed.scheme == "https" else 80)
-    for raw in await resolve(host, port):
-        addr = ipaddress.ip_address(raw)
-        if (addr.is_private or addr.is_loopback or addr.is_link_local
-                or addr.is_reserved or addr.is_multicast or addr.is_unspecified):
-            raise UnsafeURL(
-                f"{host} is on this machine or this network — pages she reads "
-                "have to be on the public internet")
+    await _validated_addresses(url, resolve)
     return url
+
+
+class _PinnedNetworkBackend(httpcore.AsyncNetworkBackend):
+    """Connect logical origins to addresses already approved by the guard."""
+
+    def __init__(self, backend: httpcore.AsyncNetworkBackend | None = None):
+        self._backend = backend or httpcore.AnyIOBackend()
+        self._addresses: dict[tuple[str, int], tuple[str, ...]] = {}
+
+    def pin(self, host: str, port: int, addresses: Iterable[str]) -> None:
+        self._addresses[(host.lower(), port)] = tuple(addresses)
+
+    async def connect_tcp(self, host: str, port: int, timeout=None,
+                          local_address=None, socket_options=None):
+        addresses = self._addresses.get((host.lower(), port))
+        if not addresses:
+            raise httpcore.ConnectError(f"no validated address for {host}:{port}")
+
+        last_error: Exception | None = None
+        for address in addresses:
+            try:
+                return await self._backend.connect_tcp(
+                    address, port, timeout=timeout,
+                    local_address=local_address, socket_options=socket_options)
+            except (httpcore.ConnectError, httpcore.ConnectTimeout) as exc:
+                last_error = exc
+        assert last_error is not None
+        raise last_error
+
+    async def connect_unix_socket(self, path: str, timeout=None,
+                                  socket_options=None):
+        raise httpcore.ConnectError("Unix sockets are not valid web endpoints")
+
+    async def sleep(self, seconds: float) -> None:
+        await self._backend.sleep(seconds)
+
+
+_CORE_ERRORS = {
+    httpcore.ConnectTimeout: httpx.ConnectTimeout,
+    httpcore.ReadTimeout: httpx.ReadTimeout,
+    httpcore.WriteTimeout: httpx.WriteTimeout,
+    httpcore.PoolTimeout: httpx.PoolTimeout,
+    httpcore.ConnectError: httpx.ConnectError,
+    httpcore.ReadError: httpx.ReadError,
+    httpcore.WriteError: httpx.WriteError,
+    httpcore.ProxyError: httpx.ProxyError,
+    httpcore.UnsupportedProtocol: httpx.UnsupportedProtocol,
+    httpcore.LocalProtocolError: httpx.LocalProtocolError,
+    httpcore.RemoteProtocolError: httpx.RemoteProtocolError,
+    httpcore.TimeoutException: httpx.TimeoutException,
+    httpcore.NetworkError: httpx.NetworkError,
+    httpcore.ProtocolError: httpx.ProtocolError,
+}
+
+
+def _raise_httpx_error(exc: Exception) -> None:
+    for core_type, httpx_type in _CORE_ERRORS.items():
+        if isinstance(exc, core_type):
+            raise httpx_type(str(exc)) from exc
+    raise exc
+
+
+class _ResponseStream(httpx.AsyncByteStream):
+    def __init__(self, stream: AsyncIterable[bytes]):
+        self._stream = stream
+
+    async def __aiter__(self):
+        try:
+            async for chunk in self._stream:
+                yield chunk
+        except Exception as exc:
+            _raise_httpx_error(exc)
+
+    async def aclose(self) -> None:
+        if hasattr(self._stream, "aclose"):
+            await self._stream.aclose()
+
+
+class _PinnedTransport(httpx.AsyncBaseTransport):
+    """Public httpcore adapter that preserves the logical HTTP/TLS origin."""
+
+    def __init__(self, network_backend: httpcore.AsyncNetworkBackend | None = None):
+        self._network = _PinnedNetworkBackend(network_backend)
+        self._pool = httpcore.AsyncConnectionPool(
+            ssl_context=httpcore.default_ssl_context(),
+            network_backend=self._network,
+        )
+
+    def pin(self, url: str, addresses: Iterable[str]) -> None:
+        parsed = httpx.URL(url)
+        port = parsed.port or (443 if parsed.scheme == "https" else 80)
+        self._network.pin(parsed.host, port, addresses)
+
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        core_request = httpcore.Request(
+            method=request.method,
+            url=httpcore.URL(
+                scheme=request.url.raw_scheme,
+                host=request.url.raw_host,
+                port=request.url.port,
+                target=request.url.raw_path,
+            ),
+            headers=request.headers.raw,
+            content=request.stream,
+            extensions=request.extensions,
+        )
+        try:
+            response = await self._pool.handle_async_request(core_request)
+        except Exception as exc:
+            _raise_httpx_error(exc)
+        return httpx.Response(
+            status_code=response.status,
+            headers=response.headers,
+            stream=_ResponseStream(response.stream),
+            extensions=response.extensions,
+        )
+
+    async def aclose(self) -> None:
+        await self._pool.aclose()
 
 
 class HttpFetcher:
@@ -126,30 +252,41 @@ class HttpFetcher:
         url = (url or "").strip()
         if not url:
             raise ValueError("url must not be empty")
-        async with httpx.AsyncClient(transport=self._transport,
+        pinned = _PinnedTransport() if self._transport is None else None
+        transport = self._transport if self._transport is not None else pinned
+        # A proxy would resolve the target again and defeat the validated IP
+        # binding. Explicit transports remain supported for deterministic tests.
+        async with httpx.AsyncClient(transport=transport, trust_env=False,
                                      timeout=self._timeout,
                                      follow_redirects=False,
                                      headers={"user-agent": "YuriOS/0.2 (+companion)"}
                                      ) as client:
             for _ in range(MAX_REDIRECTS + 1):
-                await check_url(url, self._resolve)
-                resp = await client.get(url)
-                if resp.is_redirect and resp.headers.get("location"):
-                    # …and round again, so the next hop is checked too. This is
-                    # the whole reason follow_redirects is off: hop 1 to a
-                    # public host and hop 2 to 169.254.169.254 is one Location
-                    # header, and httpx would follow it without asking.
-                    url = urljoin(url, resp.headers["location"])
-                    continue
-                resp.raise_for_status()
-                ctype = (resp.headers.get("content-type") or "").split(";")[0].strip()
-                if ctype and not any(ctype.startswith(t) for t in READABLE_TYPES):
-                    raise ValueError(f"{url} is {ctype}, which she can't read")
-                raw = resp.content
-                if len(raw) > self._max_bytes:
-                    log.info("fetch: truncated %s at %d bytes", url, self._max_bytes)
-                    raw = raw[: self._max_bytes]
-                body = raw.decode(resp.encoding or "utf-8", errors="replace")
+                addresses = await _validated_addresses(url, self._resolve)
+                if pinned is not None:
+                    pinned.pin(url, addresses)
+                async with client.stream("GET", url) as resp:
+                    if resp.is_redirect and resp.headers.get("location"):
+                        # …and round again, so the next hop is checked too. This is
+                        # the whole reason follow_redirects is off: hop 1 to a
+                        # public host and hop 2 to 169.254.169.254 is one Location
+                        # header, and httpx would follow it without asking.
+                        url = urljoin(url, resp.headers["location"])
+                        continue
+                    resp.raise_for_status()
+                    ctype = (resp.headers.get("content-type") or "").split(";")[0].strip()
+                    if ctype and not any(ctype.startswith(t) for t in READABLE_TYPES):
+                        raise ValueError(f"{url} is {ctype}, which she can't read")
+                    raw = bytearray()
+                    async for chunk in resp.aiter_bytes():
+                        remaining = self._max_bytes - len(raw)
+                        if len(chunk) >= remaining:
+                            raw.extend(chunk[:remaining])
+                            log.info("fetch: truncated %s at %d bytes",
+                                     url, self._max_bytes)
+                            break
+                        raw.extend(chunk)
+                    body = raw.decode(resp.encoding or "utf-8", errors="replace")
                 if ctype.startswith("text/plain") or ctype.startswith("text/markdown"):
                     title, text = "", body.strip()
                 else:

@@ -54,6 +54,8 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Mapping
 
+from yurios.app.providers.admission import InferenceBusy
+
 from .studio import Draft
 
 log = logging.getLogger("characters.optimize")
@@ -654,6 +656,8 @@ async def _run_pass(utility, draft: Draft, step: Pass, *, instructions: str,
             raise CardOptimizeError(
                 f"the model did not answer within {int(timeout)}s — a local "
                 "model on a long card can need longer than that") from exc
+        except InferenceBusy:
+            raise
         except Exception as exc:
             log.exception("optimize: the %s pass failed to reach the model",
                           step.name)
@@ -754,6 +758,8 @@ async def optimize_draft(utility, draft: Draft, *, instructions: str = "",
             proposal, cut = await _run_pass(utility, working, step,
                                             instructions=instructions,
                                             timeout=timeout, notify=notify)
+        except InferenceBusy:
+            raise
         except CardOptimizeError as exc:
             log.warning("optimize: the %s pass failed: %s", step.name, exc)
             failures.append(f"{step.label}: {exc}")

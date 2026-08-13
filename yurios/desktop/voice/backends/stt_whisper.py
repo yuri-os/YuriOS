@@ -11,6 +11,8 @@ same STT seam; nothing above it changes (SPEC §3.2).
 """
 from __future__ import annotations
 
+import threading
+
 import numpy as np
 
 _INSTALL_HINT = ("faster-whisper not installed. `pip install -e '.[stt]'` — it is "
@@ -29,13 +31,33 @@ class WhisperSTT:
         # Windows-visible GPU even when the Linux CUDA runtime is unavailable,
         # then fail lazily on the first utterance while loading libcublas.
         self._model = WhisperModel(model, device="cpu", compute_type=compute_type)
-        self._frames: list[np.ndarray] = []
-        self._sr = 16000
+        # faster-whisper returns a lazy segment iterator. Hold this lock while it
+        # is consumed, not merely while transcribe() constructs it: CTranslate2's
+        # model instance is shared, but concurrent inference on it is not.
+        self._inference_lock = threading.Lock()
         # Drop segments Whisper itself flags as probably-not-speech. Non-speech
         # (keyboard clatter, a cough) is where Whisper hallucinates text out of
         # nothing; its own `no_speech_prob` is the cheapest signal that a segment
         # is noise (ch. 32 §4.2, with SpeechGate + the transcript filter behind it).
         self._no_speech_threshold = no_speech_threshold
+
+    def create_session(self) -> "WhisperSTTSession":
+        return WhisperSTTSession(self)
+
+    def _transcribe(self, audio: np.ndarray) -> str:  # pragma: no cover - real model
+        with self._inference_lock:
+            segments, _ = self._model.transcribe(
+                audio, language="en", beam_size=1, vad_filter=False)
+            kept = (seg.text for seg in segments
+                    if getattr(seg, "no_speech_prob", 0.0) < self._no_speech_threshold)
+            return "".join(kept).strip()
+
+
+class WhisperSTTSession:
+    def __init__(self, engine: WhisperSTT):
+        self._engine = engine
+        self._frames: list[np.ndarray] = []
+        self._sr = 16000
 
     def reset(self) -> None:
         self._frames = []
@@ -48,9 +70,4 @@ class WhisperSTT:
         if not self._frames:
             return ""
         audio = np.concatenate(self._frames)
-        # Whisper wants 16 kHz mono float32; the frontend already sends that.
-        segments, _ = self._model.transcribe(audio, language="en", beam_size=1,
-                                              vad_filter=False)
-        kept = (seg.text for seg in segments
-                if getattr(seg, "no_speech_prob", 0.0) < self._no_speech_threshold)
-        return "".join(kept).strip()
+        return self._engine._transcribe(audio)

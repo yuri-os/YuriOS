@@ -40,6 +40,7 @@ import uvicorn
 
 from .config import Config
 from .main import create_app
+from .voice.ws_limits import uvicorn_ws_options
 
 
 def desktop_url(cfg: Config) -> str:
@@ -77,7 +78,8 @@ def _serve(cfg: Config) -> tuple[threading.Thread, list[BaseException]]:
     def serve() -> None:
         try:
             uvicorn.Server(uvicorn.Config(
-                create_app(cfg), host=cfg.host, port=cfg.port, log_level="warning")).run()
+                create_app(cfg), host=cfg.host, port=cfg.port, log_level="warning",
+                **uvicorn_ws_options(cfg))).run()
         except BaseException as e:                      # surfaced by run()
             errors.append(e)
 

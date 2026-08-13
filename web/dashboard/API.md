@@ -136,6 +136,12 @@ carrying the reason) is what a client sees if it gets there another way.
 from permanent deletion: it stops the character loop and removes the character from
 the active `GET /api/characters` registry. Any 2xx JSON response is accepted.
 
+Permanent deletion is a separate two-step API and is not currently exposed as a
+dashboard button. Call `POST /api/characters/{id}/purge/prepare`, then send the
+returned short-lived `challenge` in the JSON body of `DELETE
+/api/characters/{id}/purge`. Challenges are character-bound and single-use; they
+must never be put in a query string.
+
 ## Errors and sanctuary route
 
 Errors should use an appropriate non-2xx status and one of `detail`, `error`, or

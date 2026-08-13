@@ -315,19 +315,7 @@ def _next_character_id(registry: CharacterRegistry, characters_dir: Path) -> str
 
 
 def _connection_binding(config: object) -> ConnectionBinding:
-    chat_model = str(_value(config, "chat_model", "") or "")
-    endpoint: str | None = None
-    api_key_env: str | None = None
-    if chat_model.startswith("lm_studio/"):
-        endpoint = str(_value(config, "lmstudio_base_url", "") or "") or None
-    elif chat_model.startswith("ollama/"):
-        endpoint = str(_value(config, "ollama_base_url", "") or "") or None
-    else:
-        api_key_env = "OPENROUTER_API_KEY"
-    return ConnectionBinding(
-        profile="legacy-default", backend="litellm", endpoint=endpoint,
-        api_key_env=api_key_env
-    )
+    return ConnectionBinding(profile="legacy-default")
 
 
 def _record(

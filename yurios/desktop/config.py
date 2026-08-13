@@ -104,6 +104,16 @@ class Config(BrainConfig):
 
     # --- the real-time loop — SPEC §4 ---
     frame_ms: int = 32                          # audio frame size fed to VAD/STT
+    # WebSocket resource bounds. The host shares one connection counter across
+    # every character; message/frame/utterance limits remain per socket.
+    voice_ws_max_connections: int = 8
+    voice_ws_initial_timeout_s: float = 10.0    # accepted but never says hello
+    voice_ws_idle_timeout_s: float = 60.0       # no client frame, including pong
+    voice_ws_heartbeat_s: float = 20.0
+    voice_ws_max_frame_bytes: int = 2048        # 512 float32 samples (32 ms @ 16k)
+    voice_ws_max_utterance_s: float = 60.0
+    voice_ws_max_message_bytes: int = 64 * 1024
+    voice_ws_max_queue: int = 16
     mask_latency: bool = True                   # play a filler while the LLM spins up (§5)
     expression_default: str = "neutral"         # avatar's resting face (§6)
     avatar_model: str = "hiyori"                # which Live2D rig she wears (§6, desktop/avatar_models.py)

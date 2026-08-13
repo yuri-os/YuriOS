@@ -86,7 +86,7 @@ def test_migrates_all_roots_atomically_and_is_idempotent(tmp_path):
     assert record.lifecycle.enabled and record.lifecycle.autostart
     assert not record.lifecycle.review_required
     assert record.models.chat == "lm_studio/chat-model"
-    assert record.connection.endpoint == "http://localhost:1234/v1"
+    assert record.connection.profile == "legacy-default"
     assert record.voice.voice_id == "af_heart"
     assert record.body.backend == "vrm"
     for name, destination in {

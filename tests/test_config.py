@@ -26,6 +26,10 @@ def test_defaults():
     assert not cfg.telegram_send_non_telegram
     # the B2 layer is still underneath (one Config object, four builds)
     assert cfg.tts_backend and cfg.vad_onset_frames
+    assert cfg.voice_ws_max_connections == 8
+    assert cfg.voice_ws_max_frame_bytes == 2048
+    assert cfg.voice_ws_max_utterance_s == 60.0
+    assert cfg.voice_ws_max_message_bytes == 64 * 1024
 
 
 def test_env_overrides(monkeypatch):
@@ -35,6 +39,8 @@ def test_env_overrides(monkeypatch):
     monkeypatch.setenv("RAIN_INTENSITY", "0.1")
     monkeypatch.setenv("CONTEXT_LENGTH", "32768")
     monkeypatch.setenv("TELEGRAM_SEND_NON_TELEGRAM", "true")
+    monkeypatch.setenv("VOICE_WS_MAX_CONNECTIONS", "3")
+    monkeypatch.setenv("VOICE_WS_IDLE_TIMEOUT_S", "12.5")
     cfg = Config(_env_file=None)
     assert cfg.context_length == 32768
     assert cfg.tools_backend == "off"
@@ -42,6 +48,8 @@ def test_env_overrides(monkeypatch):
     assert not cfg.mind_enabled
     assert cfg.rain_intensity == 0.1
     assert cfg.telegram_send_non_telegram
+    assert cfg.voice_ws_max_connections == 3
+    assert cfg.voice_ws_idle_timeout_s == 12.5
 
 
 def test_example_enables_flash_attention_for_direct_gguf():

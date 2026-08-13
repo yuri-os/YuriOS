@@ -218,10 +218,10 @@ with `python scripts/reindex.py`.
 ## Per-character models
 
 Everything above sets the **house default**. Each character may take her own chat model, utility
-model, endpoint, API key variable and model knobs (temperature, the reasoning switches, the reply
-cap, the context window) in her registry record; a blank field means "inherit the `.env`". So one
-companion can run on a 4 B local model while another answers from OpenRouter, on one node, from
-one config file.
+model, named connection profile and model knobs (temperature, the reasoning switches, the reply
+cap, the context window) in her registry record; a blank model field means "inherit the `.env`".
+So one companion can run on a 4 B local model while another answers from OpenRouter, on one node,
+from one config file.
 
 Two front ends edit exactly the same record:
 
@@ -229,10 +229,13 @@ Two front ends edit exactly the same record:
   `.env`. Each field's placeholder names what she would inherit if you left it blank.
 - **The switchboard's profile drawer** — the same fields on the character board.
 
-[Characters → connection profiles](characters.md#connection-profiles) explains named endpoints,
-which is the shared version of the same idea: her own endpoint wins over the profile she points at.
-The key itself never enters the registry — `api_key_env` names the environment variable it is read
-from, so a character can be copied to another machine without carrying a secret.
+[Characters → connection profiles](characters.md#connection-profiles) explains the host-owned
+endpoint and credential grants. A character selects one by name; she cannot write an endpoint or
+choose an environment variable directly. The key itself never enters either registry file — the
+profile's `api_key_env` names the environment variable it is read from. Custom keys use
+`YURIOS_MODEL_API_KEY_*`; OpenRouter may use `OPENROUTER_API_KEY`. The dedicated namespace keeps
+unrelated process secrets out of model connections while allowing a character to be copied to
+another machine without carrying a secret.
 
 Because her record wins, changing `CHAT_MODEL` in `.env` does **not** move a character who has one
 of her own — she keeps connecting where her record says, which is how an install whose `.env` reads

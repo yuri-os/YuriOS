@@ -15,6 +15,7 @@ import httpx                                                  # noqa: E402
 from starlette.testclient import TestClient                   # noqa: E402
 
 from yurios.desktop.voice.backends.fakes import FakeBrain     # noqa: E402
+from yurios.app.providers.admission import InferenceBusy      # noqa: E402
 from yurios.world.channels.base import Channel                # noqa: E402
 from yurios.world.channels.manager import ChannelManager      # noqa: E402
 from yurios.world.channels.manager import _claims as claims   # noqa: E402
@@ -125,6 +126,26 @@ def test_api_chat_session_continues_and_rejects_noise(cfg):
         assert c.post("/api/chat", json={"text": ". . ."}).status_code == 422
         assert c.post("/api/chat", json={
             "text": "spoof", "channel": "telegram"}).status_code == 422
+
+
+def test_api_chat_bounds_text_and_session_ids(cfg):
+    with TestClient(make_app(cfg)) as c:
+        assert c.post("/api/chat", json={"text": "x" * 16_385}).status_code == 422
+        assert c.post("/api/chat", json={
+            "text": "hello", "session_id": "s" * 129}).status_code == 422
+
+
+def test_api_chat_maps_provider_overload_to_retryable_503(cfg):
+    class BusyBrain(FakeBrain):
+        async def stream_reply(self, session_id, text):
+            if False:
+                yield ""
+            raise InferenceBusy("full")
+
+    with TestClient(make_app(cfg, BusyBrain())) as c:
+        response = c.post("/api/chat", json={"text": "hello"})
+    assert response.status_code == 503
+    assert response.headers["retry-after"] == "1"
 
 
 def test_api_chat_midstream_failure_leaves_no_reply_trace(cfg):
@@ -464,7 +485,7 @@ def test_telegram_sending_route_404s_without_a_channel(cfg):
                       json={"enabled": False}).status_code == 404
     with TestClient(app, client=("192.0.2.1", 5000)) as remote:
         assert remote.post("/api/channels/telegram/sending",
-                           json={"enabled": True}).status_code == 403
+                           json={"enabled": True}).status_code == 401
 
 
 

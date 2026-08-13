@@ -77,6 +77,74 @@ class ParsedCard:
         return self.data
 
 
+@dataclass(frozen=True, slots=True)
+class ImageHeader:
+    format: str
+    width: int
+    height: int
+
+
+_JPEG_SOF = {
+    0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7,
+    0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF,
+}
+
+
+def preflight_image(
+    source: bytes | bytearray | memoryview,
+    *,
+    limits: CardLimits | None = None,
+    formats: tuple[str, ...] = ("PNG", "JPEG"),
+) -> ImageHeader:
+    """Read image headers and enforce dimensions before Pillow is involved."""
+    limits = limits or CardLimits()
+    data = memoryview(source)
+    if len(data) > limits.max_file_bytes:
+        raise CardParseError("image exceeds file size limit")
+
+    image_format = ""
+    width = height = 0
+    if len(data) >= 24 and data[:8] == PNG_SIGNATURE:
+        if bytes(data[12:16]) != b"IHDR" or struct.unpack(">I", data[8:12])[0] != 13:
+            raise CardParseError("invalid PNG header")
+        width, height = struct.unpack(">II", data[16:24])
+        image_format = "PNG"
+    elif len(data) >= 4 and bytes(data[:2]) == b"\xff\xd8":
+        image_format = "JPEG"
+        offset = 2
+        while offset < len(data):
+            if data[offset] != 0xFF:
+                raise CardParseError("invalid JPEG marker stream")
+            while offset < len(data) and data[offset] == 0xFF:
+                offset += 1
+            if offset >= len(data):
+                break
+            marker = data[offset]
+            offset += 1
+            if marker == 0x01 or 0xD0 <= marker <= 0xD8:
+                continue
+            if marker in (0xD9, 0xDA) or offset + 2 > len(data):
+                break
+            length = struct.unpack(">H", data[offset:offset + 2])[0]
+            if length < 2 or offset + length > len(data):
+                raise CardParseError("truncated JPEG segment")
+            if marker in _JPEG_SOF:
+                if length < 7:
+                    raise CardParseError("invalid JPEG dimensions")
+                height, width = struct.unpack(">HH", data[offset + 3:offset + 7])
+                break
+            offset += length
+
+    if image_format not in formats:
+        raise CardParseError(f"image must be {' or '.join(formats)}")
+    if not width or not height:
+        raise CardParseError(f"invalid {image_format} dimensions")
+    if (width > limits.max_width or height > limits.max_height or
+            width * height > limits.max_pixels):
+        raise CardParseError("image dimensions exceed limits")
+    return ImageHeader(image_format, width, height)
+
+
 def _json_object(raw: bytes) -> dict[str, Any]:
     try:
         text = raw.decode("utf-8")

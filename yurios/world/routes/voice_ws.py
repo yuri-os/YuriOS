@@ -62,6 +62,10 @@ from yurios.desktop.voice.latency import TurnTrace
 from yurios.desktop.voice.speech_gate import SpeechGate
 from yurios.desktop.voice.transcript import is_meaningful_transcript
 from yurios.desktop.voice.turn import OutEvent, TurnController
+from yurios.desktop.voice.ws_limits import (
+    MAX_SESSION_ID_BYTES, MAX_TYPED_TEXT_BYTES, VoiceSocketClosed,
+    VoiceSocketGuard, bounded_text, reject_capacity,
+)
 
 log = logging.getLogger("world.ws")
 router = APIRouter()
@@ -84,8 +88,20 @@ def _encode(ev: OutEvent) -> dict:
 
 @router.websocket("/ws/voice")
 async def voice(ws: WebSocket):
-    await ws.accept()
     rt = ws.app.state.rt
+    limiter = rt.voice_ws_limiter
+    if not limiter.try_acquire():
+        await reject_capacity(ws)
+        return
+    try:
+        await _connected(ws, rt)
+    finally:
+        limiter.release()
+
+
+async def _connected(ws: WebSocket, rt) -> None:
+    await ws.accept()
+    guard = VoiceSocketGuard(ws, rt.cfg)
     brain = rt.brain
 
     async def safe_send(data: dict) -> bool:
@@ -102,10 +118,26 @@ async def voice(ws: WebSocket):
 
     # resolve the session (reuse the client's id if it's still known)
     try:
-        hello = await ws.receive_json()
-    except WebSocketDisconnect:
+        message = await guard.receive_initial()
+    except VoiceSocketClosed:
         return                                    # client left before saying hello
-    session_id = brain.resolve_session(hello.get("session_id"))
+    try:
+        guard.accept_text_frame(message.get("text"))
+    except OverflowError as exc:
+        await guard.reject_limit(str(exc))
+        return
+    hello = _loads(message.get("text"))
+    if message.get("type") != "websocket.receive" or hello.get("type") != "hello":
+        await guard.reject_limit("voice hello required")
+        return
+    try:
+        requested_session = bounded_text(
+            hello.get("session_id"), maximum=MAX_SESSION_ID_BYTES,
+            field="session_id", optional=True)
+    except ValueError as exc:
+        await guard.reject_limit(str(exc))
+        return
+    session_id = brain.resolve_session(requested_session)
 
     # This socket IS "the user entered the room" (SPEC §9.9): her voice loads
     # here, for as long as somebody is holding one open, and is freed a beat
@@ -136,14 +168,15 @@ async def voice(ws: WebSocket):
         # while muted, and a later reconnect may find an already-warm stack
         # without ever receiving the `warming` frame.
         await safe_send({"type": "ready"})
-        await _in_the_room(ws, rt, session_id, safe_send)
+        await _in_the_room(ws, rt, session_id, safe_send, guard)
     finally:
         # every way out of the room — a clean close, a reload, a raise — puts the
         # stack down; the last one to leave takes her voice with them (§9.9)
         rt.voice.release()
 
 
-async def _in_the_room(ws: WebSocket, rt, session_id: str, safe_send) -> None:
+async def _in_the_room(ws: WebSocket, rt, session_id: str, safe_send,
+                       guard: VoiceSocketGuard) -> None:
     """One connected client's turn machinery, for as long as they're here.
 
     Split from the handshake above only so the voice stack is acquired and
@@ -152,7 +185,7 @@ async def _in_the_room(ws: WebSocket, rt, session_id: str, safe_send) -> None:
     which is the bug this whole seam exists to avoid.
     """
     brain = rt.brain
-    stt = rt.stt
+    stt = rt.stt.create_session()
     # Server-side debounced VAD (B2 §3.4, §4.2): an endpoint only becomes a turn
     # if real speech was actually heard. `gate.confirmed` read at endpoint.
     gate = SpeechGate(
@@ -278,14 +311,26 @@ async def _in_the_room(ws: WebSocket, rt, session_id: str, safe_send) -> None:
 
     try:
         while True:
-            msg = await ws.receive()
+            msg = await guard.receive(safe_send)
             if msg["type"] == "websocket.disconnect":
                 break
+
+            try:
+                guard.accept_text_frame(msg.get("text"))
+            except OverflowError as exc:
+                await guard.reject_limit(str(exc))
+                return
 
             if "bytes" in msg and msg["bytes"] is not None:
                 # a mic frame during the user's turn → feed STT (endpointing on
                 # the client); the VAD verdict feeds the gate (B2 §3.4).
-                frame = np.frombuffer(msg["bytes"], dtype=np.float32)
+                payload = msg["bytes"]
+                try:
+                    guard.accept_audio(payload)
+                except (ValueError, OverflowError) as exc:
+                    await guard.reject_limit(str(exc))
+                    return
+                frame = np.frombuffer(payload, dtype=np.float32)
                 stt.feed(frame, 16000)
                 if rt.cfg.vad_confirm and rt.vad is not None:
                     gate.push(rt.vad.is_speech(frame, 16000))
@@ -294,6 +339,9 @@ async def _in_the_room(ws: WebSocket, rt, session_id: str, safe_send) -> None:
             data = _loads(msg.get("text"))
             kind = data.get("type")
 
+            if kind == "pong":
+                continue
+
             if kind == "bargein":
                 controller.cancel()                # tears down TTS + generation
                 continue
@@ -301,6 +349,7 @@ async def _in_the_room(ws: WebSocket, rt, session_id: str, safe_send) -> None:
             if kind == "reset_audio":
                 stt.reset()
                 gate.reset()
+                guard.reset_utterance()
                 continue
 
             if kind == "cancel":
@@ -322,13 +371,21 @@ async def _in_the_room(ws: WebSocket, rt, session_id: str, safe_send) -> None:
                     controller.cancel()
                     await asyncio.gather(turn_task, return_exceptions=True)
                 if kind == "text":
-                    text = data.get("text")        # typed input skips STT + VAD
+                    try:
+                        text = bounded_text(data.get("text"),
+                                            maximum=MAX_TYPED_TEXT_BYTES,
+                                            field="text")
+                    except ValueError as exc:
+                        await guard.reject_limit(str(exc))
+                        return
                 else:
                     # endpoint: transcribe — only if the server's VAD confirmed
                     # real speech in the utterance (B2 §4.2).
-                    text = stt.final() if (not rt.cfg.vad_confirm or gate.confirmed) else ""
+                    text = await asyncio.to_thread(stt.final) \
+                        if (not rt.cfg.vad_confirm or gate.confirmed) else ""
                 stt.reset()
                 gate.reset()
+                guard.reset_utterance()
                 # last net: a punctuation-only hallucination is not a turn (B2 §3.2)
                 if not is_meaningful_transcript(text):
                     if kind == "text":
@@ -351,7 +408,7 @@ async def _in_the_room(ws: WebSocket, rt, session_id: str, safe_send) -> None:
                 turn_task = asyncio.create_task(
                     run(controller.run_turn(session_id, text, trace=trace),
                         user_text=text, client_id=client_id))
-    except WebSocketDisconnect:
+    except (WebSocketDisconnect, VoiceSocketClosed):
         pass
     finally:
         rt.detach_ambient(session_id)
@@ -363,6 +420,7 @@ async def _in_the_room(ws: WebSocket, rt, session_id: str, safe_send) -> None:
 def _loads(text: str | None) -> dict:
     import json
     try:
-        return json.loads(text) if text else {}
+        data = json.loads(text) if text else {}
+        return data if isinstance(data, dict) else {}
     except (ValueError, TypeError):
         return {}

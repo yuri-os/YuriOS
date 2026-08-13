@@ -20,17 +20,17 @@ reads it from. _groups_for() resolves that per request, which is why the panel
 opened from Mia's room writes TELEGRAM_BOT_TOKEN_MIA and the one opened from
 Yuri's writes hers. It also drops fields the running build has no knob for.
 
-Localhost-only by default (HOST=127.0.0.1), which is why it's fine to hand the
-browser the OPENROUTER_API_KEY for editing; the panel renders it masked.
+Secret fields are write-only: the API reports whether one is configured but
+never returns its value. Blank submissions preserve it and JSON null removes it.
 """
 from __future__ import annotations
 
-import ipaddress
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
 
 from yurios.app.providers.catalog import provider_models
+from yurios.security import owner_or_loopback
 
 from ..avatar_models import MODELS
 
@@ -41,16 +41,9 @@ ENV_PATH = Path(__file__).resolve().parents[3] / ".env"
 
 
 def _require_local(request: Request) -> None:
-    """The panel reads/writes secrets (the API key) and edits a file on disk, so
-    it only answers loopback callers. That's a no-op on the default HOST=127.0.0.1,
-    but keeps the endpoint from becoming network-reachable if HOST=0.0.0.0."""
-    host = request.client.host if request.client else None
-    try:
-        is_local = host is not None and ipaddress.ip_address(host).is_loopback
-    except ValueError:                     # non-IP host (e.g. a unix socket)
-        is_local = False
-    if not is_local:
-        raise HTTPException(status_code=403, detail="settings are local-only")
+    """Allow local management or a request authenticated by the owner boundary."""
+    if not owner_or_loopback(request):
+        raise HTTPException(status_code=403, detail="owner authentication required")
 
 _LANGS = ["en", "ja", "zh", "ko", "yue", "auto"]
 _WHISPER = ["tiny.en", "base.en", "small.en", "medium.en", "large-v3"]
@@ -106,8 +99,10 @@ SCHEMA: list[dict] = [
     ]},
     {"group": "Server", "fields": [
         {"key": "HOST", "attr": "host", "type": "text", "suggest": ["127.0.0.1", "0.0.0.0"],
-         "help": "127.0.0.1 keeps her local-only"},
+         "help": "127.0.0.1 keeps her local-only; any other bind requires OWNER_TOKEN"},
         {"key": "PORT", "attr": "port", "type": "number"},
+        {"key": "OWNER_TOKEN", "attr": "owner_token", "type": "password",
+         "help": "remote owner secret (32+ characters); leave blank to keep, use remove to clear"},
     ]},
     {"group": "Speech-to-text", "fields": [
         {"key": "STT_BACKEND", "attr": "stt_backend", "type": "select",
@@ -280,8 +275,13 @@ async def get_settings(request: Request):
         "env_path": str(ENV_PATH),
         "groups": [
             {"group": g["group"],
-             "fields": [{**{k: v for k, v in f.items() if k not in ("attr", "key_env")},
-                         "value": _display(f, cfg)} for f in g["fields"]]}
+             "fields": [
+                 ({**{k: v for k, v in f.items() if k not in ("attr", "key_env")},
+                   "configured": bool(_display(f, cfg))}
+                  if f["type"] == "password" else
+                  {**{k: v for k, v in f.items() if k not in ("attr", "key_env")},
+                   "value": _display(f, cfg)})
+                 for f in g["fields"]]}
             for g in _groups_for(cfg)
         ],
     }
@@ -300,6 +300,15 @@ async def post_settings(request: Request):
         if field is None:
             unknown.append(key)
             continue
+        if field["type"] == "password":
+            if raw is None:              # explicit remove
+                updates[key] = ""
+                continue
+            if not isinstance(raw, str):
+                raise HTTPException(status_code=422,
+                                    detail=f"{key} must be a string or null")
+            if not raw.strip():           # blank means preserve
+                continue
         updates[key] = _format(field, raw)
     written = _update_env(ENV_PATH, updates) if updates else []
     return {"ok": True, "written": written, "ignored": unknown,

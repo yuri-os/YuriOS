@@ -34,7 +34,7 @@ log = logging.getLogger("world.rewire")
 # order the settings screen shows them. Every one is a Config field name.
 BRAIN_FIELDS: tuple[str, ...] = (
     "chat_model", "utility_model",
-    "lmstudio_base_url", "ollama_base_url", "openrouter_api_key",
+    "lmstudio_base_url", "ollama_base_url", "openrouter_api_key", "connection_api_key",
     "chat_thinking", "utility_thinking", "utility_max_tokens",
     "temperature", "max_reply_tokens", "context_length",
 )
@@ -45,7 +45,7 @@ BRAIN_FIELDS: tuple[str, ...] = (
 # they land on the Config.
 _PROVIDER_FIELDS = frozenset({
     "chat_model", "utility_model", "lmstudio_base_url", "ollama_base_url",
-    "openrouter_api_key", "chat_thinking", "utility_thinking",
+    "openrouter_api_key", "connection_api_key", "chat_thinking", "utility_thinking",
     "utility_max_tokens",
 })
 
@@ -60,11 +60,6 @@ OVERRIDE_SCHEMA: tuple[dict[str, Any], ...] = (
      "help": "her reply voice — hers alone, whatever the rest of the house runs"},
     {"key": "utility_model", "store": "utility", "type": "model",
      "help": "her summaries and fact extraction (off the hot path)"},
-    {"key": "endpoint", "store": "endpoint", "type": "text",
-     "help": "the LM Studio / Ollama server her models are reached on"},
-    {"key": "api_key_env", "store": "api_key_env", "type": "text",
-     "help": "the environment variable holding her key — the key itself never "
-             "enters the registry"},
     {"key": "chat_thinking", "store": "options", "type": "bool",
      "help": "her reply <think> pass — off keeps a reasoning model real-time"},
     {"key": "utility_thinking", "store": "options", "type": "bool",

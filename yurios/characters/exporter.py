@@ -47,7 +47,7 @@ import yaml
 from PIL import Image, ImageOps, UnidentifiedImageError
 
 from . import vcs
-from .card import CardLimits
+from .card import CardLimits, CardParseError, preflight_image
 from .models import CharacterRecord
 from .privacy import (
     EXTENSION_DENY,
@@ -618,12 +618,20 @@ def _decode_image(png: bytes, limits: CardLimits) -> tuple[Image.Image, dict[str
     dropped.
     """
     try:
+        header = preflight_image(png, limits=limits)
+    except CardParseError as exc:
+        raise CardExportError(str(exc), surface="image") from exc
+    try:
         with Image.open(io.BytesIO(png)) as image:
+            if image.format != header.format:
+                raise CardExportError("image format does not match its header",
+                                      surface="image")
             image.load()
             image.seek(0)
             text = dict(getattr(image, "text", {}) or {})
             oriented = ImageOps.exif_transpose(image)
-            if oriented.width * oriented.height > limits.max_pixels:
+            if (image.width != header.width or image.height != header.height or
+                    oriented.width * oriented.height > limits.max_pixels):
                 raise CardExportError("card image dimensions exceed limits", surface="image")
             has_alpha = oriented.mode in ("RGBA", "LA") or "transparency" in oriented.info
             return oriented.convert("RGBA" if has_alpha else "RGB"), text
@@ -636,13 +644,19 @@ def _decode_image(png: bytes, limits: CardLimits) -> tuple[Image.Image, dict[str
 
 def _select_image(record: CharacterRecord, options: ExportOptions,
                   limits: CardLimits) -> tuple[bytes, str]:
+    def bounded_read(path: Path) -> bytes:
+        if path.stat().st_size > limits.max_file_bytes:
+            raise CardExportError("the selected image exceeds the size limit",
+                                  surface="image")
+        return path.read_bytes()
+
     if options.image.startswith("selfie:"):
         name = options.image.split(":", 1)[1]
         base = Path(record.paths.selfies).resolve()
         path = (base / name).resolve()
         if path.parent != base or not path.is_file():
             raise CardExportError(f"no such selfie: {name}", surface="selfies")
-        return path.read_bytes(), f"selfies/{name}"
+        return bounded_read(path), f"selfies/{name}"
     if options.image == "upload":
         if not options.image_bytes:
             raise CardExportError("no image was uploaded", surface="image")
@@ -652,7 +666,7 @@ def _select_image(record: CharacterRecord, options: ExportOptions,
         return options.image_bytes, "upload"
     path = Path(record.paths.portrait)
     if path.is_file():
-        return path.read_bytes(), "portrait.png"
+        return bounded_read(path), "portrait.png"
     canvas = Image.new("RGB", DEFAULT_CANVAS, (17, 24, 22))
     buffer = io.BytesIO()
     canvas.save(buffer, format="PNG")

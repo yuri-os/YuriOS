@@ -15,6 +15,7 @@ companion lives here, not in notifications.
 """
 from __future__ import annotations
 
+import datetime
 import logging
 
 from yurios.world.clock import Clock
@@ -24,6 +25,27 @@ from .util import day_of, dt_of, iso_of, utc_iso_of
 from .vaultio import MindVault
 
 log = logging.getLogger("mind.journal")
+
+
+def canonical_day(value: str) -> str:
+    """Return a strict calendar-day stem or reject malformed/impossible dates."""
+    if not isinstance(value, str) or len(value) != 10:
+        raise ValueError("day must be a canonical YYYY-MM-DD date")
+    try:
+        parsed = datetime.date.fromisoformat(value)
+    except ValueError as exc:
+        raise ValueError("day must be a canonical YYYY-MM-DD date") from exc
+    if parsed.isoformat() != value:
+        raise ValueError("day must be a canonical YYYY-MM-DD date")
+    return value
+
+
+def is_canonical_day(value: str) -> bool:
+    try:
+        canonical_day(value)
+        return True
+    except ValueError:
+        return False
 
 
 class Journal:
@@ -57,6 +79,7 @@ class Journal:
 
     def day_entries(self, day: str) -> list[dict]:
         """Parsed entries for one day — the /api/journal shape."""
+        day = canonical_day(day)
         return parse_day_entries(self.vault.read(f"memory/episodic/{day}.md"))
 
 

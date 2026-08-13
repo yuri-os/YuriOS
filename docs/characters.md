@@ -81,6 +81,11 @@ visible with a single rename. A failure at any point leaves nothing behind. The 
 re-encoded from the PNG's pixels rather than copied, so nothing from the uploaded file's chunks
 survives into the served image.
 
+Portrait replacement and export uploads intentionally accept PNG or JPEG. Their
+format and header dimensions are checked against the same width, height, byte and
+pixel ceilings before Pillow loads pixels, then the accepted image is sanitized and
+stored or exported as PNG.
+
 **Cards edited in place carry their own history.** A card that was revised on a site and
 re-uploaded often has two `chara` chunks: the current payload and whatever the editor appended
 past. The parser reads the first one — that is the live one, and on both of the real cards this
@@ -89,9 +94,9 @@ was found on it is also the complete one — and then says so, in `NOTES.md` and
 > this PNG carried more than one chara payload. Read the first one in the file and ignored 1
 > later one that disagrees with it — check the imported fields against the card you expected.
 
-A file that needed disambiguating never starts on its own, even if it declares itself a YuriOS
-card: the block that vouches for it is one of the two payloads in question. More than eight
-payloads is still a refusal.
+No imported file starts on its own, even if it declares itself a YuriOS card. That marker still
+allows its richer SOUL payload to be reconstructed byte-for-byte; it does not attest that the
+file is trusted. More than eight payloads is still a refusal.
 
 ### What happens to a foreign layout
 
@@ -112,8 +117,10 @@ wants. That's [Optimize with AI](#optimize-with-ai), one button away in the stud
 
 ### The review state
 
-A card that doesn't declare itself a YuriOS card arrives **disabled**, marked `review_required`:
-her capabilities don't run and no mind wakes. The board shows her as needing attention.
+Every imported card arrives **disabled**, non-autostarting, and marked `review_required`, including
+cards that declare themselves YuriOS-native. Her capabilities don't run, no mind wakes, and no
+utility model rewrites her appearance or setting before review. The board shows her as needing
+attention while retaining the source PNG, card payload, and portable SOUL faithfully.
 
 Open her profile, look at what came in, and **save** — that save is the human act that accepts the
 review, enables her, and starts her. It's one click, and it exists so that a card you downloaded
@@ -122,7 +129,7 @@ can't quietly get a mind, tools and a Telegram bot before you've read it.
 ## Editing a character
 
 Her profile drawer edits name, description, personality, scenario, first message, chat model,
-utility model, endpoint, API key variable, voice, connection profile, body backend and rig, and her
+utility model, voice, connection profile, body backend and rig, and her
 three loop switches. The model and connection fields are also on the gear panel inside her room,
 and blank means "inherit the node's `.env`".
 
@@ -142,8 +149,8 @@ The SOUL files are authoritative — prompts are assembled from them, never from
 an edit that didn't reach the files would be an edit that didn't happen.
 
 A running character is restarted only if the save moved something her runtime was **built** with —
-her name, her voice, her body, or the utility/dream loops. A change to her model, endpoint, key
-variable, model knobs, mind switch or card text reaches her while she runs: she changes model
+her name, her voice, her body, or the utility/dream loops. A change to her model, connection
+profile, model knobs, mind switch or card text reaches her while she runs: she changes model
 mid-conversation and keeps the thread (the SOUL is re-read on every turn).
 
 ## The card studio
@@ -343,6 +350,14 @@ One companion can be a fully autonomous mind while another stays reactive-only. 
 profile says *where* a model is reached and *which environment variable* holds the key; it never
 contains a secret. Keys stay in the host `.env` and are read by name.
 
+Profiles are host-owned security grants. Their endpoints must be HTTP(S) URLs without embedded
+credentials, queries, or fragments. Custom credential variables must use the dedicated
+`YURIOS_MODEL_API_KEY_*` namespace; hosted OpenRouter may use `OPENROUTER_API_KEY`. This prevents a
+profile from selecting unrelated process secrets.
+A character can select a profile by name but cannot submit an endpoint or key-variable name of her
+own. In particular, `OPENROUTER_API_KEY` is never paired with or sent to a custom endpoint; an
+authenticated custom profile uses its own named variable as one endpoint/credential pair.
+
 Each character binds to a profile by name. On a first run with no file, the host seeds `default`
 and `legacy-default` from your existing `.env` route, so an upgraded single-companion install
 already points at something that works.
@@ -365,8 +380,12 @@ can never take over another companion's chat. Full detail in [Channels](channels
 Two different acts, deliberately:
 
 - **Archive** stops her runtime and renames her root to `data/archives/<id>-<timestamp>`. Her
-  files survive; she leaves the board.
-- **Purge** deletes her root, and requires a confirmation string matching her id or display name.
+  files survive; she leaves the board. If the registry commit fails, the rename is rolled back.
+- **Purge** is two-phase: prepare a short-lived high-entropy challenge, then send it once in the
+  JSON body of the DELETE. The root is first atomically renamed under `data/.purging/`; only then
+  is the registry committed and the tombstone removed. A registry failure restores both the root
+  and a previously running runtime. A failed final cleanup leaves an unregistered tombstone for
+  safe manual recovery instead of exposing a half-deleted active character.
 
 Nothing else in YuriOS deletes a character root.
 

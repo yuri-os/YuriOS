@@ -80,9 +80,6 @@ class LoopSwitches:
 @dataclass(slots=True)
 class ConnectionBinding:
     profile: str = "default"
-    backend: str = "litellm"
-    endpoint: str | None = None
-    api_key_env: str | None = None
     options: dict[str, Any] = field(default_factory=dict)
 
 

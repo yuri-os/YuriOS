@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import base64
+import io
 from pathlib import Path
 from types import SimpleNamespace
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from PIL import Image
 
 from yurios.characters import (
     CharacterPaths, CharacterRecord, CharacterRegistry, ConnectionProfile,
@@ -246,10 +249,13 @@ def test_character_selfies_are_registry_scoped(tmp_path):
         assert client.get("/api/characters/yuri/selfies/../portrait.png").status_code == 404
 
 
-def test_trusted_dashboard_import_starts_and_autostarts(tmp_path, monkeypatch):
+def test_dashboard_import_stays_parked_and_does_not_request_autostart(tmp_path, monkeypatch):
     registry = CharacterRegistry(tmp_path)
     imported = record(tmp_path, "mia", autostart=False)
+    imported.lifecycle.enabled = False
+    imported.lifecycle.review_required = True
     calls = []
+    utility_calls = []
 
     class FakeImporter:
         def __init__(self, target):
@@ -257,12 +263,13 @@ def test_trusted_dashboard_import_starts_and_autostarts(tmp_path, monkeypatch):
 
         def import_card(self, payload, **kwargs):
             calls.append((payload, kwargs))
-            imported.lifecycle.autostart = kwargs["autostart"]
             registry.add(imported)
             return imported
 
     monkeypatch.setattr("yurios.world.host.CharacterImporter", FakeImporter)
     monkeypatch.setattr("yurios.world.host.create_app", fake_character_app)
+    monkeypatch.setattr("yurios.app.main.build_utility_model",
+                        lambda cfg: utility_calls.append(cfg))
     app = create_host_app(Config(data_dir=tmp_path), registry)
 
     with TestClient(app) as client:
@@ -271,9 +278,11 @@ def test_trusted_dashboard_import_starts_and_autostarts(tmp_path, monkeypatch):
             files={"file": ("mia.png", b"card", "image/png")},
         )
         assert response.status_code == 200
-        assert response.json()["character"]["runtime_state"] == "ready"
-        assert app.state.host.runtime("mia") is not None
-    assert calls == [(b"card", {"autostart": True})]
+        assert response.json()["character"]["review_required"] is True
+        assert response.json()["character"]["runtime_state"] == "offline"
+        assert app.state.host.runtime("mia") is None
+    assert calls == [(b"card", {})]
+    assert utility_calls == []
 
 
 def test_approve_clears_review_and_starts_the_runtime(tmp_path, monkeypatch):
@@ -350,6 +359,145 @@ def test_archive_removes_registry_but_preserves_tree(tmp_path):
         assert response.status_code == 200
     assert registry.get("yuri") is None
     assert len(list((tmp_path / "archives").iterdir())) == 1
+
+
+def test_journal_rejects_noncanonical_days_and_ignores_bad_stems(tmp_path):
+    registry = CharacterRegistry(tmp_path)
+    item = record(tmp_path, enabled=False)
+    episodic = item.paths.vault / "memory" / "episodic"
+    episodic.mkdir(parents=True)
+    (episodic / "2026-08-12.md").write_text("### 10:00  hello\n")
+    (episodic / "2026-02-30.md").write_text("### 10:00  impossible\n")
+    (episodic / "notes.md").write_text("### 10:00  malformed\n")
+    registry.add(item)
+
+    with TestClient(create_host_app(Config(data_dir=tmp_path), registry)) as client:
+        listing = client.get("/api/characters/yuri/journal").json()
+        assert [row["day"] for row in listing["days"]] == ["2026-08-12"]
+        for day in ("../card", "2026-2-03", "2026-02-30"):
+            assert client.get("/api/characters/yuri/journal",
+                              params={"day": day}).status_code == 400
+
+
+def test_portrait_route_accepts_jpeg_but_stores_sanitized_png(tmp_path):
+    registry = CharacterRegistry(tmp_path)
+    item = record(tmp_path, enabled=False)
+    registry.add(item)
+    source = io.BytesIO()
+    Image.new("RGB", (11, 13), (30, 50, 70)).save(source, "JPEG")
+
+    with TestClient(create_host_app(Config(data_dir=tmp_path), registry)) as client:
+        response = client.post("/api/characters/yuri/portrait", json={
+            "image": base64.b64encode(source.getvalue()).decode("ascii")})
+        assert response.status_code == 200
+
+    assert item.paths.portrait.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
+
+
+def test_purge_uses_single_use_json_challenge_and_removes_via_tombstone(tmp_path):
+    registry = CharacterRegistry(tmp_path)
+    item = record(tmp_path, enabled=False)
+    registry.add(item)
+    app = create_host_app(Config(data_dir=tmp_path), registry)
+
+    with TestClient(app) as client:
+        assert client.delete("/api/characters/yuri/purge?confirm=yuri").status_code == 415
+        prepared = client.post("/api/characters/yuri/purge/prepare")
+        challenge = prepared.json()["challenge"]
+        assert len(challenge) >= 32
+        assert prepared.headers["cache-control"] == "no-store"
+        response = client.request("DELETE", "/api/characters/yuri/purge",
+                                  json={"challenge": challenge})
+        assert response.status_code == 200
+        assert response.json() == {
+            "purged": True, "id": "yuri", "cleanup_pending": False}
+        assert challenge not in str(response.request.url)
+
+    assert registry.get("yuri") is None
+    assert not item.paths.root.exists()
+    assert list((tmp_path / ".purging").iterdir()) == []
+
+
+def test_purge_challenge_is_character_bound_and_consumed_on_use(tmp_path):
+    registry = CharacterRegistry(tmp_path)
+    registry.add(record(tmp_path, "yuri", enabled=False))
+    registry.add(record(tmp_path, "mika", enabled=False))
+
+    with TestClient(create_host_app(Config(data_dir=tmp_path), registry)) as client:
+        challenge = client.post(
+            "/api/characters/yuri/purge/prepare").json()["challenge"]
+        wrong = client.request("DELETE", "/api/characters/mika/purge",
+                               json={"challenge": challenge})
+        reused = client.request("DELETE", "/api/characters/yuri/purge",
+                                json={"challenge": challenge})
+    assert wrong.status_code == 400 and reused.status_code == 400
+    assert registry.get("yuri") is not None and registry.get("mika") is not None
+
+
+def test_purge_rolls_back_data_and_running_state_if_registry_commit_fails(
+        tmp_path, monkeypatch):
+    registry = CharacterRegistry(tmp_path)
+    item = record(tmp_path)
+    registry.add(item)
+    monkeypatch.setattr("yurios.world.host.create_app", fake_character_app)
+    app = create_host_app(Config(data_dir=tmp_path), registry)
+
+    with TestClient(app) as client:
+        challenge = client.post(
+            "/api/characters/yuri/purge/prepare").json()["challenge"]
+        monkeypatch.setattr(registry, "remove",
+                            lambda _id: (_ for _ in ()).throw(OSError("disk full")))
+        response = client.request("DELETE", "/api/characters/yuri/purge",
+                                  json={"challenge": challenge})
+        assert response.status_code == 500
+        assert item.paths.root.is_dir()
+        assert registry.get("yuri") is item
+        assert app.state.host.runtime("yuri") is not None
+
+
+def test_archive_rolls_back_rename_when_registry_commit_fails(tmp_path, monkeypatch):
+    registry = CharacterRegistry(tmp_path)
+    item = record(tmp_path, enabled=False)
+    registry.add(item)
+    monkeypatch.setattr(registry, "remove",
+                        lambda _id: (_ for _ in ()).throw(OSError("disk full")))
+
+    with TestClient(create_host_app(Config(data_dir=tmp_path), registry)) as client:
+        response = client.post("/api/characters/yuri/archive")
+        assert response.status_code == 500
+
+    assert item.paths.root.is_dir()
+    assert registry.get("yuri") is item
+    assert list((tmp_path / "archives").iterdir()) == []
+
+
+def test_failed_purge_cleanup_leaves_unregistered_tombstone(tmp_path, monkeypatch):
+    registry = CharacterRegistry(tmp_path)
+    item = record(tmp_path, enabled=False)
+    registry.add(item)
+    monkeypatch.setattr("yurios.world.host.shutil.rmtree",
+                        lambda _path: (_ for _ in ()).throw(OSError("busy")))
+
+    with TestClient(create_host_app(Config(data_dir=tmp_path), registry)) as client:
+        challenge = client.post(
+            "/api/characters/yuri/purge/prepare").json()["challenge"]
+        response = client.request("DELETE", "/api/characters/yuri/purge",
+                                  json={"challenge": challenge})
+        assert response.status_code == 200
+        assert response.json()["cleanup_pending"] is True
+
+    assert registry.get("yuri") is None
+    assert not item.paths.root.exists()
+    assert len(list((tmp_path / ".purging").iterdir())) == 1
+
+
+def test_optimizer_rejects_unbounded_instructions_before_building_a_model(tmp_path):
+    app = create_host_app(Config(data_dir=tmp_path), CharacterRegistry(tmp_path))
+    with TestClient(app) as client:
+        response = client.post("/api/studio/optimize", json={
+            "draft": {}, "instructions": "x" * 16_385})
+    assert response.status_code == 422
+    assert "instructions" in response.json()["detail"]
 
 
 # ---- one bot, one character (SPEC §10.5) ------------------------------------
@@ -452,10 +600,11 @@ def test_the_settings_panel_edits_this_characters_own_bot(tmp_path, monkeypatch)
     app.state.rt = SimpleNamespace(cfg=mia)
     app.include_router(panel.router)
     with TestClient(app, client=("127.0.0.1", 5000)) as client:   # panel is local-only
-        shown = {f["key"]: f["value"] for g in client.get("/api/settings").json()["groups"]
+        shown = {f["key"]: f for g in client.get("/api/settings").json()["groups"]
                  for f in g["fields"]}
-        assert shown["TELEGRAM_BOT_TOKEN_MIA"] == ""      # she has no bot yet
-        assert shown["TELEGRAM_SEND_NON_TELEGRAM"] is False
+        assert shown["TELEGRAM_BOT_TOKEN_MIA"]["configured"] is False
+        assert "value" not in shown["TELEGRAM_BOT_TOKEN_MIA"]
+        assert shown["TELEGRAM_SEND_NON_TELEGRAM"]["value"] is False
         saved = client.post("/api/settings",
                             json={"TELEGRAM_BOT_TOKEN_MIA": "hers"}).json()
         assert saved["written"] == ["TELEGRAM_BOT_TOKEN_MIA"]
@@ -484,22 +633,44 @@ def test_host_refuses_overlapping_character_storage(tmp_path):
 # ---- her own brain: the per-character connection (SPEC §31.1–§31.4) --------
 
 
-def test_her_own_connection_beats_the_profile_she_points_at(tmp_path):
-    """A profile is the house's shared connection; her record is the exception
-    she was given, so the more specific one wins."""
+def test_profile_grants_custom_endpoint_and_credential_as_one_pair(tmp_path):
     her = record(tmp_path, "yuri")
     her.models.chat = "ollama/llama3"
-    her.connection.endpoint = "http://gpu.lan:11434"
-    her.connection.api_key_env = "YURI_KEY"
-    shared = ConnectionProfile(name="default", endpoint="http://localhost:11434",
-                               api_key_env="OPENROUTER_API_KEY")
+    her.models.utility = "openrouter/utility"
+    shared = ConnectionProfile(name="default", endpoint="http://gpu.lan:11434",
+                               api_key_env="YURIOS_MODEL_API_KEY_YURI")
 
-    cfg = config_for_character(Config(data_dir=tmp_path, _env_file=None), her, shared,
-                               environ={"YURI_KEY": "sk-hers"})
+    cfg = config_for_character(Config(data_dir=tmp_path, _env_file=None,
+                                      openrouter_api_key="sk-openrouter"), her, shared,
+                               environ={"YURIOS_MODEL_API_KEY_YURI": "sk-hers"})
 
     assert cfg.chat_model == "ollama/llama3"
     assert cfg.ollama_base_url == "http://gpu.lan:11434"
-    assert cfg.openrouter_api_key == "sk-hers"
+    assert cfg.connection_api_key == "sk-hers"
+    assert cfg.openrouter_api_key == "sk-openrouter"
+
+    from yurios.app.main import build_chat_model, build_utility_model
+    provider = build_chat_model(cfg)
+    assert provider.api_base == "http://gpu.lan:11434"
+    assert provider.api_key == "sk-hers"
+    utility = build_utility_model(cfg)
+    assert utility.api_base is None
+    assert utility.api_key == "sk-openrouter"
+
+
+def test_openrouter_key_is_never_sent_to_a_custom_endpoint(tmp_path):
+    her = record(tmp_path, "yuri")
+    her.models.chat = "lm_studio/local"
+    profile = ConnectionProfile(name="default", endpoint="http://gpu.lan:1234/v1")
+    cfg = config_for_character(
+        Config(data_dir=tmp_path, _env_file=None, openrouter_api_key="sk-openrouter",
+               gguf_fallback=False),
+        her, profile, environ={})
+
+    from yurios.app.main import build_chat_model
+    provider = build_chat_model(cfg)
+    assert provider.api_base == "http://gpu.lan:1234/v1"
+    assert provider.api_key is None
 
 
 def test_an_endpoint_for_the_other_server_is_not_forced_on_her(tmp_path):
@@ -600,12 +771,71 @@ def test_an_unparseable_knob_is_refused_before_anything_is_written(tmp_path, mon
     with TestClient(create_host_app(Config(data_dir=tmp_path, _env_file=None),
                                     registry)) as client:
         refused = client.patch("/api/characters/yuri/brain",
-                               json={"temperature": "warm"})
+                               json={"chat_model": "ollama/changed", "temperature": "warm"})
         named = client.patch("/api/characters/yuri/brain",
-                             json={"api_key_env": "not a variable"})
+                              json={"api_key_env": "not a variable"})
 
     assert refused.status_code == 400 and named.status_code == 400
     assert registry.require("yuri").models.options == {}
+    assert registry.require("yuri").models.chat == ""
+
+
+def test_character_profile_rejects_direct_connection_fields_without_mutating(tmp_path):
+    registry = CharacterRegistry(tmp_path)
+    registry.add(record(tmp_path, "yuri", enabled=False))
+
+    with TestClient(create_host_app(Config(data_dir=tmp_path, _env_file=None), registry)) as client:
+        response = client.patch("/api/characters/yuri/profile", json={
+            "name": "Changed First", "endpoint": "http://attacker.invalid/v1",
+            "api_key_env": "AWS_SECRET_ACCESS_KEY",
+        })
+
+    assert response.status_code == 400
+    assert "host-owned" in response.json()["detail"]
+    assert registry.require("yuri").display.name == "Yuri"
+
+
+def test_connection_profile_submission_is_validated_before_storage(tmp_path):
+    registry = CharacterRegistry(tmp_path)
+    app = create_host_app(Config(data_dir=tmp_path, _env_file=None), registry)
+
+    with TestClient(app) as client:
+        bad_url = client.put("/api/connections/gpu", json={
+            "endpoint": "file:///tmp/socket", "api_key_env": "GPU_KEY"})
+        bad_env = client.put("/api/connections/gpu", json={
+            "endpoint": "https://gpu.example/v1", "api_key_env": "not a variable"})
+        openrouter_leak = client.put("/api/connections/gpu", json={
+            "endpoint": "https://gpu.example/v1",
+            "api_key_env": "OPENROUTER_API_KEY"})
+        unrelated_secret = client.put("/api/connections/gpu", json={
+            "endpoint": "https://gpu.example/v1",
+            "api_key_env": "AWS_SECRET_ACCESS_KEY"})
+
+    assert [bad_url.status_code, bad_env.status_code, openrouter_leak.status_code,
+            unrelated_secret.status_code] == [400, 400, 400, 400]
+    assert app.state.host.connections.get("gpu") is None
+
+
+def test_authenticated_profile_update_applies_endpoint_and_key_together(
+        tmp_path, monkeypatch):
+    registry = CharacterRegistry(tmp_path)
+    her = record(tmp_path, "yuri")
+    her.models.chat = "ollama/llama3"
+    registry.add(her)
+    monkeypatch.setenv("YURIOS_MODEL_API_KEY_GPU", "sk-gpu")
+    monkeypatch.setattr("yurios.world.host.create_app", fake_character_app)
+
+    with TestClient(create_host_app(Config(data_dir=tmp_path, _env_file=None), registry)) as client:
+        runtime = client.app.state.host.runtime("yuri")
+        response = client.put("/api/connections/default", json={
+            "endpoint": "https://gpu.example/v1",
+            "api_key_env": "YURIOS_MODEL_API_KEY_GPU"})
+
+    assert response.status_code == 200
+    assert response.json()["applied"]["yuri"] == [
+        "connection_api_key", "ollama_base_url"]
+    assert runtime.cfg.ollama_base_url == "https://gpu.example/v1"
+    assert runtime.cfg.connection_api_key == "sk-gpu"
 
 
 def test_a_model_change_on_the_profile_form_also_skips_the_restart(tmp_path, monkeypatch):
@@ -620,7 +850,7 @@ def test_a_model_change_on_the_profile_form_also_skips_the_restart(tmp_path, mon
         # the switchboard posts the whole form, not a diff: re-sending the same
         # voice and body must not count as a change
         whole_form = {"name": "Yuri", "voice": "", "model": "ollama/llama3",
-                      "utility_model": "", "endpoint": "", "api_key_env": "",
+                      "utility_model": "", "connection_profile": "default",
                       "body_backend": "", "body_model": "", "description": "resident",
                       "mind": True, "utility": True, "dream": True}
         saved = client.patch("/api/characters/yuri/profile", json=whole_form).json()

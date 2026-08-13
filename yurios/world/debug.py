@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from yurios.app import vaultgit
-from yurios.mind.journal import parse_day_entries
+from yurios.mind.journal import canonical_day, is_canonical_day, parse_day_entries
 from yurios.mind.util import jsonl_page, read_json
 
 #: Per-view page ceilings. Generous, but bounded — a debug page asking for
@@ -329,7 +329,8 @@ def journal_days(record) -> list[str]:
     episodic = Path(record.paths.vault) / "memory" / "episodic"
     if not episodic.is_dir():
         return []
-    return sorted((p.stem for p in episodic.glob("*.md")), reverse=True)
+    return sorted((p.stem for p in episodic.glob("*.md")
+                   if is_canonical_day(p.stem)), reverse=True)
 
 
 # --- the vault ----------------------------------------------------------------
@@ -367,6 +368,7 @@ def memory(record) -> dict:
 
 
 def journal_day(record, day: str) -> dict:
+    day = canonical_day(day)
     path = Path(record.paths.vault) / "memory" / "episodic" / f"{day}.md"
     text = path.read_text(encoding="utf-8", errors="replace") if path.is_file() else ""
     entries = parse_day_entries(text)

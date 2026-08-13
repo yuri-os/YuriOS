@@ -595,8 +595,6 @@ async function openSettings() {
   form.elements.description.value = character.description === "No profile note has been set." ? "" : character.description;
   form.elements.connection_profile.value = character.connectionProfile;
   form.elements.utility_model.value = "";
-  form.elements.endpoint.value = "";
-  form.elements.api_key_env.value = "";
   form.elements.body_backend.value = character.raw?.body_backend || "";
   form.elements.body_model.value = character.raw?.body_model || "";
   for (const name of ["personality", "scenario", "first_mes"]) form.elements[name].value = "";
@@ -606,11 +604,18 @@ async function openSettings() {
   snapshotSettings();
   openModal(elements.settingsDialog);
   try {
-    const payload = await charactersApi.settings(character.id);
+    const [payload, connections] = await Promise.all([
+      charactersApi.settings(character.id), charactersApi.connections(),
+    ]);
     const settings = payload?.settings ?? payload;
     if (state.selectedId !== character.id || !settings || typeof settings !== "object") return;
-    for (const name of ["name", "voice", "model", "utility_model", "endpoint",
-      "api_key_env", "body_backend", "body_model", "description",
+    const profileSelect = form.elements.connection_profile;
+    const profiles = Array.isArray(connections?.profiles) ? connections.profiles : [];
+    profileSelect.replaceChildren(...profiles.map((profile) => element("option", {
+      text: profile.name, attrs: { value: profile.name },
+    })));
+    for (const name of ["name", "voice", "model", "utility_model",
+      "body_backend", "body_model", "description",
       "connection_profile", "personality", "scenario", "first_mes"]) {
       if (settings[name] != null) form.elements[name].value = settings[name];
     }
@@ -660,7 +665,7 @@ async function submitSettings(event) {
 /* ---- her brain -------------------------------------------------------------
  *
  * A second scope on the same registry record. The profile form above writes
- * her model, endpoint and key too, so these two panels are deliberately never
+ * her model settings too, so these two panels are deliberately never
  * open together: "Her brain" closes the profile and "Back to profile" reopens
  * it, which re-reads /profile and so can never save a stale copy over a brain
  * change. What this panel adds is the thing a plain text box cannot say —

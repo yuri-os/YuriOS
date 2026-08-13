@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import json
+import io
+import struct
 
 import pytest
 from PIL import Image, PngImagePlugin
@@ -15,7 +17,9 @@ from yurios.characters.exporter import (
     build_export,
     preview_export,
     read_card_chunks,
+    _decode_image,
 )
+from yurios.characters import CardLimits
 from yurios.characters.privacy import CardExportError
 
 
@@ -296,6 +300,27 @@ def test_selfie_selection_is_jailed_to_the_character(tmp_path):
     record.paths.selfies.mkdir(parents=True, exist_ok=True)
     with pytest.raises(CardExportError):
         build_export(record, ExportOptions(image="selfie:../../../etc/hostname"))
+
+
+def test_export_image_preflight_rejects_dimensions_before_pillow_load(monkeypatch):
+    oversized = (b"\x89PNG\r\n\x1a\n" + struct.pack(">I", 13) + b"IHDR" +
+                 struct.pack(">IIBBBBB", 2, 9000, 8, 2, 0, 0, 0))
+    monkeypatch.setattr("yurios.characters.exporter.Image.open",
+                        lambda *_a, **_k: pytest.fail("Pillow was called"))
+
+    with pytest.raises(CardExportError, match="dimensions exceed"):
+        _decode_image(oversized, CardLimits())
+
+
+def test_exporter_accepts_a_jpeg_upload_and_emits_a_png_card(tmp_path):
+    source = io.BytesIO()
+    Image.new("RGB", (32, 48), (20, 40, 60)).save(source, "JPEG")
+
+    result = build_export(make(tmp_path), ExportOptions(
+        image="upload", image_bytes=source.getvalue(), fit="none"))
+
+    assert result.png.startswith(b"\x89PNG\r\n\x1a\n")
+    assert result.privacy.image["size"] == [32, 48]
 
 
 def test_fit_modes_frame_to_the_card_canvas(tmp_path):

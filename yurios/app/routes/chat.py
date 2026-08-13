@@ -12,8 +12,9 @@ import logging
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
+from yurios.app.providers.admission import InferenceBusy
 from yurios.app.core import assemble as asm
 from yurios.app.memory import summarise
 from yurios.app.memory.store import Record
@@ -24,8 +25,9 @@ router = APIRouter()
 
 
 class ChatRequest(BaseModel):
-    session_id: str
-    message: str
+    session_id: str = Field(min_length=1, max_length=128,
+                            pattern=r"^[A-Za-z0-9._:-]+$")
+    message: str = Field(min_length=1, max_length=16_384)
 
 
 def sse(payload: dict) -> str:
@@ -81,31 +83,66 @@ async def chat(req: ChatRequest, request: Request):
     if session is None:
         raise HTTPException(404, "unknown session")
 
+    admission = request.app.state.turn_admission
+    await admission.__aenter__()
+    admitted = True
+
+    async def release_admission() -> None:
+        nonlocal admitted
+        if admitted:
+            admitted = False
+            await admission.__aexit__(None, None, None)
+
     # ---- §10.1 steps 2–4: everything the prompt needs, before the stream ----
     turn_index = session["turn_count"]
-    soul = state.soul_loader.load()                       # read every turn (§5)
-    memories = state.store.recall(req.message, state.cfg.retrieval_k)
-    prompt = asm.assemble(
-        soul,
-        user_md=state.store.read_user_md(),
-        summary=state.store.read_summary(),
-        memories=memories,
-        lore=soul.lorebook_hits(req.message),
-        window=state.sessions.window(req.session_id, state.cfg.raw_window_turns),
-        user_msg=req.message,
-        user_name=state.cfg.user_name,
-        system_budget_tokens=state.cfg.system_budget_tokens,
-        lorebook_budget_tokens=state.cfg.lorebook_budget_tokens)
+    try:
+        soul = state.soul_loader.load()                       # read every turn (§5)
+        memories = state.store.recall(req.message, state.cfg.retrieval_k)
+        prompt = asm.assemble(
+            soul,
+            user_md=state.store.read_user_md(),
+            summary=state.store.read_summary(),
+            memories=memories,
+            lore=soul.lorebook_hits(req.message),
+            window=state.sessions.window(req.session_id, state.cfg.raw_window_turns),
+            user_msg=req.message,
+            user_name=state.cfg.user_name,
+            system_budget_tokens=state.cfg.system_budget_tokens,
+            lorebook_budget_tokens=state.cfg.lorebook_budget_tokens)
+        # step 5: the user message enters the transcript before the model speaks
+        state.sessions.append_message(req.session_id, "user", req.message)
+    except BaseException:
+        await release_admission()
+        raise
 
-    # step 5: the user message enters the transcript before the model speaks
-    state.sessions.append_message(req.session_id, "user", req.message)
+    tokens = state.chat.stream(
+        prompt.messages, temperature=state.cfg.temperature,
+        max_tokens=state.cfg.max_reply_tokens)
+    first_token: str | None = None
+    initial_error: Exception | None = None
+    try:
+        first_token = await anext(tokens)
+    except StopAsyncIteration:
+        pass
+    except InferenceBusy:
+        state.sessions.drop_last(req.session_id, "user")
+        await release_admission()
+        raise
+    except Exception as exc:
+        initial_error = exc
+    except BaseException:
+        await release_admission()
+        raise
 
     async def stream():
         reply = ""
         try:
-            async for token in state.chat.stream(
-                    prompt.messages, temperature=state.cfg.temperature,
-                    max_tokens=state.cfg.max_reply_tokens):
+            if initial_error is not None:
+                raise initial_error
+            if first_token is not None:
+                reply += first_token
+                yield sse({"token": first_token})
+            async for token in tokens:
                 reply += token
                 yield sse({"token": token})
         except Exception as e:
@@ -138,4 +175,16 @@ async def chat(req: ChatRequest, request: Request):
 
         yield sse({"done": True, "turn_id": turn_id})
 
-    return StreamingResponse(stream(), media_type="text/event-stream")
+    async def admitted_stream():
+        try:
+            async for event in stream():
+                yield event
+        finally:
+            try:
+                close = getattr(tokens, "aclose", None)
+                if close is not None:
+                    await close()
+            finally:
+                await release_admission()
+
+    return StreamingResponse(admitted_stream(), media_type="text/event-stream")

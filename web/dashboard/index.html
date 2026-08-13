@@ -223,11 +223,9 @@
       <div class="field-grid">
         <label><span>Display name</span><input name="name" type="text" maxlength="80" required></label>
         <label><span>Voice</span><input name="voice" type="text" maxlength="120" placeholder="default"></label>
-        <label><span>Connection profile</span><input name="connection_profile" type="text" maxlength="80" placeholder="default"></label>
+        <label><span>Connection profile</span><select name="connection_profile"><option value="default">default</option></select></label>
         <label class="field-wide"><span>Model route</span><input name="model" type="text" maxlength="240" placeholder="inherit node default"></label>
         <label class="field-wide"><span>Utility model route</span><input name="utility_model" type="text" maxlength="240" placeholder="inherit node default"></label>
-        <label><span>Endpoint</span><input name="endpoint" type="text" maxlength="240" placeholder="inherit the profile's"></label>
-        <label><span>API key variable</span><input name="api_key_env" type="text" maxlength="80" placeholder="OPENROUTER_API_KEY"></label>
         <label><span>Body backend</span><select name="body_backend"><option value="">default</option><option value="vrm">VRM</option><option value="live2d">Live2D</option></select></label>
         <label><span>Body model / asset</span><input name="body_model" type="text" maxlength="240" placeholder="character asset id"></label>
         <label class="field-wide"><span>Short description</span><textarea name="description" rows="3" maxlength="400"></textarea></label>
@@ -240,7 +238,7 @@
           <label><input name="dream" type="checkbox"><span>DREAM consolidation</span></label>
         </fieldset>
       </div>
-      <p class="form-note">Blank model, endpoint and key fields inherit the node's .env. A model or connection change reaches a running character at once — she keeps the conversation. Cards never receive API keys: the variable is named here, the key stays in the environment.</p>
+      <p class="form-note">Blank model fields inherit the node's .env. Endpoints and credential variables are granted only by host-owned connection profiles. A model or profile change reaches a running character at once.</p>
       <div id="settings-error" class="form-error" role="alert"></div>
       <footer class="modal-actions">
         <button id="brain-open" class="button button-quiet modal-aside" type="button"><svg><use href="#i-brain"></use></svg><span>Her brain</span></button>
@@ -253,7 +251,7 @@
   <!-- Her brain: the same registry record this profile writes, but the fields
        that only make sense with what they'd inherit shown beside them. Opened
        from the profile panel and returns to it, never both at once — the two
-       write the same model/endpoint/key rows. -->
+       write the same model rows. -->
   <dialog id="brain-dialog" class="modal">
     <form id="brain-form" class="modal-card">
       <header class="modal-head">
@@ -262,7 +260,7 @@
       </header>
       <p id="brain-scope" class="form-note"></p>
       <div id="brain-body" class="field-grid"></div>
-      <p class="form-note">Every field here is hers, and an empty one inherits the node's <code>.env</code> — the value it would take is named beside it. The key itself never enters the registry; only the name of the variable holding it.</p>
+      <p class="form-note">Every field here is hers, and an empty one inherits the node's <code>.env</code> — the value it would take is named beside it. Endpoint and credential pairing remains in the selected host-owned connection profile.</p>
       <div id="brain-error" class="form-error" role="alert"></div>
       <footer class="modal-actions">
         <button id="brain-cancel" class="button button-quiet" type="button">Back to profile</button>

@@ -23,6 +23,7 @@ import logging
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from yurios.app.providers.admission import InferenceBusy
 from yurios.desktop.voice.transcript import is_meaningful_transcript
 
 log = logging.getLogger("world.chat")
@@ -30,8 +31,9 @@ router = APIRouter()
 
 
 class ChatRequest(BaseModel):
-    text: str
-    session_id: str | None = None
+    text: str = Field(min_length=1, max_length=16_384)
+    session_id: str | None = Field(default=None, max_length=128,
+                                   pattern=r"^[A-Za-z0-9._:-]+$")
     client_id: str | None = Field(default=None, max_length=64,
                                   pattern=r"^[A-Za-z0-9_-]+$")
     # who's asking (shows up on the transcript + signal source): cli, api, …
@@ -39,7 +41,8 @@ class ChatRequest(BaseModel):
 
 
 class GreetRequest(BaseModel):
-    session_id: str | None = None
+    session_id: str | None = Field(default=None, max_length=128,
+                                   pattern=r"^[A-Za-z0-9._:-]+$")
     channel: str = Field(default="api", max_length=24, pattern=r"^[a-z0-9_-]+$")
     client_id: str | None = Field(default=None, max_length=64,
                                   pattern=r"^[A-Za-z0-9_-]+$")
@@ -115,10 +118,13 @@ async def chat(req: ChatRequest, request: Request):
     if not is_meaningful_transcript(req.text):
         raise HTTPException(422, "not a meaningful turn")
     try:
-        return await _tracked(request, req.client_id, rt.turns.run(
-            req.text, channel=req.channel, session_id=req.session_id,
-            client_id=req.client_id))
+        async with request.app.state.turn_admission:
+            return await _tracked(request, req.client_id, rt.turns.run(
+                req.text, channel=req.channel, session_id=req.session_id,
+                client_id=req.client_id))
     except HTTPException:
+        raise
+    except InferenceBusy:
         raise
     except Exception as e:  # noqa: BLE001 — the turn left no trace (turns.py)
         raise HTTPException(502, f"turn failed: {e}")
@@ -140,9 +146,12 @@ async def greeting(req: GreetRequest, request: Request):
     if req.channel == "telegram":
         raise HTTPException(422, "telegram origin is reserved for the bot adapter")
     try:
-        return await _tracked(request, req.client_id, rt.turns.greet(
-            channel=req.channel, session_id=req.session_id))
+        async with request.app.state.turn_admission:
+            return await _tracked(request, req.client_id, rt.turns.greet(
+                channel=req.channel, session_id=req.session_id))
     except HTTPException:
+        raise
+    except InferenceBusy:
         raise
     except Exception as e:  # noqa: BLE001 — nothing was committed (turns.py)
         raise HTTPException(502, f"greeting failed: {e}")

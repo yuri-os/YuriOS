@@ -56,8 +56,10 @@ from typing import Awaitable, Callable
 
 from yurios.world import correlate
 from yurios.world.clock import Clock
+from yurios.app.providers.admission import InferenceBusy
 
 from .dream import DreamConsolidator
+from .journal import canonical_day, is_canonical_day
 from .util import day_of, iso_of, read_json, write_json
 from .vaultio import MindVault
 from .workspace import SkillStore, Workspace
@@ -193,6 +195,7 @@ class DreamContext:
     # ------------------------------------------------------------------- read
 
     def _journal_path(self, day: str):
+        day = canonical_day(day)
         return self.vault.vault / "memory" / "episodic" / f"{day}.md"
 
     def journal(self, day: str, *, limit: int = JOURNAL_CHARS) -> str:
@@ -214,7 +217,8 @@ class DreamContext:
         if not episodic.is_dir():
             return []
         today = day_of(self.clock.now())
-        return sorted(p.stem for p in episodic.glob("*.md") if p.stem < today)
+        return sorted(p.stem for p in episodic.glob("*.md")
+                      if is_canonical_day(p.stem) and p.stem < today)
 
     def facts(self, *, limit: int = 2000) -> str:
         return self.vault.read("memory/semantic/facts.md")[-limit:]
@@ -873,6 +877,8 @@ class DreamRunner:
         """
         try:
             return await job.work(ctx, day)
+        except InferenceBusy:
+            raise
         except Exception as e:  # noqa: BLE001
             log.exception("DREAM job %s failed on %s", job.name, day)
             return JobReport(name=job.name, result=f"failed: {e}",

@@ -6,11 +6,15 @@ URL into the machine it is running on.
 """
 from __future__ import annotations
 
+import ssl
+
+import httpcore
 import httpx
 import pytest
 
 from yurios.world.tools.fetch import (FakeFetcher, HttpFetcher, UnsafeURL,
-                                      build_fetcher, check_url, extract, gist)
+                                       _PinnedTransport, build_fetcher, check_url,
+                                       extract, gist)
 
 PAGE = """<html><head><title> Tea &amp; Cake </title></head><body>
 <nav>menu menu</nav><script>var tracking = 1;</script><style>p{color:red}</style>
@@ -131,6 +135,102 @@ async def test_a_huge_page_stops_at_the_byte_cap():
     out = await HttpFetcher(transport=html_response(body), resolve=public(),
                             max_bytes=5_000).fetch("https://example.com/big")
     assert len(out["text"]) < 5_000
+
+
+async def test_the_byte_cap_stops_consuming_the_response_stream():
+    class CountingStream(httpx.AsyncByteStream):
+        def __init__(self):
+            self.read = 0
+
+        async def __aiter__(self):
+            for chunk in (b"1234", b"5678", b"should not be read"):
+                self.read += 1
+                yield chunk
+
+    stream = CountingStream()
+
+    def handler(request):
+        return httpx.Response(200, stream=stream,
+                              headers={"content-type": "text/plain"})
+
+    out = await HttpFetcher(transport=httpx.MockTransport(handler),
+                            resolve=public(), max_bytes=6).fetch(
+                                "https://example.com/large")
+    assert out["text"] == "123456"
+    assert stream.read == 2
+
+
+async def test_production_connects_to_pinned_ip_without_proxy_host_or_tls_bypass(
+        monkeypatch):
+    class RecordingStream(httpcore.AsyncMockStream):
+        def __init__(self):
+            super().__init__([
+                b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n"
+                b"Content-Length: 2\r\n\r\nok"
+            ])
+            self.writes = []
+            self.server_hostname = None
+            self.ssl_context = None
+
+        async def write(self, buffer, timeout=None):
+            self.writes.append(buffer)
+
+        async def start_tls(self, ssl_context, server_hostname=None, timeout=None):
+            self.server_hostname = server_hostname
+            self.ssl_context = ssl_context
+            return self
+
+    class RecordingBackend(httpcore.AsyncNetworkBackend):
+        def __init__(self):
+            self.stream = RecordingStream()
+            self.connections = []
+
+        async def connect_tcp(self, host, port, timeout=None,
+                              local_address=None, socket_options=None):
+            self.connections.append((host, port))
+            return self.stream
+
+        async def sleep(self, seconds):
+            pass
+
+    backend = RecordingBackend()
+    monkeypatch.setattr(httpcore, "AnyIOBackend", lambda: backend)
+    monkeypatch.setenv("HTTPS_PROXY", "http://127.0.0.1:9999")
+    monkeypatch.setenv("ALL_PROXY", "http://127.0.0.1:9999")
+    await HttpFetcher(resolve=pointing_at("2001:4860:4860::8888")).fetch(
+        "https://example.com/page")
+
+    request_bytes = b"".join(backend.stream.writes)
+    assert backend.connections == [("2001:4860:4860::8888", 443)]
+    assert backend.stream.server_hostname == "example.com"
+    assert backend.stream.ssl_context.verify_mode == ssl.CERT_REQUIRED
+    assert backend.stream.ssl_context.check_hostname
+    assert b"Host: example.com\r\n" in request_bytes
+
+
+async def test_pinned_transport_falls_back_across_ipv6_and_ipv4():
+    class FallbackBackend(httpcore.AsyncNetworkBackend):
+        def __init__(self):
+            self.connections = []
+
+        async def connect_tcp(self, host, port, timeout=None,
+                              local_address=None, socket_options=None):
+            self.connections.append(host)
+            if len(self.connections) == 1:
+                raise httpcore.ConnectError("unreachable")
+            return httpcore.AsyncMockStream([
+                b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n"
+            ])
+
+        async def sleep(self, seconds):
+            pass
+
+    backend = FallbackBackend()
+    transport = _PinnedTransport(backend)
+    transport.pin("http://example.com/", ["2001:4860:4860::8888", "8.8.8.8"])
+    async with httpx.AsyncClient(transport=transport) as client:
+        assert (await client.get("http://example.com/")).status_code == 200
+    assert backend.connections == ["2001:4860:4860::8888", "8.8.8.8"]
 
 
 async def test_an_error_status_raises():

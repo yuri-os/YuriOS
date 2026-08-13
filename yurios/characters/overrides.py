@@ -1,8 +1,9 @@
 """What each character has taken for herself, and how to give it back (SPEC §31.2).
 
-A character's record may override the house `.env`: her own chat model, her own
-server, her own reasoning switches. That is the point of the registry — one
-house, many companions, each with the brain she needs. It is also the setting
+A character's record may override the house `.env`: her own chat model and her
+own reasoning switches, while a host-owned named profile grants any endpoint and
+credential pairing. That is the point of the registry — one house, many
+companions, each with the brain she needs. It is also the setting
 most likely to outlive its reason. Swap the house model in `.env` and every
 character who never asked for one of her own follows; the one who *did* keeps
 the old connection, silently, until somebody wonders why LM Studio is being
@@ -33,13 +34,10 @@ from .models import CharacterRecord
 # The knobs a record may hold, and where each one lives in it. Mirrors
 # world/rewire.OVERRIDE_SCHEMA, which is the settings screen's form for the same
 # set; kept here as plain data so reading a registry never imports the world.
-#   store: "chat"/"utility"/"endpoint"/"api_key_env" have named homes; the rest
-#   ride `models.options`.
+#   store: "chat"/"utility" have named homes; the rest ride `models.options`.
 OVERRIDE_KEYS: tuple[tuple[str, str], ...] = (
     ("chat_model", "chat"),
     ("utility_model", "utility"),
-    ("endpoint", "endpoint"),
-    ("api_key_env", "api_key_env"),
     ("chat_thinking", "options"),
     ("utility_thinking", "options"),
     ("temperature", "options"),
@@ -61,14 +59,10 @@ def endpoint_field(model: str) -> str | None:
     return None
 
 
-def resolve_endpoint(chat: str, utility: str, *, record_endpoint: str | None,
-                     profile_endpoint: str | None, lmstudio_url: str,
+def resolve_endpoint(chat: str, utility: str, *, profile_endpoint: str | None,
+                     lmstudio_url: str,
                      ollama_url: str) -> tuple[str | None, str]:
     """Which base url her models actually reach, as (config field, url).
-
-    Her record's own endpoint wins over the named profile's: a profile is the
-    house's shared connection and her record is the exception she was given, so
-    the more specific one is the one that means anything.
 
     An endpoint names one server, so it re-points whichever local provider her
     models route to — her chat model's, or her utility model's when only that one
@@ -79,7 +73,7 @@ def resolve_endpoint(chat: str, utility: str, *, record_endpoint: str | None,
     moves to the other one would otherwise inherit an endpoint naming the wrong
     server entirely.
     """
-    endpoint = record_endpoint or profile_endpoint or ""
+    endpoint = profile_endpoint or ""
     if not endpoint:
         return None, ""
     field = endpoint_field(chat) or endpoint_field(utility)
@@ -141,8 +135,6 @@ def _house_value(cfg: Any, key: str, chat: str, utility: str) -> Any:
     if key == "endpoint":
         field = endpoint_field(chat) or endpoint_field(utility)
         return getattr(cfg, field, "") if field else ""
-    if key == "api_key_env":
-        return ""
     return getattr(cfg, key, "")
 
 
@@ -158,7 +150,6 @@ def describe_record(cfg: Any, record: CharacterRecord,
     utility = record.models.utility or cfg.utility_model
     _, endpoint = resolve_endpoint(
         chat, utility,
-        record_endpoint=record.connection.endpoint,
         profile_endpoint=profile.endpoint if profile else "",
         lmstudio_url=getattr(cfg, "lmstudio_base_url", ""),
         ollama_url=getattr(cfg, "ollama_base_url", ""))
@@ -170,8 +161,7 @@ def describe_record(cfg: Any, record: CharacterRecord,
                 continue
             value: Any = record.models.options[key]
         else:
-            holder = (record.connection if store in ("endpoint", "api_key_env")
-                      else record.models)
+            holder = record.models
             value = getattr(holder, store, "") or ""
             if not value:
                 continue
@@ -207,10 +197,6 @@ def clear_record(record: CharacterRecord) -> list[str]:
         if store == "options":
             if key in record.models.options:
                 del record.models.options[key]
-                cleared.append(key)
-        elif store in ("endpoint", "api_key_env"):
-            if getattr(record.connection, store, None):
-                setattr(record.connection, store, None)
                 cleared.append(key)
         elif getattr(record.models, store, ""):
             setattr(record.models, store, "")

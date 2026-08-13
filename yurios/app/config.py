@@ -18,6 +18,10 @@ class Config(BaseSettings):
     # picks the route (openrouter/… hosted; ollama/…, lm_studio/…, or gguf/… local);
     # a bare id is assumed OpenRouter. The openrouter/ prefix is added in the provider.
     openrouter_api_key: str = ""
+    # Runtime-only credential selected together with a host-owned connection
+    # profile endpoint. Provider construction never falls back to the OpenRouter
+    # key for a request carrying a local/custom api_base.
+    connection_api_key: str = ""
     chat_model: str = "NONE"
     utility_model: str = "NONE"
     # Base url for a local LM Studio server (used only for lm_studio/… model ids;
@@ -86,6 +90,9 @@ class Config(BaseSettings):
     # Gradio/A1111/ooba (7860), Kobold (5001), ComfyUI (8188), LM Studio (1234).
     host: str = "127.0.0.1"
     port: int = 8765
+    # Required for any non-loopback bind. Remote browsers exchange it once for
+    # an HttpOnly session cookie; API clients may send it as a Bearer token.
+    owner_token: str = ""
 
     # the mind (§4)
     vault_dir: Path = Path("./vault")

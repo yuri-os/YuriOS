@@ -35,6 +35,10 @@ from ..voice.latency import TurnTrace
 from ..voice.speech_gate import SpeechGate
 from ..voice.transcript import is_meaningful_transcript
 from ..voice.turn import OutEvent, TurnController
+from ..voice.ws_limits import (
+    MAX_SESSION_ID_BYTES, MAX_TYPED_TEXT_BYTES, VoiceSocketClosed,
+    VoiceSocketGuard, bounded_text, reject_capacity,
+)
 
 log = logging.getLogger("desktop.ws")
 router = APIRouter()
@@ -58,8 +62,20 @@ def _encode(ev: OutEvent) -> dict:
 
 @router.websocket("/ws/voice")
 async def voice(ws: WebSocket):
-    await ws.accept()
     rt = ws.app.state.rt
+    limiter = rt.voice_ws_limiter
+    if not limiter.try_acquire():
+        await reject_capacity(ws)
+        return
+    try:
+        await _connected(ws, rt)
+    finally:
+        limiter.release()
+
+
+async def _connected(ws: WebSocket, rt) -> None:
+    await ws.accept()
+    guard = VoiceSocketGuard(ws, rt.cfg)
     brain = rt.brain
 
     async def safe_send(data: dict) -> bool:
@@ -76,10 +92,26 @@ async def voice(ws: WebSocket):
 
     # resolve the session (reuse the client's id if it's still known)
     try:
-        hello = await ws.receive_json()
-    except WebSocketDisconnect:
+        message = await guard.receive_initial()
+    except VoiceSocketClosed:
         return                                    # client left before saying hello
-    session_id = brain.resolve_session(hello.get("session_id"))
+    try:
+        guard.accept_text_frame(message.get("text"))
+    except OverflowError as exc:
+        await guard.reject_limit(str(exc))
+        return
+    hello = _loads(message.get("text"))
+    if message.get("type") != "websocket.receive" or hello.get("type") != "hello":
+        await guard.reject_limit("voice hello required")
+        return
+    try:
+        requested_session = bounded_text(
+            hello.get("session_id"), maximum=MAX_SESSION_ID_BYTES,
+            field="session_id", optional=True)
+    except ValueError as exc:
+        await guard.reject_limit(str(exc))
+        return
+    session_id = brain.resolve_session(requested_session)
     await safe_send({"type": "session", "session_id": session_id})
 
     # The voice stack may still be warming (Runtime loads it off-thread so the
@@ -87,7 +119,7 @@ async def voice(ws: WebSocket):
     # here, per connection: the socket stays open, her avatar is already up, and
     # the greeting fires the moment her voice is ready. Never uses a stand-in.
     await asyncio.to_thread(rt.voice_ready.wait)
-    stt = rt.stt
+    stt = rt.stt.create_session()
     # Server-side debounced VAD: as the client streams an utterance's frames, we
     # run them through the VAD + SpeechGate so an endpoint only becomes a turn if
     # real speech was actually heard — the last net under a naive edge gate (§3.4,
@@ -136,16 +168,28 @@ async def voice(ws: WebSocket):
 
     try:
         while True:
-            msg = await ws.receive()
+            msg = await guard.receive(safe_send)
             if msg["type"] == "websocket.disconnect":
                 break
+
+            try:
+                guard.accept_text_frame(msg.get("text"))
+            except OverflowError as exc:
+                await guard.reject_limit(str(exc))
+                return
 
             if "bytes" in msg and msg["bytes"] is not None:
                 # a mic frame during the user's turn → feed STT (endpointing on the
                 # client). Barge-in is a *control* message, not inferred here. We
                 # also push the frame's VAD verdict into the gate so the server can
                 # tell, at endpoint, whether the utterance held real speech (§3.4).
-                frame = np.frombuffer(msg["bytes"], dtype=np.float32)
+                payload = msg["bytes"]
+                try:
+                    guard.accept_audio(payload)
+                except (ValueError, OverflowError) as exc:
+                    await guard.reject_limit(str(exc))
+                    return
+                frame = np.frombuffer(payload, dtype=np.float32)
                 stt.feed(frame, 16000)
                 if rt.cfg.vad_confirm and rt.vad is not None:
                     gate.push(rt.vad.is_speech(frame, 16000))
@@ -154,8 +198,17 @@ async def voice(ws: WebSocket):
             data = _loads(msg.get("text"))
             kind = data.get("type")
 
+            if kind == "pong":
+                continue
+
             if kind == "bargein":
                 controller.cancel()                        # tears down TTS + generation
+                continue
+
+            if kind == "reset_audio":
+                stt.reset()
+                gate.reset()
+                guard.reset_utterance()
                 continue
 
             if kind == "endpoint" or kind == "text":
@@ -164,14 +217,22 @@ async def voice(ws: WebSocket):
                     controller.cancel()
                     await asyncio.gather(turn_task, return_exceptions=True)
                 if kind == "text":
-                    text = data.get("text")            # typed input skips STT + VAD
+                    try:
+                        text = bounded_text(data.get("text"),
+                                            maximum=MAX_TYPED_TEXT_BYTES,
+                                            field="text")
+                    except ValueError as exc:
+                        await guard.reject_limit(str(exc))
+                        return
                 else:
                     # endpoint: transcribe the utterance — but only if the server's
                     # VAD confirmed real speech in it. All-noise (keyboard clatter
                     # that leaked past a naive edge gate) is dropped here (§4.2).
-                    text = stt.final() if (not rt.cfg.vad_confirm or gate.confirmed) else ""
+                    text = await asyncio.to_thread(stt.final) \
+                        if (not rt.cfg.vad_confirm or gate.confirmed) else ""
                 stt.reset()
                 gate.reset()
+                guard.reset_utterance()
                 # last net: a punctuation-only hallucination (". . . .") is not a
                 # turn — never let it reach the brain or the Vault (§3.2).
                 if not is_meaningful_transcript(text):
@@ -179,7 +240,7 @@ async def voice(ws: WebSocket):
                 trace = TurnTrace()
                 turn_task = asyncio.create_task(
                     run(controller.run_turn(session_id, text, trace=trace)))
-    except WebSocketDisconnect:
+    except (WebSocketDisconnect, VoiceSocketClosed):
         pass
     finally:
         if turn_task and not turn_task.done():
@@ -190,6 +251,7 @@ async def voice(ws: WebSocket):
 def _loads(text: str | None) -> dict:
     import json
     try:
-        return json.loads(text) if text else {}
+        data = json.loads(text) if text else {}
+        return data if isinstance(data, dict) else {}
     except (ValueError, TypeError):
         return {}

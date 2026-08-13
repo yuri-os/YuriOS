@@ -62,9 +62,7 @@ def _house(tmp_path, *, hers: bool = True) -> tuple[Config, CharacterRegistry,
         models=(ModelBinding(chat=HERS, utility=HERS,
                              options={"chat_thinking": False})
                 if hers else ModelBinding()),
-        connection=ConnectionBinding(
-            profile="default",
-            endpoint="http://localhost:1234/v1" if hers else None)))
+        connection=ConnectionBinding(profile="default")))
     profiles = ConnectionProfiles(root)
     profiles.upsert(ConnectionProfile(name="default", endpoint="http://localhost:1234/v1"))
     return _house_config(data_dir=root), registry, profiles
@@ -90,7 +88,6 @@ def test_describe_separates_the_house_model_from_a_characters_own(tmp_path):
     assert held["chat_model"].value == HERS and held["chat_model"].house == HOUSE
     assert held["chat_model"].differs
     assert held["chat_thinking"].value is False
-    assert held["endpoint"].value == "http://localhost:1234/v1"
 
 
 def test_describe_reports_an_inheriting_house_without_overrides(tmp_path):
@@ -107,12 +104,10 @@ def test_clearing_takes_the_model_settings_and_nothing_else(tmp_path):
 
     cleared = overrides.clear(registry, ["yuri"])
 
-    assert set(cleared["yuri"]) == {"chat_model", "utility_model", "endpoint",
-                                    "chat_thinking"}
+    assert set(cleared["yuri"]) == {"chat_model", "utility_model", "chat_thinking"}
     saved = CharacterRegistry(registry.data_root).require("yuri")
     assert saved.models.chat == "" and saved.models.utility == ""
     assert saved.models.options == {}
-    assert saved.connection.endpoint is None
     # her voice, her loops and her profile are not her connection
     assert saved.voice.tts_backend == "piper" and saved.voice.voice_id == "her-voice"
     assert saved.loops.mind and saved.lifecycle.autostart
@@ -124,14 +119,14 @@ def test_clearing_takes_the_model_settings_and_nothing_else(tmp_path):
 
 def test_endpoint_is_dropped_when_no_model_needs_a_server():
     field, url = overrides.resolve_endpoint(
-        HOUSE, HOUSE, record_endpoint="http://localhost:1234/v1",
-        profile_endpoint="", lmstudio_url="http://localhost:1234/v1",
+        HOUSE, HOUSE, profile_endpoint="http://localhost:1234/v1",
+        lmstudio_url="http://localhost:1234/v1",
         ollama_url="http://localhost:11434")
 
     assert (field, url) == (None, "")
 
     field, url = overrides.resolve_endpoint(
-        HERS, HERS, record_endpoint="http://box:1234/v1", profile_endpoint="",
+        HERS, HERS, profile_endpoint="http://box:1234/v1",
         lmstudio_url="http://localhost:1234/v1", ollama_url="http://localhost:11434")
 
     assert (field, url) == ("lmstudio_base_url", "http://box:1234/v1")
@@ -205,7 +200,7 @@ def test_configure_offers_to_put_every_character_on_the_chosen_model(
     assert any("Clear these character settings" in prompt for prompt in answers)
     assert "Cleared" in out and "yuri" in out
     saved = CharacterRegistry(registry.data_root).require("yuri")
-    assert saved.models.chat == "" and saved.connection.endpoint is None
+    assert saved.models.chat == ""
 
 
 def test_configure_leaves_the_character_alone_when_the_answer_is_no(

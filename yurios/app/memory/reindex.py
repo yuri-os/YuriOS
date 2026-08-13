@@ -10,6 +10,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from yurios.mind.journal import is_canonical_day
+
 # one journal line = one embeddable event (§6.2 format)
 EVENT_RE = re.compile(r"^### (\d{2}:\d{2})\s+(.*)$")
 
@@ -42,6 +44,8 @@ def reindex(vault: Path, embedder=None, embed_dim: int | None = None,
 
     for journal in sorted((vault / "memory" / "episodic").glob("*.md")):
         day = journal.stem  # YYYY-MM-DD
+        if not is_canonical_day(day):
+            continue
         for lineno, line in enumerate(
                 journal.read_text(encoding="utf-8").splitlines(), start=1):
             m = EVENT_RE.match(line)

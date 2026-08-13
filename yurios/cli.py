@@ -69,6 +69,11 @@ def _character_health_url(cfg: Config, character_id: str) -> str:
     return f"http://{cfg.host}:{cfg.port}/api/characters/{character_id}/health"
 
 
+def _owner_headers(cfg: Config) -> dict[str, str]:
+    token = cfg.owner_token
+    return {"Authorization": f"Bearer {token}"} if token else {}
+
+
 def _wait_for_ready(cfg: Config, *, proc: subprocess.Popen | None = None) -> str | None:
     """Return an error when the server fails to become healthy before the deadline."""
     deadline = time.monotonic() + _START_TIMEOUT_SECONDS
@@ -76,7 +81,8 @@ def _wait_for_ready(cfg: Config, *, proc: subprocess.Popen | None = None) -> str
         if proc is not None and proc.poll() is not None:
             return f"daemon exited with status {proc.returncode}"
         try:
-            response = httpx.get(_health_url(cfg), timeout=1.0)
+            response = httpx.get(_health_url(cfg), timeout=1.0,
+                                 headers=_owner_headers(cfg))
             response.raise_for_status()
             return None
         except httpx.HTTPError:
@@ -98,7 +104,8 @@ def _wait_for_shutdown(cfg: Config) -> bool:
     deadline = time.monotonic() + _STOP_TIMEOUT_SECONDS
     while time.monotonic() < deadline:
         try:
-            response = httpx.get(_health_url(cfg), timeout=1.0)
+            response = httpx.get(_health_url(cfg), timeout=1.0,
+                                 headers=_owner_headers(cfg))
             response.raise_for_status()
         except httpx.HTTPError:
             return True
@@ -531,7 +538,8 @@ def command_status(args) -> int:
     cfg = _configured_cfg(root)
     pid = _read_pid(_pid_path(root))
     try:
-        response = httpx.get(_health_url(cfg), timeout=2.0)
+        response = httpx.get(_health_url(cfg), timeout=2.0,
+                             headers=_owner_headers(cfg))
         response.raise_for_status()
         status = response.json()
         if not isinstance(status, dict):
@@ -543,7 +551,8 @@ def command_status(args) -> int:
         _status_row("Model", f"configured: {cfg.chat_model}")
         return 1
     try:
-        characters_response = httpx.get(_characters_url(cfg), timeout=2.0)
+        characters_response = httpx.get(_characters_url(cfg), timeout=2.0,
+                                        headers=_owner_headers(cfg))
         characters_response.raise_for_status()
         characters = _character_records(characters_response.json())
     except (httpx.HTTPError, ValueError):
@@ -568,7 +577,9 @@ def command_status(args) -> int:
         character_status = status if character_id == primary else None
         if character_status is None and record.get("runtime_state") == "ready":
             try:
-                detail_response = httpx.get(_character_health_url(cfg, character_id), timeout=2.0)
+                detail_response = httpx.get(
+                    _character_health_url(cfg, character_id), timeout=2.0,
+                    headers=_owner_headers(cfg))
                 detail_response.raise_for_status()
                 detail = detail_response.json()
                 character_status = detail if isinstance(detail, dict) else None

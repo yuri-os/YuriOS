@@ -12,6 +12,7 @@ import uvicorn
 
 from .config import Config
 from .main import create_app
+from .voice.ws_limits import uvicorn_ws_options
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(prog="python -m desktop")
@@ -24,4 +25,5 @@ if __name__ == "__main__":
         from .window import run
         run(cfg)
     else:
-        uvicorn.run(create_app(cfg), host=cfg.host, port=cfg.port)
+        uvicorn.run(create_app(cfg), host=cfg.host, port=cfg.port,
+                    **uvicorn_ws_options(cfg))

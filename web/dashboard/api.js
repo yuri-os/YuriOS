@@ -10,6 +10,7 @@ function characterPath(id, suffix = "") {
 
 export const charactersApi = Object.freeze({
   list: ({ signal } = {}) => request(ROOT, { signal }),
+  connections: ({ signal } = {}) => request("/api/connections", { signal }),
   detail: (id, section, { signal } = {}) => request(
     characterPath(id, section === "context" ? "/context-history" : `/${section}`), { signal }),
   journalDays: (id, page = 0, { signal } = {}) => request(
@@ -36,6 +37,11 @@ export const charactersApi = Object.freeze({
   }),
   approve: (id) => request(characterPath(id, "/approve"), { method: "POST" }),
   archive: (id) => request(characterPath(id, "/archive"), { method: "POST" }),
+  preparePurge: (id) => request(characterPath(id, "/purge/prepare"), { method: "POST" }),
+  purge: (id, challenge) => request(characterPath(id, "/purge"), {
+    method: "DELETE",
+    body: JSON.stringify({ challenge }),
+  }),
   importPng: (file) => {
     const body = new FormData();
     body.append("file", file, file.name);

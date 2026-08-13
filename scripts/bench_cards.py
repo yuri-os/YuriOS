@@ -88,12 +88,12 @@ async def _run(paths: list[Path], *, optimize: bool, model: str,
                instructions: str) -> list[dict]:
     utility = None
     if optimize:
-        from yurios.app.main import model_api_base
+        from yurios.app.main import model_api_base, model_api_key
         from yurios.app.providers.openrouter import LiteLLMUtilityModel
         from yurios.world.config import Config
         cfg = Config()
         chosen = model or cfg.utility_model
-        utility = LiteLLMUtilityModel(chosen, cfg.openrouter_api_key,
+        utility = LiteLLMUtilityModel(chosen, model_api_key(cfg, chosen),
                                       thinking=cfg.utility_thinking,
                                       api_base=model_api_base(cfg, chosen))
 

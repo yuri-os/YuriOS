@@ -9,6 +9,9 @@ it; YuriOS reads it and reconstructs the companion's soul byte-for-byte instead 
 it from flattened prose. This page is the published contract for that block, so other runtimes
 can read our cards and we can read theirs.
 
+That marker preserves fidelity; it does not confer trust. Every imported card, including one with
+this block, lands disabled and non-autostarting until a person reviews and approves it.
+
 Normative detail: [`SPEC.md` §28](../SPEC.md). Behaviour is pinned by
 `tests/test_card_roundtrip.py` and `tests/test_export_privacy.py`.
 

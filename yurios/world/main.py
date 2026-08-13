@@ -31,6 +31,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.datastructures import MutableHeaders
 
 from yurios.desktop.voice.fillers import FillerBank
+from yurios.desktop.voice.ws_limits import VoiceConnectionLimiter, uvicorn_ws_options
 
 from yurios.mind.loop import MindLoop
 from yurios.mind.promptlog import PromptLog
@@ -70,6 +71,7 @@ class Runtime:
                  clock: Clock | None = None,
                  controller: VrmController | None = None):
         self.cfg = cfg
+        self.voice_ws_limiter = VoiceConnectionLimiter(cfg.voice_ws_max_connections)
         # Injected models/brains are test and embedding seams with a working model
         # behind them; only a normal fresh runtime is intentionally unconfigured.
         self.model_configured = bool(
@@ -795,7 +797,8 @@ def build_server(app: FastAPI, cfg: Config):
 
     server = _Server(uvicorn.Config(
         app, host=cfg.host, port=cfg.port, log_level="warning",
-        timeout_graceful_shutdown=SHUTDOWN_GRACE_SECONDS))
+        timeout_graceful_shutdown=SHUTDOWN_GRACE_SECONDS,
+        **uvicorn_ws_options(cfg)))
     app.state.server = server
     return server
 
@@ -804,8 +807,10 @@ def create_app(cfg: Config | None = None, *, brain=None, chat_model=None,
                utility_model=None, embedder=None, tool_runner=None,
                clock: Clock | None = None,
                controller: VrmController | None = None,
-               manage_lifespan: bool = True,
-               mount_frontend: bool = True) -> FastAPI:
+                manage_lifespan: bool = True,
+                mount_frontend: bool = True,
+                protect_access: bool = True,
+                limit_http_body: bool = True) -> FastAPI:
     cfg = cfg or Config()
     rt = Runtime(cfg, brain=brain, chat_model=chat_model,
                  utility_model=utility_model, embedder=embedder,
@@ -819,9 +824,19 @@ def create_app(cfg: Config | None = None, *, brain=None, chat_model=None,
         if manage_lifespan:
             await rt.stop_async()
 
-    app = FastAPI(title="YuriOS", docs_url=None, redoc_url=None,
+    app = FastAPI(title="YuriOS", docs_url=None, redoc_url=None, openapi_url=None,
                   lifespan=lifespan)
     app.state.rt = rt
+    from yurios.app.providers.admission import InferenceAdmission
+    app.state.turn_admission = InferenceAdmission(active=1, queue=2)
+
+    if limit_http_body:
+        from yurios.security import install_http_boundaries
+        install_http_boundaries(app)
+
+    if protect_access:
+        from yurios.security import install_owner_security
+        install_owner_security(app, cfg)
 
     # StaticFiles sends ETag/Last-Modified but no Cache-Control, so browsers —
     # and the desktop window's persistent cache (§6.5) — apply heuristic

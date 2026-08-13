@@ -2,6 +2,17 @@
 
 One process, one origin, port **8768**. Everything is same-origin JSON unless noted.
 
+With the default loopback bind no credential is required. A non-loopback bind requires a 32+
+character `OWNER_TOKEN` and protects every HTTP, SSE and WebSocket route. Browsers authenticate at
+`/auth`; API clients send `Authorization: Bearer <token>`. Cross-origin browser requests and
+WebSocket handshakes are rejected. Use an encrypted private transport such as Tailscale or SSH, or
+put an authenticated TLS reverse proxy in front; the built-in server is plain HTTP.
+
+All app factories enforce a streaming 48 MiB HTTP request-body ceiling. Oversized
+`Content-Length` values or chunked bodies return JSON `413`; SSE responses and
+WebSockets are not wrapped by this limiter. Interactive inference overload returns
+JSON `503` with `Retry-After: 1`.
+
 The topology is deliberately small: **one outbound event bus** carrying every host→frontend event
 as typed JSON, and **one websocket** for audio, because sound is the only flow that's
 bidirectional, binary and latency-critical. Everything else is a broadcastable fact, and facts
@@ -34,8 +45,9 @@ Websockets follow the same shape: `/ws/voice` and `/ws/characters/<id>/voice`.
 | `GET /studio/` | the card studio — `?character={id}` edits her, no parameter creates one |
 | `GET /api/characters` | `{version, primary, characters: […]}` |
 | `GET /api/connections` | named connection profiles; `secret_configured` says whether the key env var is set |
+| `PUT /api/connections/{name}` | validate and save a host-owned `{backend, endpoint, api_key_env}` profile; retunes bound runtimes |
 | `GET /api/characters/{id}/brain` | the character's effective brain connection and tuning settings |
-| `PATCH /api/characters/{id}/brain` | save brain connection/tuning overrides and apply them immediately |
+| `PATCH /api/characters/{id}/brain` | save model/tuning overrides and apply them immediately; direct `endpoint`/`api_key_env` writes are rejected |
 | `GET /api/brain` | the primary character's brain settings |
 | `PATCH /api/brain` | save and immediately apply the primary character's brain overrides |
 | `POST /api/characters/import` | `multipart/form-data`, the card PNG in `file` |
@@ -62,9 +74,10 @@ Websockets follow the same shape: `/ws/voice` and `/ws/characters/<id>/voice`.
 | `GET /api/characters/{id}/log` | the tail of her tick trace + tool audit, interleaved |
 | `GET /api/characters/{id}/context-history` | `{context, history}` |
 | `POST /api/characters/{id}/archive` | stop + move her root to `data/archives/` |
-| `DELETE /api/characters/{id}/purge?confirm=` | delete; `confirm` must match her id or name |
-| `GET /api/onboarding` | loopback-only first-run model state: `{configured, model, recommendations, download}` |
-| `POST /api/onboarding` | loopback-only model choice: `{"model": "…"}`; saves the house selection, starts a GGUF download when applicable, and returns `restart_required: true` |
+| `POST /api/characters/{id}/purge/prepare` | issue a high-entropy, short-lived, single-use deletion challenge |
+| `DELETE /api/characters/{id}/purge` | permanently delete using `{"challenge":"…"}` in the JSON body; no query secret |
+| `GET /api/onboarding` | local or owner-authenticated first-run model state: `{configured, model, recommendations, download}` |
+| `POST /api/onboarding` | local or owner-authenticated model choice: `{"model": "…"}`; saves the house selection, starts a GGUF download when applicable, and returns `restart_required: true` |
 
 A character summary looks like:
 
@@ -128,7 +141,10 @@ has to act on it — see [Characters → When the export refuses](characters.md#
 | `POST /api/greeting` | `{session_id?, channel?}` → `{session_id, message}`. She speaks first: the voice route greets on connect, a text client asks. Committed `proactive`, never persisted, once per session per run (`message: null` after that). The first-ever call plays her cold open |
 | `GET /api/history` | the last 100 chat entries, for backfilling a fresh page |
 
-Text turns from all channels serialise on one lock.
+Text turns from all channels serialise on one lock. HTTP text and session fields are
+bounded, and each character admits one active HTTP turn plus two waiters; further
+turns receive the retryable `503` response above. Typed WebSocket text is capped at
+16 KiB and session IDs at 128 bytes.
 
 ### The event bus
 
@@ -190,6 +206,7 @@ set a timer?" gets answered without reading logs.
 | `GET /api/mind/reading` | research runs, the document being read right now with its passage and model-call counts, and everything held |
 | `POST /api/mind/reading/stop` | `{"run": "<id>"}` to stop a research run, `{}` to stop just the read in flight |
 | `POST /api/mind/reading/resume` | `{"doc": "<name>"}` — let a held document be read again, from where it stopped |
+| `POST /api/mind/dream/run` | manually run DREAM; `day` must be canonical `YYYY-MM-DD`, and `budget` is typed then clamped to `1..MIND_DREAM_TICK_TOKENS` |
 
 All of it reads *through* the mind's own stores, so the dashboard can never disagree with the
 files. With the mind off, these answer `503` and `/api/health` says so — except

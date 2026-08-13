@@ -30,22 +30,31 @@ class AudioChunk:
     sample_rate: int
 
 
-class STT(Protocol):
-    """Ears (SPEC §3.2). Streaming: feed frames during speech, finalize on endpoint.
-
-    The contract is deliberately incremental — `feed` during speech so only the
-    last chunk is on the clock at endpoint time (the §4.2 latency trap)."""
+class STTSession(Protocol):
+    """One connection's mutable utterance buffer."""
 
     def reset(self) -> None:
         """Start a fresh utterance."""
         ...
 
     def feed(self, frame: np.ndarray, sample_rate: int) -> None:
-        """Accept one mic frame mid-utterance (may update a partial transcript)."""
+        """Accept one mic frame mid-utterance."""
         ...
 
     def final(self) -> str:
         """Return the finished transcript for the utterance just ended."""
+        ...
+
+
+class STT(Protocol):
+    """Shared ears model (SPEC §3.2), with connection-local buffering.
+
+    The contract is deliberately incremental — `feed` during speech so only the
+    last chunk is on the clock at endpoint time (the §4.2 latency trap). Model
+    weights may be shared, but a socket must never share its utterance buffer."""
+
+    def create_session(self) -> STTSession:
+        """Return independent buffering backed by this model."""
         ...
 
 

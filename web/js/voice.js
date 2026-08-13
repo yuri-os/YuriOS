@@ -97,15 +97,18 @@ export function initVoice({ viseme, els }) {
     // second and leave the reason on screen.
     ws.onclose = (e) => {
       const parked = e.code === 4404;
+      const capacity = e.code === 4429;
       setWarming(false);
-      setStatus(parked ? 'error' : 'live', parked ? 'not running' :
-        (wantsVoice() ? 'offline' : 'text online'));
+      setStatus(parked || capacity ? 'error' : 'live', parked ? 'not running' :
+        (capacity ? 'voice busy' :
+        (wantsVoice() ? 'offline' : 'text online')));
       // The error frame that came just before says it in full; a close frame has
       // 123 bytes for a reason, so only fall back to it if nothing arrived.
       if (parked && e.reason && !els.caption.textContent) els.caption.textContent = e.reason;
       if (processing && transport === 'voice') finishProcessing();
       clearTimeout(reconnectTimer);
-      if (wantsVoice()) reconnectTimer = setTimeout(connect, parked ? 15000 : 1500);
+      if (wantsVoice()) reconnectTimer = setTimeout(connect,
+        parked || capacity ? 15000 : 1500);
     };
     ws.onmessage = (e) => onMessage(JSON.parse(e.data));
   }
@@ -130,6 +133,9 @@ export function initVoice({ viseme, els }) {
         break;
       case 'ready':
         break;                          // handled above; here so it isn't "unknown"
+      case 'ping':
+        if (ws?.readyState === 1) ws.send(JSON.stringify({ type: 'pong' }));
+        break;
       case 'processing':
         beginProcessing(m.client_id || null, 'voice');
         break;

@@ -31,6 +31,8 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import AsyncIterator
 
+from yurios.app.providers.admission import inference_admission
+
 
 log = logging.getLogger(__name__)
 _models: dict[tuple[Path, int, int, int, bool], "_LoadedModel"] = {}
@@ -647,33 +649,34 @@ class GGUFChatModel:
         return self._loaded
 
     async def stream(self, messages: list[dict], **params) -> AsyncIterator[str]:
-        if not self.thinking:
-            messages = _without_thinking(messages)
-        if self.meter is not None:
-            self.meter.note_prompt(messages)
-        loaded = await _acquire_current(self)
-        set_limit = getattr(self.meter, "set_limit", None)
-        if callable(set_limit):
-            set_limit(loaded.context_length, "direct gguf")
-        try:
-            args = {"messages": messages,
-                    "temperature": params.get("temperature", self.temperature),
-                    "max_tokens": params.get("max_tokens", 1024), "stream": True}
-            handler = getattr(loaded, "no_think_handler", None)
-            if not self.thinking and handler is not None:
-                response = await asyncio.to_thread(handler,
-                                                   llama=loaded.llama, **args)
-            else:
-                response = await asyncio.to_thread(
-                    loaded.llama.create_chat_completion, **args)
-            for_more, chunk = await asyncio.to_thread(_next, response)
-            while for_more:
-                text = _stream_content(chunk)
-                if text:
-                    yield text
+        async with inference_admission():
+            if not self.thinking:
+                messages = _without_thinking(messages)
+            if self.meter is not None:
+                self.meter.note_prompt(messages)
+            loaded = await _acquire_current(self)
+            set_limit = getattr(self.meter, "set_limit", None)
+            if callable(set_limit):
+                set_limit(loaded.context_length, "direct gguf")
+            try:
+                args = {"messages": messages,
+                        "temperature": params.get("temperature", self.temperature),
+                        "max_tokens": params.get("max_tokens", 1024), "stream": True}
+                handler = getattr(loaded, "no_think_handler", None)
+                if not self.thinking and handler is not None:
+                    response = await asyncio.to_thread(handler,
+                                                       llama=loaded.llama, **args)
+                else:
+                    response = await asyncio.to_thread(
+                        loaded.llama.create_chat_completion, **args)
                 for_more, chunk = await asyncio.to_thread(_next, response)
-        finally:
-            loaded.lock.release()
+                while for_more:
+                    text = _stream_content(chunk)
+                    if text:
+                        yield text
+                    for_more, chunk = await asyncio.to_thread(_next, response)
+            finally:
+                loaded.lock.release()
 
 
 class GGUFUtilityModel:
@@ -695,29 +698,30 @@ class GGUFUtilityModel:
         return text
 
     async def complete_detailed(self, messages: list[dict], **params) -> tuple[str, dict]:
-        if not self.thinking:
-            messages = _without_thinking(messages)
-        loaded = await _acquire_current(self)
+        async with inference_admission():
+            if not self.thinking:
+                messages = _without_thinking(messages)
+            loaded = await _acquire_current(self)
 
-        def run():
-            return loaded.llama.create_chat_completion(
-                messages=messages, temperature=params.get("temperature", 0.2),
-                max_tokens=params.get("max_tokens", self.max_tokens), stream=False)
+            def run():
+                return loaded.llama.create_chat_completion(
+                    messages=messages, temperature=params.get("temperature", 0.2),
+                    max_tokens=params.get("max_tokens", self.max_tokens), stream=False)
 
-        try:
-            response = await asyncio.to_thread(run)
-        finally:
-            loaded.lock.release()
-        choices = response.get("choices") or []
-        message = choices[0].get("message") if choices else {}
-        usage = response.get("usage") or {}
-        return ((message or {}).get("content") or "", {
-            "finish_reason": (choices[0].get("finish_reason") if choices else "") or "",
-            "prompt_tokens": usage.get("prompt_tokens", 0) or 0,
-            "completion_tokens": usage.get("completion_tokens", 0) or 0,
-            "total_tokens": usage.get("total_tokens", 0) or 0,
-            "reasoning_tokens": 0,
-        })
+            try:
+                response = await asyncio.to_thread(run)
+            finally:
+                loaded.lock.release()
+            choices = response.get("choices") or []
+            message = choices[0].get("message") if choices else {}
+            usage = response.get("usage") or {}
+            return ((message or {}).get("content") or "", {
+                "finish_reason": (choices[0].get("finish_reason") if choices else "") or "",
+                "prompt_tokens": usage.get("prompt_tokens", 0) or 0,
+                "completion_tokens": usage.get("completion_tokens", 0) or 0,
+                "total_tokens": usage.get("total_tokens", 0) or 0,
+                "reasoning_tokens": 0,
+            })
 
 
 if __name__ == "__main__":

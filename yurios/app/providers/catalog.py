@@ -45,11 +45,15 @@ async def provider_models(cfg, provider: str) -> dict[str, Any]:
     try:
         if provider in ("lmstudio", "lm_studio"):
             base = cfg.lmstudio_base_url.rstrip("/")
-            data = await _fetch_json(f"{base}/models")
+            headers = ({"Authorization": f"Bearer {cfg.connection_api_key}"}
+                       if cfg.connection_api_key else None)
+            data = await _fetch_json(f"{base}/models", headers)
             ids = [item.get("id", "") for item in data.get("data", [])]
         elif provider == "ollama":
             base = cfg.ollama_base_url.rstrip("/")
-            data = await _fetch_json(f"{base}/api/tags")
+            headers = ({"Authorization": f"Bearer {cfg.connection_api_key}"}
+                       if cfg.connection_api_key else None)
+            data = await _fetch_json(f"{base}/api/tags", headers)
             ids = [item.get("name", "") for item in data.get("models", [])]
         elif provider == "openrouter":
             headers = ({"Authorization": f"Bearer {cfg.openrouter_api_key}"}

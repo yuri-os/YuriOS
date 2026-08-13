@@ -197,6 +197,11 @@ h1, h2, p { margin-top: 0; }
 .loop-stack { display: flex; flex-wrap: wrap; gap: 7px 12px; }
 .loop-stack .loop-label { font-size: 8px; }
 .loop-control input:disabled + .switch { opacity: .45; }
+/* A switch the node has taken out of circuit (NOTIFY_ENABLED off). Still shows
+ * her stored answer — dimmed, with the reason on the title — rather than
+ * disappearing, because a control that vanishes reads as a bug. */
+.loop-control.is-inert { cursor: not-allowed; }
+.loop-control.is-inert .loop-label { opacity: .5; }
 .loop-label { display: grid; gap: 2px; color: var(--soft); font: 9px var(--font-mono); text-transform: uppercase; letter-spacing: .08em; }
 .loop-label small { color: var(--dim); font-size: 8px; text-transform: none; letter-spacing: 0; }
 .enter-character { height: 38px; display: inline-flex; align-items: center; gap: 6px; padding: 0 5px; color: var(--soft); font: 9px var(--font-mono); letter-spacing: .08em; text-transform: uppercase; }
@@ -397,6 +402,8 @@ h1, h2, p { margin-top: 0; }
 .loop-settings { display:flex; flex-wrap:wrap; gap:12px 22px; padding:14px; border:1px solid var(--rule); }
 .loop-settings legend { padding:0 6px; color:var(--dim); font:8px var(--font-mono); text-transform:uppercase; letter-spacing:.1em; }
 .loop-settings label { display:flex; align-items:center; gap:8px; color:var(--soft); }
+.loop-settings label.is-inert { opacity:.55; cursor:not-allowed; }
+.loop-settings .field-note { flex-basis:100%; margin:0; color:var(--dim); font-size:11px; line-height:1.5; }
 .archive-copy { color: var(--soft); font-size: 13px; line-height: 1.7; }
 .modal-danger { border-top-color: var(--red); }
 .modal-danger .eyebrow { color: var(--red); }

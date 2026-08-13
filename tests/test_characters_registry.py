@@ -148,3 +148,28 @@ def test_a_read_only_data_dir_keeps_her_loading(tmp_path):
         assert CharacterRegistry(root).require("adia").display.name == "Adia"
     finally:
         root.chmod(0o700)
+
+
+def test_a_record_written_before_the_doorbell_existed_still_loads(tmp_path):
+    """Every registry on disk predates `notify`. A missing binding is the
+    default (she may ring), not a refusal to load her."""
+    from yurios.characters.models import CharacterRecord, CharacterPaths, DisplayMetadata
+
+    paths = CharacterPaths.under(tmp_path / "characters" / "mia")
+    older = CharacterRecord(
+        id="mia", display=DisplayMetadata(name="Mia"), paths=paths,
+    ).to_dict(data_root=tmp_path)
+    older.pop("notify")
+
+    restored = CharacterRecord.from_dict(older, data_root=tmp_path)
+    assert restored.notify.enabled is True
+
+
+def test_her_doorbell_survives_a_round_trip(tmp_path):
+    from yurios.characters.models import CharacterRecord, CharacterPaths, DisplayMetadata
+
+    paths = CharacterPaths.under(tmp_path / "characters" / "mia")
+    her = CharacterRecord(id="mia", display=DisplayMetadata(name="Mia"), paths=paths)
+    her.notify.enabled = False
+    again = CharacterRecord.from_dict(her.to_dict(data_root=tmp_path), data_root=tmp_path)
+    assert again.notify.enabled is False

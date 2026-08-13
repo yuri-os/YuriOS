@@ -48,6 +48,20 @@ export function normalizeCharacter(raw, index = 0) {
       utility: boolean(loops.utility ?? true),
       dream: boolean(loops.dream ?? true),
     },
+    // Her doorbell (SPEC §18.4.6). `available` is the house switch
+    // (`NOTIFY_ENABLED`): when it is off, nobody's reach-out can reach a
+    // desktop, and the per-character toggle is shown but inert so the board
+    // never offers you a switch that quietly does nothing.
+    // Two shapes reach here: the board's `{enabled, available}`, and the bare
+    // boolean the settings form posts — which the optimistic re-normalise on
+    // save merges over `raw`, and which would otherwise read as "no answer"
+    // and snap the switch back on in front of someone who just turned it off.
+    notify: {
+      enabled: boolean(typeof source.notify === "boolean"
+        ? source.notify : source.notify?.enabled ?? true),
+      available: boolean(typeof source.notify === "boolean"
+        ? source.notify_available : source.notify?.available),
+    },
     // A card this node did not write arrives parked until someone reads it
     // through (SPEC §28) — no runtime behind any of her rooms until then.
     reviewRequired: boolean(source.review_required),

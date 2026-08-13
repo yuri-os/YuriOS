@@ -304,6 +304,11 @@ def config_for_character(base: Config, record: CharacterRecord,
         "mind_enabled": record.loops.mind,
         "utility_enabled": record.loops.utility,
         "dream_enabled": record.loops.dream,
+        # Two switches in series, not one overriding the other (SPEC §18.4.6).
+        # The house switch says whether anything on this machine may put a
+        # notification on your desktop; hers says whether she is one of the ones
+        # that may. A character can never talk her way past `NOTIFY_ENABLED`.
+        "notify_enabled": base.notify_enabled and record.notify.enabled,
     }
     env = _env_values(base, environ)       # read once; both resolutions want it
     (update["telegram_bot_token"], update["telegram_chat_id"],
@@ -347,8 +352,10 @@ _OPTION_KEYS = frozenset(
 def _construction_fingerprint(record: CharacterRecord) -> tuple:
     """What a runtime bakes in when it is built (SPEC §31.4).
 
-    Her name (it is the runtime's `companion_name`), her voice, her body, and the
-    two loops that are wired rather than switched. Everything else a profile save
+    Her name (it is the runtime's `companion_name`), her voice, her body, the
+    two loops that are wired rather than switched, and her doorbell — the
+    NotifyChannel is built once by the channel manager at start, so a change here
+    is invisible until she is rebuilt. Everything else a profile save
     can touch reaches her while she runs: her brain settings through `retune`,
     the mind switch through `set_mind_enabled`, and the card fields through the
     SOUL, which the brain re-reads on every turn (§5).
@@ -358,7 +365,7 @@ def _construction_fingerprint(record: CharacterRecord) -> tuple:
     same voice is not a reason to take her conversation down."""
     return (record.display.name, record.voice.tts_backend, record.voice.stt_backend,
             record.voice.voice_id, record.body.backend, record.body.model,
-            record.loops.utility, record.loops.dream)
+            record.loops.utility, record.loops.dream, record.notify.enabled)
 
 
 def brain_overrides(record: CharacterRecord) -> dict[str, Any]:
@@ -579,6 +586,12 @@ class CharacterHost:
             "loop_enabled": record.loops.mind and self.states.get(record.id) == "ready",
             "loops": {"mind": record.loops.mind, "utility": record.loops.utility,
                       "dream": record.loops.dream},
+            # Her doorbell (SPEC §18.4.6). `available` is the house switch, sent
+            # so the board can show the toggle as inert-with-a-reason instead of
+            # letting you flip something that cannot ring: a switch that silently
+            # does nothing is worse than one you can see is not connected.
+            "notify": {"enabled": record.notify.enabled,
+                       "available": self.base.notify_enabled},
             "model": record.models.chat or self.base.chat_model,
             "voice": record.voice.voice_id or record.voice.tts_backend or self.base.tts_backend,
             "connection_profile": record.connection.profile,
@@ -1255,6 +1268,11 @@ def create_host_app(base: Config, registry: CharacterRegistry | None = None) -> 
             "enabled": record.lifecycle.enabled, "review_required": record.lifecycle.review_required,
             "mind": record.loops.mind, "utility": record.loops.utility,
             "dream": record.loops.dream,
+            "notify": record.notify.enabled,
+            # The house switch, read-only here: the form shows her toggle as
+            # inert rather than pretending a character can turn on a doorbell
+            # this node has not installed.
+            "notify_available": base.notify_enabled,
             "personality": card.get("personality", ""),
             "scenario": card.get("scenario", ""),
             "first_mes": card.get("first_mes", ""),
@@ -1305,6 +1323,8 @@ def create_host_app(base: Config, registry: CharacterRegistry | None = None) -> 
         for key in ("mind", "utility", "dream"):
             if key in body:
                 setattr(record.loops, key, bool(body[key]))
+        if "notify" in body:
+            record.notify.enabled = bool(body["notify"])
         card_fields = {key: body[key] for key in (
             "name", "description", "personality", "scenario", "first_mes",
             "system_prompt", "post_history_instructions", "creator_notes")
@@ -1391,6 +1411,14 @@ def create_host_app(base: Config, registry: CharacterRegistry | None = None) -> 
                 value = bool(body[key])
                 restart = restart or (key != "mind" and value != getattr(record.loops, key))
                 setattr(record.loops, key, value)
+        # Her doorbell rides the same endpoint as the loop switches because it is
+        # the same kind of thing to the person flipping it. It restarts her for
+        # the same reason `utility`/`dream` do: the NotifyChannel is built once,
+        # when the channel manager starts, so nothing else picks this up.
+        if "notify" in body:
+            value = bool(body["notify"])
+            restart = restart or value != record.notify.enabled
+            record.notify.enabled = value
         registry.upsert(record)
         if restart and host.runtime(character_id):
             await host.restart(character_id)

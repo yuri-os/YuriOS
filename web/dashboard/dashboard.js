@@ -159,16 +159,29 @@ function characterCard(character) {
     element("span", { className: "card-id", text: `ID / ${character.id}` }),
     element("p", { className: "card-description", text: character.description }));
 
-  const loopLabel = (key, label) => {
-    const toggle = element("input", {
-      attrs: { type: "checkbox", "data-action": "control", "data-control": key,
-        "aria-label": `Toggle ${character.name}'s ${label}` },
-    });
-    toggle.checked = character.loops[key];
-    return element("label", { className: "loop-control" }, toggle,
+  const switchLabel = (key, label, checked, { disabled = false, title = "" } = {}) => {
+    const attrs = { type: "checkbox", "data-action": "control", "data-control": key,
+      "aria-label": `Toggle ${character.name}'s ${label}` };
+    if (disabled) attrs.disabled = "";
+    const toggle = element("input", { attrs });
+    toggle.checked = checked;
+    const wrap = element("label", { className: "loop-control" }, toggle,
       element("span", { className: "switch", attrs: { "aria-hidden": "true" } }),
       element("span", { className: "loop-label" }, document.createTextNode(label)));
+    if (title) wrap.title = title;
+    if (disabled) wrap.classList.add("is-inert");
+    return wrap;
   };
+  const loopLabel = (key, label) =>
+    switchLabel(key, label, character.loops[key]);
+  // Off here does not silence her — she still reaches out, it is still filed in
+  // her inbox and still badges this tile. It only withholds the desktop push.
+  const notifyLabel = () => switchLabel("notify", "Notify", character.notify.enabled, {
+    disabled: !character.notify.available,
+    title: character.notify.available
+      ? `Let ${character.name}'s reach-outs raise a desktop notification. Her inbox fills either way.`
+      : "Notifications are off for this node — set NOTIFY_ENABLED=true in .env to use this.",
+  });
   const details = element("button", {
     className: "open-detail",
     attrs: { type: "button", "data-action": "details", "aria-label": `Inspect ${character.name}`, title: "Inspect details" },
@@ -195,7 +208,8 @@ function characterCard(character) {
     way("text", "Text only", rooms(character).text),
     debug);
   const controls = element("div", { className: "loop-stack" },
-    loopLabel("mind", "Mind"), loopLabel("utility", "Utility"), loopLabel("dream", "Dream"));
+    loopLabel("mind", "Mind"), loopLabel("utility", "Utility"), loopLabel("dream", "Dream"),
+    notifyLabel());
   const footer = element("div", { className: "card-footer" }, controls, ways, details);
   card.append(top, body, footer);
   return card;
@@ -255,8 +269,13 @@ async function setLoop(id, key, enabled, input) {
   const character = state.characters.find((item) => item.id === id);
   if (!character) return;
   input.disabled = true;
-  character.loops[key] = enabled;
-  if (key === "mind") character.loopEnabled = enabled;
+  // `notify` is not a loop and does not live in the same bag on the record.
+  const set = (value) => {
+    if (key === "notify") character.notify.enabled = value;
+    else character.loops[key] = value;
+    if (key === "mind") character.loopEnabled = value;
+  };
+  set(enabled);
   renderCharacters();
   const renderedInput = $(`[data-character-id="${CSS.escape(id)}"] [data-control="${key}"]`, elements.grid);
   if (renderedInput) renderedInput.disabled = true;
@@ -266,11 +285,15 @@ async function setLoop(id, key, enabled, input) {
       : await charactersApi.setControls(id, { [key]: enabled });
     const updated = normalizeCharacter(payload?.character ?? payload);
     if (updated?.id === id) Object.assign(character, updated);
-    toast(`${character.name}'s ${key} work ${enabled ? "enabled" : "disabled"}.`);
+    toast(key === "notify"
+      ? (enabled
+        ? `${character.name} can raise a desktop notification when she reaches out.`
+        : `${character.name} will reach out to her inbox only — no desktop notification.`)
+      : `${character.name}'s ${key} work ${enabled ? "enabled" : "disabled"}.`);
   } catch (error) {
-    character.loops[key] = !enabled;
-    if (key === "mind") character.loopEnabled = !enabled;
-    toast(`Loop change failed: ${errorMessage(error)}`, "error");
+    set(!enabled);
+    toast(`${key === "notify" ? "Notification" : "Loop"} change failed: `
+      + `${errorMessage(error)}`, "error");
   }
   renderCharacters();
   syncDrawer();
@@ -604,13 +627,28 @@ function settingsValues() {
   // unchecked box entirely, so unticking one would look like no change at all.
   return {
     ...Object.fromEntries(new FormData(form).entries()),
-    ...Object.fromEntries(["mind", "utility", "dream"].map(
+    ...Object.fromEntries(["mind", "utility", "dream", "notify"].map(
       (key) => [key, form.elements[key].checked])),
   };
 }
 
 function snapshotSettings() {
   settingsBaseline = settingsValues();
+}
+
+/* The doorbell needs a house switch as well as hers (SPEC §18.4.6), and a
+ * checkbox that saves fine but can never ring is the kind of control that
+ * teaches people not to trust the panel. When `NOTIFY_ENABLED` is off the field
+ * still shows her stored answer — it is real, and it takes effect the moment the
+ * node's switch goes on — but it says so instead of looking live. */
+function setNotifyAvailability(form, available) {
+  const field = form.elements.notify.closest("label");
+  form.elements.notify.disabled = !available;
+  if (field) {
+    field.classList.toggle("is-inert", !available);
+    field.title = available ? ""
+      : "Notifications are off for this node — set NOTIFY_ENABLED=true in .env.";
+  }
 }
 
 async function openSettings() {
@@ -627,6 +665,10 @@ async function openSettings() {
   form.elements.body_model.value = character.raw?.body_model || "";
   for (const name of ["personality", "scenario", "first_mes"]) form.elements[name].value = "";
   for (const key of ["mind", "utility", "dream"]) form.elements[key].checked = character.loops[key];
+  // `notify` is not one of the loops — see NotifyBinding. The house switch can
+  // leave it inert, so the reason is on the field rather than left to be guessed.
+  form.elements.notify.checked = character.notify.enabled;
+  setNotifyAvailability(form, character.notify.available);
   $("#settings-error").textContent = "";
   brainState.confirmSwitch = false;
   snapshotSettings();
@@ -647,8 +689,11 @@ async function openSettings() {
       "connection_profile", "personality", "scenario", "first_mes"]) {
       if (settings[name] != null) form.elements[name].value = settings[name];
     }
-    for (const key of ["mind", "utility", "dream"]) {
+    for (const key of ["mind", "utility", "dream", "notify"]) {
       if (settings[key] != null) form.elements[key].checked = Boolean(settings[key]);
+    }
+    if (settings.notify_available != null) {
+      setNotifyAvailability(form, Boolean(settings.notify_available));
     }
     snapshotSettings();          // the loaded record, not the registry summary
   } catch (error) {
@@ -662,7 +707,7 @@ async function submitSettings(event) {
   if (!character) return;
   const form = event.currentTarget;
   const payload = Object.fromEntries(new FormData(form).entries());
-  for (const key of ["mind", "utility", "dream"]) payload[key] = form.elements[key].checked;
+  for (const key of ["mind", "utility", "dream", "notify"]) payload[key] = form.elements[key].checked;
   const button = $("#settings-submit");
   const error = $("#settings-error");
   error.textContent = "";

@@ -872,3 +872,113 @@ def test_the_primary_answers_the_unprefixed_brain_route(tmp_path, monkeypatch):
         assert client.get("/api/brain").json()["character"] == "yuri"
         assert client.patch("/api/brain", json={"chat_model": "ollama/llama3"}
                             ).json()["effective"]["chat_model"] == "ollama/llama3"
+
+
+# --- the per-character doorbell (SPEC §18.4.6) --------------------------------
+
+
+def test_the_house_switch_and_hers_are_in_series(tmp_path):
+    """Two switches, both of which must be on.
+
+    The point of the house switch is that nothing on this machine can put a
+    notification on your desktop until you say so once. A per-character toggle
+    that could override it would make that promise conditional on every
+    character record in the registry, including imported ones.
+    """
+    her = record(tmp_path, "mia")
+
+    off = Config(data_dir=tmp_path, _env_file=None, notify_enabled=False)
+    her.notify.enabled = True
+    assert config_for_character(off, her, environ={}).notify_enabled is False
+
+    on = Config(data_dir=tmp_path, _env_file=None, notify_enabled=True)
+    assert config_for_character(on, her, environ={}).notify_enabled is True
+    her.notify.enabled = False
+    assert config_for_character(on, her, environ={}).notify_enabled is False
+
+
+def test_a_character_notifies_unless_told_otherwise(tmp_path):
+    """On by default, because the house switch is the opt-in. Two stacked
+    opt-ins would leave a new character silent after you enabled notifications,
+    with nothing on screen to say why."""
+    assert record(tmp_path, "mia").notify.enabled is True
+
+
+def test_muting_her_doorbell_rebuilds_her(tmp_path):
+    """The NotifyChannel is built once, by the channel manager at start — a
+    change the runtime cannot see is a switch that does nothing until reboot."""
+    from yurios.world.host import _construction_fingerprint
+
+    her = record(tmp_path, "mia")
+    before = _construction_fingerprint(her)
+    her.notify.enabled = False
+    assert _construction_fingerprint(her) != before
+
+
+def test_muting_her_does_not_stop_her_reaching_out(tmp_path):
+    """Off is *delivery* off, not her. The mind loop is untouched, so she still
+    decides, still spends the Gate 2 interrupt, and still fills her inbox."""
+    her = record(tmp_path, "mia")
+    her.notify.enabled = False
+    cfg = config_for_character(
+        Config(data_dir=tmp_path, _env_file=None, notify_enabled=True),
+        her, environ={})
+    assert cfg.notify_enabled is False
+    assert cfg.mind_enabled is True
+
+
+def test_the_switchboard_can_mute_one_character(tmp_path, monkeypatch):
+    """The gap this closes: notifications were a single `.env` flag, so the only
+    answer to "which of them may ring?" was "all of them or none"."""
+    registry = CharacterRegistry(tmp_path)
+    registry.add(record(tmp_path, "yuri"))
+    registry.add(record(tmp_path, "mika"))
+    monkeypatch.setattr("yurios.world.host.create_app", fake_character_app)
+    app = create_host_app(
+        Config(data_dir=tmp_path, _env_file=None, notify_enabled=True), registry)
+
+    with TestClient(app) as client:
+        board = {row["id"]: row for row in client.get("/api/characters").json()["characters"]}
+        assert board["yuri"]["notify"] == {"enabled": True, "available": True}
+
+        muted = client.patch("/api/characters/mika/controls", json={"notify": False})
+        assert muted.status_code == 200
+        assert muted.json()["character"]["notify"]["enabled"] is False
+
+        board = {row["id"]: row for row in client.get("/api/characters").json()["characters"]}
+        assert board["yuri"]["notify"]["enabled"] is True      # untouched
+        assert board["mika"]["notify"]["enabled"] is False
+
+    # …and it survives the process, because it is on her record, not in memory.
+    assert CharacterRegistry(tmp_path).require("mika").notify.enabled is False
+
+
+def test_the_board_says_when_the_house_switch_is_off(tmp_path, monkeypatch):
+    """`available` is what stops the toggle being a lie: with NOTIFY_ENABLED off
+    the switch saves fine and can never ring, and the panel has to be able to
+    say so rather than leaving you to wonder why nothing arrives."""
+    registry = CharacterRegistry(tmp_path)
+    registry.add(record(tmp_path, "yuri"))
+    monkeypatch.setattr("yurios.world.host.create_app", fake_character_app)
+    app = create_host_app(
+        Config(data_dir=tmp_path, _env_file=None, notify_enabled=False), registry)
+
+    with TestClient(app) as client:
+        (row,) = client.get("/api/characters").json()["characters"]
+        assert row["notify"] == {"enabled": True, "available": False}
+        settings = client.get("/api/characters/yuri/profile").json()["settings"]
+        assert (settings["notify"], settings["notify_available"]) == (True, False)
+
+
+def test_the_profile_form_saves_her_doorbell(tmp_path, monkeypatch):
+    registry = CharacterRegistry(tmp_path)
+    registry.add(record(tmp_path, "yuri"))
+    monkeypatch.setattr("yurios.world.host.create_app", fake_character_app)
+    app = create_host_app(
+        Config(data_dir=tmp_path, _env_file=None, notify_enabled=True), registry)
+
+    with TestClient(app) as client:
+        saved = client.patch("/api/characters/yuri/profile", json={"notify": False})
+        assert saved.status_code == 200
+        assert saved.json()["character"]["notify"]["enabled"] is False
+        assert client.get("/api/characters/yuri/profile").json()["settings"]["notify"] is False

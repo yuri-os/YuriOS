@@ -1107,6 +1107,18 @@ arrives.
   would also make the room look occupied to the idle machine's reflexes). It **MUST** 404 when the
   channel is off, so a shell stops asking instead of reconnecting into a stream that will never
   carry anything.
+- §18.4.6 **Who may ring is per character.** `NOTIFY_ENABLED` is the house switch — whether anything
+  on this machine may raise a desktop notification at all — and `notify.enabled` on the character
+  record says whether *she* is one of the ones that may. The two are **in series**: a character
+  record MUST NOT be able to override the house switch, or the node-wide promise would be
+  conditional on every record in the registry, imported cards included. Hers defaults to **on**,
+  because the house switch is already the opt-in and two stacked opt-ins would leave a new character
+  silent after you turned notifications on, with nothing on screen to say why. Muting her is
+  *delivery* off, not her: she still reaches out, still spends the Gate 2 interrupt, still fills her
+  inbox and still badges her tile (§32.5). It is settable per character from the switchboard, which
+  **MUST** show the toggle as inert-with-a-reason when the house switch is off rather than offering
+  a control that saves and can never ring. It is part of the construction fingerprint (§31.4): the
+  channel is built once at start, so a change rebuilds her.
 
 ## §19 — The world model (the present tense)
 

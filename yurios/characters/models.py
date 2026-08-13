@@ -78,6 +78,26 @@ class LoopSwitches:
 
 
 @dataclass(slots=True)
+class NotifyBinding:
+    """Whether *this* character's reach-outs are allowed to ring the doorbell
+    (SPEC §18.4.6).
+
+    Not a loop switch, which is why it is not in `LoopSwitches`: turning this off
+    does not stop her reaching out. She still decides to, Gate 2 still spends the
+    interrupt, the line is still filed in her inbox and still badges her tile.
+    All this withholds is the push to your desktop — the difference between a
+    housemate who knocks and one who leaves a note.
+
+    Defaults to on because the house switch (`NOTIFY_ENABLED`) is off, and two
+    stacked opt-ins would mean a fresh character stays silent after you turned
+    notifications on and never told you why. The house decides *whether*
+    anyone may ring; this decides *who*.
+    """
+    enabled: bool = True
+    options: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
 class ConnectionBinding:
     profile: str = "default"
     options: dict[str, Any] = field(default_factory=dict)
@@ -157,6 +177,7 @@ class CharacterRecord:
     paths: CharacterPaths
     lifecycle: LifecycleFlags = field(default_factory=LifecycleFlags)
     loops: LoopSwitches = field(default_factory=LoopSwitches)
+    notify: NotifyBinding = field(default_factory=NotifyBinding)
     connection: ConnectionBinding = field(default_factory=ConnectionBinding)
     models: ModelBinding = field(default_factory=ModelBinding)
     voice: VoiceBinding = field(default_factory=VoiceBinding)
@@ -228,6 +249,8 @@ class CharacterRecord:
                 paths=CharacterPaths(**paths),
                 lifecycle=LifecycleFlags(**dict(value.get("lifecycle", {}))),
                 loops=LoopSwitches(**dict(value.get("loops", {}))),
+                notify=NotifyBinding(
+                    **_binding_data(NotifyBinding, value.get("notify", {}), dropped)),
                 connection=ConnectionBinding(
                     **_binding_data(ConnectionBinding, value.get("connection", {}),
                                     dropped)

@@ -12,6 +12,7 @@
 
 - `yurios` is the console entry point and defaults to starting the daemon. Invoke it from the project root: it treats the current directory as the installation and reads its `.env`, `.yurios/`, and `.venv`.
 - Use `yurios start --foreground` for attached server logs; `yurios status`, `stop`, `restart`, and `log` manage the background daemon. `yurios configure` saves the house model choice to `.env`; restart before the daemon uses it.
+- `yurios start` launches the supervisor (`yurios/daemon.py`), which owns `.yurios/yurios.pid` as a held lock, restarts the server when it dies (with backoff and a crash-loop stop), and records `.yurios/last-exit.json`. Treat the lock as the only answer to "is she running" — never a bare pid check.
 - `python -m yurios.world` is the server entry point. Normal startup migrates legacy single-character state into `DATA_DIR` before creating the character host.
 - The `.env` house configuration is read at boot. Per-character model and loop overrides live in `DATA_DIR/characters.json` and may be applied live by the host; do not conflate those two configuration paths.
 - `.env`, `.yurios/`, `data/`, `vault/`, `models/`, `traces/`, `corpus/`, `tool-logs/`, and Vite output are ignored personal/generated state. Do not add them to commits or use them as fixtures.

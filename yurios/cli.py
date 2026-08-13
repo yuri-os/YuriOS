@@ -12,6 +12,7 @@ from pathlib import Path
 
 import httpx
 
+from yurios import daemon
 from yurios.models import (DEFAULT_HUGGINGFACE_MODEL, NONE, RECOMMENDED_MODELS,
                             download_gguf, gguf_connection_defaults,
                             huggingface_gguf_model, is_configured, normalize_model,
@@ -25,7 +26,10 @@ _PROVIDER_PREFIXES = {
 }
 _SELFIE_BACKENDS = ("openrouter", "diffusers", "off")
 _START_TIMEOUT_SECONDS = 180.0
-_STOP_TIMEOUT_SECONDS = 10.0
+# Longer than the supervisor's own grace period for the server (daemon.py), so
+# `yurios stop` never gives up while she is still being put down properly.
+_STOP_TIMEOUT_SECONDS = 25.0
+_LOG_TAIL_LINES = 200
 _POLL_INTERVAL_SECONDS = 0.25
 
 
@@ -38,23 +42,16 @@ def _env_path(root: Path) -> Path:
 
 
 def _pid_path(root: Path) -> Path:
-    return root / ".yurios" / "yurios.pid"
+    return daemon.pid_path(root)
 
 
 def _read_pid(path: Path) -> int | None:
-    try:
-        pid = int(path.read_text(encoding="utf-8").strip())
-        return pid if _process_is_running(pid) else None
-    except (OSError, ValueError):
-        return None
+    """The pid of the daemon that *holds* this runtime, or None.
 
-
-def _process_is_running(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-    except OSError:
-        return False
-    return True
+    Not "does this number name a live process": pids get recycled, and the last
+    thing `yurios stop` should do is send SIGTERM to whatever inherited hers.
+    """
+    return daemon.running_pid(path)
 
 
 def _health_url(cfg: Config) -> str:
@@ -78,25 +75,35 @@ def _wait_for_ready(cfg: Config, *, proc: subprocess.Popen | None = None) -> str
     """Return an error when the server fails to become healthy before the deadline."""
     deadline = time.monotonic() + _START_TIMEOUT_SECONDS
     while time.monotonic() < deadline:
-        if proc is not None and proc.poll() is not None:
-            return f"daemon exited with status {proc.returncode}"
+        gone = proc is not None and proc.poll() is not None
         try:
             response = httpx.get(_health_url(cfg), timeout=1.0,
                                  headers=_owner_headers(cfg))
             response.raise_for_status()
             return None
         except httpx.HTTPError:
+            # A supervisor that exits because another one already holds the
+            # runtime (two `yurios start`s racing) is not a failed start — but
+            # only the health check can tell that from a daemon that died.
+            if gone:
+                return f"daemon exited with status {proc.returncode}"
             time.sleep(_POLL_INTERVAL_SECONDS)
     return f"timed out after {_START_TIMEOUT_SECONDS:.0f} seconds"
 
 
-def _wait_for_exit(pid: int) -> bool:
+def _wait_for_exit(path: Path) -> bool:
+    """Wait for the runtime lock to come free — the daemon really being gone,
+    rather than a pid that stopped answering."""
     deadline = time.monotonic() + _STOP_TIMEOUT_SECONDS
     while time.monotonic() < deadline:
-        if not _process_is_running(pid):
+        if _gone(path):
             return True
         time.sleep(_POLL_INTERVAL_SECONDS)
-    return not _process_is_running(pid)
+    return _gone(path)
+
+
+def _gone(path: Path) -> bool:
+    return _read_pid(path) is None and daemon.unlocked_pid(path) is None
 
 
 def _wait_for_shutdown(cfg: Config) -> bool:
@@ -546,9 +553,14 @@ def command_status(args) -> int:
             raise ValueError("health endpoint did not return an object")
     except (httpx.HTTPError, ValueError):
         print("YuriOS status")
-        _status_row("Daemon", "stopped")
+        _status_row("Daemon", "running (not answering)" if pid else "stopped")
         _status_row("Address", f"http://{cfg.host}:{cfg.port}")
         _status_row("Model", f"configured: {cfg.chat_model}")
+        # "She's not running" is only half an answer; the supervisor wrote the
+        # other half when she went down.
+        summary = daemon.exit_summary(daemon.last_exit(root))
+        if summary:
+            _status_row("Last exit", summary)
         return 1
     try:
         characters_response = httpx.get(_characters_url(cfg), timeout=2.0,
@@ -561,6 +573,14 @@ def command_status(args) -> int:
     print("YuriOS status")
     _status_row("Daemon", "running" + (f" (pid {pid})" if pid else ""))
     _status_row("Address", f"http://{cfg.host}:{cfg.port}")
+    degraded = status.get("degraded")
+    if isinstance(degraded, list) and degraded:
+        # She answers, so the daemon is "running" — the endpoint is where the
+        # difference between up and working lives (§3's honesty rule).
+        _status_row("Health", "degraded: " + "; ".join(str(item) for item in degraded))
+    crash = daemon.last_exit(root)
+    if crash and not crash.get("requested"):
+        _status_row("Restarted", f"after {daemon.exit_summary(crash)}")
     if characters is None:
         _status_row("Primary", status.get("character") or "unknown")
         for row in _runtime_rows(status, indent="  ", configured_model=cfg.chat_model):
@@ -602,13 +622,43 @@ def command_status(args) -> int:
 
 
 def command_log(args) -> int:
-    log_path = _pid_path(_root()).parent / "yurios.log"
+    """The end of the daemon log — it grows for the life of an installation, so
+    the default reads the last screenful rather than loading all of it."""
+    root = _root()
+    log_path = daemon.log_path(root)
+    lines = getattr(args, "lines", _LOG_TAIL_LINES)
+    follow = getattr(args, "follow", False)
     try:
-        sys.stdout.write(log_path.read_text(encoding="utf-8"))
+        sys.stdout.write(log_path.read_text(encoding="utf-8") if getattr(args, "all", False)
+                         else daemon.tail(log_path, lines))
     except FileNotFoundError:
         print(f"No YuriOS log found at {log_path}.", file=sys.stderr)
         return 1
-    return 0
+    if not follow:
+        return 0
+    sys.stdout.flush()
+    return _follow_log(log_path)
+
+
+def _follow_log(log_path: Path) -> int:
+    """Print new lines as they land, until Ctrl+C. The supervisor appends to
+    this same path across restarts, so a crash and its recovery both arrive
+    here without reopening anything."""
+    try:
+        with log_path.open("r", encoding="utf-8", errors="replace") as fh:
+            fh.seek(0, os.SEEK_END)
+            while True:
+                chunk = fh.read()
+                if chunk:
+                    sys.stdout.write(chunk)
+                    sys.stdout.flush()
+                else:
+                    time.sleep(_POLL_INTERVAL_SECONDS)
+    except KeyboardInterrupt:
+        return 0
+    except OSError as exc:
+        print(f"Stopped following {log_path}: {exc}", file=sys.stderr)
+        return 1
 
 
 def command_doctor(args) -> int:
@@ -724,40 +774,66 @@ def command_start(args) -> int:
     if args.foreground:
         from yurios.world.__main__ import main
 
-        main([])
+        # The attached run takes the same runtime lock as the daemon: one
+        # installation is one server, however it was started.
+        lock = daemon.acquire(root)
+        if lock is None:
+            print(f"YuriOS is already running (pid {_read_pid(pid_path)}).", file=sys.stderr)
+            return 1
+        try:
+            main([])
+        finally:
+            lock.release()
         return 0
-    pid_path.parent.mkdir(parents=True, exist_ok=True)
-    log_path = pid_path.parent / "yurios.log"
-    with log_path.open("a", encoding="utf-8") as log:
-        proc = subprocess.Popen([sys.executable, "-m", "yurios.world"], cwd=root,
-                                stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT,
-                                 start_new_session=True)
-    pid_path.write_text(f"{proc.pid}\n", encoding="utf-8")
+    log_path = daemon.log_path(root)
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    # What's launched is the supervisor (yurios/daemon.py), not the server: it
+    # owns the pid file, puts her back up when she dies, and leaves the reason
+    # on disk when she stays down.
+    proc = subprocess.Popen([sys.executable, "-m", "yurios.daemon", "--root", str(root)],
+                            cwd=root, stdin=subprocess.DEVNULL,
+                            stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT,
+                            start_new_session=True)
     failure = _wait_for_ready(cfg, proc=proc)
     if failure:
         if proc.poll() is None:
             proc.terminate()
-        pid_path.unlink(missing_ok=True)
         print(f"YuriOS failed to start: {failure}. See {log_path}", file=sys.stderr)
+        summary = daemon.exit_summary(daemon.last_exit(root))
+        if summary:
+            print(f"Last exit: {summary}", file=sys.stderr)
         return 1
-    print(f"YuriOS started and is ready (pid {proc.pid}).")
+    # The pid that matters is whoever ended up holding the runtime, which is not
+    # this supervisor if another start won the race.
+    print(f"YuriOS started and is ready (pid {_read_pid(pid_path) or proc.pid}).")
     print(f"Open http://{cfg.host}:{cfg.port}")
     return 0
 
 
 def command_stop(args) -> int:
-    path = _pid_path(_root())
+    root = _root()
+    path = _pid_path(root)
     pid = _read_pid(path)
+    # A daemon started before the runtime lock existed (upgrade in place) holds
+    # nothing; it is still hers to stop, once its command line proves it is.
+    legacy = daemon.unlocked_pid(path) if not pid else None
+    pid = pid or legacy
     if not pid:
+        # Nothing holds the lock, so an abandoned pid file names nobody.
         path.unlink(missing_ok=True)
         print("YuriOS is not running.")
         return 0
-    os.kill(pid, signal.SIGTERM)
-    if not _wait_for_exit(pid):
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except OSError as exc:
+        print(f"Could not signal YuriOS (pid {pid}): {exc}", file=sys.stderr)
+        return 1
+    if not _wait_for_exit(path):
         print(f"YuriOS did not stop within {_STOP_TIMEOUT_SECONDS:.0f} seconds (pid {pid}).",
               file=sys.stderr)
         return 1
-    path.unlink(missing_ok=True)
+    if legacy:
+        path.unlink(missing_ok=True)       # nobody was holding it to clean it up
     print(f"Stopped YuriOS (pid {pid}).")
     return 0
 
@@ -792,7 +868,12 @@ def main(argv: list[str] | None = None) -> int:
     download.set_defaults(func=command_download)
     status = sub.add_parser("status", help="show daemon and model status")
     status.set_defaults(func=command_status)
-    log = sub.add_parser("log", help="print the daemon log")
+    log = sub.add_parser("log", help="print the end of the daemon log")
+    log.add_argument("-n", "--lines", type=int, default=_LOG_TAIL_LINES,
+                     help=f"how many trailing lines to print (default {_LOG_TAIL_LINES})")
+    log.add_argument("--all", action="store_true", help="print the whole log")
+    log.add_argument("-f", "--follow", action="store_true",
+                     help="keep printing new lines until Ctrl+C")
     log.set_defaults(func=command_log)
     doctor = sub.add_parser("doctor", help="check configured backends and dependencies")
     doctor.set_defaults(func=command_doctor)

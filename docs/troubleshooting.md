@@ -10,7 +10,28 @@ curl localhost:8768/api/health     # what's actually running right now
 The doctor reads the same `.env` the server reads, checks each selected backend against what's
 importable, and prints the exact install command for anything missing — plus the `.env` change
 that avoids the download altogether where one exists. `/api/health` reports the live truth:
-voice, tools, mind, selfies, channels, viewers and context.
+voice, tools, mind, selfies, channels, viewers and context. Its `ok` is up **and** working —
+`false` with a `degraded` list naming what's wrong (no model chosen, a channel or tool server that
+failed) rather than a flat `true` for anything that answers at all.
+
+## She stopped, or keeps restarting
+
+`yurios start` runs a supervisor, not just the server: if she dies — a segfault, an OOM kill, a
+provider that took the process down — it puts her back up with a widening delay, and writes what
+happened to `.yurios/last-exit.json`.
+
+```bash
+yurios status                      # "Last exit" when she's down; "Restarted after" when she came back
+yurios log -n 200                  # the end of the log (default); --all for all of it, -f to follow
+```
+
+After six starts in a row that die within 30 seconds, the supervisor stops trying and leaves the
+reason on disk — a configuration that can never boot is not fixed by restarting it. Read
+`yurios log`, fix the cause, `yurios start`.
+
+The pid file is *held* (an exclusive lock) for as long as she runs, so a stale `.yurios/yurios.pid`
+never blocks a start, `yurios stop` can't signal a process that merely inherited her old pid, and
+two `yurios start`s race to one daemon rather than two servers on one port.
 
 ## She won't start
 

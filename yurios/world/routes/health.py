@@ -11,11 +11,36 @@ from fastapi import APIRouter, Request
 router = APIRouter()
 
 
+def _degradations(rt) -> list[str]:
+    """What is wrong with her right now, in the order a person would want it.
+
+    `ok` used to be the literal `True` — it said the route was mounted, which
+    the 200 already said. A companion with no model, or with her channels dead,
+    is up and not working, and the endpoint that exists to answer "why is she
+    silent?" has to be the one that admits it. Fallbacks (fake voice, mock
+    selfies) are not degradations: those are working, in the degraded-but-alive
+    way §3 asks for, and they already report themselves by name below.
+    """
+    out: list[str] = []
+    if not rt.model_configured:
+        out.append("no language model configured")
+    for label, status in (("channels", rt.channels_status), ("tools", rt.tools_status),
+                          ("mind", rt.mind_status), ("web", rt.research_status),
+                          ("selfies", rt.selfies_status)):
+        text = str(status or "")
+        if "failed" in text:
+            out.append(f"{label}: {text}")
+    return out
+
+
 @router.get("/api/health")
 async def health(request: Request) -> dict:
     rt = request.app.state.rt
+    degraded = _degradations(rt)
     return {
-        "ok": True,
+        # up AND working, not merely reachable — `degraded` names the difference
+        "ok": not degraded,
+        "degraded": degraded,
         "character": rt.cfg.companion_name,
         # Which brain she is speaking through *right now*: a character may run on
         # her own model rather than the one in .env, and that can be changed

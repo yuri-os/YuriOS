@@ -875,6 +875,38 @@ Planned on the same contract, not yet implemented: **WhatsApp** (webhook transpo
 with scene context, `message` events out as dialogue, the same `avatar`/expression events as
 animation cues — a game is another frontend + effector set, never a second brain).
 
+### §10.6 — The process that holds her
+
+**Always-on is a property of the process, not an intention.** One installation is one server,
+however it was started, and what it claims lives in `.yurios/` (`yurios/daemon.py`).
+
+- **The pid file is a lock, not a note.** The running process **MUST** hold an exclusive lock on
+  `.yurios/yurios.pid` for its whole life, and "is she running?" **MUST** be answered by who holds
+  that lock — never by whether the number in the file names a live process. Pids are recycled: a
+  bare existence check turns `yurios stop` into a signal aimed at a stranger and an abandoned file
+  into a permanent refusal to start. The kernel drops the lock however the process dies, so a crash
+  **MUST NOT** leave a runtime that merely looks occupied. The same lock is the **startup lock**:
+  concurrent starts (a shell, a login item, an impatient second hand) **MUST** end with one daemon
+  and an honest "already running", never two servers over one port, one Vault and one inbox
+  (§10.5). A daemon started before this contract **MAY** still be stopped, but only once its
+  command line proves it is hers.
+- **Something MUST put her back up.** `yurios start` runs a supervisor, not the server: when the
+  server exits without being asked to — a segfault, an OOM kill, a provider that took the process
+  with it — the supervisor **MUST** restart it with a widening delay, and **MUST** give up after a
+  bounded run of starts that die immediately. A configuration that can never boot is not repaired
+  by restarting it, and burning a machine on the attempt is worse than being down; a run that stays
+  up refills that budget. An attached run (`--foreground`) is the diagnostic path and is supervised
+  by the terminal instead.
+- **Every exit leaves a reason.** As she goes down, the exit code or signal, whether it was asked
+  for, and the tail of the log **MUST** be persisted (`.yurios/last-exit.json`), and `yurios status`
+  **MUST** surface it — "she isn't running" without why is half an answer, and the half nobody can
+  act on. Her log is append-only for the life of an installation, so the tools that read it
+  (`yurios log`) **MUST** read its end by default rather than all of it.
+- **`ok` means working, not reachable.** `/api/health`'s `ok` **MUST** be false, naming what is
+  wrong, when she is up and cannot do her job: no model configured, a channel/tool/mind seam that
+  failed to start. A seam that degraded to its fake (§3) is not a fault and **MUST NOT** read as
+  one — those already report themselves by name.
+
 ## §11 — Config
 
 Typed (`yurios/world/config.py`), read once from env/`.env`, extending the voice config (which
@@ -1317,6 +1349,14 @@ brain with fake models.
   string coerced or refused, an injected model left alone (`test_rewire.py`); and the migration — check/dry-run/run,
   the refusals of §33.3, legacy roots left untouched, the marker written last, and the default
   portrait installed exactly once (`test_migration.py`).
+- §27.4 **The process (§10.6).** The runtime lock as the only answer to "is she running" — a pid
+  file nobody holds naming nobody even when that number is a live process, `yurios stop` refusing
+  to signal the stranger who inherited it, a real holder found and the runtime freed when it dies,
+  and a second start refused; the supervisor restarting her and recording why, a crash loop stopping
+  after its budget and saying so, a run that stayed up refilling it; the exit record carrying the
+  end of the log and `yurios status` reading it back; `yurios log` tailing rather than loading the
+  file; and `/api/health` answering `ok: false` with the reasons named while a fallback still reads
+  as working (`test_daemon.py`).
 
 ## §28 — Extends to
 

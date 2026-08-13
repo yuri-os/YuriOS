@@ -26,7 +26,7 @@ dependencies = [
     "python-dotenv",          # …and the per-character keys it can't declare (§10.5)
     "pyyaml",                 # soul.yaml + .md frontmatter
     "numpy",                  # the flat vector index + audio frames
-    "httpx",                  # ollama embeddings, GPT-SoVITS client, Open-Meteo (§7.5)
+    "httpx",                  # ollama embeddings, GPT-SoVITS client, search + fetch (§7.7)
     "httpcore>=1,<2",         # public network backend used to pin validated fetch DNS
     # The hands (§7): real MCP server + client, in-repo. CAPPED, like litellm above,
     # and for a harder reason: mcp 2.0.0 renamed the module her server is built on.

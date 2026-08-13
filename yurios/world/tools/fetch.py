@@ -1,8 +1,8 @@
 """The page-fetch seam (SPEC §7.7) — read one URL, behind a Protocol, with a fake.
 
 This is the first hand whose *argument* comes from a language model rather than
-from a human, and that changes what the code has to be careful about. `city`
-being wrong gets you the weather in the wrong place. A `url` being wrong — or
+from a human, and that changes what the code has to be careful about. `minutes`
+being wrong gets you a timer at the wrong hour. A `url` being wrong — or
 being right in a way nobody intended — gets you an HTTP client inside the
 trust boundary, pointed at whatever else is listening on this machine: her own
 API on 8768 (which hands out the settings panel's keys), the SearXNG instance

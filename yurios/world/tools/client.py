@@ -169,7 +169,7 @@ class McpToolRunner:
         from mcp.client.stdio import get_default_environment, stdio_client
 
         # the SDK spawns with a sanitized default env — config vars for the
-        # server (WEATHER_*, TIMER_*) must be passed explicitly, merged on top
+        # server (TIMER_*, SEARCH_*) must be passed explicitly, merged on top
         env = {**get_default_environment(), **(self.env or {})}
         params = StdioServerParameters(command=self.command[0],
                                        args=self.command[1:], env=env)
@@ -253,7 +253,7 @@ class MultiToolRunner:
     * **A server that won't start is skipped, not fatal.** Runtime.start_async
       already degrades the *whole* runner to hand-less rather than crashing the
       boot; doing anything less granular here would mean a typo in a
-      third-party entry costs her the timers and the weather too.
+      third-party entry costs her the timers and the camera too.
     * **On a name collision the first server wins.** Names stay unprefixed
       because the model reads them, the audit log records them and
       `ToolBrain._realise` dispatches on them — a `fetch__read_page` would be

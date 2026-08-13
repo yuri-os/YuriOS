@@ -1,10 +1,10 @@
 """The search seam (SPEC §7.7) — a real lookup behind a Protocol, with a fake.
 
-SearXNG is the reference backend for the same reason Open-Meteo is the weather
-one, one step further: it needs no account *and* no third party. You run the
-instance, so the list of what she searched for is yours, sitting on your own
-machine — which is the whole argument of a local-first companion applied to the
-one capability that usually hands your curiosity to somebody else.
+SearXNG is the reference backend because it needs no account *and* no third
+party. You run the instance, so the list of what she searched for is yours,
+sitting on your own machine — which is the whole argument of a local-first
+companion applied to the one capability that usually hands your curiosity to
+somebody else.
 
 The cost of that choice is a setup step, and one specific trap: SearXNG ships
 with its JSON output format **disabled**. An instance that answers a browser
@@ -42,7 +42,7 @@ class SearxngProvider:
                  safesearch: int = 1, transport: httpx.AsyncBaseTransport | None = None,
                  timeout: float = 8.0):
         # `transport` is the test seam: httpx.MockTransport serves canned payloads
-        # so the parser is pinned without the network (SPEC §13) — weather.py's rule.
+        # so the parser is pinned without the network (SPEC §13) — fetch.py's rule.
         self.base_url = base_url.rstrip("/")
         self.language = language
         self.safesearch = safesearch

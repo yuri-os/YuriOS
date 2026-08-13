@@ -3,7 +3,8 @@
 `take_selfie` is the fourth hand, and it teaches the one tool pattern the other
 three couldn't: **a slow tool must not sit inside the turn.** A hosted render
 takes 10–30 s; parking the tool loop on it would mean dead air after her lead-in
-sentence and a per-call timeout tuned for weather lookups. So this follows the
+sentence, against a per-call timeout sized for hands that answer at once. So
+this follows the
 YuriOS `ExecEffector.spawn` rule — *ACT starts work; it never awaits it*:
 
     pass 1:   "hold on, let me take one~ [[take_selfie {"scene": "window"}]]"

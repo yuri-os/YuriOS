@@ -657,8 +657,8 @@ to every new subscriber before its first live event. Malformed JSON is logged an
   a capability — behind one `SEARCH_BACKEND` knob whose default is `off`.
 
   Search **MUST** sit behind a `SearchProvider` seam (`yurios/world/tools/search.py`) with an
-  offline fake, and the reference backend **MUST** be a **self-hosted SearXNG** instance. Where
-  Open-Meteo is chosen for needing no key, this is chosen for needing no third party: the record of
+  offline fake, and the reference backend **MUST** be a **self-hosted SearXNG** instance. It is
+  chosen for needing no key *and* no third party: the record of
   what she searched for is a file on the user's own machine. The instance's JSON format is disabled
   in stock SearXNG, and the resulting 403 **MUST** be reported as that rather than as an HTTP error,
   because a bare 403 sends the reader to authentication.

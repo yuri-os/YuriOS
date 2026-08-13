@@ -61,7 +61,6 @@ all other local data. Re-run `./install.sh` later to recreate the virtual enviro
 | `--desktop` | Adds the native transparent desktop-window dependencies (pywebview + Qt) |
 | `--skip-system` | Don't install system packages |
 | `--print-extras` | Print the extras the other flags resolve to and exit — a dry run that touches nothing |
-| `--docker` | Build a Docker Compose setup instead of a host environment. Needs a `compose.yaml`, which this checkout does not ship — the flag is for distributions that add one |
 | `-h`, `--help` | The same table, from the script |
 
 On Linux/WSL with a terminal attached, the installer **asks** which Torch build to install unless
@@ -77,8 +76,7 @@ so and continues with web search off rather than failing over an optional capabi
 [Tools](tools.md#web_search-read_page-and-research).
 
 Contradictions are refused rather than resolved by argument order: `--thin` cannot be combined
-with `--voice`, `--gpu-voice`, `--forge-local` or `--forge-krea2`, and `--desktop` cannot be
-combined with `--docker`.
+with `--voice`, `--gpu-voice`, `--forge-local` or `--forge-krea2`.
 
 Everything is additive and re-runnable — install `--thin` now, rerun without it later.
 

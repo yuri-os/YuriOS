@@ -4,7 +4,6 @@ set -Eeuo pipefail
 PYTHON_VERSION="3.12"
 NVM_VERSION="v0.40.3"
 NODE_VERSION="22"
-MODE="host"
 INSTALL_DESKTOP=false
 SKIP_SYSTEM=false
 # The default install includes the local embeddings, voice stack, and Diffusers camera.
@@ -78,7 +77,6 @@ Options:
                  a SearXNG container this script pulls, configures and starts.
                  Needs Docker. Everything she reads is shelved as knowledge
   --no-web-search  Leave web search off (the default for unattended runs)
-  --docker       Build the Docker Compose setup instead of a host environment
   --desktop      Also install the native transparent desktop-window dependencies
   --print-extras Print the extras the other flags resolve to and exit — a dry run
                  that touches nothing (the test suite uses it)
@@ -106,7 +104,6 @@ fail() {
 
 for arg in "$@"; do
     case "$arg" in
-        --docker) MODE="docker" ;;
         --desktop) INSTALL_DESKTOP=true ;;
         --voice) INSTALL_VOICE=true; VOICE_EXPLICIT=true ;;
         --thin|--no-voice) INSTALL_THIN=true ;;
@@ -124,10 +121,6 @@ for arg in "$@"; do
         *) fail "unknown option: $arg" ;;
     esac
 done
-
-if [ "$MODE" = "docker" ] && [ "$INSTALL_DESKTOP" = true ]; then
-    fail "--desktop cannot be combined with --docker; the native window must run on the host"
-fi
 
 # --thin is the opposite of the default, so asking for both is a contradiction worth
 # saying out loud rather than resolving by argument order. --thin drops the default
@@ -443,23 +436,6 @@ install_torch() {
             --index-url https://download.pytorch.org/whl/cpu
     fi
 }
-
-install_docker() {
-    [ -f compose.yaml ] || fail "no compose.yaml in this checkout — the Docker setup isn't part of it. Run ./install.sh without --docker for a host install."
-    command -v docker >/dev/null 2>&1 || fail "Docker is not installed. Install Docker Desktop (WSL/macOS) or Docker Engine with the Compose plugin (Linux)."
-    docker compose version >/dev/null 2>&1 || fail "the Docker Compose plugin is not available"
-
-    prepare_local_state
-    mkdir -p vault corpus traces tool-logs selfies
-    log "Building the YuriOS Docker image"
-    docker compose build
-    printf '\nDocker setup is ready. Start YuriOS with:\n\n  docker compose up -d\n\nThen open http://localhost:8768. Follow logs with `docker compose logs -f`.\n'
-}
-
-if [ "$MODE" = "docker" ]; then
-    install_docker
-    exit 0
-fi
 
 run_root() {
     if [ "$(id -u)" -eq 0 ]; then

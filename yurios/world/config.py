@@ -227,6 +227,14 @@ class Config(VoiceConfig):
     # and exists so a character can opt out without editing the house default.
     notify_backend: str = "auto"                # auto | shell | libnotify | off
 
+    # Her tray icon (§18.4.7). ON by default, unlike the doorbell: a tray icon
+    # is a thing you can look at, not a thing that interrupts you, and it costs
+    # nothing where there is no tray — no session bus, no watcher, or a headless
+    # box and it quietly never appears. It reads the host in-process and posts
+    # no presence, so it can sit there for a week without her reading it as
+    # company (§18.4.5).
+    tray_enabled: bool = True
+
     # --- the room (SPEC §6) ---
     rain_intensity: float = 0.6                 # 0..1, pushed to the scene at connect
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import getpass
 import os
+import shutil
 import signal
 import subprocess
 import sys
@@ -540,6 +541,101 @@ def _runtime_rows(status: dict, *, indent: str, configured_model: object = None)
     return rows
 
 
+#: The two uuids the AppIndicator extension ships under — Ubuntu forks it under
+#: its own name, so removing it means trying both.
+_TRAY_UUIDS = ("ubuntu-appindicators@ubuntu.com",
+               "appindicatorsupport@rgcjonas.gmail.com")
+_TRAY_PACKAGE = "gnome-shell-extension-appindicator"
+
+
+def command_tray(args) -> int:
+    """Turn her tray icon on or off, say what it is doing, or take the GNOME
+    tray host back off the machine.
+
+    `off` is the reversible one and only touches this project's .env. `remove`
+    is the one that undoes what install.sh did to the desktop, so it asks first.
+    """
+    root = _root()
+    action = getattr(args, "action", None) or "status"
+
+    if action == "status":
+        cfg = _configured_cfg(root)
+        print("YuriOS tray")
+        _status_row("Setting", f"TRAY_ENABLED={'true' if cfg.tray_enabled else 'false'}")
+        try:
+            response = httpx.get(f"http://{cfg.host}:{cfg.port}/api/tray", timeout=2.0)
+            if response.status_code == 404:
+                # A daemon older than this endpoint. Worth saying precisely:
+                # "not answering" would send someone looking for a crash.
+                _status_row("Daemon", "running, but predates the tray — restart it")
+            else:
+                payload = response.json()
+                _status_row("Daemon",
+                            f"{payload.get('state')} — {payload.get('detail')}")
+        except Exception:                   # noqa: BLE001
+            _status_row("Daemon", "not answering (is it running?)")
+        host = _tray_host_present()
+        _status_row("Tray host", "present" if host else
+                    "none on this session — nothing can draw an icon")
+        return 0
+
+    if action in ("on", "off"):
+        update_env(_env_path(root), {"TRAY_ENABLED": "true" if action == "on" else "false"},
+                   section="# --- tray icon ---")
+        print(f"TRAY_ENABLED={'true' if action == 'on' else 'false'}. "
+              f"Run `yurios restart` for it to take effect.")
+        return 0
+
+    # remove: undo the desktop change, not just the setting.
+    if not args.yes:
+        if not sys.stdin.isatty():
+            print("Refusing unattended removal; rerun with `yurios tray remove --yes`.",
+                  file=sys.stderr)
+            return 1
+        print(f"This disables her tray icon and removes the system package "
+              f"{_TRAY_PACKAGE}, which other programs may also be using for "
+              f"their own tray icons.")
+        if input("Remove it? [y/N]: ").strip().lower() not in ("y", "yes"):
+            print("Left alone.")
+            return 0
+
+    update_env(_env_path(root), {"TRAY_ENABLED": "false"},
+               section="# --- tray icon ---")
+    for uuid in _TRAY_UUIDS:
+        subprocess.run(["gnome-extensions", "disable", uuid],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+    if shutil.which("apt-get"):
+        removal = ["sudo", "apt-get", "remove", "-y", _TRAY_PACKAGE]
+    elif shutil.which("dnf"):
+        removal = ["sudo", "dnf", "remove", "-y", _TRAY_PACKAGE]
+    elif shutil.which("zypper"):
+        removal = ["sudo", "zypper", "--non-interactive", "remove", _TRAY_PACKAGE]
+    else:
+        print("TRAY_ENABLED=false. No package manager I know how to use here — "
+              f"remove {_TRAY_PACKAGE} by hand if you want the extension gone.")
+        return 0
+    print(f"Running: {' '.join(removal)}")
+    result = subprocess.run(removal, check=False)
+    if result.returncode != 0:
+        print("Package removal failed; her tray icon is off either way.",
+              file=sys.stderr)
+        return 1
+    print("Removed. Log out and back in to clear it from the shell.")
+    return 0
+
+
+def _tray_host_present() -> bool:
+    """Whether anything on the session bus is hosting a tray right now."""
+    if not shutil.which("busctl"):
+        return False
+    try:
+        listing = subprocess.run(["busctl", "--user", "list"], capture_output=True,
+                                 text=True, timeout=5, check=False).stdout
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return "StatusNotifierWatcher" in listing
+
+
 def command_status(args) -> int:
     root = _root()
     cfg = _configured_cfg(root)
@@ -806,8 +902,28 @@ def command_start(args) -> int:
     # The pid that matters is whoever ended up holding the runtime, which is not
     # this supervisor if another start won the race.
     print(f"YuriOS started and is ready (pid {_read_pid(pid_path) or proc.pid}).")
+    _report_tray(cfg)
     print(f"Open http://{cfg.host}:{cfg.port}")
     return 0
+
+
+def _report_tray(cfg) -> None:
+    """Say what happened to the tray icon, once, at start.
+
+    An absent tray icon looks the same whether it is switched off, has no
+    session bus, has no dbus-fast, or is simply waiting for a GNOME shell
+    extension that loads at your next login. Only the daemon can tell those
+    apart, so it is asked rather than guessed at."""
+    try:
+        response = httpx.get(f"http://{cfg.host}:{cfg.port}/api/tray", timeout=2.0)
+        payload = response.json()
+    except Exception:                       # noqa: BLE001 — never fail a start over this
+        return
+    state, detail = payload.get("state"), payload.get("detail", "")
+    if state == "on":
+        print(f"Her tray icon is up ({detail}).")
+    elif state == "waiting":
+        print(f"Tray icon: {detail}.")
 
 
 def command_stop(args) -> int:
@@ -877,6 +993,13 @@ def main(argv: list[str] | None = None) -> int:
     log.set_defaults(func=command_log)
     doctor = sub.add_parser("doctor", help="check configured backends and dependencies")
     doctor.set_defaults(func=command_doctor)
+    tray = sub.add_parser("tray", help="her tray icon: status, on, off, or remove")
+    tray.add_argument("action", nargs="?", default="status",
+                      choices=["status", "on", "off", "remove"],
+                      help="status (default), on, off, or remove the GNOME tray host")
+    tray.add_argument("--yes", action="store_true",
+                      help="skip the confirmation for `remove`")
+    tray.set_defaults(func=command_tray)
     uninstall = sub.add_parser("uninstall", help="remove the global launcher and virtual environment")
     uninstall.add_argument("--yes", action="store_true", help="remove without prompting")
     uninstall.set_defaults(func=command_uninstall)

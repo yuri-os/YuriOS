@@ -41,6 +41,12 @@ dependencies = [
     "mcp>=1.2,<2",            # >=1.2 is where FastMCP landed in the official SDK
     "Pillow",                 # her camera (§7.6): the vendored forge's mock backend + provenance
     "python-multipart",       # bounded character-card uploads in the local dashboard
+    # Her tray icon (§18.4.7): StatusNotifierItem + dbusmenu, spoken directly.
+    # Linux-only by marker because both interfaces are freedesktop ones — macOS
+    # and Windows have their own tray and no session bus to put this on. A wheel,
+    # unlike PyGObject, which builds against girepository and would be invisible
+    # to a uv venv anyway (it does not see system site-packages).
+    "dbus-fast; sys_platform == 'linux'",
     "sentence-transformers",  # local embedding default and LM Studio fallback
 ]
 

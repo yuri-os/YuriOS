@@ -728,7 +728,24 @@ def create_host_app(base: Config, registry: CharacterRegistry | None = None) -> 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         await host.start_all()
+        # After the characters, because the tray's first read should show the
+        # house as it actually is rather than an empty one it corrects a beat
+        # later. Never fatal: `start()` swallows a missing session bus, a
+        # missing dbus-fast and a missing tray host, because none of those is a
+        # reason for the daemon not to run.
+        tray = None
+        if base.tray_enabled:
+            from .tray import Tray
+            tray = Tray(host, base_url=f"http://{base.host}:{base.port}")
+            try:
+                log.info("tray: %s", await tray.start())
+            except Exception:            # noqa: BLE001
+                log.warning("tray failed to start", exc_info=True)
+                tray = None
+        app.state.tray = tray
         yield
+        if tray is not None:
+            await tray.stop()
         await host.stop_all()
 
     app = FastAPI(title="YuriOS Host", docs_url=None, redoc_url=None,
@@ -745,6 +762,22 @@ def create_host_app(base: Config, registry: CharacterRegistry | None = None) -> 
         if record is None:
             raise HTTPException(404, "no such character")
         return record
+
+    @app.get("/api/tray")
+    async def tray_status():
+        """Whether the icon is up, and if not, which of the four reasons it is.
+
+        "I don't see the tray" is the only symptom this feature has, and it
+        covers off-in-.env, no session bus, no dbus-fast and no tray host. The
+        launcher prints this after start so that question is answered before it
+        is asked.
+        """
+        tray = getattr(app.state, "tray", None)
+        if tray is None:
+            return {"state": "off",
+                    "detail": "TRAY_ENABLED is false" if not base.tray_enabled
+                              else "no session bus, or dbus-fast is not installed"}
+        return tray.status()
 
     @app.get("/api/characters")
     async def characters():

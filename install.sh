@@ -38,6 +38,15 @@ PRINT_EXTRAS=false
 # up a container is not something to do to somebody who isn't watching.
 WEB_SEARCH=""
 WEB_SEARCH_EXPLICIT=false
+# The tray host is a change to the user's DESKTOP, not to this project, and it
+# needs a logout to take effect. Off unless asked for, in both directions:
+# --tray/--no-tray answer it up front, otherwise select_tray asks once.
+INSTALL_TRAY=false
+TRAY_EXPLICIT=false
+# Declined is not the same as never-asked. On KDE/XFCE/Cinnamon there is
+# already a tray host, so the question never comes up and her icon should
+# stay on; only an actual "no" turns TRAY_ENABLED off in .env.
+TRAY_DECLINED=false
 WEB_SEARCH_READY=false
 SEARXNG_PORT=8080
 
@@ -77,6 +86,10 @@ Options:
                  a SearXNG container this script pulls, configures and starts.
                  Needs Docker. Everything she reads is shelved as knowledge
   --no-web-search  Leave web search off (the default for unattended runs)
+  --tray         Install the GNOME tray host (a shell extension, needs sudo
+                 and a logout). Off unless asked for; on a desktop that
+                 already hosts a tray this is unnecessary and never offered
+  --no-tray      Never offer it, and turn her tray icon off in .env
   --desktop      Also install the native transparent desktop-window dependencies
   --print-extras Print the extras the other flags resolve to and exit — a dry run
                  that touches nothing (the test suite uses it)
@@ -114,6 +127,8 @@ for arg in "$@"; do
                      TORCH_CHOICE="cuda"; TORCH_EXPLICIT=true ;;
         --web-search) WEB_SEARCH=true; WEB_SEARCH_EXPLICIT=true ;;
         --no-web-search) WEB_SEARCH=false; WEB_SEARCH_EXPLICIT=true ;;
+        --tray) INSTALL_TRAY=true; TRAY_EXPLICIT=true ;;
+        --no-tray) INSTALL_TRAY=false; TRAY_EXPLICIT=true; TRAY_DECLINED=true ;;
         --cpu-torch) TORCH_CHOICE="cpu"; TORCH_EXPLICIT=true ;;
         --cuda-torch) TORCH_CHOICE="cuda"; TORCH_EXPLICIT=true ;;
         --print-extras) PRINT_EXTRAS=true ;;
@@ -587,7 +602,66 @@ tray_host_package() {
     return 1        # Arch keeps it in the AUR; say so rather than shell out to one
 }
 
+tray_host_needed() {
+    # Whether installing a tray host is even a question here. It is not on a
+    # desktop that already hosts one, not without a graphical session, and not
+    # off Linux — and in all of those cases the right number of prompts is zero.
+    [ "$PLATFORM" = "linux" ] || return 1
+    [ -n "${DISPLAY-}${WAYLAND_DISPLAY-}" ] || return 1
+    if command -v busctl >/dev/null 2>&1 \
+        && busctl --user list 2>/dev/null | grep -q StatusNotifierWatcher; then
+        return 1
+    fi
+    tray_host_package >/dev/null || return 1
+    return 0
+}
+
+select_tray() {
+    # Default NO. This installs a gnome-shell extension — it changes the user's
+    # desktop, not just this project's directory — and it cannot take effect
+    # without a logout. Neither of those is something to do to somebody who only
+    # asked to install a chat program, so it is asked, and the answer sticks.
+    [ "$TRAY_EXPLICIT" = false ] || return 0
+    tray_host_needed || return 0
+    if [ ! -t 0 ]; then
+        INSTALL_TRAY=false          # piped or unattended: never change the desktop
+        return 0
+    fi
+
+    printf '\n==> Install the GNOME tray host?\n' >&2
+    printf '    She can publish a tray icon: one mark in the corner, a tooltip\n' >&2
+    printf '    naming who is waiting, and a menu that opens her room. GNOME\n' >&2
+    printf '    removed the system tray in 2017, so on this desktop that needs a\n' >&2
+    printf '    shell extension before anything can be drawn.\n' >&2
+    printf '\n' >&2
+    printf '    What it needs:\n' >&2
+    printf '      · the gnome-shell-extension-appindicator system package (sudo)\n' >&2
+    printf '      · a log out and back in — gnome-shell only reads extensions at\n' >&2
+    printf '        session start, and nothing can make a running one reconsider\n' >&2
+    printf '    Say no and nothing touches your desktop: her reach-outs still\n' >&2
+    printf '    arrive as notifications, still wait in her inbox, and still mark\n' >&2
+    printf '    her tile on the switchboard. Rerun with --tray to change your\n' >&2
+    printf '    mind, or `yurios tray on` if you install a tray host another way.\n' >&2
+    local answer=""
+    read -r -p "    Install the tray host? [y/N]: " answer || true
+    case "$answer" in
+        y|Y|yes|YES|Yes) INSTALL_TRAY=true ;;
+        *) INSTALL_TRAY=false; TRAY_DECLINED=true ;;
+    esac
+    log "tray host: $INSTALL_TRAY"
+}
+
+configure_tray() {
+    # Only a declined offer writes anything. A desktop that already hosts a tray
+    # was never asked, and turning her icon off there would be answering a
+    # question nobody put to the user.
+    [ "$TRAY_DECLINED" = true ] || return 0
+    set_env_value TRAY_ENABLED false
+    log "Tray icon off (TRAY_ENABLED=false). Turn it on any time with \`yurios tray on\`"
+}
+
 install_tray_host() {
+    [ "$INSTALL_TRAY" = true ] || return 0
     [ "$PLATFORM" = "linux" ] || return 0
     # A headless box has no tray to install into, and this must not fire on a
     # server install that happens to have the GNOME libraries pulled in.
@@ -735,6 +809,7 @@ install_launcher() {
 
 if [ "$SKIP_SYSTEM" = false ]; then
     install_system_packages
+    select_tray
     install_tray_host
 fi
 install_node
@@ -761,6 +836,7 @@ install_launcher
 prepare_local_state
 configure_voice
 configure_wsl_lmstudio
+configure_tray             # …after .env exists (prepare_local_state writes it)
 setup_web_search           # …after .env exists, and after the package is installed
 # seed_vault.py refuses to overwrite a seeded Vault (it is her mind, and re-seeding
 # would reset the relationship to zero), so guard on the same file it checks — that

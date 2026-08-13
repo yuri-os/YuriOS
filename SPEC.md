@@ -1120,6 +1120,27 @@ arrives.
   a control that saves and can never ring. It is part of the construction fingerprint (§31.4): the
   channel is built once at start, so a change rebuilds her.
 
+- §18.4.7 **The tray icon.** `TRAY_ENABLED` (**on** by default, unlike the doorbell — a tray is a
+  thing you look at, not a thing that interrupts you) publishes an
+  `org.kde.StatusNotifierItem` plus a `com.canonical.dbusmenu` menu: one icon, a tooltip naming who
+  is waiting, and a row per character that opens her room. It **MUST** read the host in-process
+  (`CharacterHost.summary`), never over HTTP and never `/api/events` — an icon that sits in the
+  corner for days would otherwise post `user_present` for all of them (§18.4.5). Reading a Python
+  object cannot post a signal, so the constraint holds by construction rather than by discipline.
+  The count is per character rather than one combined total, because with a house of four "3
+  waiting" is a number and not an answer. Absent a `StatusNotifierWatcher` the tray **MUST** wait
+  and retry rather than fail: on GNOME the watcher appears when the AppIndicator shell extension
+  loads, which is at login and therefore reliably after a daemon started from a terminal. GNOME
+  removed the system tray in 2017, and nothing in this codebase can make gnome-shell load an
+  extension mid-session. Installing that extension is a change to the user's *desktop* rather than
+  to this project, so `install.sh` **MUST** ask before doing it and **MUST** default to no —
+  and **MUST NOT** ask at all where the answer cannot matter: off Linux, with no graphical session,
+  on a desktop that already hosts a tray, or in an unattended run. Declining **MUST** also set
+  `TRAY_ENABLED=false`, while never being asked **MUST NOT** — those are different answers.
+  `yurios tray {status,on,off,remove}` is the reverse: `off` touches only `.env`, `remove` undoes
+  the desktop change and confirms first, and `status` distinguishes the four reasons an icon can be
+  missing, which are indistinguishable from the outside.
+
 ## §19 — The world model (the present tense)
 
 `yurios/mind/world.py` — the `WorldModelStore`, the organ the situation block (§2.5) is a rendering

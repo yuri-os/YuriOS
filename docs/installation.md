@@ -29,13 +29,63 @@ The script installs system packages, [`uv`](https://docs.astral.sh/uv/), Node, t
 Vault and the web build — and finishes by running the doctor, which should come back with nothing
 to do.
 
-On a **GNOME desktop** it also installs `gnome-shell-extension-appindicator`, because GNOME removed
-the system tray and there is otherwise nothing on the session bus to draw a tray icon into — the
-icon gets created, every call succeeds, and nothing appears. **Log out and back in** afterwards;
-gnome-shell only loads extensions at session start. Nothing is installed on other desktops (KDE,
-XFCE, Cinnamon, MATE and Budgie host a tray already), on a headless box, under WSL (the tray
-belongs to Windows) or on macOS. On Arch the extension lives in the AUR, so the installer says so
-rather than reaching for an AUR helper.
+## The tray icon
+
+The daemon publishes a tray icon (`TRAY_ENABLED`, on by default): one mark in the corner, a tooltip
+naming who is waiting, and a right-click menu with a row per character that opens her room. It reads
+the daemon in-process, so — unlike a window or an open page — it never counts as you being in the
+room, and she keeps reaching out normally while it sits there.
+
+On most desktops (KDE, XFCE, Cinnamon, MATE, Budgie) that is all there is to it — they host a tray
+already, and the icon appears when the daemon starts.
+
+**GNOME removed the system tray in 2017.** Without a shell extension there is nothing on the session
+bus to draw an icon into: it is published, every call succeeds, and nothing appears. So on GNOME the
+installer *asks*, and the default is **no** — installing a shell extension changes your desktop
+rather than this project's directory, and it cannot take effect without a logout:
+
+```
+==> Install the GNOME tray host?
+    Install the tray host? [y/N]:
+```
+
+Say yes and it installs `gnome-shell-extension-appindicator`, then **log out and back in once** —
+gnome-shell only reads extensions at session start, and no program can make a running one
+reconsider. You do not need to restart the daemon: it keeps watching for a tray host and registers
+within a few seconds of one appearing. Say no and nothing touches your desktop; her reach-outs still
+arrive as notifications, still wait in her inbox, and still mark her tile on the switchboard.
+
+`--tray` and `--no-tray` answer it up front; piped and unattended runs never install it. Nothing is
+offered on a headless box, under WSL (the tray belongs to Windows), on macOS, or on a desktop that
+already hosts a tray. On Arch the extension lives in the AUR, so the installer says so rather than
+reaching for an AUR helper.
+
+## Turning the tray off, or taking it back off the machine
+
+```
+yurios tray            # what it's doing, and why you can't see it
+yurios tray off        # TRAY_ENABLED=false — this project only, reversible
+yurios tray on
+yurios tray remove     # …and uninstall the GNOME shell extension (asks first)
+```
+
+`yurios tray` is the one to run when the icon isn't there — it separates the four causes that all
+look identical from the outside:
+
+```
+YuriOS tray
+  Setting    TRAY_ENABLED=true
+  Daemon     waiting — no tray host — on GNOME, log out and back in once
+  Tray host  none on this session — nothing can draw an icon
+```
+
+`yurios start` prints what happened to it, because an absent tray icon looks identical whether it is
+switched off, has no session bus, or is waiting for a shell extension:
+
+```
+Her tray icon is up (4 character(s), 0 waiting).
+Tray icon: no tray host — on GNOME, log out and back in once to load the AppIndicator extension.
+```
 
 ## Uninstall
 

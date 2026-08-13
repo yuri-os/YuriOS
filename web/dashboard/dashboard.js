@@ -121,11 +121,39 @@ function statusChip(character) {
   return chip;
 }
 
+/* The mark on a tile with something waiting behind it (SPEC §32.5).
+ *
+ * She only ever gets here by passing Gate 2 — two or three interrupts a day,
+ * against a budget she spends carefully — so this is a rare mark, and it is
+ * allowed to be loud. It is also, deliberately, not a number for its own sake:
+ * "3" says nothing, "3 waiting · a picture" says why you would click. */
+function unreadBadge(character) {
+  const { count, selfies } = character.unread;
+  if (!count) return null;
+  const what = selfies === count ? (count === 1 ? "a picture" : "pictures")
+    : selfies ? "and a picture" : (count === 1 ? "a message" : "messages");
+  const label = `${count} waiting · ${what}`;
+  const badge = element("span", {
+    className: "unread-badge",
+    attrs: { title: `${character.name} reached out — ${label}`,
+      "aria-label": `${character.name} reached out: ${label}` },
+  }, icon(selfies === count ? "selfie" : "message"),
+     element("span", { className: "unread-count", text: String(count) }));
+  if (selfies) badge.classList.add("has-selfie");
+  return badge;
+}
+
 function characterCard(character) {
   const card = element("article", { className: "character-card", attrs: { "data-character-id": character.id } });
   card.style.setProperty("--character-accent", character.accent);
 
-  const top = element("div", { className: "card-top" }, portrait(character), statusChip(character));
+  // The badge sits with the status chip because they answer the same question
+  // from two sides: the chip is what she is doing, the badge is what she did
+  // while you were not here.
+  const waiting = unreadBadge(character);
+  const top = element("div", { className: "card-top" }, portrait(character),
+    ...(waiting ? [waiting] : []), statusChip(character));
+  if (waiting) card.classList.add("has-unread");
   const body = element("div", { className: "card-body" },
     element("h2", { text: character.name }),
     element("span", { className: "card-id", text: `ID / ${character.id}` }),

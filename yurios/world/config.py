@@ -15,6 +15,12 @@ from yurios.desktop.config import Config as VoiceConfig
 class Config(VoiceConfig):
     port: int = 8768                            # +1 off Build #4's 8767
     companion_name: str = "yuri"                # the `hello` event + the chat header
+    # Set by the host, not by you (host.config_for_character): which registry id
+    # this runtime *is*. A single-companion install has no registry and leaves it
+    # empty. It exists because a notification has to be clickable — the shell
+    # needs `/characters/<id>/sanctuary/` to open the room the reach-out came
+    # from, and "the character named Mia" is not a URL.
+    character_id: str = ""
 
     # --- the hands: tools over MCP (SPEC §7) ---
     # mcp = the real in-repo MCP server over stdio (§7.2). fake = deterministic
@@ -209,6 +215,17 @@ class Config(VoiceConfig):
     # written in. Pairing mode names hers, and the settings panel edits hers.
     telegram_bot_token_env: str = "TELEGRAM_BOT_TOKEN"
     telegram_chat_id_env: str = "TELEGRAM_CHAT_ID"
+    # The desktop notification channel (channels/notify.py) — the transport of
+    # last resort for a reach-out. Unlike the others this one has no credentials
+    # to be switched on by, so it needs a flag, and the flag is **off**: nothing
+    # should start drawing on your desktop because you installed it. On, it
+    # carries only `unheard` lines — what Gate 2 already decided to say into an
+    # empty room — never greetings or replies.
+    notify_enabled: bool = False
+    # auto = the desktop shell when one is attached, else notify-send.
+    # shell | libnotify pin one renderer; off is the same as notify_enabled=False
+    # and exists so a character can opt out without editing the house default.
+    notify_backend: str = "auto"                # auto | shell | libnotify | off
 
     # --- the room (SPEC §6) ---
     rain_intensity: float = 0.6                 # 0..1, pushed to the scene at connect

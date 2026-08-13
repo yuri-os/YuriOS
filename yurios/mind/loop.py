@@ -580,7 +580,10 @@ class MindLoop:
             # a soft line in the chat — waiting when they next look, never spoken
             text = await self._compose(REACH_OUT_CUE.format(goal=goal.text))
             if text:
-                self.post_message("assistant", text, proactive=True)
+                # `unheard`: a SUGGEST is *by definition* a line waiting for the
+                # next time they look, so it belongs in the inbox whether or not
+                # a page happens to be open right now (world/inbox.py).
+                self.post_message("assistant", text, proactive=True, unheard=True)
             self.world.note_contact_out()
             self.interrupts["count"] += 1
             self.goals.set_state(goal.id, "done")
@@ -593,9 +596,11 @@ class MindLoop:
         with correlate.scope(kind=correlate.COMPOSE):
             spoken = await self.speak(cue)
         if not spoken:
+            # `speak` said no: there is no page to say it through, so this is the
+            # case the inbox exists for — she spent an interrupt on an empty room.
             text = await self._compose(cue)
             if text:
-                self.post_message("assistant", text, proactive=True)
+                self.post_message("assistant", text, proactive=True, unheard=True)
         self.world.note_contact_out()
         self.interrupts["count"] += 1
         self.goals.set_state(goal.id, "done")

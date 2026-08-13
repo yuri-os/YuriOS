@@ -128,7 +128,12 @@
       clearTimeout(pendingExpiry.get(m.client_id));
       pendingExpiry.delete(m.client_id);
     }
-    div.className = 'msg ' + (her ? 'her' : 'you') + (m.proactive ? ' proactive' : '');
+    // `.unheard` marks a line you were *not* here for, which is why it is keyed
+    // on the inbox snapshot taken at page load rather than on the event's own
+    // `unheard` flag: a line arriving live is one you are watching arrive, and
+    // captioning that "while you were away" would be a lie about the last second.
+    div.className = 'msg ' + (her ? 'her' : 'you') + (m.proactive ? ' proactive' : '')
+      + (m.id && unheard.has(m.id) ? ' unheard' : '');
     delete div.dataset.clientId;
     div.innerHTML = body(m, her, !her && m.client_id ? 'received' : '');
     if (!optimistic) messages.appendChild(div);
@@ -210,6 +215,63 @@
   let backfilled = false;
   let queued = [];
 
+  /* Her inbox (SPEC §18.4, §32.5) — what she reached out about while the room
+   * was empty. The transcript ring is in memory, so a reach-out from last night
+   * is gone the moment the daemon restarts; the inbox is on disk and is the only
+   * copy that survives. Entries carry the same ids the ring does, so the two
+   * merge by id and a message that is in both renders once. */
+  const unheard = new Set();
+  let markPending = false;
+
+  function markInboxRead() {
+    // Being in the room is the acknowledgement (§32.5) — no dismiss button, one
+    // answer to "did you see this?". Debounced to a single call: a page that
+    // opens and then receives three live lines should not POST four times.
+    if (markPending) return;
+    markPending = true;
+    setTimeout(() => {
+      markPending = false;
+      fetch(apiPath('/api/inbox/read'), { method: 'POST' }).catch(() => {});
+    }, 400);
+  }
+
+  async function loadInbox() {
+    try {
+      const r = await fetch(apiPath('/api/inbox'));
+      if (!r.ok) return [];
+      const entries = (await r.json()).entries || [];
+      for (const e of entries) if (e.id) unheard.add(e.id);
+      // Inbox rows are already in the transcript's shape; `role` is the one
+      // field the file does not keep, because everything in it is hers.
+      return entries.map((e) => ({ ...e, role: 'assistant', proactive: true }));
+    } catch { return []; }
+  }
+
+  /* history + whatever the inbox holds that history doesn't, in the order she
+   * said things. Sorting by `ts` rather than concatenating matters after a
+   * restart: the ring starts empty and refills with today, while the inbox still
+   * holds last night — appending would put last night at the bottom. */
+  function merge(history, pendingEntries) {
+    const known = new Set(history.map((m) => m.id).filter(Boolean));
+    const extra = pendingEntries.filter((e) => e.id && !known.has(e.id));
+    if (!extra.length) return history;
+    return [...history, ...extra].sort((a, b) =>
+      String(a.ts || '').localeCompare(String(b.ts || '')));
+  }
+
+  /* One rule, marked once: everything from here down arrived while you were
+   * out. A per-message badge would repeat itself down a run of four lines she
+   * left over an evening; a single divider says the same thing once. */
+  function markWhileYouWereAway() {
+    if (!messages) return;
+    const first = messages.querySelector('.msg.unheard');
+    if (!first || first.previousElementSibling?.classList.contains('while-away')) return;
+    const rule = document.createElement('div');
+    rule.className = 'while-away';
+    rule.textContent = 'while you were away';
+    messages.insertBefore(rule, first);
+  }
+
   function flushBackfill(history) {
     if (backfilled) return;               // the failsafe already fired
     // Optimistic lines must stay after older history even when the user submits
@@ -221,6 +283,8 @@
     backfilled = true;
     queued.forEach(addMsg);               // addMsg dedups by id — an overlap is fine
     queued = [];
+    markWhileYouWereAway();
+    if (unheard.size) markInboxRead();
   }
 
   async function connect({ onStatus } = {}) {
@@ -270,6 +334,10 @@
             `${charName} / ${document.documentElement.dataset.room || 'Sanctuary'}`;
         }
       } else if (m.type === 'message') {
+        // She filed this one as unheard because she could not know anyone was
+        // here — but this page *is* here, and rendering it is being seen. Clear
+        // it now, or a line you watched arrive keeps a badge on the switchboard.
+        if (m.unheard) markInboxRead();
         // A locally submitted line is already visible. Confirm it immediately,
         // even while old history is still loading, instead of hiding the receipt
         // behind the backfill queue for up to five seconds.
@@ -278,10 +346,14 @@
       } else if (m.type === 'draft') addDraft(m.text);
       else if (m.type === 'draft_cancel') dropDraft();
     };
-    // backfill what was said before this page opened (SPEC §2.6)
-    fetch(apiPath('/api/history')).then((r) => r.json())
-      .then((d) => flushBackfill(d.messages || []))
-      .catch(() => flushBackfill([]));   // no history is still "history is done"
+    // backfill what was said before this page opened (SPEC §2.6) — and what she
+    // said into the empty room before that (SPEC §18.4). The inbox fetch cannot
+    // hold up the transcript: a failed one is an empty run, not a blank chat.
+    Promise.all([
+      fetch(apiPath('/api/history')).then((r) => r.json())
+        .then((d) => d.messages || []).catch(() => []),
+      loadInbox(),
+    ]).then(([history, waiting]) => flushBackfill(merge(history, waiting)));
     // …and a hung fetch must never cost her a live word: give up waiting and
     // show what's arriving, out of order but present.
     setTimeout(() => flushBackfill([]), 5000);

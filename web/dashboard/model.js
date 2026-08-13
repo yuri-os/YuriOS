@@ -18,6 +18,17 @@ export function initials(name) {
   return (words.length > 1 ? words[0][0] + words.at(-1)[0] : words[0]?.slice(0, 2) || "?").toUpperCase();
 }
 
+function normalizeUnread(raw) {
+  const source = raw && typeof raw === "object" ? raw : {};
+  const count = Number(source.count);
+  const selfies = Number(source.selfies);
+  return {
+    count: Number.isFinite(count) && count > 0 ? Math.floor(count) : 0,
+    selfies: Number.isFinite(selfies) && selfies > 0 ? Math.floor(selfies) : 0,
+    latest: source.latest ?? null,
+  };
+}
+
 export function normalizeCharacter(raw, index = 0) {
   const source = raw && typeof raw === "object" ? raw : {};
   const runtime = source.runtime && typeof source.runtime === "object" ? source.runtime : {};
@@ -40,6 +51,10 @@ export function normalizeCharacter(raw, index = 0) {
     // A card this node did not write arrives parked until someone reads it
     // through (SPEC §28) — no runtime behind any of her rooms until then.
     reviewRequired: boolean(source.review_required),
+    // What she reached out about while nobody was in the room (SPEC §32.5).
+    // `count` is what the tile badges; `selfies` lets it say *picture* rather
+    // than *message*, because those are not the same thing to walk in on.
+    unread: normalizeUnread(source.unread),
     description: text(source.description ?? source.tagline ?? source.summary, "No profile note has been set."),
     avatarUrl: text(source.avatar_url ?? source.portrait_url ?? source.image_url),
     accent: text(source.accent, ACCENTS[index % ACCENTS.length]),

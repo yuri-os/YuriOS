@@ -31,6 +31,7 @@ from yurios.app.core.soul import parse_md, split_sections  # noqa: E402
 from yurios.characters.importer import (  # noqa: E402
     SKILLS_README, WORKSPACE_README)
 from yurios.mind.workspace import WORKSPACE_GITIGNORE  # noqa: E402
+from yurios.world.inbox import GITIGNORE as INBOX_GITIGNORE  # noqa: E402
 
 VAULT_GITIGNORE = vaultgit.VAULT_GITIGNORE   # the one canonical list (§4.1)
 
@@ -94,6 +95,11 @@ def seed(soul_src: Path, vault: Path) -> None:
     # The desk's ignore file goes down before the seed commit, or this README is
     # tracked forever after (a .gitignore cannot untrack what git already knows).
     vaultgit.atomic_write(vault / "workspace" / ".gitignore", WORKSPACE_GITIGNORE)
+    # …and the same rule for her inbox (§18.4): delivery state, which flips on
+    # every glance at her room. `Inbox` writes this lazily for vaults that
+    # already exist, but seeding it here keeps a fresh one from ever showing an
+    # untracked file on its first reach-out.
+    vaultgit.atomic_write(vault / "state" / ".gitignore", INBOX_GITIGNORE)
     vaultgit.atomic_write(vault / "workspace" / "README.md", WORKSPACE_README)
     vaultgit.atomic_write(vault / "skills" / "README.md", SKILLS_README)
     vaultgit.atomic_write(vault / ".gitignore", VAULT_GITIGNORE)

@@ -257,8 +257,17 @@ All of `MIND_*`, plus the reflex windows — the full table with explanations is
 | `TELEGRAM_BOT_TOKEN_<ID>` / `TELEGRAM_CHAT_ID_<ID>` | — | one companion's own bot, by registry id |
 | `TELEGRAM_CHARACTER` | *(empty)* | who keeps the unsuffixed pair |
 | `TELEGRAM_SEND_NON_TELEGRAM` | `false` | copy web/voice/CLI/API replies to Telegram |
+| `NOTIFY_ENABLED` | `false` | desktop notifications when she reaches out |
+| `NOTIFY_BACKEND` | `auto` | `auto` · `shell` · `libnotify` · `off` |
 
 See [Channels](channels.md).
+
+`NOTIFY_ENABLED` is the one channel with no credentials to switch it on, so it gets a flag — and
+the flag is off, because nothing should start drawing on your desktop because you installed it.
+Turned on, it carries only the lines she decided to say into an empty room, never greetings or
+replies. `auto` uses the Electron desktop shell when one is running and `notify-send` otherwise;
+`libnotify` needs `notify-send` on `PATH` (Debian/Ubuntu: `libnotify-bin`). Without either, her
+reach-outs are still filed in her inbox and show the next time you open her room.
 
 ## The room and the window
 

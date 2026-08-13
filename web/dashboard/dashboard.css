@@ -161,6 +161,27 @@ h1, h2, p { margin-top: 0; }
 .portrait img { width: 100%; height: 100%; object-fit: cover; }
 .status-chip { display: inline-flex; align-items: center; gap: 7px; color: var(--soft); font: 9px var(--font-mono); letter-spacing: .1em; text-transform: uppercase; }
 .status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--state-color, var(--dim)); box-shadow: 0 0 10px color-mix(in srgb, var(--state-color, var(--dim)) 75%, transparent); }
+/* The unread mark (SPEC §32.5): she reached out and nobody was in the room.
+   Wearing the acid because that is this design system's "look here" and there is
+   no second attention colour — but it earns it: Gate 2 lets two or three of
+   these through a day, so a wall of badges is not a state the board can reach. */
+.unread-badge {
+  display: inline-flex; align-items: center; gap: 6px; padding: 5px 9px 5px 7px;
+  border: 1px solid color-mix(in srgb, var(--acid) 45%, transparent); border-radius: 20px;
+  background: color-mix(in srgb, var(--acid) 12%, var(--void));
+  color: var(--acid); font: 10px var(--font-mono); letter-spacing: .06em;
+}
+.unread-badge svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.6; }
+.unread-count { font-variant-numeric: tabular-nums; }
+/* One slow pulse, not a blink: this is a thing that has been waiting, possibly
+   since last night, and it should read as patient rather than urgent. */
+@media (prefers-reduced-motion: no-preference) {
+  .unread-badge { animation: unread-breathe 3.4s ease-in-out infinite; }
+}
+@keyframes unread-breathe {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--acid) 28%, transparent); }
+  50% { box-shadow: 0 0 0 5px transparent; }
+}
 .card-body { padding-top: 34px; flex: 1; }
 .card-body h2 { margin-bottom: 7px; font-size: 25px; line-height: 1.05; font-weight: 540; letter-spacing: -.035em; }
 .card-id { color: var(--dim); font: 9px var(--font-mono); letter-spacing: .08em; }
@@ -213,6 +234,12 @@ h1, h2, p { margin-top: 0; }
 .character-grid:not(.list) .status-chip {
   position: absolute; z-index: 2; top: 16px; left: 16px; padding: 6px 10px;
   border: 1px solid rgb(255 255 255 / .1); background: rgb(5 8 7 / .62); backdrop-filter: blur(6px);
+}
+/* …and the badge takes the opposite corner from the status chip, over the art */
+.character-grid:not(.list) .unread-badge {
+  position: absolute; z-index: 2; top: 14px; right: 16px;
+  border-color: color-mix(in srgb, var(--acid) 55%, transparent);
+  background: rgb(5 8 7 / .72); backdrop-filter: blur(6px);
 }
 /* the record block is the same height on every tile — the description keeps its
    two-line box even when a character has no profile note, and a long name takes

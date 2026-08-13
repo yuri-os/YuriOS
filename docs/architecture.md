@@ -98,6 +98,8 @@ key. Chat turns are the one deliberate split — `prompts.jsonl` holds an index 
 | **Activity states + budget** | `mind/policy.py` — `ActivityController` · `mind/budget.py` |
 | **The two salience gates** | `mind/policy.py` — `appraise_*`, `score_interrupt` |
 | **Gate 2 in action** | `mind/loop.py` — `_act_reach_out` |
+| **Where a reach-out waits** | `world/inbox.py` + `world/routes/inbox.py` |
+| **…and how it reaches you** | `world/channels/notify.py` → `desktop-shell/main.js` · `notify-send` |
 | **The world model** | `mind/world.py` + `world/situation.py` |
 | **The world-model seam swap** | `world/brain.py` — `set_world` / `_assemble` |
 | **Drop-folder RAG** | `mind/knowledge.py` |

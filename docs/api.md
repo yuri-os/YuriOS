@@ -140,6 +140,13 @@ has to act on it — see [Characters → When the export refuses](characters.md#
 | `POST /api/chat/cancel` | `{client_id, selfie_ids?}` → cancel that browser turn and its correlated camera work |
 | `POST /api/greeting` | `{session_id?, channel?}` → `{session_id, message}`. She speaks first: the voice route greets on connect, a text client asks. Committed `proactive`, never persisted, once per session per run (`message: null` after that). The first-ever call plays her cold open |
 | `GET /api/history` | the last 100 chat entries, for backfilling a fresh page |
+| `GET /api/inbox` | `{entries, unread}` — what she reached out about while the room was empty, oldest first. `?all=1` includes what has already been seen |
+| `POST /api/inbox/read` | `{marked, unread}` — everything pending has now been seen. Owner-gated |
+
+`/api/history` is an in-memory ring and does not survive a restart; the inbox is on disk and does.
+A page opening merges the two by message id and shows what it has not seen under a *while you were
+away* rule, then marks it read — being in her room is the acknowledgement, so there is no
+per-entry dismiss. See [The mind](mind.md) and [Channels](channels.md#desktop-notifications).
 
 Text turns from all channels serialise on one lock. HTTP text and session fields are
 bounded, and each character admits one active HTTP turn plus two waiters; further
@@ -158,7 +165,7 @@ detach posts `user_absent`.
 | Event | Payload |
 |---|---|
 | `hello` | `{character: "<name>"}` |
-| `message` | a chat entry — including `image_url` selfies and the originating `channel` |
+| `message` | a chat entry — including `image_url` selfies, the originating `channel`, and `unheard` on a line she started into a room that may have been empty |
 | `draft` / `draft_cancel` | streaming sentence drafts |
 | `avatar` | expression, gaze, posture, visemes, `rain`, `music` — the puppet lane |
 | `journal` | a new `[she]` journal line |
@@ -168,6 +175,14 @@ detach posts `user_absent`.
 
 Publishes are non-blocking (a stalled client loses events, never blocks the publisher) and
 thread-safe.
+
+`GET /api/notifications` is a second, much smaller stream, present only when `NOTIFY_ENABLED` is
+on (`404` otherwise, so a client stops asking). It carries `{type: "notify", character, title,
+body, message_id, kind}` for `unheard` lines and nothing else, and the Electron desktop shell
+reads it. **Attaching does not count as presence** — that is the whole reason it is not
+`/api/events`. A shell sits in the tray for hours, and presence there would make her believe you
+were in the room permanently, which would suppress the very reach-outs the stream exists to
+deliver.
 
 ### Audio
 

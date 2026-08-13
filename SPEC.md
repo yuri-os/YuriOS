@@ -844,6 +844,10 @@ a frontend:
 Channels in this build (`yurios/world/channels/`; a failed channel is one degraded medium, never a
 down host — `/api/health` and the boot board say which):
 
+- **desktop notifications** — `yurios/world/channels/notify.py`, the outbound seam alone: no
+  inbound, no presence, no `claim`. The transport of last resort for a reach-out with nowhere else
+  to go. Off by default and carrying only `unheard` lines; see §18.4 for the whole contract.
+
 - **the terminal** — `python -m yurios.chat`: a remote thin client on `POST /api/chat` +
   `/api/events`. Its SSE attach counts as presence, exactly like an open page.
 - **Telegram** — `yurios/world/channels/telegram.py`, raw Bot API long-polling. One configured
@@ -1058,6 +1062,51 @@ them is precisely the always-interrupting-assistant failure.
   never spoken aloud; **SPEAK** — aloud through the ambient seam if a page is open (full turn
   pipeline, barge-in-able), as a `proactive` chat line if the room is empty. Every delivery **MUST**
   bump the daily count, note the contact in the world model, and close the goal.
+
+### §18.4 — Delivery: her inbox and the doorbell
+
+**A reach-out that reaches nobody is not restraint, it is a dropped message.** SUGGEST and an
+undeliverable SPEAK both end at a `proactive` chat line, and a chat line is an `EventHub` publish
+plus an append to a 200-entry in-memory ring. With no page open, no terminal attached and no
+Telegram credentials configured, that publish has zero subscribers and the ring dies with the
+process: she passed Gate 2, spent one of two or three interrupts a day, and nothing was delivered.
+Gate 2 rations *whether she speaks*; it was never meant to also decide whether what she said
+arrives.
+
+- §18.4.1 **The inbox is the durable copy** (`yurios/world/inbox.py`). A line she initiated into a
+  room that may have been empty is stamped `unheard` by its caller and filed at
+  `<vault>/state/inbox.json`, oldest first, capped. `unheard` **MUST** be set by the caller and
+  never inferred from subscriber counts: channel adapters subscribe to the hub too, so "no
+  subscribers" stops meaning "nobody is home" the moment Telegram is configured. It is set at the
+  mind's two reach-out deliveries and on an unprompted selfie; a **greeting never carries it**,
+  because a greeting is answered *to* somebody who has just arrived.
+- §18.4.2 **It is delivery state, not memory, and MUST NOT dirty the Vault.** What she *said* is
+  already committed — the mind journals every reach-out — so the file adds only pending-or-seen,
+  which flips on every glance at her room. Committing it would put one entry per glance in `git
+  log`, the failure §34.2 describes for desk writes. `state/.gitignore` names it, written **inside**
+  the directory for `INDEX_GITIGNORE`'s reason (a root ignore file is written once at seed time and
+  never refreshed, so it cannot protect a vault that already exists) and seeded by
+  `characters/importer.py` and `scripts/seed_vault.py` before their first commit.
+- §18.4.3 **Being in her room is the acknowledgement.** Entering marks everything pending as seen;
+  the chat view renders the run under one *while you were away* rule and clears it. There is no
+  per-entry dismiss — two contradictory answers to "did you see this?" is worse than one. A line
+  arriving *live* on an open page clears the badge but **MUST NOT** wear that rule: captioning the
+  last second as time you were away is a lie the transcript should not tell.
+- §18.4.4 **The doorbell is transport, not a new reason to interrupt.** `NOTIFY_ENABLED` (**off by
+  default**) adds `channels/notify.py`, a `Channel` implementing the outbound seam only: no inbound,
+  no presence, no `claim`. It carries `unheard` lines and nothing else — never greetings, drafts or
+  replies. Nothing in it decides to interrupt: Gate 2 did that already, and the journal still
+  carries the value. `NOTIFY_BACKEND` picks the renderer — `shell` (the Electron desktop shell),
+  `libnotify` (`notify-send`, the headless always-on case this exists for), or `auto`, which prefers
+  an attached shell and degrades to `notify-send`.
+- §18.4.5 **The shell MUST NOT read `/api/events`.** Attaching there posts `user_present`, and a
+  shell in the tray is attached for as long as it is running — she would read a tray icon as
+  company, Gate 2 would suppress every reach-out as an interruption of a conversation already under
+  way, and the feature would silence exactly what it exists to deliver. `GET /api/notifications` is
+  a separate stream with its own fan-out, deliberately **not** an `EventHub` subscription (which
+  would also make the room look occupied to the idle machine's reflexes). It **MUST** 404 when the
+  channel is off, so a shell stops asking instead of reconnecting into a stream that will never
+  carry anything.
 
 ## §19 — The world model (the present tense)
 
@@ -1624,6 +1673,13 @@ changes; a runtime does not know it has neighbours.
   `POST /api/characters/<id>/archive`, `DELETE /api/characters/<id>/purge?confirm=…`. The portrait
   route **MUST** send `Cache-Control: no-cache`: one stable URL whose bytes genuinely change
   (a re-render, a replaced file, a fresh install on the same port) must not show yesterday's face.
+- §32.5 **A tile says when she is waiting on you.** Each character's summary carries `unread`
+  (`{count, selfies, latest}`) from her inbox (§18.4), and a tile with a pending count wears the
+  mark. It **MUST** be read from her Vault for a character with **no live runtime** as well as from
+  the runtime when there is one: the board lists everybody, and a reach-out she made before the last
+  restart is the one most worth still showing. The mark distinguishes a picture from a line —
+  walking in on a selfie she took unprompted is not the same as reading a note — and clears when you
+  enter her room (§18.4.3), never by being dismissed from the board.
 
 ## §33 — The 0.1 → 0.2 migration
 

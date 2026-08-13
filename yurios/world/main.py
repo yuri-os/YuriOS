@@ -47,6 +47,7 @@ from .clock import Clock
 from .config import Config
 from .context import ContextMeter, short_tokens
 from .hub import EventHub
+from .inbox import Inbox
 from .turns import TextTurns
 from .research import Researcher
 from .selfies import SelfieLab, build_forge
@@ -238,6 +239,11 @@ class Runtime:
         self.turns = TextTurns(self)
         self.channels = ChannelManager.from_config(cfg)
         self.channels_status = "off"
+        # …and where her initiative waits when none of those media is listening
+        # (world/inbox.py). The transcript ring above is in-memory and shows only
+        # to an open page; a reach-out decided at 3am with nobody home has to
+        # survive both the empty room and the restart that follows it.
+        self.inbox = Inbox(cfg.vault_dir)
 
         # declare the boot services in the order they should read down the panel.
         # The voice stack declares its own three (plus fillers) as it is built;
@@ -409,12 +415,23 @@ class Runtime:
     def post_message(self, role: str, text: str, *, image_url: str | None = None,
                      proactive: bool = False, channel: str | None = None,
                      client_id: str | None = None,
-                     selfie_id: str | None = None) -> dict:
+                     selfie_id: str | None = None,
+                     unheard: bool = False) -> dict:
         """Commit one chat entry: append the ring, publish the `message` event.
         `proactive` marks lines she spoke unprompted (greeting, ambient, a
         finished selfie) — the YuriOS flag, same meaning. `channel` names the
         medium a turn arrived through (cli, telegram, …; None = this origin's
-        own frontends) so channels can filter their own echoes (SPEC §10.5)."""
+        own frontends) so channels can filter their own echoes (SPEC §10.5).
+
+        `unheard` files the entry in her inbox as well (world/inbox.py): she said
+        this on her own initiative and may have said it to an empty room, so it
+        waits on disk until somebody has actually been in to see it. It is set
+        by the caller rather than inferred here, because only the caller knows:
+        `hub.subscribers` counts channel adapters too, so "no subscribers" stops
+        meaning "nobody is home" the moment Telegram is configured. The mind's
+        SUGGEST line and its undeliverable SPEAK say so explicitly (§18.3); a
+        greeting never does, because a greeting is answered *to* somebody who
+        just arrived."""
         entry: dict = {"id": uuid.uuid4().hex[:8],   # dedup key: a page may see a
                        # message live AND in its /api/history backfill (a race
                        # the client resolves by id, not by guessing)
@@ -431,8 +448,17 @@ class Runtime:
             entry["client_id"] = client_id
         if selfie_id:
             entry["selfie_id"] = selfie_id
+        if unheard:
+            # on the wire as well as on disk: the notification channel filters on
+            # it, and an open chat view uses it to clear the badge for a line it
+            # just rendered — being in the room is what "seen" means (§32.5).
+            entry["unheard"] = True
         self.transcript.append(entry)
         del self.transcript[:-200]
+        if unheard:
+            # before the publish: the notification channel and an open page both
+            # react to the event, and both want a badge that already exists.
+            self.inbox.add(entry)
         self.hub.publish("message", entry)
         return entry
 
@@ -857,7 +883,7 @@ def create_app(cfg: Config | None = None, *, brain=None, chat_model=None,
     from yurios.desktop.routes import settings as b2_settings
 
     from .routes import channels, chat, events, health, live2d, mind, voice_ws
-    from .routes import onboarding
+    from .routes import inbox, onboarding
     app.include_router(health.router)
     app.include_router(onboarding.router)
     app.include_router(events.router)
@@ -865,6 +891,9 @@ def create_app(cfg: Config | None = None, *, brain=None, chat_model=None,
     # the sanctuary's channel switches (SPEC §10.5): the telegram sending
     # toggle lives beside the controls that reach the same runtime.
     app.include_router(channels.router)
+    # what she said while nobody was listening (SPEC §18.4): the pending run the
+    # chat view shows on entry, and the desktop shell's notification stream.
+    app.include_router(inbox.router)
     # the text-turn seam over HTTP (SPEC §10.5): what the CLI chat — and any
     # future remote frontend — drives instead of the voice socket.
     app.include_router(chat.router)

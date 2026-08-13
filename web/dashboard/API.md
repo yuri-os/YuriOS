@@ -20,9 +20,17 @@ Returns either a JSON array or `{ "characters": [...] }`. Each active character 
   "accent": "#88ad9b",
   "model": "openrouter/example/model",
   "voice": "alloy",
+  "unread": { "count": 2, "selfies": 1, "latest": "2026-08-14T03:05:00" },
   "updated_at": "2026-07-28T10:42:00Z"
 }
 ```
+
+`unread` is what she reached out about while nobody was in the room (SPEC §18.4) — the tile wears
+a mark when `count` is above zero, and says *picture* rather than *message* when `selfies` accounts
+for them. It is read from her Vault for a character whose runtime is down as well as from a live
+one, because a reach-out made before the last restart is the one most worth still showing. A
+missing or malformed object normalizes to zero. The mark clears when you enter her room, not from
+the board.
 
 Recognized states are `awake`, `engaged`, `dreaming`, `resting`, `attention`, and
 `offline`. The UI safely displays unknown values as `unknown`.

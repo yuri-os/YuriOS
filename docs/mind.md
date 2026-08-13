@@ -130,6 +130,24 @@ Three outcomes, in ascending imposition:
 
 Both dials are yours, in `.env`. You cannot tune the dial against someone who holds it.
 
+### Where a reach-out actually goes
+
+The gate decides whether she speaks. It does not decide whether you hear it, and those used to be
+the same thing by accident: a SUGGEST line, or a SPEAK with no page open, was published to the
+event bus and appended to an in-memory transcript. With nobody watching and no Telegram bot
+configured, that had no subscribers and did not survive a restart. She spent one of three
+interruptions on an empty room.
+
+So a line she started, into a room that may have been empty, is also filed in her **inbox** —
+`vault/state/inbox.json`, on disk, per character. It waits there until you have been in her room
+to see it; the switchboard marks her tile meanwhile, and the chat shows the run under a *while you
+were away* rule when you walk in. Turning on `NOTIFY_ENABLED` adds a desktop notification at the
+moment she says it. See [Channels → Desktop notifications](channels.md#desktop-notifications).
+
+The rule at the top of this table is unchanged by any of that: the journal, not notifications,
+carries the value. Nothing was added that decides to interrupt you. What was added is that when
+she has already decided to, it arrives.
+
 ## The world model
 
 Her picture of *now*. Every entry is a time-stamped, confidence-tagged **belief** in an append-only

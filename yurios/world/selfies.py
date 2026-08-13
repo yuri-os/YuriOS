@@ -509,8 +509,14 @@ class SelfieLab:
         # names ever did, and it is her line about her own photo.
         detail = chosen.get("look") or ", ".join(
             v for v in (chosen.get("scene"), chosen.get("mood")) if v)
+        # A shot she took unasked is filed in her inbox too (world/inbox.py), so
+        # the switchboard can mark that there is a picture waiting. An open page
+        # clears it on arrival; one rendered into an empty room keeps its badge.
+        # Only the successful render — a badge that resolves to "it didn't come
+        # out" is a notification about nothing.
         post_kw = {"image_url": f"/selfies/{name}",
-                   "proactive": _unprompted(c)}
+                   "proactive": _unprompted(c),
+                   "unheard": _unprompted(c)}
         if c.get("_channel"):
             post_kw["channel"] = c["_channel"]
         if c.get("_client_id"):

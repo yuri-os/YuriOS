@@ -18,10 +18,11 @@
  * hands the window to it, falling back to the Edge window when it isn't
  * installed. Run it by hand if you like — see README.md.
  */
-const { app, BrowserWindow, globalShortcut } = require('electron');
+const { app, BrowserWindow, Notification, globalShortcut, shell } = require('electron');
 
 const DEFAULT_URL = 'http://127.0.0.1:8768/?desktop=1';
 const PASS_THROUGH_HOTKEY = 'Control+Alt+Y';
+const NOTIFY_RETRY_MS = 5000;
 
 /** `--name=value`, else the environment, else the built-in default. */
 function argOf(name, fallback) {
@@ -109,8 +110,79 @@ function createWindow() {
   return win;
 }
 
+/**
+ * Her reach-outs, on the desktop (SPEC §18.4).
+ *
+ * The mind decides, on its own, to say something first. If no page is open and
+ * no Telegram bot is configured, that line has nowhere to go — it is filed in
+ * her inbox and waits, which is better than the nothing it used to be, but a
+ * companion who only reaches you when you happen to check is not reaching you.
+ * This is the doorbell.
+ *
+ * It reads `/api/notifications`, NOT `/api/events`. Attaching to the event
+ * stream posts a `user_present` signal, and this shell is attached for as long
+ * as it is running: she would read a tray icon as company, and Gate 2 would
+ * suppress the very reach-outs this exists to deliver. The notification stream
+ * signals nothing.
+ *
+ * A 404 means notifications are off server-side (NOTIFY_ENABLED) — stop asking.
+ * Anything else is the server still waking up, so keep retrying: the shell is
+ * routinely launched before the voice stack has finished loading.
+ */
+function watchNotifications(win, base) {
+  let stopped = false;
+  // The same scoping rule web/shared/runtime.js applies: a page under
+  // /characters/<id>/… talks to that character's runtime, and a bare page talks
+  // to the primary. This shell floats one body, so it hears one character —
+  // every other runtime in the house falls back to notify-send on its own,
+  // because its NotifyChannel sees no shell attached.
+  const route = new URL(base).pathname.match(
+    /^\/characters\/([^/]+)\/(?:sanctuary|text|live2d|mind)(?:\/|$)/);
+  const feed = route
+    ? `/api/characters/${route[1]}/notifications`
+    : '/api/notifications';
+  const open = () => {
+    if (stopped) return;
+    const source = new EventSource(new URL(feed, base).href);
+    source.onmessage = (event) => {
+      let payload;
+      try { payload = JSON.parse(event.data); } catch { return; }
+      if (payload.type !== 'notify') return;
+      if (!Notification.isSupported()) return;
+      const note = new Notification({ title: payload.title, body: payload.body });
+      // Clicking it should land you in the room she said it from — which is the
+      // whole difference between a notification and an alert.
+      note.on('click', () => {
+        if (win && !win.isDestroyed()) { win.show(); win.focus(); return; }
+        // No window left to raise (she was closed but the shell is still up):
+        // open her room in the browser rather than swallowing the click.
+        const room = payload.character
+          ? new URL(`/characters/${encodeURIComponent(payload.character)}/sanctuary/`, base).href
+          : base;
+        shell.openExternal(room);
+      });
+      note.show();
+    };
+    source.onerror = () => {
+      source.close();
+      if (!stopped) setTimeout(open, NOTIFY_RETRY_MS);
+    };
+  };
+  // EventSource has been in Electron's renderer forever and in the main process
+  // since Node 22 (undici). Older runtimes simply get no doorbell — the inbox
+  // still holds everything, so this degrades to the previous behaviour.
+  if (typeof EventSource === 'undefined') {
+    console.log('[shell] no EventSource in this runtime — notifications off');
+    return () => {};
+  }
+  open();
+  return () => { stopped = true; };
+}
+
 app.whenReady().then(() => {
   const win = createWindow();
+  const stopNotifications = watchNotifications(win, url);
+  app.on('will-quit', stopNotifications);
 
   // Click-through: she stays on screen but the mouse goes to whatever is behind
   // her. There is no frame to click when it's on, so the toggle has to be global.

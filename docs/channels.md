@@ -105,6 +105,42 @@ TELEGRAM_SEND_NON_TELEGRAM=true
 
 Telegram-originated turns always receive their reply in Telegram regardless of this setting.
 
+## Desktop notifications
+
+Every other channel is a place she can be *talked to*. This one only carries things outward, and
+only one kind of thing: the lines she decided to say on her own when nobody was in the room.
+
+Without it, a reach-out made at 3am with no page open and no Telegram bot configured had nowhere
+to go. She still passed the interrupt gate, still spent one of the two or three interruptions she
+allows herself a day — and the message sat in memory until the daemon restarted. It is now always
+filed in her inbox and shown the next time you open her room; this puts it on your desktop at the
+time she said it.
+
+```ini
+NOTIFY_ENABLED=true
+NOTIFY_BACKEND=auto      # auto · shell · libnotify · off
+```
+
+Off by default. `auto` draws through the Electron desktop shell when one is running — those
+notifications are clickable and open her room — and falls back to `notify-send` otherwise, which
+is the case that matters for a headless always-on install. On Debian/Ubuntu that is the
+`libnotify-bin` package. With neither available she is not silenced, only quieter: everything is
+still in her inbox, and the switchboard marks her tile.
+
+Nothing here decides to interrupt you. That decision was made before this channel saw the line,
+against a daily budget, by the same gate that has always made it. This is delivery.
+
+### The inbox
+
+`<vault>/state/inbox.json`, per character, untracked — what she *said* is already in her journal
+and in git; this file only holds which of it you have actually seen. Entering her room marks
+everything pending as seen and shows it under one *while you were away* rule. There is no dismiss
+button: being in the room is the acknowledgement.
+
+`GET /api/inbox` serves it, `POST /api/inbox/read` clears it, and each character's entry in
+`GET /api/characters` carries an `unread` count so the switchboard can mark her tile — including
+while her runtime is down, which is exactly when an old reach-out is most worth still seeing.
+
 ## Planned
 
 Two more mediums are shaped on the same seam (`yurios/world/channels/base.py`) and not yet

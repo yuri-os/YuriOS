@@ -34,6 +34,17 @@ class ChannelManager:
         `telegram_for_character`), so a second character with her own bot builds
         a second, uncontended adapter here."""
         channels: list[Channel] = []
+        # The one channel with no credentials to be switched on by, so it carries
+        # an explicit flag instead — and defaults off (SPEC §18.4). It contends
+        # over nothing (no `claim`): every character may raise her own
+        # notifications, because the thing being contended for is your attention,
+        # and that is already rationed per character by Gate 2.
+        if cfg.notify_enabled and cfg.notify_backend != "off":
+            from .notify import NotifyChannel
+            channels.append(NotifyChannel(
+                backend=cfg.notify_backend,
+                app_name=cfg.companion_name or "YuriOS",
+                character_id=cfg.character_id))
         if cfg.telegram_bot_token:
             from .telegram import TelegramChannel
             channels.append(TelegramChannel(

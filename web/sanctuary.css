@@ -256,6 +256,18 @@ svg{ width:1.1em; height:1.1em; fill:none; stroke:currentColor; stroke-width:1.7
    unprompted line is legible as one at a glance */
 .msg.her.proactive{ border-left:2px solid var(--amber); }
 .msg.her.draft{ opacity:.6; }
+/* what she said while nobody was in the room (SPEC §18.4) — she reached out,
+   passed Gate 2, and spent one of two or three interrupts a day on an empty
+   chair. The amber bar says "unprompted"; this says "and you weren't here". */
+.msg.her.unheard{ border-left-color:var(--acid, var(--amber)); background:
+  color-mix(in srgb, var(--acid, var(--amber)) 5%, var(--panel)); }
+.while-away{
+  align-self:stretch; display:flex; align-items:center; gap:10px; margin:6px 0 2px;
+  color:var(--dim); font:9px var(--font-mono); letter-spacing:.16em; text-transform:uppercase;
+}
+.while-away::before, .while-away::after{
+  content:""; flex:1; height:1px; background:var(--rule);
+}
 .msg .who{
   display:flex; align-items:baseline; gap:8px; margin-bottom:6px;
   color:var(--dim); font:9px var(--font-mono);

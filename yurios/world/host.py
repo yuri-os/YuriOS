@@ -48,6 +48,7 @@ from yurios.app import vaultgit
 
 from . import debug, rewire
 from .config import Config
+from .inbox import Inbox
 from .main import DIST_DIR, WEB_DIR, create_app
 
 log = logging.getLogger("world.host")
@@ -292,6 +293,7 @@ def config_for_character(base: Config, record: CharacterRecord,
                          *, environ: Mapping[str, str] | None = None) -> Config:
     update: dict[str, Any] = {
         "companion_name": record.display.name,
+        "character_id": record.id,
         "vault_dir": record.paths.vault,
         "corpus_dir": record.paths.corpus,
         "trace_dir": record.paths.traces,
@@ -585,6 +587,13 @@ class CharacterHost:
             "portrait_url": f"/api/characters/{record.id}/portrait",
             "context": rt.context.snapshot() if rt else None,
             "activity": activity,
+            # what she is waiting to tell you (SPEC §32.5). Read from the live
+            # runtime when there is one and from her Vault when there isn't —
+            # the board lists offline characters too, and a reach-out made
+            # before the last restart is exactly the one still worth showing.
+            # (via getattr: a runtime mid-construction, or a stand-in, must not
+            # be able to 500 the board over a badge)
+            "unread": (getattr(rt, "inbox", None) or Inbox(record.paths.vault)).unread(),
         }
 
 

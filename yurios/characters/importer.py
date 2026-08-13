@@ -22,6 +22,7 @@ from yurios.app import vaultgit
 # and imports nothing from this package, so reaching for it here is a constant,
 # not a dependency on the mind.
 from yurios.mind.workspace import WORKSPACE_GITIGNORE
+from yurios.world.inbox import GITIGNORE as INBOX_GITIGNORE
 
 from .appearance import mechanical_identity, write_appearance
 from .card import (CardLimits, CardParseError, card_fields, parse_png_card,
@@ -506,6 +507,9 @@ def _create_vault(vault: Path, fields: Mapping[str, Any], name: str,
     # committed by the import commit below and stays tracked forever afterwards,
     # since .gitignore has no effect on a path git already knows.
     _write(vault / "workspace" / ".gitignore", WORKSPACE_GITIGNORE)
+    # …and her inbox's, for the same reason (§18.4): delivery state flips on
+    # every glance at her room, and this import commit would track it forever.
+    _write(vault / "state" / ".gitignore", INBOX_GITIGNORE)
     _write(vault / "workspace" / "README.md", WORKSPACE_README)
     _write(vault / "skills" / "README.md", SKILLS_README)
     _write(vault / "skills" / "document-editing" / "SKILL.md", DOCUMENT_EDITING_SKILL)

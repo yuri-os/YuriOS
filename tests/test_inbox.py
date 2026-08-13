@@ -311,3 +311,54 @@ def test_the_board_badges_a_character_whose_runtime_is_down(tmp_path, monkeypatc
         rows = {c["id"]: c["unread"] for c in client.get("/api/characters").json()["characters"]}
     assert rows["mika"] == {"count": 2, "selfies": 1, "latest": "2026-08-14T03:02:00"}
     assert rows["yuri"]["count"] == 0
+
+
+async def test_a_failing_notify_send_is_said_once_not_swallowed(cfg, monkeypatch, caplog):
+    """Installed is not working: notify-send exits non-zero with no notification
+    daemon on the session, which is the ordinary state of the headless boxes
+    this backend exists for. Silently dropping there looks exactly like a
+    companion who never reached out."""
+    rt = create_app(cfg, brain=FakeBrain()).state.rt
+    monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/notify-send")
+
+    async def failing(*args, **kwargs):
+        class Proc:
+            returncode = 1
+
+            async def communicate(self):
+                return b"", b"Cannot autolaunch D-Bus without X11 $DISPLAY"
+        return Proc()
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", failing)
+    channel = NotifyChannel(backend="libnotify")
+    await channel.start(rt)
+    try:
+        with caplog.at_level("WARNING"):
+            rt.post_message("assistant", "still awake?", proactive=True, unheard=True)
+            rt.post_message("assistant", "and again", proactive=True, unheard=True)
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+    finally:
+        await channel.stop()
+    said = [r.getMessage() for r in caplog.records if "NOTIFY_ENABLED" in r.getMessage()]
+    assert len(said) == 1, f"say it once, not per reach-out: {said}"
+    assert "D-Bus" in said[0] and "still filed in her inbox" in said[0]
+    # …and the message is not lost — that is the point of saying "still filed"
+    assert rt.inbox.unread()["count"] == 2
+
+
+async def test_a_missing_notify_send_says_how_to_fix_it(cfg, monkeypatch, caplog):
+    rt = create_app(cfg, brain=FakeBrain()).state.rt
+    monkeypatch.setattr("shutil.which", lambda name: None)
+    channel = NotifyChannel(backend="libnotify")
+    await channel.start(rt)
+    try:
+        with caplog.at_level("WARNING"):
+            rt.post_message("assistant", "…", proactive=True, unheard=True)
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+    finally:
+        await channel.stop()
+    said = [r.getMessage() for r in caplog.records if "NOTIFY_ENABLED" in r.getMessage()]
+    assert len(said) == 1 and "libnotify-bin" in said[0]

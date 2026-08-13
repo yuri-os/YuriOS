@@ -183,19 +183,39 @@ class NotifyChannel(Channel):
     async def _notify_send(self, title: str, body: str) -> None:
         """freedesktop, via the binary rather than a D-Bus dependency: two
         arguments do not justify pulling in `dbus-next`, and `notify-send` is
-        present wherever a notification daemon is."""
+        present wherever a notification daemon is.
+
+        Installed is not the same as *working*: `notify-send` exits non-zero when
+        it cannot reach a notification daemon, which is the ordinary state of a
+        headless box, an ssh session, and WSL without one running — and those are
+        exactly the always-on installs this backend was written for. A silent
+        failure there looks identical to a companion who never reached out, so
+        the exit code is checked and said once.
+        """
         exe = shutil.which("notify-send")
         if exe is None:
-            if not self._warned_missing:
-                self._warned_missing = True
-                log.warning(
-                    "NOTIFY_ENABLED is on but notify-send isn't installed — her "
-                    "reach-outs are still filed in her inbox and will show when "
-                    "you next open her room. Install libnotify-bin, or run the "
-                    "desktop shell, to get them on screen.")
+            self._warn_undelivered(
+                "notify-send isn't installed. Install libnotify-bin, or run the "
+                "desktop shell")
             return
         proc = await asyncio.create_subprocess_exec(
             exe, "--app-name", self.app_name, "--expire-time", "12000",
             title, body,
-            stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL)
-        await proc.wait()
+            stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE)
+        _, stderr = await proc.communicate()
+        if proc.returncode != 0:
+            detail = (stderr or b"").decode("utf-8", "replace").strip()
+            self._warn_undelivered(
+                f"notify-send failed ({proc.returncode}"
+                f"{': ' + detail[:120] if detail else ''}). Usually no "
+                f"notification daemon on this session (headless, ssh, or WSL)")
+
+    def _warn_undelivered(self, why: str) -> None:
+        """Say it once, and say what still worked. A reach-out that missed the
+        screen is not a lost reach-out — the inbox holds it either way, and the
+        switchboard is already marking her tile."""
+        if self._warned_missing:
+            return
+        self._warned_missing = True
+        log.warning("NOTIFY_ENABLED is on but %s. Her reach-outs are still filed "
+                    "in her inbox and show when you next open her room.", why)

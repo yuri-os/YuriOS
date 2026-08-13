@@ -29,6 +29,14 @@ The script installs system packages, [`uv`](https://docs.astral.sh/uv/), Node, t
 Vault and the web build — and finishes by running the doctor, which should come back with nothing
 to do.
 
+On a **GNOME desktop** it also installs `gnome-shell-extension-appindicator`, because GNOME removed
+the system tray and there is otherwise nothing on the session bus to draw a tray icon into — the
+icon gets created, every call succeeds, and nothing appears. **Log out and back in** afterwards;
+gnome-shell only loads extensions at session start. Nothing is installed on other desktops (KDE,
+XFCE, Cinnamon, MATE and Budgie host a tray already), on a headless box, under WSL (the tray
+belongs to Windows) or on macOS. On Arch the extension lives in the AUR, so the installer says so
+rather than reaching for an AUR helper.
+
 ## Uninstall
 
 Run this from the YuriOS project directory to stop the daemon and remove the global
@@ -59,7 +67,7 @@ all other local data. Re-run `./install.sh` later to recreate the virtual enviro
 | `--web-search` | Gives her the web (`web_search`, `read_page`, `research`): pulls, configures and starts a SearXNG container, then points `.env` at it. Needs Docker |
 | `--no-web-search` | Leaves web search off — the default for unattended runs |
 | `--desktop` | Adds the native transparent desktop-window dependencies (pywebview + Qt) |
-| `--skip-system` | Don't install system packages |
+| `--skip-system` | Don't install system packages (including the GNOME tray host) |
 | `--print-extras` | Print the extras the other flags resolve to and exit — a dry run that touches nothing |
 | `-h`, `--help` | The same table, from the script |
 

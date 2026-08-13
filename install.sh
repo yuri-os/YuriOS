@@ -81,7 +81,8 @@ Options:
   --print-extras Print the extras the other flags resolve to and exit — a dry run
                  that touches nothing (the test suite uses it)
   --skip-system  Do not install system packages (git, curl, and — unless --thin
-                 — espeak-ng and libsndfile, which the voice needs)
+                 — espeak-ng and libsndfile, which the voice needs; plus the
+                 GNOME tray host, on a GNOME desktop that has none)
   -h, --help     Show this help
 
 On Linux/WSL with a terminal attached, the installer asks which Torch build to
@@ -560,6 +561,79 @@ install_system_packages() {
     fi
 }
 
+# The one thing on a Linux desktop that a tray icon cannot supply for itself
+# (SPEC §18.4): something to draw it in.
+#
+# GNOME removed the system tray. There is no StatusNotifierWatcher on the
+# session bus unless an extension puts one there, and the failure mode is the
+# worst kind — the icon is created successfully, every call returns fine, and
+# nothing appears anywhere on screen. No amount of code in YuriOS fixes that,
+# so the installer is the honest place to deal with it.
+#
+# Deliberately narrow. Every other desktop (KDE, XFCE, Cinnamon, MATE, Budgie)
+# hosts a tray already, macOS has a native menu bar, and under WSL the tray
+# belongs to Windows — installing a gnome-shell extension in any of those cases
+# is a sudo prompt spent on something that will never be loaded.
+tray_host_package() {
+    case "$XDG_CURRENT_DESKTOP" in
+        *GNOME*|*gnome*) ;;
+        *) return 1 ;;
+    esac
+    if command -v apt-get >/dev/null 2>&1 || command -v zypper >/dev/null 2>&1 \
+        || command -v dnf >/dev/null 2>&1; then
+        printf 'gnome-shell-extension-appindicator'
+        return 0
+    fi
+    return 1        # Arch keeps it in the AUR; say so rather than shell out to one
+}
+
+install_tray_host() {
+    [ "$PLATFORM" = "linux" ] || return 0
+    # A headless box has no tray to install into, and this must not fire on a
+    # server install that happens to have the GNOME libraries pulled in.
+    [ -n "$DISPLAY$WAYLAND_DISPLAY" ] || return 0
+
+    # The definitive test, and it is what the tray itself will look for: if
+    # something already answers as the watcher, a host exists and there is
+    # nothing to do — whether that is this extension, a third-party one, or
+    # another desktop entirely.
+    if command -v busctl >/dev/null 2>&1 \
+        && busctl --user list 2>/dev/null | grep -q StatusNotifierWatcher; then
+        return 0
+    fi
+
+    local package
+    if ! package="$(tray_host_package)"; then
+        case "$XDG_CURRENT_DESKTOP" in
+            *GNOME*|*gnome*)
+                log "No tray host on this session. On Arch, install gnome-shell-extension-appindicator from the AUR to see her tray icon" ;;
+        esac
+        return 0
+    fi
+
+    log "Installing the GNOME tray host ($package)"
+    if command -v apt-get >/dev/null 2>&1; then
+        run_root apt-get install -y "$package" || { log "Could not install $package; her tray icon will have nowhere to draw"; return 0; }
+    elif command -v dnf >/dev/null 2>&1; then
+        run_root dnf install -y "$package" || { log "Could not install $package; her tray icon will have nowhere to draw"; return 0; }
+    else
+        run_root zypper --non-interactive install "$package" || { log "Could not install $package; her tray icon will have nowhere to draw"; return 0; }
+    fi
+
+    # Installed is not enabled. Ubuntu ships its own fork of the extension under
+    # a different uuid, so try both and take whichever answers.
+    local uuid
+    if command -v gnome-extensions >/dev/null 2>&1; then
+        for uuid in ubuntu-appindicators@ubuntu.com appindicatorsupport@rgcjonas.gmail.com; do
+            gnome-extensions enable "$uuid" 2>/dev/null && break
+        done
+    fi
+    # gnome-shell loads extensions at session start and there is no way to ask a
+    # running one to pick up a package that was not there when it booted. Saying
+    # this plainly is the difference between "not working" and "not yet".
+    log "Log out and back in to finish enabling the tray host — until then her reach-outs still arrive as notifications and wait in her inbox"
+}
+
 node_is_supported() {
     command -v node >/dev/null 2>&1 || return 1
     node -e 'const [major, minor] = process.versions.node.split(".").map(Number); process.exit((major === 20 && minor >= 19) || (major >= 22) ? 0 : 1)'
@@ -651,6 +725,7 @@ install_launcher() {
 
 if [ "$SKIP_SYSTEM" = false ]; then
     install_system_packages
+    install_tray_host
 fi
 install_node
 install_uv

@@ -575,7 +575,7 @@ install_system_packages() {
 # belongs to Windows — installing a gnome-shell extension in any of those cases
 # is a sudo prompt spent on something that will never be loaded.
 tray_host_package() {
-    case "$XDG_CURRENT_DESKTOP" in
+    case "${XDG_CURRENT_DESKTOP-}" in
         *GNOME*|*gnome*) ;;
         *) return 1 ;;
     esac
@@ -591,7 +591,12 @@ install_tray_host() {
     [ "$PLATFORM" = "linux" ] || return 0
     # A headless box has no tray to install into, and this must not fire on a
     # server install that happens to have the GNOME libraries pulled in.
-    [ -n "$DISPLAY$WAYLAND_DISPLAY" ] || return 0
+    #
+    # Every expansion here is `${VAR-}`, not `$VAR`: this script runs under
+    # `set -u`, an X11 session leaves WAYLAND_DISPLAY unset (and a bare TTY
+    # leaves all three unset), and an unbound variable does not skip the step —
+    # it kills the installer, here, before the venv and the web build.
+    [ -n "${DISPLAY-}${WAYLAND_DISPLAY-}" ] || return 0
 
     # The definitive test, and it is what the tray itself will look for: if
     # something already answers as the watcher, a host exists and there is
@@ -604,7 +609,7 @@ install_tray_host() {
 
     local package
     if ! package="$(tray_host_package)"; then
-        case "$XDG_CURRENT_DESKTOP" in
+        case "${XDG_CURRENT_DESKTOP-}" in
             *GNOME*|*gnome*)
                 log "No tray host on this session. On Arch, install gnome-shell-extension-appindicator from the AUR to see her tray icon" ;;
         esac
@@ -622,10 +627,15 @@ install_tray_host() {
 
     # Installed is not enabled. Ubuntu ships its own fork of the extension under
     # a different uuid, so try both and take whichever answers.
+    #
+    # `|| true` because failing here is the NORMAL case, not an error: the
+    # extension gnome-shell has never loaded usually cannot be enabled until it
+    # has, so on a first install both attempts fail — and under `set -e` a for
+    # loop whose last command returns non-zero takes the installer down with it.
     local uuid
     if command -v gnome-extensions >/dev/null 2>&1; then
         for uuid in ubuntu-appindicators@ubuntu.com appindicatorsupport@rgcjonas.gmail.com; do
-            gnome-extensions enable "$uuid" 2>/dev/null && break
+            gnome-extensions enable "$uuid" 2>/dev/null && break || true
         done
     fi
     # gnome-shell loads extensions at session start and there is no way to ask a

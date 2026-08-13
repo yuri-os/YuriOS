@@ -189,8 +189,12 @@ class CharacterRecord:
 
     @classmethod
     def from_dict(
-        cls, value: Mapping[str, Any], *, data_root: Path | None = None
+        cls, value: Mapping[str, Any], *, data_root: Path | None = None,
+        dropped: list[str] | None = None
     ) -> "CharacterRecord":
+        """`dropped`, when given, collects the retired keys this record carried
+        (`"<binding>.<key>"`). The registry uses it to write the file back once —
+        see `_binding_data` for why a warning alone was not enough."""
         try:
             raw_paths = value["paths"]
             if not isinstance(raw_paths, Mapping):
@@ -225,25 +229,40 @@ class CharacterRecord:
                 lifecycle=LifecycleFlags(**dict(value.get("lifecycle", {}))),
                 loops=LoopSwitches(**dict(value.get("loops", {}))),
                 connection=ConnectionBinding(
-                    **_binding_data(ConnectionBinding, value.get("connection", {}))
+                    **_binding_data(ConnectionBinding, value.get("connection", {}),
+                                    dropped)
                 ),
-                models=ModelBinding(**_binding_data(ModelBinding, value.get("models", {}))),
-                voice=VoiceBinding(**_binding_data(VoiceBinding, value.get("voice", {}))),
-                body=BodyBinding(**_binding_data(BodyBinding, value.get("body", {}))),
+                models=ModelBinding(
+                    **_binding_data(ModelBinding, value.get("models", {}), dropped)),
+                voice=VoiceBinding(
+                    **_binding_data(VoiceBinding, value.get("voice", {}), dropped)),
+                body=BodyBinding(
+                    **_binding_data(BodyBinding, value.get("body", {}), dropped)),
                 created_at=str(value.get("created_at", "")),
             )
         except (KeyError, TypeError) as exc:
             raise ValueError(f"invalid character record: {exc}") from exc
 
 
-def _binding_data(binding: type, value: object) -> dict[str, Any]:
+def _binding_data(binding: type, value: object,
+                  dropped: list[str] | None = None) -> dict[str, Any]:
     """A persisted binding as constructor keywords for *binding*.
 
     A registry written by an older build carries the keys that build had, and a
     field this one has since retired — `models.dream`, which never reached the
-    dream pass — must not be the reason her record refuses to load. Unknown keys
-    are dropped with a warning (a hand-edited typo deserves to be *said*, not
-    swallowed) and the next save writes the file without them."""
+    dream pass; `connection.backend`/`endpoint`/`api_key_env`, from before the
+    connection became a named profile — must not be the reason her record
+    refuses to load. Unknown keys are dropped with a warning (a hand-edited typo
+    deserves to be *said*, not swallowed).
+
+    `dropped` collects what was dropped, and it is what makes that warning a
+    *report* rather than a permanent fixture. This function used to promise that
+    "the next save writes the file without them", which was true only of records
+    somebody went on to edit: a character nobody touches is loaded and dropped
+    again on every single start, so an install with four of them printed twelve
+    identical lines at every boot, forever, and the noise grew with the house.
+    `CharacterRegistry.reload` saves once when this list comes back non-empty.
+    """
     if not isinstance(value, Mapping):
         raise ValueError("character binding must be an object")
     known = binding.__dataclass_fields__
@@ -253,5 +272,7 @@ def _binding_data(binding: type, value: object) -> dict[str, Any]:
             result[key] = item
         else:
             log.warning("ignoring unknown %s field: %s", binding.__name__, key)
+            if dropped is not None:
+                dropped.append(f"{binding.__name__}.{key}")
     result["options"] = _options(result.get("options"))
     return result

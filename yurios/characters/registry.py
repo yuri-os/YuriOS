@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import tempfile
 from pathlib import Path
 from typing import Any
 
 from .models import CharacterRecord
+
+log = logging.getLogger("characters.registry")
 
 
 REGISTRY_SCHEMA_VERSION = 1
@@ -73,14 +76,34 @@ class CharacterRegistry:
         if not isinstance(entries, list):
             raise ValueError("character registry 'characters' must be a list")
         records: dict[str, CharacterRecord] = {}
+        dropped: list[str] = []
         for entry in entries:
             if not isinstance(entry, dict):
                 raise ValueError("character registry entries must be objects")
-            record = CharacterRecord.from_dict(entry, data_root=self.data_root)
+            record = CharacterRecord.from_dict(entry, data_root=self.data_root,
+                                               dropped=dropped)
             if record.id in records:
                 raise ValueError(f"duplicate character id: {record.id}")
             records[record.id] = record
         self._records = records
+        if dropped:
+            # Retired keys were dropped on the way in (`models._binding_data`).
+            # Write the file back now, or the same keys are read and warned about
+            # again on every start for as long as nobody edits that character —
+            # which for a character who is simply *living here* is forever.
+            #
+            # Safe because it is a rewrite of what was just parsed, not a merge:
+            # `save()` serialises the records this load produced, so the only
+            # difference from the file on disk is the fields nobody can use.
+            # Best-effort — a read-only data dir is a reason to keep the warning,
+            # never a reason to refuse to load her.
+            log.info("registry: dropping %d retired field(s) (%s) — rewriting %s",
+                     len(dropped), ", ".join(sorted(set(dropped))), self.path.name)
+            try:
+                self.save()
+            except OSError:
+                log.warning("couldn't rewrite %s; the retired fields stay put",
+                            self.path, exc_info=True)
 
     def save(self) -> None:
         payload = {

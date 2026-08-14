@@ -19,6 +19,13 @@ SKIP_SYSTEM=false
 # packages but retains the local sentence-transformer embedder.
 INSTALL_VOICE=true
 INSTALL_THIN=false
+# Off by default, and that is the honest default: a fresh install should take the
+# security updates its dependencies have shipped since constraints.txt was written.
+# --pinned is for the other case — reproducing an install that worked, or one that
+# didn't. It constrains only the versions of packages that get installed anyway; the
+# torch build stays wherever install_torch put it (constraints.txt says nothing about
+# torch, on purpose — see scripts/pin_deps.sh).
+USE_PINS=false
 INSTALL_GPU_VOICE=false
 INSTALL_FORGE_LOCAL=true
 INSTALL_FORGE_KREA2=false
@@ -91,6 +98,10 @@ Options:
                  already hosts a tray this is unnecessary and never offered
   --no-tray      Never offer it, and turn her tray icon off in .env
   --desktop      Also install the native transparent desktop-window dependencies
+  --pinned       Install against constraints.txt — the exact versions this project
+                 was last known to work with, instead of whatever resolves today.
+                 Your torch build stays your choice either way; regenerate the
+                 file with ./scripts/pin_deps.sh
   --print-extras Print the extras the other flags resolve to and exit — a dry run
                  that touches nothing (the test suite uses it)
   --skip-system  Do not install system packages (git, curl, and — unless --thin
@@ -131,6 +142,7 @@ for arg in "$@"; do
         --no-tray) INSTALL_TRAY=false; TRAY_EXPLICIT=true; TRAY_DECLINED=true ;;
         --cpu-torch) TORCH_CHOICE="cpu"; TORCH_EXPLICIT=true ;;
         --cuda-torch) TORCH_CHOICE="cuda"; TORCH_EXPLICIT=true ;;
+        --pinned) USE_PINS=true ;;
         --print-extras) PRINT_EXTRAS=true ;;
         --skip-system) SKIP_SYSTEM=true ;;
         -h|--help) usage; exit 0 ;;
@@ -830,7 +842,14 @@ log "Installing YuriOS with Python $($PYTHON --version 2>&1)"
 select_torch_build
 select_web_search
 install_torch
-uv pip install --python "$PYTHON" -e ".[$EXTRAS]"
+PIN_ARGS=()
+if [ "$USE_PINS" = true ]; then
+    [ -f "$ROOT_DIR/constraints.txt" ] \
+        || fail "--pinned needs constraints.txt, which is not in this checkout; generate it with ./scripts/pin_deps.sh"
+    log "Pinning to constraints.txt (torch is not pinned — that build stays your choice)"
+    PIN_ARGS=(--constraints "$ROOT_DIR/constraints.txt")
+fi
+uv pip install --python "$PYTHON" "${PIN_ARGS[@]}" -e ".[$EXTRAS]"
 install_launcher
 
 prepare_local_state

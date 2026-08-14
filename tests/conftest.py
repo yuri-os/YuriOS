@@ -24,6 +24,27 @@ from yurios.world.tools.guard import Guard
 from yurios.world.tools.timers import TimerBoard
 
 
+@pytest.fixture(scope="session")
+def _empty_installation(tmp_path_factory):
+    return tmp_path_factory.mktemp("installation")
+
+
+@pytest.fixture(autouse=True)
+def installation_elsewhere(_empty_installation, monkeypatch):
+    """Keep the CLI's idea of "the installation" off this machine's real one.
+
+    `yurios` commands address the installation the package was installed from
+    (daemon.install_root), not the working directory — on a developer's machine
+    that is this checkout, with the `.env` conftest works so hard to keep out of
+    the suite. A test that calls a command directly would write to it. So the
+    suite points at an empty installation instead; a test that needs one with
+    contents in it names its own with YURIOS_ROOT, and the two tests about
+    finding the real one set or clear the variable themselves. It is deliberately
+    not `tmp_path`: tests assert on what is and isn't in there.
+    """
+    monkeypatch.setenv("YURIOS_ROOT", str(_empty_installation))
+
+
 @pytest.fixture
 def clock() -> VirtualClock:
     return VirtualClock()

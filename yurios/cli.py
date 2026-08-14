@@ -35,7 +35,8 @@ _POLL_INTERVAL_SECONDS = 0.25
 
 
 def _root() -> Path:
-    return Path.cwd()
+    """The installation every command in this file addresses (daemon.install_root)."""
+    return daemon.install_root()
 
 
 def _env_path(root: Path) -> Path:
@@ -1013,6 +1014,18 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if not getattr(args, "command", None):
         args = parser.parse_args(["start"])
+    # Knowing the installation isn't enough to be standing in it, and several
+    # things still read the working directory: a bare `Config()` looks for `.env`
+    # beside it, the relative settings it holds (`VAULT_DIR=./vault`,
+    # `DATA_DIR=./data`) resolve against it, and `start --foreground` runs the
+    # whole server in this process. So enter the installation before dispatch.
+    # Nothing the user typed changes meaning: no subcommand takes a path.
+    root = _root()
+    try:
+        os.chdir(root)
+    except OSError as exc:
+        print(f"Cannot enter the YuriOS installation at {root}: {exc}", file=sys.stderr)
+        return 1
     return args.func(args)
 
 

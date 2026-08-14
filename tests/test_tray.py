@@ -387,7 +387,7 @@ def test_tray_off_and_on_write_the_env(tmp_path, monkeypatch, capsys):
     .env and nothing on the desktop."""
     from yurios import cli
 
-    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("YURIOS_ROOT", str(tmp_path))
     (tmp_path / ".env").write_text("PORT=8768\n", encoding="utf-8")
 
     assert cli.command_tray(argparse.Namespace(action="off", yes=False)) == 0
@@ -405,7 +405,7 @@ def test_removing_the_tray_host_refuses_to_run_unattended(tmp_path, monkeypatch,
     their own icons. That is not something to do to a pipe."""
     from yurios import cli
 
-    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("YURIOS_ROOT", str(tmp_path))
     (tmp_path / ".env").write_text("PORT=8768\n", encoding="utf-8")
     monkeypatch.setattr(cli.sys.stdin, "isatty", lambda: False)
     ran: list[list[str]] = []

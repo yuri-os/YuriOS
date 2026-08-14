@@ -68,6 +68,40 @@ def _fake_children(supervisor, children):
     return spawned
 
 
+# ---- which installation ----------------------------------------------------
+
+def test_the_installation_is_found_from_the_package_not_the_shell(tmp_path, monkeypatch):
+    """`yurios` is on $PATH and gets typed from anywhere; the installation it
+    controls is the one it was installed from, not the directory it was typed in."""
+    monkeypatch.delenv("YURIOS_ROOT", raising=False)
+    monkeypatch.chdir(tmp_path)
+
+    assert daemon.install_root() == Path(daemon.__file__).resolve().parent.parent
+
+
+def test_yurios_root_names_a_second_installation(tmp_path, monkeypatch):
+    monkeypatch.setenv("YURIOS_ROOT", str(tmp_path))
+
+    assert daemon.install_root() == tmp_path.resolve()
+
+
+def test_a_command_typed_anywhere_runs_inside_the_installation(tmp_path, monkeypatch):
+    """Finding the installation is not the same as standing in it: `.env` and the
+    relative roots it holds are read against the working directory."""
+    elsewhere = (tmp_path / "elsewhere").resolve()
+    install = (tmp_path / "install").resolve()
+    elsewhere.mkdir()
+    install.mkdir()
+    monkeypatch.chdir(elsewhere)
+    monkeypatch.setattr(cli, "_root", lambda: install)
+    seen = []
+    monkeypatch.setattr(cli, "command_status", lambda args: seen.append(Path.cwd()) or 0)
+
+    assert cli.main(["status"]) == 0
+
+    assert seen == [install]
+
+
 # ---- identity: the lock, not the number ------------------------------------
 
 def test_a_pid_file_nobody_holds_names_nobody(tmp_path):

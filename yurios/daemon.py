@@ -51,6 +51,32 @@ CHILD_STOP_TIMEOUT = 15.0
 EXIT_TAIL_LINES = 20
 
 
+def install_root() -> Path:
+    """The installation these paths belong to, found without asking cwd.
+
+    One installation is one `.env`, one Vault, one `.yurios/` lock — and the
+    command that addresses it lives on `$PATH`, so it gets typed from wherever
+    the shell happens to stand. Standing in the wrong place used to mean
+    addressing a different, empty installation: no `.env` (so no model), a
+    `./vault` that isn't there, and a boot that fails on data it was never going
+    to find.
+
+    So the executing package names the installation instead. `install.sh` links
+    the launcher into the install's own venv and installs the project in place,
+    which puts `yurios/` inside the project directory — the one above this file.
+    A non-editable install has no project above it, and there the working
+    directory is still the best answer available. `YURIOS_ROOT` overrides both,
+    for a second checkout or a test.
+    """
+    override = os.environ.get("YURIOS_ROOT")
+    if override:
+        return Path(override).expanduser().resolve()
+    project = Path(__file__).resolve().parent.parent
+    if (project / "pyproject.toml").exists():
+        return project
+    return Path.cwd()
+
+
 def runtime_dir(root: Path) -> Path:
     return root / ".yurios"
 
@@ -408,10 +434,12 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
         prog="python -m yurios.daemon",
         description="supervise `python -m yurios.world`, restarting it when it dies")
-    ap.add_argument("--root", default=None, help="installation directory (default: cwd)")
+    ap.add_argument("--root", default=None,
+                    help="installation directory (default: the installation this "
+                         "package belongs to)")
     ap.add_argument("server", nargs="*", help="arguments passed through to yurios.world")
     args = ap.parse_args(argv)
-    root = Path(args.root).resolve() if args.root else Path.cwd()
+    root = Path(args.root).resolve() if args.root else install_root()
     return Supervisor(root, args.server).run()
 
 

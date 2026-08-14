@@ -97,6 +97,24 @@ def _circle_argb(size: int, rgb: tuple[int, int, int], *, dot: bool = False) -> 
     return bytes(out)
 
 
+_ICON_CACHE: dict[tuple[int, tuple[int, int, int], bool], bytes] = {}
+
+
+def _icon(size: int, rgb: tuple[int, int, int], *, dot: bool = False) -> bytes:
+    """`_circle_argb`, drawn once per appearance.
+
+    There are exactly two circles in the whole program and neither ever changes,
+    but the properties that return them are read on the host's schedule, not
+    ours — a redraw asks for every property at once, so a 3ms rasterisation was
+    being paid twice each time, on the loop the D-Bus replies come off.
+    """
+    key = (size, rgb, dot)
+    icon = _ICON_CACHE.get(key)
+    if icon is None:
+        icon = _ICON_CACHE[key] = _circle_argb(size, rgb, dot=dot)
+    return icon
+
+
 def _open(url: str) -> None:
     """Hand a URL to the desktop. Never raises: a tray click that takes the
     daemon down with it would be a spectacular way to lose a conversation."""
@@ -258,8 +276,7 @@ def _build_interfaces(model: "TrayModel", on_open):
         def IconPixmap(self) -> "a(iiay)":    # noqa: N802
             waiting = bool(model.waiting)
             rgb = WAITING_RGB if waiting else IDLE_RGB
-            return [[ICON_SIZE, ICON_SIZE,
-                     _circle_argb(ICON_SIZE, rgb, dot=waiting)]]
+            return [[ICON_SIZE, ICON_SIZE, _icon(ICON_SIZE, rgb, dot=waiting)]]
 
         @dbus_property(access=PropertyAccess.READ)
         def AttentionIconName(self) -> "s":   # noqa: N802
@@ -267,8 +284,7 @@ def _build_interfaces(model: "TrayModel", on_open):
 
         @dbus_property(access=PropertyAccess.READ)
         def AttentionIconPixmap(self) -> "a(iiay)":   # noqa: N802
-            return [[ICON_SIZE, ICON_SIZE,
-                     _circle_argb(ICON_SIZE, WAITING_RGB, dot=True)]]
+            return [[ICON_SIZE, ICON_SIZE, _icon(ICON_SIZE, WAITING_RGB, dot=True)]]
 
         @dbus_property(access=PropertyAccess.READ)
         def OverlayIconName(self) -> "s":     # noqa: N802
@@ -286,15 +302,29 @@ def _build_interfaces(model: "TrayModel", on_open):
 
         @dbus_property(access=PropertyAccess.READ)
         def ItemIsMenu(self) -> "b":          # noqa: N802
-            # False: a left click should open the switchboard, not just unfurl
-            # the menu. The menu is still there on right click.
-            return False
+            # True: this icon is a menu and nothing else. Which is also why
+            # there is no Activate method below — see the note there.
+            return True
 
         # -- what a click does -------------------------------------------------
-        @method()
-        def Activate(self, x: "i", y: "i"):   # noqa: N802, ARG002
-            on_open("/dashboard/")
-
+        #
+        # There is deliberately no `Activate`. GNOME's AppIndicator extension
+        # introspects for one (`supportsActivation = !!lookup_method('Activate')`,
+        # appIndicator.js) and, when it finds one, a left click can no longer
+        # open the menu straight away: it has to wait out the whole double-click
+        # interval first, in case a second click is coming that it should turn
+        # into an Activate instead (`_waitForDoubleClick`, indicatorStatusIcon.js).
+        # That interval is a desktop setting — 763ms on the machine this was
+        # found on — and it was the entire delay between clicking her icon and
+        # seeing the names. An item with no Activate takes the other branch and
+        # opens on the press. `ItemIsMenu` is the spec's way of saying the same
+        # thing, and KDE honours it, but this extension only ever asks the
+        # introspection, so both are set.
+        #
+        # What it costs: no left-click-straight-to-the-switchboard. That gesture
+        # never existed here anyway — it needed a *double* click, and the price
+        # of offering it was making every single click slow. The switchboard is
+        # the last row of the menu, and the middle click below still goes there.
         @method()
         def SecondaryActivate(self, x: "i", y: "i"):   # noqa: N802, ARG002
             on_open("/dashboard/")
@@ -327,11 +357,21 @@ def _build_interfaces(model: "TrayModel", on_open):
             super().__init__("com.canonical.dbusmenu")
             self._revision = 1
             self._rows: list[dict] = []
+            self._served: int | None = None   # the revision the host last read
             self.rebuild()
 
-        def rebuild(self) -> None:
-            self._rows = model.menu()
+        def rebuild(self) -> bool:
+            """Re-derive the rows. True when they actually moved.
+
+            The answer is what `AboutToShow` owes the host and the only reason to
+            bump the revision: both mean "the copy you are holding is stale".
+            """
+            rows = model.menu()
+            if rows == self._rows:
+                return False
+            self._rows = rows
             self._revision += 1
+            return True
 
         def _properties(self, row: dict) -> dict:
             if row.get("separator"):
@@ -349,6 +389,7 @@ def _build_interfaces(model: "TrayModel", on_open):
         @method()
         def GetLayout(self, parentId: "i", recursionDepth: "i",   # noqa: N802, ARG002
                       propertyNames: "as") -> "u(ia{sv}av)":      # noqa: N802, ARG002
+            self._served = self._revision
             children = [
                 Variant("(ia{sv}av)", [index + 1, self._properties(row), []])
                 for index, row in enumerate(self._rows)
@@ -392,14 +433,24 @@ def _build_interfaces(model: "TrayModel", on_open):
         @method()
         def AboutToShow(self, id: "i") -> "b":                    # noqa: N802, A002, ARG002
             # The host is about to draw the menu — the one moment its copy has
-            # to be right. Returning True tells it to re-read the layout.
-            self.rebuild()
-            return True
+            # to be right, and the one moment it is waiting on us to draw. True
+            # means "throw yours away and re-read the layout", so answering it
+            # unconditionally made the shell tear the popup down and rebuild it
+            # from the wire on every single open, including the overwhelmingly
+            # common one where nothing has changed since the last. That rebuild
+            # is what a click waits for. So: only when the rows really moved…
+            if self.rebuild():
+                return True
+            # …or when this host has never read them, which is every host on its
+            # first open and any host that fetches the layout lazily. Saying "keep
+            # what you have" to one that has nothing would leave it empty forever.
+            return self._served != self._revision
 
         @method()
         def AboutToShowGroup(self, ids: "ai") -> "aiai":          # noqa: N802, ARG002
-            self.rebuild()
-            return [[], []]
+            # (ids that need updating, ids that don't exist) — 0 is the root, so
+            # "the menu" is the honest answer when the rows moved.
+            return [[0], []] if self.rebuild() else [[], []]
 
         @dbus_property(access=PropertyAccess.READ)
         def Version(self) -> "u":             # noqa: N802
@@ -527,14 +578,17 @@ class Tray:
             await self._try_register()
         if not self.model.update(self._listing()):
             return
-        self.menu.rebuild()
         # Three separate signals because hosts subscribe to them separately, and
         # one that redraws only on NewIcon would keep a stale tooltip forever.
         self.item.emit_properties_changed({"Status": self.model.status})
         self.item.NewIcon()
         self.item.NewToolTip()
         self.item.NewStatus()
-        self.menu.LayoutUpdated()
+        # …but the menu only when the rows moved: a state change the rows don't
+        # show (she woke up, nobody wrote) is no reason to make the host drop a
+        # menu it could have kept.
+        if self.menu.rebuild():
+            self.menu.LayoutUpdated()
 
     async def stop(self) -> None:
         if self._task is not None:

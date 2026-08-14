@@ -88,6 +88,74 @@ def test_the_menu_is_one_row_per_character_then_the_board():
     assert rows[2] == {"separator": True}
 
 
+def _as_the_host_calls_it(interface, name):
+    """Call a `@method` and get its reply.
+
+    Called from Python, dbus-fast's wrapper runs the method and drops what it
+    returns; the reply the host actually receives comes from the descriptor the
+    decorator left behind. `AboutToShow` is a method whose *return value* is the
+    whole behaviour, so the test has to ask for it the way the wire does.
+    """
+    from dbus_fast.service import ServiceInterface
+
+    for descriptor in ServiceInterface._get_methods(interface):
+        if descriptor.name == name:
+            return lambda *args: descriptor.fn(interface, *args)
+    raise AssertionError(f"no such method: {name}")
+
+
+def test_a_menu_nothing_has_moved_in_is_not_rebuilt_between_click_and_popup():
+    """What `AboutToShow` returns is what the click waits for.
+
+    True means "drop the copy you are holding and re-read the layout", so a host
+    that asks it on every open — GNOME's does, right before drawing — was tearing
+    the popup down and rebuilding it from the wire every time, including the
+    common case where nobody had written since the last look.
+    """
+    from yurios.world.tray import _build_interfaces
+
+    model = TrayModel()
+    house = [{"id": "yuri", "name": "Yuri", "state": "ready",
+              "unread": {"count": 0, "selfies": 0}}]
+    model.update(house)
+    _, menu = _build_interfaces(model, lambda url: None)
+    about_to_show = _as_the_host_calls_it(menu, "AboutToShow")
+    get_layout = _as_the_host_calls_it(menu, "GetLayout")
+
+    assert about_to_show(0) is True               # read nothing, so keep nothing
+    revision = get_layout(0, -1, [])[0]
+
+    assert about_to_show(0) is False              # keep the one you have
+    assert get_layout(0, -1, [])[0] == revision   # …it is still current
+
+    house[0]["unread"] = {"count": 1, "selfies": 0}
+    model.update(house)
+
+    assert about_to_show(0) is True               # a message arrived
+    assert get_layout(0, -1, [])[0] > revision
+    assert about_to_show(0) is False              # and once redrawn, drawn
+
+
+def test_the_item_offers_no_activate_so_the_menu_opens_on_the_press():
+    """An `Activate` method is what makes a left click slow.
+
+    GNOME's AppIndicator extension introspects for one and, finding it, refuses
+    to open the menu until the double-click interval has elapsed — in case a
+    second click is coming that it should turn into an Activate instead. That
+    interval is a desktop setting, three quarters of a second where this was
+    found, and it is the whole of the delay between the click and the names.
+    """
+    from dbus_fast.service import ServiceInterface
+
+    from yurios.world.tray import _build_interfaces
+
+    item, _ = _build_interfaces(TrayModel(), lambda url: None)
+    offered = {descriptor.name for descriptor in ServiceInterface._get_methods(item)}
+
+    assert "Activate" not in offered
+    assert "SecondaryActivate" in offered      # the middle click still goes there
+
+
 def test_the_icon_is_a_well_formed_argb_pixmap():
     """SNI takes raw ARGB32, not a PNG — a wrong length is a blank tray icon
     and no error anywhere."""

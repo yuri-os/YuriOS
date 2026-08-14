@@ -116,7 +116,7 @@ def test_migration_gives_yuri_the_packaged_portrait(tmp_path):
     config = _config(tmp_path)
     data = tmp_path / "data"
 
-    result = migrate_legacy_data(config, data)
+    migrate_legacy_data(config, data)
 
     portrait = CharacterRegistry(data).require("yuri").paths.portrait
     assert portrait.read_bytes() == default_portrait_bytes()

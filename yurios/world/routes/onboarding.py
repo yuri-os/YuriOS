@@ -6,8 +6,8 @@ import threading
 from fastapi import APIRouter, HTTPException, Request
 
 from yurios.models import (NONE, RECOMMENDED_MODELS, download_gguf,
-                           gguf_connection_defaults, is_configured,
-                           normalize_model, save_model_choice, validate_model)
+                           gguf_connection_defaults, normalize_model,
+                           save_model_choice, validate_model)
 from yurios.desktop.routes.settings import ENV_PATH, _require_local
 
 router = APIRouter()

@@ -31,15 +31,14 @@ import math
 import re
 from collections import Counter
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Awaitable, Callable
-
-log = logging.getLogger("mind.knowledge")
 
 from yurios.world.clock import Clock
 
 from .util import iso_of, jsonl_append, jsonl_read, new_id, read_json, write_json
 from .vaultio import MindVault
+
+log = logging.getLogger("mind.knowledge")
 
 UtilityCall = Callable[[list[dict]], Awaitable[str]]
 

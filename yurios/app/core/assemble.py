@@ -27,7 +27,6 @@ fused onto the final user message, the last thing read before replying.
 """
 from __future__ import annotations
 
-import datetime
 from dataclasses import dataclass, field
 from typing import Protocol, Sequence
 

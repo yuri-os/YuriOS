@@ -131,7 +131,7 @@ def _identity(cfg):
 def build_forge(cfg) -> tuple[object, str]:
     """The forge behind the lab, from config. Returns (forge, status) where
     status is what /api/health reports: "openrouter" | "mock" | "mock (…)"."""
-    from yurios.forge import Character, ImageForge, SelfieBook, make_backend
+    from yurios.forge import ImageForge, SelfieBook, make_backend
 
     character = _identity(cfg)
     overlays = []

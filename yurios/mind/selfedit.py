@@ -23,7 +23,6 @@ the pen that rewrites them.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
 
 from yurios.world.clock import Clock
 

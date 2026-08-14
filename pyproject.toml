@@ -97,6 +97,15 @@ tts-kokoro = ["kokoro", "soundfile"]         # alias of [tts], kept for older do
 # B2's Live2D did. WINDOW_GUI=gtk + pywebview[gtk] is the lighter fallback.
 desktop = ["pywebview", "qtpy", "PyQt6", "PyQt6-WebEngine"]
 test = ["pytest", "pytest-asyncio", "httpx", "numpy"]
+# The gate `./scripts/check.sh` runs before a commit: lint + typecheck on top of
+# [test]. `build` is here for scripts/smoke_install.sh, which needs a wheel.
+#
+# Floors, and a ceiling at the next major so the CONFIG in this file keeps being
+# understood — not so the findings stay fixed. Ruff before 1.0 adds rules in minor
+# releases and mypy sharpens its inference in every one, so upgrading either can turn
+# up findings on a commit that touched nothing. That is the tools working. Read them,
+# fix them or ignore them by name here — do not pin your way out of hearing about it.
+dev = ["yurios[test]", "ruff>=0.14,<1", "mypy>=1.18,<3", "build>=1.2,<2"]
 # Her own camera: a local SDXL checkpoint (SELFIE_BACKEND=diffusers) rendered
 # in-process — no A1111/ComfyUI server, no API key. Needs torch WITH CUDA for
 # real speed (the default PyPI wheel is the CUDA one — the opposite of the CPU
@@ -162,6 +171,136 @@ yurios = "yurios.cli:main"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+
+# --- LINT ------------------------------------------------------------------------
+# `ruff check`, and deliberately NOT `ruff format`. The formatting here is hand-set —
+# comment columns aligned to the code they annotate, line breaks chosen to keep a
+# clause together — and a formatter would rewrite 36k lines to say nothing new.
+# The lint is for the things a reader can't see: a name that isn't defined, an import
+# that stopped being used, a variable assigned into the void.
+[tool.ruff]
+target-version = "py311"        # the floor in requires-python
+line-length = 100               # what the code already does; E501 is off regardless
+
+[tool.ruff.lint]
+# Ruff's default set (E4 imports, E7 statements, E9 syntax/IO, F pyflakes) minus the
+# three rules that only disagree with house style. Nothing here is a taste rule: each
+# one below catches code that is wrong, not code that is written differently.
+select = ["E4", "E7", "E9", "F"]
+ignore = [
+    "E741",  # `l` for a line, in ~15 comprehensions, consistently and only there
+    "E702",  # `b.declare("a", "a"); b.declare("b", "b")` — paired setup, one thought
+    "E731",  # `one = lambda s: …` in memory/store.py, three lines above its only use
+]
+
+[tool.ruff.lint.per-file-ignores]
+# dbus-fast reads the D-Bus type signature OUT of the annotation: `-> "s"` is a
+# string on the wire, `-> "(sss)"` a struct, `-> "b"` a boolean. It is the bus's type
+# language, not Python's, so pyflakes is right that no such name exists and wrong
+# that it matters. Every F821/F722 in these two files is one of those signatures.
+"yurios/world/tray.py" = ["F821", "F722"]
+"tests/test_tray.py" = ["F821", "F722"]
+# conftest stubs `dotenv.load_dotenv` BEFORE importing anything that would call it —
+# see the comment there; the late imports are the whole mechanism, not an accident.
+"tests/conftest.py" = ["E402"]
+
+# --- TYPECHECK -------------------------------------------------------------------
+# Set where the codebase actually is, not where a greenfield project would start.
+# Most of these 36k lines are annotated, but not all, and `--strict` on the lot
+# reports thousands of findings — a number nobody reads, which is the same as no
+# typecheck at all. So: check the bodies that carry annotations, believe the ones
+# that don't, and let the floor rise per-module (see the overrides at the bottom).
+[tool.mypy]
+files = ["yurios"]
+# No `python_version` on purpose. Pinning it to the 3.11 floor makes mypy PARSE the
+# installed stubs at that level too, and numpy's `__init__.pyi` uses 3.12's `type X =`
+# statement — one syntax error in site-packages, and "errors prevented further
+# checking" on the whole run. Unset, mypy targets the interpreter it is running under,
+# which is the one whose stubs are on disk. Version-floor breakage is caught where it
+# is real: scripts/smoke_install.sh, on a 3.11 install.
+# The dependency tree is mostly untyped or stub-less (litellm, kokoro, dbus_fast,
+# mcp, sentence_transformers…). Without this, every import line is a finding and the
+# real ones drown.
+ignore_missing_imports = true
+# An unannotated `def` is not an error — it is just unchecked. That is the deal that
+# keeps this runnable today; tighten it a module at a time below.
+check_untyped_defs = false
+disallow_untyped_defs = false
+warn_unused_ignores = true
+warn_redundant_casts = true
+# Optional handling is where the real bugs are (a None reaching an attribute access),
+# so that one stays strict even at this altitude.
+strict_optional = true
+# Not a package-level namespace conflict: yurios/desktop/main.py and
+# yurios/world/main.py are two different modules with the same basename.
+explicit_package_bases = true
+# tests/ is not checked. The suite is 1,296 tests of deliberately loose fakes —
+# duck-typed stand-ins for a TTS, a model, a bus — and typing those is work that
+# would make the fakes harder to write without making the runtime any safer.
+
+# dbus-fast reads the D-Bus type signature out of the annotation: `-> "s"`, `-> "u"`,
+# `-> "(sss)"`. mypy reads them as forward references to names that do not exist and
+# reports all 51 of them. Same false positive as ruff's F821 above, same answer.
+[[tool.mypy.overrides]]
+module = "yurios.world.tray"
+ignore_errors = true
+
+# --- THE BASELINE ----------------------------------------------------------------
+# These 36 modules were written before there was a typecheck, and between them they
+# report 133 findings — mostly duck-typed seams (a settings dict splatted into a
+# typed library constructor, an `object`-typed model that is whatever the router
+# returned) and Optionals that a runtime guard rules out where mypy cannot see it.
+# A handful are real: an `Optional` dereferenced without a check, a `str | None`
+# handed to something that wants `str`.
+#
+# They are listed rather than fixed because clearing them is a typing pass over the
+# runtime, not release infrastructure, and mixing the two makes both unreviewable.
+# What this buys today: the other 132 modules ARE checked, so nothing NEW arrives
+# unnoticed, and the debt has a name and a length instead of being a number nobody
+# has looked at.
+#
+# The list may only shrink. To work one off: delete its line, run `mypy`, fix what
+# it says, keep it deleted.
+[[tool.mypy.overrides]]
+module = [
+    "yurios.app.providers.gguf",
+    "yurios.app.providers.usage",
+    "yurios.characters.appearance",
+    "yurios.characters.card",
+    "yurios.characters.exporter",
+    "yurios.characters.models",
+    "yurios.cli",
+    "yurios.desktop.brain",
+    "yurios.desktop.main",
+    "yurios.desktop.routes.voice_ws",
+    "yurios.desktop.voice.latency",
+    "yurios.desktop.voice.ws_limits",
+    "yurios.forge.backends.diffusers",
+    "yurios.forge.backends.krea2",
+    "yurios.forge.backends.mock",
+    "yurios.forge.backends.openrouter",
+    "yurios.forge.provenance",
+    "yurios.forge.service",
+    "yurios.mind.dreamjobs",
+    "yurios.mind.knowledge",
+    "yurios.mind.loop",
+    "yurios.mind.workspace",
+    "yurios.world.avatar.controller",
+    "yurios.world.brain",
+    "yurios.world.channels.notify",
+    "yurios.world.channels.telegram",
+    "yurios.world.host",
+    "yurios.world.main",
+    "yurios.world.routes.mind",
+    "yurios.world.routes.voice_ws",
+    "yurios.world.selfies",
+    "yurios.world.tools.client",
+    "yurios.world.tools.fetch",
+    "yurios.world.voicestack",
+    "yurios.world.vram",
+    "yurios.world.window",
+]
+ignore_errors = true
 
 [tool.setuptools]
 # one namespace package `yurios`, with the former top-level modules as subpackages:

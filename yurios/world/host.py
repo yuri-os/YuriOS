@@ -17,7 +17,6 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, NamedTuple
 
-import yaml
 from dotenv import dotenv_values
 
 from fastapi import FastAPI, HTTPException, Request, UploadFile
@@ -49,7 +48,7 @@ from yurios.app import vaultgit
 from . import debug, rewire
 from .config import Config
 from .inbox import Inbox
-from .main import DIST_DIR, WEB_DIR, create_app
+from .main import DIST_DIR, create_app
 
 log = logging.getLogger("world.host")
 
@@ -1265,7 +1264,6 @@ def create_host_app(base: Config, registry: CharacterRegistry | None = None) -> 
     async def set_portrait(character_id: str, request: Request):
         """Adopt an upload or one of her selfies as the character's face."""
         from yurios.characters.importer import _sanitize_portrait
-        from yurios.characters import CardLimits
 
         record = require(character_id)
         body = await request.json()

@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import asyncio
 
-import pytest
 
 from yurios.world.research import Researcher, as_document
 from yurios.world.tools.fetch import FakeFetcher

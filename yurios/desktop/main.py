@@ -22,7 +22,6 @@ from pathlib import Path
 from .brain import BrainAdapter
 from .config import Config
 from .voice.fillers import FillerBank
-from .voice.protocols import STT, TTS, VAD
 from .voice.ws_limits import VoiceConnectionLimiter
 
 log = logging.getLogger("desktop.main")

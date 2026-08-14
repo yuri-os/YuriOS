@@ -29,7 +29,6 @@ renders *from* and never writes over.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from pathlib import Path
 
 from yurios.characters.setting import read_place
 from yurios.world.avatar.controller import VrmController

@@ -45,14 +45,14 @@ import time
 from contextlib import contextmanager
 from typing import Callable, Optional
 
-log = logging.getLogger("world.vram")
-
 # The floor is the *backend's* — each local camera knows how much free VRAM its
 # own resident weights need (ImageBackend.RESIDENT_FREE_GIB; ~11 GiB for SDXL,
 # more for Krea 2's INT4 transformer plus its text encoder), and parking exists
 # to get ABOVE it. A backend that isn't a resident local model says None, and
 # the parker stays out of the way entirely.
 from yurios.forge.backends.diffusers import DiffusersBackend
+
+log = logging.getLogger("world.vram")
 
 _DEFAULT_FLOOR_GIB = DiffusersBackend.RESIDENT_FREE_GIB
 _WAIT_STEP_S = 0.5

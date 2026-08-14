@@ -5,8 +5,12 @@
 - Support Python `>=3.11,<3.14`; Python 3.12 is the installer target. Use the project interpreter when present: `.venv/bin/python`.
 - Run the offline suite with `.venv/bin/python -m pytest -q`. Focus a change with `.venv/bin/python -m pytest -q tests/test_file.py::test_name`.
 - Tests deliberately replace dotenv loading and use fake voice, tools, image, model, and clock seams. Do not require a configured model, API key, GPU, or live service for test coverage.
-- There is no configured lint, formatter, or type-check task. For Python changes, run the relevant pytest scope; for `install.sh`, run `bash -n install.sh` (and `shellcheck install.sh` when available).
+- `./scripts/check.sh` is the gate: `ruff check`, `mypy`, pytest, and the web suite, each stage running even when an earlier one failed. Use `--fast` to skip pytest while iterating, `--release` to add the install smoke test. It needs `pip install -e ".[dev]"`. There is no CI; this is the whole gate.
+- Lint and typecheck are configured in `pyproject.toml` and are green — keep them that way. Ruff is `check` only, never `format` (the formatting is hand-set). Mypy skips the 36 modules listed in its overrides, which predate it: that list may only shrink, and new modules are checked from the start.
+- For `install.sh`, run `bash -n install.sh` (and `shellcheck install.sh` when available).
 - The browser app is a separate Vite build. After changing `web/`, run `(cd web && npm ci && npm run build)`; FastAPI serves the ignored `web/dist/` output at `/`. Use `(cd web && npm run dev)` only for Vite development.
+- `web/tests/` holds the frontend suite (`npm test`, vitest). Scope it to modules that decide something, not to the three.js room: a test that mocks WebGL asserts only that the mock was called.
+- After changing a dependency in `pyproject.toml`, regenerate the pins with `./scripts/pin_deps.sh` and run `./scripts/smoke_install.sh` — the resolve check is the only thing that sees a version ceiling breaking, and pytest never will.
 
 ## Runtime and configuration
 

@@ -141,6 +141,55 @@ in milliseconds**. That's the only way the make-or-break component, the interrup
 tuned rather than vibed. The scenario battery asserts over the tick trace: *the interview was
 Tuesday*, *the dark weekend*, *the machine sleeps*, *her own promise*, *a timer is a promise*.
 
+The room has its own suite — the modules that decide something rather than draw it: the activity
+ladder's vocabulary, the shapes the API's rows are normalised into, the context gauge's
+thresholds, the quality tier a device lands on.
+
+```bash
+cd web && npm install && npm test
+```
+
+## The check before a commit
+
+```bash
+pip install -e ".[dev]"            # ruff, mypy, and the build backend
+./scripts/check.sh                 # lint, typecheck, both suites
+./scripts/check.sh --fast          # …without pytest, which takes ~9 minutes
+./scripts/check.sh --release       # …plus the install smoke test, on Python 3.11
+```
+
+There is no CI behind this, on purpose: YuriOS is installed from a checkout onto one machine, and
+the thing most worth checking — that the wheel installs and the dependencies still resolve — is
+what a hosted runner would have to fake hardest. So the gate runs where the venv is. Every stage
+runs even when an earlier one failed, and the summary names what broke.
+
+**The lint** is `ruff check`, and deliberately not `ruff format` — the formatting here is hand-set
+and a formatter would rewrite 36k lines to say nothing new. **The typecheck** is `mypy`, set where
+the codebase is rather than where a greenfield project would start: the 36 modules written before
+it existed are listed in `[tool.mypy]`'s overrides and skipped, the other 132 are checked, and
+that list may only shrink. Both are configured in `pyproject.toml`, next to a note on why each
+rule is where it is.
+
+## Does it still install?
+
+```bash
+./scripts/smoke_install.sh                  # under a minute
+./scripts/smoke_install.sh --python 3.11    # the floor in requires-python
+./scripts/smoke_install.sh --full           # really install it all; minutes, and gigabytes
+```
+
+`pytest` runs against the working tree, so everything between the code and a stranger's machine is
+invisible to it — the wheel's contents, the console script, the package data, and above all
+whether the declared dependency set still *resolves*. That gap is where this project's worst
+failures have lived (litellm's Python ceiling; `mcp` 2.0 renaming the module her tool server is
+built on, while `import mcp` kept working), and all of them were silent.
+
+`constraints.txt` records the versions the project was last known to work with — a pip
+*constraints* file, so it fixes what gets installed and asks for nothing on its own. Install
+against it with `./install.sh --pinned`, and regenerate it with `./scripts/pin_deps.sh` after
+changing a dependency. torch is deliberately not pinned there: which build belongs on a machine
+(CPU, 747 MB, vs CUDA, 4.5 GB) is that machine's call, and the installer asks it.
+
 ## Contracts worth knowing before you change things
 
 - **The mind is a process state, not a callback.** Between turns it exists, ticks and decides.

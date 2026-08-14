@@ -229,6 +229,37 @@ def test_updates_explicit_legacy_vault_format_without_duplicate_key(tmp_path):
     assert yaml.safe_load(copied)["vault_format"] == "0.2"
 
 
+def test_fresh_install_with_no_legacy_roots_boots_instead_of_refusing(tmp_path):
+    config = _config(tmp_path)
+    shutil.rmtree(config.vault_dir)
+    for name in ("corpus_dir", "trace_dir", "tool_log_dir", "selfie_dir"):
+        shutil.rmtree(getattr(config, name))
+    data = tmp_path / "data"
+
+    result = migrate_legacy_data(config, data)
+
+    assert result.status == "no-legacy-data"
+    assert not result.changed and not result.migration_required
+    assert result.character_id is None
+    assert not (data / "layout.json").exists()
+
+    # The vault arriving later still migrates: nothing was marked done.
+    restored = _config(tmp_path / "later")
+    config.vault_dir = restored.vault_dir
+    assert migrate_legacy_data(config, data).status == "migrated"
+
+
+def test_missing_vault_beside_a_surviving_root_is_still_refused(tmp_path):
+    config = _config(tmp_path)
+    shutil.rmtree(config.vault_dir)
+    data = tmp_path / "data"
+
+    with pytest.raises(MigrationError, match="legacy vault_dir does not exist"):
+        migrate_legacy_data(config, data)
+
+    assert not data.exists()
+
+
 def test_invalid_source_is_refused_without_target_changes(tmp_path):
     config = _config(tmp_path)
     (config.vault_dir / "soul" / "soul.yaml").write_text("name: [", encoding="utf-8")

@@ -176,6 +176,25 @@ def _read_soul_name(vault: Path, config: object) -> str:
     return name.strip()
 
 
+def _any_source_exists(sources: tuple[_Source, ...]) -> bool:
+    """Is there any 0.1 data here at all?
+
+    Every boot comes through the migration (world/__main__.py), so the common
+    case is a machine that never ran 0.1 and has nothing to bring forward. That
+    is a fresh install, not a fault — and it must not be told its vault_dir is
+    missing and refused a boot. A vault_dir that is absent while *other* legacy
+    roots are present is still a broken pointer, and _validate_sources still
+    refuses it.
+    """
+    for source in sources:
+        try:
+            if source.path.exists():
+                return True
+        except OSError as exc:
+            raise MigrationError(f"cannot inspect legacy {source.config_name}: {exc}") from exc
+    return False
+
+
 def _validate_sources(
     sources: tuple[_Source, ...], data_dir: Path, characters_dir: Path
 ) -> str:
@@ -524,7 +543,8 @@ def migrate_legacy_data(
 
     ``check`` and ``dry_run`` both perform all source and collision validation but
     make no filesystem changes.  Repeated calls after success return
-    ``already-migrated`` and do not inspect or rewrite the backup roots.
+    ``already-migrated`` and do not inspect or rewrite the backup roots.  A machine
+    with no 0.1 roots at all returns ``no-legacy-data`` and writes nothing.
     """
     if data_dir is None and registry is not None:
         target = registry.data_root
@@ -554,6 +574,11 @@ def migrate_legacy_data(
         raise MigrationError(f"character directory is a symbolic link: {characters_dir}")
     if characters_dir.exists() and not characters_dir.is_dir():
         raise MigrationError(f"character directory is not a directory: {characters_dir}")
+    if not _any_source_exists(sources):
+        # No marker is written: the check is one stat per root, and leaving the
+        # marker unwritten keeps the migration available to a 0.1 vault that is
+        # restored, mounted, or pointed at later.
+        return MigrationResult("no-legacy-data", target, None, None, None)
     _validate_sources(sources, target, characters_dir)
     vault = next(source.path for source in sources if source.required)
     display_name = _read_soul_name(vault, config)

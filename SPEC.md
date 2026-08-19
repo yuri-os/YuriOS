@@ -652,6 +652,23 @@ to every new subscriber before its first live event. Malformed JSON is logged an
   its checkpoint, or (krea2) access to the gated companion repo its text encoder and VAE come
   from — **MUST** degrade to `mock` with one loud WARNING; a failed render **MUST** become a
   quiet chat message, never a crash and never silence.
+
+  **The shelf is a page** (`web/js/gallery.js`, `yurios/world/gallery.py`): the chat column's
+  fourth tab — **gallery** — is everything her camera has made, read newest-first *through the
+  forge's own ledger* (`generations.jsonl`) so it can never disagree with the files, and answering
+  on a character whose loop is stopped, because a shelf of photographs is history. It **MUST NOT**
+  fetch anything until the tab is opened and **MUST** page (`GET /api/gallery?page=&limit=`): the
+  shelf grows forever, thumbnails are the saved PNGs themselves, and a room nobody is looking at
+  must not be pulling a hundred of them down a socket. A ledger line whose PNG is gone is dropped
+  inside the pager, so a deleted photo costs a page a hole rather than a broken tile.
+
+  Each picture takes **a score out of ten** (`POST /api/gallery/rate`, `null` clears), and that
+  score **MUST** land in an append-only sidecar keyed by file name (`selfies/ratings.jsonl`, last
+  line wins) rather than in the render's provenance — the same separation §8.1's 👍/👎 keeps for a
+  reply: a judgement that arrives long after the thing it judges never edits the record of how
+  that thing was made. It is the camera's missing feedback loop — backend, checkpoint, sampler and
+  library rows are a dozen knobs with no record of which ones ever took a good photograph, and a
+  score beside the seed makes that a question the ledger can answer.
 - §7.7 **The web: `web_search` / `read_page` / `research`, and what she reads she keeps.** The
   three hands arrive together or not at all — searching with no way to open what you found is half
   a capability — behind one `SEARCH_BACKEND` knob whose default is `off`.

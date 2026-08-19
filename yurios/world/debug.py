@@ -47,6 +47,9 @@ SOURCES: dict[str, tuple[str, str]] = {
     "utility": ("corpus", "utility.jsonl"),
     "ratings": ("corpus", "ratings.jsonl"),
     "generations": ("selfies", "generations.jsonl"),
+    # what you thought of them (world/gallery.py) — opinion, kept beside the
+    # provenance it is about rather than inside it
+    "selfie_ratings": ("selfies", "ratings.jsonl"),
 }
 
 

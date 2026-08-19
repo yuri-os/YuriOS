@@ -263,6 +263,28 @@ The record carries backend, model, the full prompt and negative, the seed and ev
 setting, so any image is reproducible. Provenance metadata is stripped from the PNG itself before
 it's saved.
 
+## The gallery tab
+
+The chat column's fourth tab is the shelf as a page: every picture she has taken, newest first,
+with her own words for the shot and the settings that made it. It reads `generations.jsonl`
+through `GET /api/gallery`, and it is deliberately lazy — nothing is fetched until you click the
+tab, twelve pictures to a page, `< >` to walk back through them. A shot she takes while the tab is
+open drops in on its own.
+
+Each one takes **a score out of ten**. Click a number to rate it; click the number it already has
+to take the rating back.
+
+```
+selfies/ratings.jsonl     {"image": "1763…-a1b2.png", "score": 8, "by": "user", "at": "…"}
+```
+
+Append-only and keyed by file name, like the 👍/👎 sidecar on her replies: a judgement that arrives
+long after the render never edits the record of how that render was made. The last line for a name
+wins, and `null` unrates. What it is *for*: her camera has a dozen knobs — backend, checkpoint,
+sampler, the rows in her library — and no other way back from "that one came out badly" to the
+settings that did it. The score sits beside the seed and the prompt, so the ledger can answer
+which of them actually takes a good picture.
+
 ## Rate limits
 
 ```ini

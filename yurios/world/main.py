@@ -966,7 +966,7 @@ def create_app(cfg: Config | None = None, *, brain=None, chat_model=None,
     from yurios.desktop.routes import settings as b2_settings
 
     from .routes import channels, chat, events, health, live2d, mind, voice_ws
-    from .routes import inbox, onboarding, uploads
+    from .routes import gallery, inbox, onboarding, uploads
     app.include_router(health.router)
     app.include_router(onboarding.router)
     app.include_router(events.router)
@@ -986,6 +986,10 @@ def create_app(cfg: Config | None = None, *, brain=None, chat_model=None,
     # the inner-life surface (SPEC §24.3): journal, goals, pending self-edits,
     # the tick trace — what converts autonomy from creepy to an inner life.
     app.include_router(mind.router)
+    # …and the shelf of everything her camera has made (SPEC §7.6): the chat
+    # column's third panel reads the forge's ledger through here, and writes
+    # back the one thing the ledger cannot know — whether the shot was any good.
+    app.include_router(gallery.router)
     # The second body (SPEC §6.6): Build #2's Live2D client, under
     # web/live2d/ and served as-is — it speaks the same B2 §10 /ws/voice wire
     # the forked route preserves bit-for-bit, so the previous build's whole

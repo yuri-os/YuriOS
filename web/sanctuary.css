@@ -220,13 +220,19 @@ svg{ width:1.1em; height:1.1em; fill:none; stroke:currentColor; stroke-width:1.7
   color:var(--dim); font:9px/1.2 var(--font-mono);
   letter-spacing:.12em; text-transform:uppercase;
 }
-/* the two panels, as the switchboard drawer's tabs: an acid underline that
-   meets the head's own rule */
-.chat-tabs{ margin-left:auto; align-self:stretch; display:flex; align-items:flex-end; gap:18px; }
+/* the four panels, as the switchboard drawer's tabs: an acid underline that
+   meets the head's own rule. `flex:none` + `nowrap`, because at four tabs the
+   row is wider than what a 352px column has left over — the name beside it
+   ellipsises (it already knew how), rather than "inner life" folding in half. */
+.chat-tabs{
+  margin-left:auto; flex:none; align-self:stretch;
+  display:flex; align-items:flex-end; gap:13px;
+}
 .tab{
   padding:0 0 11px; border:0; border-bottom:2px solid transparent; background:none;
   color:var(--dim); cursor:pointer; font:9px var(--font-mono);
-  letter-spacing:.12em; text-transform:uppercase; transition:color .15s;
+  letter-spacing:.12em; text-transform:uppercase; white-space:nowrap;
+  transition:color .15s;
 }
 .tab:hover{ color:var(--soft); }
 .tab.on{ border-color:var(--acid); color:var(--ink); }

@@ -117,7 +117,8 @@ What you keep:
 
 - her words, with history, timestamps, selfies and the "she spoke first" marking;
 - her **voice**, and yours — TTS playback, the mic, barge-in, all unchanged;
-- the **inner life** tab (journal, goals, queued self-edits) and the `.env` settings panel;
+- the **inner life** tab (journal, goals, queued self-edits), the **gallery** tab (every picture
+  her camera has made, paged, each one ratable out of ten) and the `.env` settings panel;
 - the context gauge and the first-audio latency readout;
 - the [mute-her-voice switch](voice.md#muting-her), which starts **off** in here.
 

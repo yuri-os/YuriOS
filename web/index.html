@@ -18,6 +18,7 @@
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M8 1.5 14.5 8 8 14.5 1.5 8Z' fill='none' stroke='%23d7ff58' stroke-width='1.6'/></svg>">
   <link rel="stylesheet" href="sanctuary.css">
   <link rel="stylesheet" href="files.css">
+  <link rel="stylesheet" href="gallery.css">
   <!-- the settings panel's shared stylesheet, served raw at /shared/ (SPEC §11) -->
   <link rel="stylesheet" href="/shared/settings.css">
   <!-- the composer's picture affordance (SPEC §35), shared with every
@@ -141,7 +142,9 @@
        /api/events stream; typing here rides the voice socket (voice.js) so a
        typed turn keeps TurnController semantics — TTS, barge-in, the works.
        The second tab is the inner-life panel (SPEC §13.3, js/mind.js): her
-       journal, activity state, goals, and queued self-edits awaiting you. -->
+       journal, activity state, goals, and queued self-edits awaiting you; the
+       fourth is her gallery (SPEC §7.6, js/gallery.js), which loads nothing
+       until you open it. -->
   <aside id="chat-col">
     <header class="chat-head">
       <span class="brand-mark" aria-hidden="true"></span>
@@ -152,11 +155,13 @@
         <button id="tab-chat" class="tab on">chat</button>
         <button id="tab-mind" class="tab">inner life</button>
         <button id="tab-files" class="tab">files</button>
+        <button id="tab-gallery" class="tab">gallery</button>
       </nav>
     </header>
     <div id="messages" aria-live="polite"></div>
     <div id="innerlife" hidden></div>
     <div id="files" hidden></div>
+    <div id="gallery" hidden></div>
     <div class="composer">
       <input id="text" type="text" placeholder="…or type to her" autocomplete="off">
       <!-- Enter still sends (voice.js); this is the visible half of the same
@@ -200,6 +205,7 @@
   <script type="module" src="js/chat.js"></script>
   <script type="module" src="js/mind.js"></script>
   <script type="module" src="js/files.js"></script>
+  <script type="module" src="js/gallery.js"></script>
   <script type="module" src="js/main.js"></script>
   <!-- the settings panel, from the raw /shared/ mount (not bundled): the exact
        same file the Live2D client loads. Absolute src so Vite leaves it alone. -->

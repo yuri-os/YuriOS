@@ -91,6 +91,9 @@ Then try the loop end to end:
 - **Watch her think** — the **inner life** tab in the chat column shows her activity state and
   heartbeat, today's token budget, the goals on her mind, the shelf, edits waiting on your
   approval, and the journal of what she did while you were gone.
+- **Look back through her photographs** — the **gallery** tab is everything her camera has made,
+  newest first and paged, each with her own words for the shot and the seed that made it. Score
+  one out of ten and it goes on the record ([Selfies → The gallery tab](selfies.md#the-gallery-tab)).
 - **Then check her working** — the [mind debug page](mind.md#the-mind-debug-page), the last icon on
   her switchboard tile, has the tick behind each of those decisions, the prompt it was phrased
   with, and what the day cost.

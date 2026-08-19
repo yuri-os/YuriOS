@@ -19,10 +19,15 @@ import { STATE_META, canonicalState } from '../shared/activity-state.js';
   const apiPath = (path) => window.YuriOSRuntime?.apiPath(path) || path;
   const panel = document.getElementById('innerlife');
   const filesPanel = document.getElementById('files');
+  const galleryPanel = document.getElementById('gallery');
   const messagesEl = document.getElementById('messages');
   const tabChat = document.getElementById('tab-chat');
   const tabMind = document.getElementById('tab-mind');
   const tabFiles = document.getElementById('tab-files');
+  const tabGallery = document.getElementById('tab-gallery');
+  // The gallery is the one optional panel: a page that carries the transcript
+  // and the inner life but no shelf (a future room, a cut-down client) should
+  // lose the tab, not the whole script.
   if (!panel || !filesPanel || !tabChat || !tabMind || !tabFiles) return;
 
   let open = false;
@@ -356,12 +361,15 @@ import { STATE_META, canonicalState } from '../shared/activity-state.js';
   function show(view) {
     const mind = view === 'mind';
     const files = view === 'files';
+    const gallery = view === 'gallery';
     open = mind;
     panel.hidden = !mind;
     filesPanel.hidden = !files;
+    if (galleryPanel) galleryPanel.hidden = !gallery;
     if (messagesEl) messagesEl.style.display = view === 'chat' ? '' : 'none';
     tabMind.classList.toggle('on', mind);
     tabFiles.classList.toggle('on', files);
+    tabGallery?.classList.toggle('on', gallery);
     tabChat.classList.toggle('on', view === 'chat');
     clearTimeout(refreshTimer);
     refreshTimer = null;
@@ -372,6 +380,10 @@ import { STATE_META, canonicalState } from '../shared/activity-state.js';
       render().then(pace);
     } else if (files) {
       window.dispatchEvent(new Event('files-open'));
+    } else if (gallery) {
+      // js/gallery.js loads its first page here and nowhere else: a shelf of
+      // full-size PNGs is not something a room should fetch to keep hidden.
+      window.dispatchEvent(new Event('gallery-open'));
     } else {
       // anything she said while this panel covered the transcript couldn't be
       // scrolled to — a hidden box has no height. Pin the bottom on the way back.
@@ -383,6 +395,7 @@ import { STATE_META, canonicalState } from '../shared/activity-state.js';
   tabChat.addEventListener('click', () => show('chat'));
   tabMind.addEventListener('click', () => show('mind'));
   tabFiles.addEventListener('click', () => show('files'));
+  tabGallery?.addEventListener('click', () => show('gallery'));
 
   // live nudges off the one bus: a journal line, a state change, or a research
   // run starting or ending while the panel is open re-renders it — and re-paces

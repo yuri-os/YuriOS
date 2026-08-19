@@ -301,6 +301,14 @@ svg{ width:1.1em; height:1.1em; fill:none; stroke:currentColor; stroke-width:1.7
   scrollbar-width:thin; scrollbar-color:var(--rule) transparent;
 }
 #innerlife > *{ max-width:74ch; }
+
+/* ---- her gallery (SPEC §7.6): js/gallery.js, the fourth tab ----
+   The panel is web/gallery.css, shared with the sanctuary's column; this is
+   only the gutter, so a page-wide contact sheet lines up with the transcript
+   it replaces. */
+#gallery .gl-head{ padding:11px var(--gutter); }
+#gallery .gl-grid{ padding:22px var(--gutter) 30px; }
+#gallery .gl-empty{ padding:26px var(--gutter); }
 .il-sec{ margin-bottom:30px; }
 .il-sec h3{
   margin-bottom:12px; padding-bottom:9px; border-bottom:1px solid var(--rule);

@@ -172,6 +172,7 @@ detach posts `user_absent`.
 | `hello` | `{character: "<name>"}` |
 | `capabilities` | `{image_input, detail}` — whether her model can be sent a picture; sticky, and re-published when the model is swapped |
 | `message` | a chat entry — including `image_url` selfies, the originating `channel`, and `unheard` on a line she started into a room that may have been empty |
+| `gallery` | a picture was scored (`{action: "rate", image, score, by, at}`) — so a second open room stops showing the old number |
 | `draft` / `draft_cancel` | streaming sentence drafts |
 | `avatar` | expression, gaze, posture, visemes, `rain`, `music` — the puppet lane |
 | `journal` | a new `[she]` journal line |
@@ -292,6 +293,8 @@ dispatches to the child app's `/api/mind` above, and a host route by that name w
 | Route | |
 |---|---|
 | `GET /selfies/{name}` | one saved photo from the runtime's `SELFIE_DIR` |
+| `GET /api/gallery?page=&limit=` | the shelf as newest-first pages over the render ledger: `{items: [{name, url, caption, created_at, backend, model, seed, prompt, negative, bytes, score, rated_at}], page, limit, has_more, total, rated}`. Limit caps at 60; a shelf with no ledger is an empty page, not a 404 |
+| `POST /api/gallery/rate` | `{name, score}` — a score of 1–10 for one picture, or `null` to clear it. Appends to `selfies/ratings.jsonl` and publishes a `gallery` event; `404` for a name that is not on the shelf |
 | `POST /api/uploads` | multipart `file=` → `{id, url, media_type, width, height, bytes}`. A picture to send her: decoded, oriented, capped at `CHAT_IMAGE_MAX_PX` and stripped of metadata. `409` when her model can't see, `413` over `UPLOAD_MAX_BYTES`, `415` when it isn't an image |
 | `GET /api/uploads/{name}` | one picture you sent, for the transcript to render |
 | `GET /api/config` | the Live2D rig registry: `{avatar_model, avatar_model_url, avatar_available}` |

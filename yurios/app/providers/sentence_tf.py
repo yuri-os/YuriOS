@@ -41,6 +41,37 @@ _shared_lock = threading.Lock()
 _encode_lock = threading.Lock()            # several mind loops can land here at once
 
 
+def _out_of_memory(error: BaseException) -> bool:
+    """Is this "the card is full" rather than "the files aren't here"?
+
+    Matched by name and text rather than by catching torch.OutOfMemoryError,
+    because importing torch to name an exception type would undo the lazy import
+    that keeps it out of every process that never embeds anything."""
+    return (type(error).__name__ == "OutOfMemoryError"
+            or "out of memory" in str(error).lower())
+
+
+def _load(SentenceTransformer, model_name: str, **kwargs):
+    """Load the model, and put it on the CPU if the GPU has no room for it.
+
+    sentence-transformers grabs cuda:0 whenever there is a CUDA build present,
+    and on a single-card machine that card is already holding her chat model —
+    a 27B fills 14 of 15 GiB, and then 46 MiB of embedder is what fails. The
+    weights are 130 MB and the index is 384-d: the CPU runs them fine, which
+    makes "no room on the GPU" a placement decision rather than a failed boot.
+    Her memory is what the whole runtime is built on, so it must not be the
+    thing that can't start."""
+    try:
+        return SentenceTransformer(model_name, **kwargs)
+    except Exception as e:
+        if not _out_of_memory(e):
+            raise
+        log.warning("embeddings: no room on the GPU for %s (%s) — loading it on "
+                    "the CPU instead; the card stays with the model she talks "
+                    "with", model_name, e)
+        return SentenceTransformer(model_name, device="cpu", **kwargs)
+
+
 def _load_shared(model_name: str):
     """The one process-wide SentenceTransformer for this model name."""
     with _shared_lock:
@@ -56,14 +87,17 @@ def _load_shared(model_name: str):
                 raise RuntimeError(_INSTALL_HINT) from e
             try:
                 # A complete local cache: no etag checks, no hub chatter at all.
-                model = SentenceTransformer(model_name, local_files_only=True)
+                model = _load(SentenceTransformer, model_name, local_files_only=True)
             except Exception as offline_error:
                 # First run, or a partial cache: go to the hub once, and every
-                # later boot takes the offline path above.
+                # later boot takes the offline path above. Only reasons the local
+                # cache can't answer reach here — a full card was already dealt
+                # with, and downloading the weights again would not have freed a
+                # byte of it.
                 log.info("embeddings: %s is not fully cached (%s: %s) — downloading "
                          "from Hugging Face once; later starts load offline",
                          model_name, type(offline_error).__name__, offline_error)
-                model = SentenceTransformer(model_name)
+                model = _load(SentenceTransformer, model_name)
             _shared[model_name] = model
         return model
 

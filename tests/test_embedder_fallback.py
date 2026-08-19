@@ -100,6 +100,29 @@ def test_an_uncached_embedding_model_downloads_once_then_loads(monkeypatch):
     assert embedder.dim == 384
 
 
+def test_a_full_card_moves_the_embedder_to_the_cpu(monkeypatch, caplog):
+    """A 27B chat model fills a 15 GiB card, and then 46 MiB of embedder is what
+    fails — taking every character down with it. Her memory is 130 MB of weights;
+    the CPU runs it fine."""
+    class OutOfMemoryError(RuntimeError):
+        pass
+
+    loaded = []
+    calls = _fake_sentence_transformers(
+        monkeypatch, loaded,
+        failures=[OutOfMemoryError("CUDA out of memory. Tried to allocate 46.00 MiB")])
+
+    with caplog.at_level("INFO", logger=sentence_tf.log.name):
+        embedder = sentence_tf.SentenceTFEmbedder()
+
+    # straight to the CPU — not to Hugging Face, which frees no VRAM at all
+    assert calls == [{"local_files_only": True},
+                     {"device": "cpu", "local_files_only": True}]
+    assert embedder.dim == 384
+    assert "not fully cached" not in caplog.text
+    assert "no room on the GPU" in caplog.text
+
+
 def test_every_characters_embedder_shares_one_loaded_model(monkeypatch):
     # One Runtime per character used to mean one full model load per character:
     # three residents, three copies of identical weights in RSS.

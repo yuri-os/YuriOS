@@ -39,6 +39,7 @@ from yurios.world.avatar.controller import VrmController
 from yurios.world.clock import Clock
 from yurios.world.hub import EventHub
 from yurios.world.tools.timers import TimerBoard
+from yurios.world.vram import PATIENT_WAIT_S, ParkGate
 
 from .budget import BudgetGovernor
 from .dream import DreamConsolidator
@@ -98,6 +99,7 @@ class MindLoop:
                  hub: EventHub,
                  speak: Callable[[str], Awaitable[bool]],  # Runtime.speak_ambient
                  post_message,                             # Runtime.post_message
+                 park_gate=None,                           # Runtime.park_gate
                  rng: random.Random | None = None):
         self.cfg = cfg
         self.clock = clock
@@ -108,6 +110,13 @@ class MindLoop:
         self.hub = hub
         self.speak = speak
         self.post_message = post_message
+        # The camera's VRAM door (§7.6, world/vram.py). Her turns already wait
+        # at it; so must everything down here, because a dream job asking the
+        # utility model is exactly as good at loading a parked chat model back
+        # onto a busy card as a turn is. One of our own by default, so a
+        # MindLoop built without a host (tests, scripts) has a door that is
+        # simply always open rather than a None to test for at every call.
+        self.park_gate = park_gate if park_gate is not None else ParkGate()
         self.rng = rng or random.Random(cfg.mind_seed or None)
 
         # the mind's home: the same Vault the brain already keeps (SPEC §15.2)
@@ -199,7 +208,18 @@ class MindLoop:
         utility = self.brain.state.utility
         if utility is None:
             return ""
-        text = await utility.complete(messages)
+        # A selfie may be holding her brain's VRAM right now (§7.6). Wait at
+        # the door rather than JIT-loading the chat model back onto a card the
+        # render hasn't finished with — the OOM that killed half of one night's
+        # dreamt selfies, because the DREAM selfie job starts a render and then
+        # immediately asks the model about the next day. Patiently: nothing
+        # here is a person waiting for an answer. Then `hold`, so a park that
+        # starts now waits for this call instead of evicting under it — and in
+        # that order, or the park's quiet wait would be waiting for a call
+        # that is waiting for the park.
+        await self.park_gate.wait(timeout_s=PATIENT_WAIT_S)
+        async with self.park_gate.hold():
+            text = await utility.complete(messages)
         self.budget.debit("".join(m.get("content", "") for m in messages), text)
         origin = correlate.current()
         self.prompt_log.record(

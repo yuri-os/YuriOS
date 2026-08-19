@@ -322,6 +322,76 @@ def test_the_gate_can_be_shut_from_the_render_worker_thread():
     assert asyncio.run(scenario()) == (False, True)
 
 
+# ---- the other half of the door: callers that are not turns ------------------
+# The mind loop reaches her brain off-turn (dream jobs, consolidation), at the
+# hour the camera is busiest. Both directions of the gate have to know about it.
+
+def test_a_patient_caller_waits_longer_than_a_turn_would():
+    """A dream job outlasts the conversational cap: nobody is watching it."""
+    async def scenario():
+        gate = ParkGate(timeout_s=0.05)          # what a turn would settle for
+        gate.bind(asyncio.get_running_loop())
+        gate.close()
+        waiter = asyncio.create_task(gate.wait(timeout_s=5))
+        await asyncio.sleep(0.1)                 # a turn would have given up here
+        assert not waiter.done()
+        gate.open()
+        return await asyncio.wait_for(waiter, 1)
+
+    assert asyncio.run(scenario()) is True
+
+
+def test_a_park_waits_for_an_off_turn_model_call_to_finish():
+    """The mirror of wait_turns_idle: don't evict under a live utility call."""
+    async def scenario():
+        gate = ParkGate()
+        gate.bind(asyncio.get_running_loop())
+        async with gate.hold():
+            quiet = asyncio.create_task(gate.wait_idle(timeout_s=5))
+            await asyncio.sleep(0)
+            assert not quiet.done()              # the call is still running
+        return await asyncio.wait_for(quiet, 1)
+
+    assert asyncio.run(scenario()) is True
+
+
+def test_nested_off_turn_calls_only_go_quiet_when_the_last_one_ends():
+    async def scenario():
+        gate = ParkGate()
+        gate.bind(asyncio.get_running_loop())
+        outer = gate.hold()
+        inner = gate.hold()
+        await outer.__aenter__()
+        await inner.__aenter__()
+        await inner.__aexit__(None, None, None)
+        quiet = asyncio.create_task(gate.wait_idle(timeout_s=5))
+        await asyncio.sleep(0)
+        assert not quiet.done()                  # one is still in flight
+        await outer.__aexit__(None, None, None)
+        return await asyncio.wait_for(quiet, 1)
+
+    assert asyncio.run(scenario()) is True
+
+
+def test_a_wedged_off_turn_call_does_not_mean_no_selfie_ever_renders():
+    async def scenario():
+        gate = ParkGate()
+        gate.bind(asyncio.get_running_loop())
+        async with gate.hold():                  # never finishes in time
+            return await gate.wait_idle(timeout_s=0.05)
+
+    assert asyncio.run(scenario()) is False      # parks under it, and says so
+
+
+def test_an_idle_gate_never_makes_a_park_wait():
+    async def scenario():
+        gate = ParkGate()
+        gate.bind(asyncio.get_running_loop())
+        return await asyncio.wait_for(gate.wait_idle(timeout_s=5), 1)
+
+    assert asyncio.run(scenario()) is True
+
+
 # ---- the warm pipeline: whose card is it between renders? --------------------
 # The bug this section exists for is quiet, because the render that causes it
 # is never the render that fails. See LLMParker.can_keep_pipeline_warm.

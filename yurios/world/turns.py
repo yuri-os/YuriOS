@@ -217,7 +217,14 @@ class TextTurns:
             if shown:
                 reply = " ".join(shown)
                 entry = rt.post_message("assistant", reply, channel=channel)
-                await rt.brain.persist(session_id, text, "".join(raw))
+                # Persisting is another model call — the memory extractor's —
+                # and it runs *after* `turn_ended`, so as far as the parker is
+                # concerned the room has already gone quiet. Held, so a render
+                # that starts in this gap waits for it instead of unloading the
+                # model it is talking to (§7.6). No `wait` first: the turn came
+                # through the gate at the top, and this is the same turn.
+                async with rt.park_gate.hold():
+                    await rt.brain.persist(session_id, text, "".join(raw))
                 rt.signals.post("turn_committed",
                                 {"text": text, "reply": reply}, source=channel)
             selfies = rt.selfies.active_ids(client_id) if rt.selfies else []

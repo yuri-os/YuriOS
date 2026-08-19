@@ -35,6 +35,24 @@ the model straight back onto the card the render is mid-way through claiming
 — which is the OOM this module used to list as accepted, and which duly
 happened: evict at :01:47, a chat turn at :01:49, 4.4 GiB of chat model back
 on a 16 GiB card, render dead at :02:16 with 53 MiB free.
+
+**A turn is not the only thing that reaches her brain**, and that gap cost a
+night of selfies. The mind loop (§15) calls the utility model off-turn —
+dream jobs, consolidation, knowledge extraction — and those calls went to
+LM Studio with no door in front of them at all. The DREAM selfie job is the
+sharpest version: it asks the model to describe a day, starts the render, and
+then, without waiting for anything, asks about the *next* day. So the request
+that JIT-loads the whole chat model back onto the card arrives a few hundred
+milliseconds into a render that just evicted it, four times a night. Two of
+four dreamt selfies died of OOM that way, on a system whose logs said it had
+parked correctly — because it had.
+
+So both halves of the gate now cover both kinds of caller. `wait()` takes a
+patience: a person waiting on a reply gets `_GATE_WAIT_S`, a dream job gets
+`PATIENT_WAIT_S`, because nobody is watching a dream. And `hold()` is the
+off-turn counterpart to `Runtime.turn_started` — the park waits for a live
+utility call the same way it waits for a live turn, rather than pulling the
+weights out from under one.
 """
 from __future__ import annotations
 
@@ -42,7 +60,7 @@ import asyncio
 import logging
 import threading
 import time
-from contextlib import contextmanager
+from contextlib import asynccontextmanager, contextmanager
 from typing import Callable, Optional
 
 # The floor is the *backend's* — each local camera knows how much free VRAM its
@@ -70,15 +88,33 @@ _SETTLE_POLLS = 3
 # whole park window (evict ≤25 s + render + re-pin ≈8 s) with room to spare;
 # past that something is wedged, and a late reply beats a mute companion.
 _GATE_WAIT_S = 90.0
+# How long a *background* caller holds instead. Nobody is waiting on a dream
+# job, so the cap that protects a conversation is the wrong one here: a nightly
+# consolidation that arrives four minutes late costs nothing, and one that goes
+# through mid-render costs the render. Long enough for a whole queue of selfies
+# to drain, short enough that a wedged gate can't hang the loop forever.
+PATIENT_WAIT_S = 900.0
+# How long a park waits for an off-turn model call to finish before evicting
+# under it. Generous — a big local model with a thinking budget answers in
+# minutes, not seconds — but bounded, because a wedged call must not mean no
+# selfie ever renders again. Blowing it costs one dream job, which retries
+# tomorrow; not blowing it would cost every selfie after this one.
+_QUIET_WAIT_S = 240.0
 
 
 class ParkGate:
     """The park window, made waitable — the missing half of the quiet gate.
 
     `wait_turns_idle` stops a park from starting *on top of* a live turn. This
-    stops the mirror case: a turn arriving *during* the park, whose first
+    stops the mirror case: a caller arriving *during* the park, whose first
     completion call JIT-loads the very model the parker just evicted, into the
-    VRAM the render is still claiming. Turns wait at the door instead.
+    VRAM the render is still claiming. Callers wait at the door instead.
+
+    Two kinds of caller come through it, and the difference is only how long
+    they can afford to wait: a turn has a person on the other end of it, a
+    dream job does not. `hold()` closes the loop for the second kind, which has
+    no `turn_started` to announce itself with — the park waits for a live
+    utility call rather than evicting under it.
 
     Open by default and open whenever no park is running, so every path that
     never parks — hosted backends, a card with headroom, tests — walks through
@@ -94,26 +130,79 @@ class ParkGate:
         self.timeout_s = timeout_s
         self._open = asyncio.Event()      # loop-agnostic since 3.10
         self._open.set()
+        # Who is *through* the door and talking to her brain right now — the
+        # counter the park's quiet wait reads. Turns have their own (the
+        # Runtime's `_turns_in_flight`); this one is for the callers that are
+        # not turns, and it exists because a park that evicts under a live
+        # utility call kills that call exactly as it would kill a reply.
+        self._idle = asyncio.Event()
+        self._idle.set()
+        self._holders = 0
         self._loop: Optional[asyncio.AbstractEventLoop] = None
 
     def bind(self, loop: asyncio.AbstractEventLoop) -> None:
         """Remember the loop the waiters live on (Runtime.start_async)."""
         self._loop = loop
 
-    async def wait(self) -> bool:
-        """Hold this turn until the render gives her brain back. True = the way
-        was clear (or cleared in time); False = the cap blew and the caller is
-        going through anyway."""
+    async def wait(self, *, timeout_s: Optional[float] = None) -> bool:
+        """Hold this caller until the render gives her brain back. True = the
+        way was clear (or cleared in time); False = the cap blew and the caller
+        is going through anyway.
+
+        `timeout_s` is how long *this* caller can afford to wait. The default
+        is the conversational one: a person is on the other end of a turn, and
+        past a minute and a half a late reply is worse than a risked render.
+        Background work (the mind loop's utility calls, §15) passes
+        `PATIENT_WAIT_S` instead, because nobody is sitting there.
+        """
         if self._open.is_set():
             return True
-        log.info("park: a turn is waiting for the render to give the LLM back")
+        cap = self.timeout_s if timeout_s is None else timeout_s
+        log.info("park: a caller is waiting for the render to give the LLM back")
         try:
-            await asyncio.wait_for(self._open.wait(), self.timeout_s)
+            await asyncio.wait_for(self._open.wait(), cap)
             return True
         except asyncio.TimeoutError:
-            log.warning("park: still parked after %.0fs — letting the turn "
-                        "through (it may load the model mid-render)",
-                        self.timeout_s)
+            log.warning("park: still parked after %.0fs — letting the caller "
+                        "through (it may load the model mid-render)", cap)
+            return False
+
+    @asynccontextmanager
+    async def hold(self):
+        """Mark one off-turn model call as in flight, for the park to wait on.
+
+        The mirror of `Runtime.turn_started`, for everything that reaches her
+        brain without being a turn. Enter it AFTER `wait()` and never before:
+        a caller that announced itself and then queued at the door would be a
+        park waiting for a call that is waiting for the park.
+
+        Loop-thread only (the mind loop, the jobs it drives), so the counter
+        needs no hop — unlike the door, which the render worker slams from
+        `asyncio.to_thread`.
+        """
+        self._holders += 1
+        self._idle.clear()
+        try:
+            yield
+        finally:
+            self._holders = max(0, self._holders - 1)
+            if self._holders == 0:
+                self._idle.set()
+
+    async def wait_idle(self, *, timeout_s: float = _QUIET_WAIT_S) -> bool:
+        """Block until no off-turn model call is running. False = the cap blew
+        and the park is going ahead anyway (see `_QUIET_WAIT_S`)."""
+        if self._idle.is_set():
+            return True
+        log.info("park: waiting for %d off-turn model call(s) to finish before "
+                 "lending the GPU", self._holders)
+        try:
+            await asyncio.wait_for(self._idle.wait(), timeout_s)
+            return True
+        except asyncio.TimeoutError:
+            log.warning("park: an off-turn model call is still running after "
+                        "%.0fs — parking under it (that call will fail)",
+                        timeout_s)
             return False
 
     def close(self) -> None:

@@ -171,6 +171,15 @@ Every one of them also logged a WARNING at startup with the fix.
 **A render never starts while she's talking** — that's deliberate. A park mid-reply would kill the
 streaming turn, so a render that needs one waits for a quiet moment.
 
+**Some of the night's dreamt selfies fail with CUDA out of memory** — she reaches her own brain
+off-turn too. The DREAM selfie job describes a day, starts the render, and then asks the model
+about the next day — and that request used to JIT-load the whole chat model straight back onto the
+card the render was still filling, so a night with four days of backlog lost the selfies whose
+render happened to overlap the next job. The mind loop's model calls now wait at the same door her
+turns do, and a park waits for a call that is already running rather than evicting under it. The
+log line is `park: a caller is waiting for the render to give the LLM back`; a whole render queue
+is worth waiting out, because nobody is sitting there watching a dream.
+
 **The first selfie after a restart works and the rest fail with CUDA out of memory** — the camera
 keeps its pipeline warm between renders, and on a card that can't hold the pipeline *and* her
 brain, that warmth is what fills the card. Parking frees her brain and nothing else, so it can

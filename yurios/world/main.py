@@ -537,12 +537,20 @@ class Runtime:
         return render_visual_situation(self.clock, controller=self.controller)
 
     async def wait_turns_idle(self) -> None:
-        """Block until no turn is in flight. The selfie lab's VRAM parker is
-        the one caller (§7.6): unloading her LLM while a turn is still
-        streaming from it kills that stream mid-reply — the draft vanishes
-        from the chat as if the turn were cancelled. A parked render always
-        waits for a quiet moment first."""
+        """Block until nothing is talking to her brain. The selfie lab's VRAM
+        parker is the one caller (§7.6): unloading her LLM while a turn is
+        still streaming from it kills that stream mid-reply — the draft
+        vanishes from the chat as if the turn were cancelled. A parked render
+        always waits for a quiet moment first.
+
+        Two counters, because there are two ways to be mid-sentence with her.
+        A turn is one; the mind loop's off-turn utility calls (§15 — dream
+        jobs, consolidation, knowledge extraction) are the other, and they run
+        at exactly the hour the camera is busiest, since a dreamt selfie is
+        started by one of those jobs and the next job starts before it lands.
+        Evicting under either one kills it."""
         await self.turns_idle.wait()
+        await self.park_gate.wait_idle()
 
     # ---- async lifecycle (runs on the server's event loop) ----
 
@@ -699,7 +707,8 @@ class Runtime:
                                      brain=self.brain, controller=self.controller,
                                      timers=self.timers, hub=self.hub,
                                      speak=self.speak_ambient,
-                                     post_message=self.post_message)
+                                     post_message=self.post_message,
+                                     park_gate=self.park_gate)
                 self.mind_status = "running"
                 self.boot.done("mind", detail=f"running · {self.mind.activity.state}")
                 self._mind_task = asyncio.create_task(self.mind.run(), name="mind")
@@ -821,7 +830,8 @@ class Runtime:
                 self.mind = MindLoop(
                     self.cfg, self.clock, bus=self.signals, brain=self.brain,
                     controller=self.controller, timers=self.timers, hub=self.hub,
-                    speak=self.speak_ambient, post_message=self.post_message)
+                    speak=self.speak_ambient, post_message=self.post_message,
+                    park_gate=self.park_gate)
             if self._mind_task is None or self._mind_task.done():
                 self._mind_task = asyncio.create_task(self.mind.run(), name="mind")
                 self._tasks.append(self._mind_task)

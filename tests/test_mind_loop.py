@@ -194,3 +194,52 @@ async def test_a_turn_survives_a_broken_shelf(cfg, seeded_vault):
     _soul, prompt = rig.mind.brain._assemble("s1", "hello", window=[], lore=[])
     assert "WHAT YOU'VE READ" not in prompt.system
     assert "PERSONA BACKBONE" in prompt.system          # the turn still happened
+
+
+# ---- the camera's door, from this side (§7.6) -------------------------------
+# Her turns wait for a parked render to give the GPU back. So must the loop's
+# own model calls: the DREAM selfie job starts a render and then asks the model
+# about the next day, and that request used to JIT-load the whole chat model
+# back onto the card the render was still filling. Two of four dreamt selfies
+# died of OOM on a night whose logs said the parking worked — because it had.
+
+async def test_an_off_turn_model_call_waits_for_a_parked_render(cfg, seeded_vault):
+    import asyncio
+
+    rig = make_mind(cfg, seeded_vault)
+    gate = rig.mind.park_gate
+    gate.bind(asyncio.get_running_loop())
+    gate.close()                                    # a selfie has the card
+    call = asyncio.create_task(rig.mind._utility(
+        [{"role": "user", "content": "which moment wants a picture?"}]))
+    await asyncio.sleep(0)
+    assert not call.done()                          # queued at the door
+    gate.open()
+    assert await asyncio.wait_for(call, 1)          # and answered after it
+
+
+async def test_a_park_starting_now_waits_for_the_call_already_running(
+        cfg, seeded_vault):
+    """The mirror case: don't pull the weights out from under a live job."""
+    import asyncio
+
+    rig = make_mind(cfg, seeded_vault)
+    gate = rig.mind.park_gate
+    gate.bind(asyncio.get_running_loop())
+    started, release = asyncio.Event(), asyncio.Event()
+
+    class SlowUtility:
+        async def complete(self, messages, **kw):
+            started.set()
+            await release.wait()
+            return "a picture of the rain"
+
+    rig.mind.brain.state.utility = SlowUtility()
+    call = asyncio.create_task(rig.mind._utility([{"role": "user", "content": "?"}]))
+    await asyncio.wait_for(started.wait(), 1)
+    quiet = asyncio.create_task(gate.wait_idle(timeout_s=5))
+    await asyncio.sleep(0)
+    assert not quiet.done()                         # the park holds off
+    release.set()
+    await asyncio.wait_for(call, 1)
+    assert await asyncio.wait_for(quiet, 1) is True

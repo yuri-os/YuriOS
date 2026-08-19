@@ -259,6 +259,34 @@ lists any character who does not use it and asks whether to clear her own settin
 bindings, endpoint, key variable and model knobs; her voice, body, loops and Vault are untouched.
 Restart for it to take effect.
 
+## Can she see pictures?
+
+A multimodal chat model takes an image alongside the words, and where the model can take one,
+the composer in every room grows a paperclip: click it, paste a screenshot into the line you are
+typing, or drop a file on the bar. Telegram photos become the same kind of turn. She keeps her
+voice on an image turn — the picture goes up over `POST /api/uploads` first and the turn carries
+only its id, so nothing changes about the path the reply is spoken on.
+
+Whether she can is asked at boot, of the provider, not guessed from the model's name:
+
+| Route | what is asked |
+|---|---|
+| LM Studio | `GET /api/v1/models` → `capabilities.vision` (older builds: `/api/v0/models` → `type: vlm`) |
+| Ollama | `POST /api/show` → `vision` in `capabilities` |
+| OpenRouter | `GET /api/v1/models` → `image` in `architecture.input_modalities` |
+| anything else | LiteLLM's bundled model map |
+
+`/api/health` reports the answer as `image_input`, with `image_input_detail` saying who said so.
+Set `CHAT_IMAGE_INPUT=on` or `off` in `.env` to override it — a probe does not get the last word
+on something you can see with your own eyes. The answer is re-asked when you change her model
+mid-conversation, so the paperclip appears and disappears with the model rather than at the next
+restart.
+
+Every picture is re-encoded before she sees it: capped at `CHAT_IMAGE_MAX_PX` on the long side,
+EXIF orientation applied and the rest of the metadata dropped. The image rides one prompt — the
+turn it came with — and what stays behind in her memory is a note that there was one, because a
+photo re-sent with every later turn would eat the window it was small enough to fit.
+
 ## Changing models mid-conversation
 
 **Her** model, route, key and knobs apply the moment you save — no restart, no lost session.

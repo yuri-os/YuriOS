@@ -139,6 +139,10 @@ class CharacterPaths:
     traces: Path
     tool_logs: Path
     selfies: Path
+    #: The other direction (§3.1): pictures *you* sent her. Deliberately not the
+    #: selfie shelf — that one is her gallery, listed by the studio and exported
+    #: onto cards, and a photo of your bike does not belong in it.
+    uploads: Path
     # Her visual identity for the forge — who the camera renders (§7.6). Derived
     # from her card at import (characters/appearance.py) and hand-editable after.
     appearance: Path
@@ -164,6 +168,7 @@ class CharacterPaths:
             traces=root / "traces",
             tool_logs=root / "tool-logs",
             selfies=root / "selfies",
+            uploads=root / "uploads",
             appearance=root / "appearance.yaml",
             selfie_templates=root / "selfie.yaml",
             setting=root / "vault" / "world" / "setting.md",

@@ -30,6 +30,7 @@ import logging
 import re
 from typing import AsyncIterator, Optional
 
+from yurios.app.core import assemble as asm
 from yurios.characters.setting import read_place
 from yurios.desktop.brain import BrainAdapter
 from yurios.desktop.config import Config
@@ -246,7 +247,8 @@ class ToolBrain(BrainAdapter):
         return soul, prompt
 
     # -- the ReplyBrain seam, re-streamed through the tool loop ----------------
-    async def stream_reply(self, session_id: str, text: str) -> AsyncIterator[str]:
+    async def stream_reply(self, session_id: str, text: str,
+                           image: str | None = None) -> AsyncIterator[str]:
         # bookkeeping mirrors the BrainAdapter.stream_reply line for line
         # (B2 §2.2 — the base body streams directly, so the override restates it)
         from yurios.desktop.brain import _Pending
@@ -258,13 +260,21 @@ class ToolBrain(BrainAdapter):
         if self._directive:                        # the tools directive (§7.4); the
                                                    # situation block rides _assemble (§2.5)
             prompt.messages[0]["content"] += f"\n\n## TOOLS\n\n{self._directive}"
+        if image:                                  # a picture you sent (§35)
+            asm.mark_picture(prompt.messages)
 
-        self.state.sessions.append_message(session_id, "user", text)
+        self.state.sessions.append_message(
+            session_id, "user", asm.note_picture(text) if image else text)
         self._pending[session_id] = _Pending(prompt, turn_index, soul)
 
         raw: list[str] = []
+        # The image part goes on the wire only (`with_image` copies): the
+        # continuation passes below carry it too, so a tool she reaches for
+        # halfway through does not cost her the picture she was looking at.
+        messages = asm.with_image(prompt.messages, image) if image \
+            else prompt.messages
         try:
-            async for token in self._stream_with_tools(prompt.messages, raw):
+            async for token in self._stream_with_tools(messages, raw):
                 yield token
         finally:
             self._raw[session_id] = "".join(raw)

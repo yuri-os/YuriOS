@@ -136,12 +136,17 @@ has to act on it — see [Characters → When the export refuses](characters.md#
 
 | Route | |
 |---|---|
-| `POST /api/chat` | `{text, session_id?, channel?, client_id?}` → `{session_id, user_message, message, active_selfies}`. Mirrors the voice route minus audio; `telegram` is a reserved origin |
+| `POST /api/chat` | `{text, session_id?, channel?, client_id?, image_id?}` → `{session_id, user_message, message, active_selfies}`. Mirrors the voice route minus audio; `telegram` is a reserved origin |
 | `POST /api/chat/cancel` | `{client_id, selfie_ids?}` → cancel that browser turn and its correlated camera work |
 | `POST /api/greeting` | `{session_id?, channel?}` → `{session_id, message}`. She speaks first: the voice route greets on connect, a text client asks. Committed `proactive`, never persisted, once per session per run (`message: null` after that). The first-ever call plays her cold open |
 | `GET /api/history` | the last 100 chat entries, for backfilling a fresh page |
 | `GET /api/inbox` | `{entries, unread}` — what she reached out about while the room was empty, oldest first. `?all=1` includes what has already been seen |
 | `POST /api/inbox/read` | `{marked, unread}` — everything pending has now been seen. Owner-gated |
+
+`image_id` sends a picture with the line (SPEC §35) — the id `POST /api/uploads` answered with,
+never the bytes. `text` may be empty when one is attached. An id that no longer resolves is a
+`404` rather than a turn with the words alone, and a model that cannot be sent pictures answers
+`409`. See [Models](models.md#can-she-see-pictures).
 
 `/api/history` is an in-memory ring and does not survive a restart; the inbox is on disk and does.
 A page opening merges the two by message id and shows what it has not seen under a *while you were
@@ -165,6 +170,7 @@ detach posts `user_absent`.
 | Event | Payload |
 |---|---|
 | `hello` | `{character: "<name>"}` |
+| `capabilities` | `{image_input, detail}` — whether her model can be sent a picture; sticky, and re-published when the model is swapped |
 | `message` | a chat entry — including `image_url` selfies, the originating `channel`, and `unheard` on a line she started into a room that may have been empty |
 | `draft` / `draft_cancel` | streaming sentence drafts |
 | `avatar` | expression, gaze, posture, visemes, `rain`, `music` — the puppet lane |
@@ -188,7 +194,9 @@ deliver.
 
 `WS /ws/voice` — the audio-only socket.
 
-- **Up:** binary mic PCM, plus `hello` / `endpoint` / `bargein` / `text` control frames.
+- **Up:** binary mic PCM, plus `hello` / `endpoint` / `bargein` / `text` control frames. A `text`
+  frame may carry `image_id` (from `POST /api/uploads`) — the id, never the bytes, which is what
+  keeps a picture turn on the path that has TTS on the end of it.
 - **Down:** `session`, `warming`, `ready`, `processing`, `filler` / `audio` (base64 PCM plus the
   sentence text, for visemes), `done`, `cancelled`, `error`. `ready` means the voice stack is
   available; `processing` includes the accepted turn's optional `client_id`.
@@ -203,7 +211,7 @@ waits ~20 s for the models rather than being answered by a stand-in.
 
 | Route | |
 |---|---|
-| `GET /api/health` | what's actually wired: character, channels, voice (loaded/listeners/stt/tts/vad), tools, mind, activity, selfies, viewers, context |
+| `GET /api/health` | what's actually wired: character, channels, voice (loaded/listeners/stt/tts/vad), tools, mind, activity, selfies, `image_input` (+ `image_input_detail`), viewers, context |
 | `GET /api/boot` | the startup board the enter gate polls: each service pending → loading → ready/failed/skipped, with timings |
 | `GET /api/context` | `{used, limit, exact}` — prompt tokens against the window |
 
@@ -284,6 +292,8 @@ dispatches to the child app's `/api/mind` above, and a host route by that name w
 | Route | |
 |---|---|
 | `GET /selfies/{name}` | one saved photo from the runtime's `SELFIE_DIR` |
+| `POST /api/uploads` | multipart `file=` → `{id, url, media_type, width, height, bytes}`. A picture to send her: decoded, oriented, capped at `CHAT_IMAGE_MAX_PX` and stripped of metadata. `409` when her model can't see, `413` over `UPLOAD_MAX_BYTES`, `415` when it isn't an image |
+| `GET /api/uploads/{name}` | one picture you sent, for the transcript to render |
 | `GET /api/config` | the Live2D rig registry: `{avatar_model, avatar_model_url, avatar_available}` |
 | `/assets/`, `/dashboard/`, `/studio/`, `/live2d/`, `/models/`, `/shared/`, `/js/` | static |
 

@@ -62,6 +62,13 @@ def cfg(tmp_path) -> Config:
         vault_dir=tmp_path / "vault", db_path=tmp_path / "mvw.db",
         corpus_dir=tmp_path / "corpus", trace_dir=tmp_path / "traces",
         tool_log_dir=tmp_path / "tool-logs",
+        upload_dir=tmp_path / "uploads",
+        # Whether her model can be shown a picture (§35) is a question you
+        # answer by asking the provider, and the suite is offline — so it is
+        # answered here with the documented override instead, which short-
+        # circuits before any request. A test about pictures says `on`; the
+        # probe itself is exercised over a MockTransport (test_pictures.py).
+        chat_image_input="off",
         # channels stay off no matter what the machine's .env pairs (§10.5) —
         # the suite must never start a real adapter or touch a real API
         telegram_bot_token="", telegram_chat_id="")

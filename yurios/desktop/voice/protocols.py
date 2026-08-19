@@ -92,7 +92,11 @@ class ReplyBrain(Protocol):
     test drive the loop with a fake brain. One method: given the user's
     transcript, stream reply tokens; cancellable by dropping the iterator."""
 
-    def stream_reply(self, session_id: str, text: str) -> AsyncIterator[str]:
+    def stream_reply(self, session_id: str, text: str,
+                     image: str | None = None) -> AsyncIterator[str]:
+        """`image` is a picture sent with the line (SPEC §35), as the data url
+        the model reads. Defaulted, and passed by the caller only when there is
+        one, so a brain that has no use for it need not mention it."""
         ...
 
     async def persist(self, session_id: str, user_text: str, reply: str) -> None:

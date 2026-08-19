@@ -72,6 +72,30 @@ class Config(VoiceConfig):
     tool_rate_external: int = 4                 # default bucket for a discovered
                                                 #   tool with no rate of its own
 
+    # --- pictures *in*: showing her something (SPEC §35) ---
+    # The mirror of the camera below — that one is what she sends you, this is
+    # what you can send her, and it exists only when the model on the other end
+    # of the chat seam takes image parts as well as text. `auto` asks the
+    # provider at boot (app/providers/vision.py) and believes the answer; `on`
+    # and `off` are the override for the case it gets wrong, because a probe
+    # does not get the last word on something the user can see with their own
+    # eyes. Off (or a text-only model) means the composer has no paperclip and
+    # POST /api/uploads is refused — an affordance that errors is worse than
+    # one that isn't there.
+    chat_image_input: str = "auto"              # auto | on | off
+    upload_dir: Path = Path("./uploads")        # what you sent her, served at
+                                                #   /api/uploads/<name>
+    # Sent pictures are re-encoded before she sees them (world/uploads.py): the
+    # long side is capped, EXIF orientation is applied and then dropped with the
+    # rest of the metadata. The cap is a context-window knob as much as a
+    # bandwidth one — an image is worth a four-figure number of tokens, and 1024
+    # is about the smallest that still reads handwriting.
+    chat_image_max_px: int = 1024
+    upload_max_bytes: int = 12_000_000          # what the route accepts, before
+                                                #   the re-encode shrinks it
+    upload_keep: int = 200                      # newest N kept on disk; older
+                                                #   files are pruned on save
+
     # --- her camera: selfies via the forge (SPEC §7.6) ---
     # openrouter = hosted generation (needs OPENROUTER_API_KEY, keeps the GPU
     # free). mock = deterministic placeholder cards, no key, no network (tests,

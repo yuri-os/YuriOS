@@ -237,3 +237,54 @@ async def test_ambient_stream_over_the_real_brain_never_persists(vault, cfg, clo
     assert any(e.kind == "audio" for e in events)
     corpus = cfg.corpus_dir / "turns.jsonl"
     assert not corpus.exists() or not corpus.read_text().strip()
+
+
+async def test_a_picture_reaches_the_model_but_not_the_record(vault, cfg, clock):
+    """Showing her something, over the real brain (SPEC §35).
+
+    Two claims, and the second is the one that needs a real AppState behind it:
+    the model is handed the image part *this turn*, and nothing downstream of
+    the turn keeps the bytes. A base64 photo in corpus/turns.jsonl is a training
+    log nobody can read and a git diff nobody can review; re-sent from the
+    session window every turn after, it is also the context window, gone.
+    """
+    cfg = cfg.model_copy(update={
+        "vault_dir": vault, "embed_dim": 8,
+        "corpus_dir": vault.parent / "corpus",
+        "trace_dir": vault.parent / "traces"})
+    data_url = "data:image/jpeg;base64," + "QUJD" * 400
+    chat = ScriptedChat([["[happy] ", "That's ", "a ", "good ", "bike."],
+                         ["Still ", "thinking ", "about ", "it."]])
+    brain = ToolBrain.build(cfg, guard=Guard(rates_per_min={},
+                                             log_dir=cfg.tool_log_dir, clock=clock),
+                            timers=TimerBoard(clock), controller=VrmController(),
+                            chat_model=chat, utility_model=FakeUtility(),
+                            embedder=FakeEmbedder())
+    sid = brain.resolve_session(None)
+
+    reply = "".join([t async for t in
+                     brain.stream_reply(sid, "what do you make of this?",
+                                        image=data_url)])
+    await brain.persist(sid, "what do you make of this?", reply)
+
+    # the model saw the picture, attached to the turn that asked
+    final = chat.calls[0][-1]
+    assert final["role"] == "user"
+    assert final["content"][1] == {"type": "image_url",
+                                   "image_url": {"url": data_url}}
+    assert "what do you make of this?" in final["content"][0]["text"]
+
+    # …and nothing that outlives the turn is carrying it
+    corpus = (cfg.corpus_dir / "turns.jsonl").read_text()
+    assert data_url[:40] not in corpus
+    assert "[system note — a picture is attached" in corpus
+
+    # the next turn's window remembers that there WAS one, without the bytes
+    window = brain.state.sessions.window(sid, 8)
+    asked = [m for m in window if m["role"] == "user"][-1]["content"]
+    assert "a picture is attached" in asked and "QUJD" not in asked
+
+    reply2 = "".join([t async for t in brain.stream_reply(sid, "and now?")])
+    assert reply2
+    second = chat.calls[1]
+    assert all(isinstance(m["content"], str) for m in second)   # no photo re-sent

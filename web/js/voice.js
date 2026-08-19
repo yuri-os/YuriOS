@@ -253,6 +253,10 @@ export function initVoice({ viseme, els }) {
       els.mic.disabled = warming ||
         (processing && (transport !== 'voice' || llmDone));
     }
+    // The paperclip stays live while she answers: the composer is locked, so an
+    // armed picture simply waits for the next line — which is better than a
+    // paste that silently does nothing because a turn happened to be running.
+    if (attachBtn) attachBtn.disabled = warming;
     if (!els.send) return;
     els.send.disabled = warming && !processing;
     els.send.classList.toggle('processing', processing);
@@ -302,6 +306,11 @@ export function initVoice({ viseme, els }) {
 
   function onWorldEvent(e) {
     const m = e.detail;
+    // Sticky, so this arrives on subscribe as well as on a live model swap.
+    if (m?.type === 'capabilities') {
+      setCanSendPictures(m.image_input);
+      return;
+    }
     if (!processing || m?.client_id !== requestId) return;
     if (m.type === 'message' && m.selfie_id) {
       completedSelfies.add(m.selfie_id);
@@ -403,6 +412,169 @@ export function initVoice({ viseme, els }) {
     if (!listening && muted) disconnectVoice();
   });
 
+  /* ---- pictures you send her (SPEC §35) -------------------------------
+   *
+   * The paperclip exists only when the model on the other end of the chat seam
+   * can actually look at one. The host settles that at boot by asking her
+   * provider and publishes it as a sticky `capabilities` event, so this arrives
+   * on the same bus as everything else and — because it is sticky — a page that
+   * opens an hour later still gets it, and a model swapped live changes the
+   * composer in every open room at once.
+   *
+   * The controls are built here rather than written into three index.html files
+   * for the reason chat.js gives for existing at all: three rooms run this one
+   * script, and a per-page copy of an affordance is three places for it to
+   * drift. Their looks are /shared/composer.css, which all three load.
+   *
+   * A chosen file goes up over HTTP immediately (POST /api/uploads) and the
+   * turn that follows carries only the id it answered with — so a 3 MB photo is
+   * never inside a voice-socket frame, and a picture that is refused is refused
+   * before you have typed the sentence to go with it.
+   */
+  const PICTURE_TYPES = 'image/png,image/jpeg,image/webp,image/gif,image/bmp';
+  let canSendPictures = false;
+  let picture = null;                 // {id, url} — armed, ready to ride a turn
+  let pictureBusy = false;            // the file is still going up
+  let pictureSeq = 0;                 // …and which choice the chip belongs to
+  let attachBtn = null, fileInput = null, chip = null;
+
+  function buildAttach() {
+    const composer = els.text?.closest('.composer');
+    if (!composer || attachBtn) return;
+    fileInput = document.createElement('input');
+    fileInput.type = 'file';
+    fileInput.accept = PICTURE_TYPES;
+    fileInput.hidden = true;
+    attachBtn = document.createElement('button');
+    attachBtn.type = 'button';
+    attachBtn.className = 'icon-button attach';
+    attachBtn.hidden = true;
+    attachBtn.title = 'send a picture';
+    attachBtn.setAttribute('aria-label', 'send a picture');
+    attachBtn.innerHTML = '<svg aria-hidden="true" viewBox="0 0 24 24">' +
+      '<path d="M16.5 6.5 9 14a2.5 2.5 0 0 0 3.5 3.5l7-7a4.5 4.5 0 0 0-6.4-6.3l-7 7a6.5 6.5 0 0 0 9.2 9.2l5.2-5.2"/>' +
+      '</svg>';
+    chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'pic-chip';
+    chip.hidden = true;
+    chip.title = 'take the picture off this line';
+    chip.setAttribute('aria-label', chip.title);
+    chip.innerHTML = '<img alt="">';
+    composer.insertBefore(attachBtn, els.text);
+    composer.insertBefore(chip, els.text);
+    composer.appendChild(fileInput);
+    attachBtn.addEventListener('click', () => fileInput.click());
+    chip.addEventListener('click', clearPicture);
+    fileInput.addEventListener('change', () => {
+      const file = fileInput.files?.[0];
+      fileInput.value = '';                    // …so the same file can be re-picked
+      if (file) sendPicture(file);
+    });
+    // The two ways nobody should have to use a file dialog for: pasting a
+    // screenshot into the line you are typing, and dropping a photo on the bar.
+    els.text.addEventListener('paste', (e) => {
+      if (!canSendPictures) return;
+      const item = [...(e.clipboardData?.items || [])]
+        .find((i) => i.kind === 'file' && i.type.startsWith('image/'));
+      const file = item?.getAsFile();
+      if (!file) return;
+      e.preventDefault();
+      sendPicture(file);
+    });
+    for (const type of ['dragenter', 'dragover']) {
+      composer.addEventListener(type, (e) => {
+        if (!canSendPictures || !e.dataTransfer?.types?.includes('Files')) return;
+        e.preventDefault();
+        composer.classList.add('dropping');
+      });
+    }
+    for (const type of ['dragleave', 'drop']) {
+      composer.addEventListener(type, () => composer.classList.remove('dropping'));
+    }
+    composer.addEventListener('drop', (e) => {
+      if (!canSendPictures) return;
+      const file = [...(e.dataTransfer?.files || [])]
+        .find((f) => f.type.startsWith('image/'));
+      if (!file) return;
+      e.preventDefault();
+      sendPicture(file);
+    });
+  }
+
+  function setCanSendPictures(on) {
+    canSendPictures = !!on;
+    if (!attachBtn) buildAttach();
+    if (attachBtn) attachBtn.hidden = !canSendPictures;
+    if (!canSendPictures) clearPicture();
+  }
+
+  function clearPicture() {
+    picture = null;
+    pictureBusy = false;
+    if (chip) { chip.hidden = true; chip.classList.remove('busy'); }
+    if (attachBtn) attachBtn.classList.remove('armed');
+  }
+
+  function showChip(src, busy) {
+    if (!chip) return;
+    chip.hidden = false;
+    chip.classList.toggle('busy', !!busy);
+    chip.querySelector('img').src = src;
+    attachBtn?.classList.toggle('armed', !busy);
+  }
+
+  // The bus may have opened before this file did — the Live2D room imports it
+  // behind its avatar load — and a sticky event only replays on subscribe. So
+  // read what chat.js already holds, then keep listening for a live swap.
+  if (window.WorldChat?.capabilities) setCanSendPictures(
+    window.WorldChat.capabilities.image_input);
+
+  /* Up it goes, immediately — one picture at a time, so choosing a second
+   * replaces the first rather than queueing behind it. The preview is the local
+   * file (an object URL) and not the server's copy: it paints in the same frame
+   * the file was chosen, which is what makes the choice feel taken. */
+  async function sendPicture(file) {
+    if (!canSendPictures) return;
+    const mine = ++pictureSeq;               // this choice owns the chip…
+    const preview = URL.createObjectURL(file);
+    picture = null;
+    pictureBusy = true;
+    showChip(preview, true);
+    const body = new FormData();
+    body.append('file', file, file.name || 'picture');
+    try {
+      const response = await fetch(runtime.apiPath('/api/uploads'),
+                                   { method: 'POST', body });
+      const data = await response.json().catch(() => ({}));
+      if (mine !== pictureSeq) return;       // …until a later one takes it over
+      if (!response.ok) throw new Error(data.detail || 'that picture was refused');
+      picture = { id: data.id, url: data.url };
+      pictureBusy = false;
+      showChip(preview, false);
+      if (!processing) els.text?.focus();      // …but never steal a locked input
+    } catch (e) {
+      clearPicture();
+      // The caption is hidden in the text room, so a refusal shown only there
+      // would be a silent one — the placeholder is the line every room has.
+      notice(e.message);
+    } finally {
+      // The <img> has the bytes; the handle can go.
+      setTimeout(() => URL.revokeObjectURL(preview), 10000);
+    }
+  }
+
+  /** Say something to the person at the composer, briefly, wherever they are. */
+  function notice(text, ms = 6000) {
+    if (els.caption) els.caption.textContent = text;
+    if (!els.text || warming) return;          // a warm owns the placeholder
+    const was = composerPlaceholder === null ? els.text.placeholder : composerPlaceholder;
+    els.text.placeholder = text;
+    setTimeout(() => {
+      if (els.text.placeholder === text) els.text.placeholder = was;
+    }, ms);
+  }
+
   // One send path for the two ways of asking: Enter, and the composer's button
   // (an affordance the switchboard's language wants visible — and the only one
   // a touch keyboard without a newline key can offer).
@@ -452,18 +624,27 @@ export function initVoice({ viseme, els }) {
   function sendText() {
     if (processing) return;
     const text = els.text.value.trim();
-    if (!text || warming) return;
+    // A picture is a turn on its own — words are optional once one is armed.
+    // A picture still going up is not: sending would name an id that does not
+    // exist yet, so the line waits for the chip to settle.
+    if ((!text && !picture) || warming || pictureBusy) return;
+    const sent = picture;
     const clientId = newRequestId();
-    window.WorldChat?.addPendingUser?.(text, clientId);
+    window.WorldChat?.addPendingUser?.(text, clientId, sent?.url);
     els.text.value = '';
+    clearPicture();
     if (wantsVoice() && ws?.readyState === 1) {
       beginProcessing(clientId, 'voice');
       if (playing) { stopPlayback(); ws.send(JSON.stringify({ type: 'bargein' })); }
-      ws.send(JSON.stringify({ type: 'text', text, client_id: clientId }));
+      // Through the socket even with a picture on it: only the id rides here,
+      // and going around to HTTP would cost her the voice for that one turn.
+      ws.send(JSON.stringify({ type: 'text', text, client_id: clientId,
+                               image_id: sent?.id }));
     } else {
       beginProcessing(clientId, 'http');
       sendHttp('/api/chat', {
         text, session_id: sessionId, channel: 'web', client_id: clientId,
+        image_id: sent?.id,
       }, clientId);
     }
   }

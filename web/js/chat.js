@@ -11,7 +11,9 @@
  *      off that; this file never touches a body;
  *   2. render the chat: history backfill, you/her bubbles, the accumulating
  *      draft while she speaks, the `proactive` tag when she spoke first, and
- *      an <img> when a message carries `image_url` (a selfie — SPEC §7.6).
+ *      an <img> when a message carries `image_url` — a selfie of hers (SPEC
+ *      §7.6) or a picture you sent her (§35), which are one lane and one
+ *      renderer because they are one conversation.
  *
  * Sending is not here: typed input rides the voice socket exactly as before
  * (voice.js owns #text), so a typed turn keeps TurnController semantics —
@@ -104,9 +106,12 @@
                (receipt ? `<em class="receipt">${esc(receipt)}</em>` : '') +
                stamp(m.ts) + '</span>';
     if (m.image_url) {
+      // Hers is a selfie (SPEC §7.6); yours is a picture you sent her (§35) —
+      // same element, same lane, and only the alt text knows the difference.
       const imageUrl = httpPath(m.image_url);
+      const alt = her ? 'a selfie from her' : 'a picture you sent';
       html += `<a href="${esc(imageUrl)}" target="_blank" rel="noopener">` +
-              `<img class="msg-img" src="${esc(imageUrl)}" alt="a selfie from her"></a>`;
+              `<img class="msg-img" src="${esc(imageUrl)}" alt="${esc(alt)}"></a>`;
     }
     if (m.text) html += esc(m.text);
     return html;
@@ -152,13 +157,13 @@
     });
   }
 
-  function addPendingUser(text, clientId) {
+  function addPendingUser(text, clientId, imageUrl) {
     if (!messages || !clientId || pending.has(clientId)) return;
     // If the inner-life drawer is open, sending is an explicit return to the
     // conversation. Reveal the transcript before inserting the line.
     document.getElementById('tab-chat')?.click();
     const message = {
-      role: 'user', text, client_id: clientId,
+      role: 'user', text, client_id: clientId, image_url: imageUrl,
       ts: new Date().toISOString(),
     };
     const div = document.createElement('div');
@@ -321,6 +326,12 @@
       try { m = JSON.parse(e.data); } catch { return; }
       // the stage adapters listen here (the YuriOS `yurios-ev` pattern)
       window.dispatchEvent(new CustomEvent('world-ev', { detail: m }));
+      // …and one of them is not listening yet. `capabilities` is sticky on the
+      // hub (SPEC §35.1), so it lands in the replay the instant this stream
+      // opens — before the Live2D room has finished loading its avatar and got
+      // around to importing voice.js, whose composer is the thing that wants
+      // it. Held here, so a listener that arrives late can simply read it.
+      if (m.type === 'capabilities') window.WorldChat.capabilities = m;
       if (m.type === 'hello') {
         charName = m.character || '';
         // every label that names her at once — the chat head, the masthead, the
@@ -364,6 +375,8 @@
   // the chat re-pins it, or you return to wherever you were before she answered.
   window.WorldChat = {
     connect,
+    // the last `capabilities` event, for a consumer that attached after it
+    capabilities: null,
     scrollToLatest: scroll,
     addPendingUser,
     confirmUser: addMsg,

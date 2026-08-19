@@ -212,19 +212,31 @@ class BrainAdapter:
         return soul, prompt
 
     # -- the ReplyBrain seam ----------------------------------------------------
-    async def stream_reply(self, session_id: str, text: str) -> AsyncIterator[str]:
-        """Assemble one turn (Build #1) + the expression directive, then stream."""
+    async def stream_reply(self, session_id: str, text: str,
+                           image: str | None = None) -> AsyncIterator[str]:
+        """Assemble one turn (Build #1) + the expression directive, then stream.
+
+        `image` is a picture the user sent with this line, already checked and
+        shrunk (world/uploads.py), as the base64 data url the model reads. It
+        rides *this* prompt only: what stays behind in the window, and in the
+        corpus, is the note (§35), because a photo re-sent with every later turn
+        would eat the window it was small enough to fit in the first place."""
         turn_index = self.state.sessions.get(session_id)["turn_count"]
         soul, prompt = self._assemble(
             session_id, text,
             window=self.state.sessions.window(session_id, self.cfg.raw_window_turns),
             lore=self.state.soul_loader.load().lorebook_hits(text))
+        if image:
+            asm.mark_picture(prompt.messages)
 
-        self.state.sessions.append_message(session_id, "user", text)
+        self.state.sessions.append_message(
+            session_id, "user", asm.note_picture(text) if image else text)
         self._pending[session_id] = _Pending(prompt, turn_index, soul)
 
+        messages = asm.with_image(prompt.messages, image) if image \
+            else prompt.messages
         async for token in self.state.chat.stream(
-                prompt.messages, temperature=self.cfg.temperature,
+                messages, temperature=self.cfg.temperature,
                 max_tokens=self.cfg.max_reply_tokens):
             yield token
 

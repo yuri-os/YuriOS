@@ -70,6 +70,18 @@ name of the variable holding it. The same fields are on the switchboard's profil
 | `MAX_REPLY_TOKENS` | `1600` | a roomy ceiling, not a target |
 | `TEMPERATURE` | `0.9` | |
 
+### Pictures you send her
+
+The mirror of her camera: whether **you** can show **her** something. See
+[Models](models.md#can-she-see-pictures).
+
+| Key | Default | |
+|---|---|---|
+| `CHAT_IMAGE_INPUT` | `auto` | `auto` asks the provider at boot; `on`/`off` override it |
+| `CHAT_IMAGE_MAX_PX` | `1024` | the long side every sent picture is re-encoded down to |
+| `UPLOAD_MAX_BYTES` | `12000000` | what `POST /api/uploads` accepts, before the re-encode |
+| `UPLOAD_KEEP` | `200` | newest N kept on the shelf; older ones pruned on save |
+
 ### Direct GGUF
 
 | Key | Default | |
@@ -127,6 +139,7 @@ Ollama settings.
 | `TRACE_DIR` | `./traces` | tick traces, latency traces, context history |
 | `TOOL_LOG_DIR` | `./tool-logs` | the tool audit |
 | `SELFIE_DIR` | `./selfies` | her photos + the provenance ledger |
+| `UPLOAD_DIR` | `./uploads` | pictures you sent her — a separate shelf, not her gallery |
 | `USER_NAME` | `you` | the `{{user}}` substitution |
 | `UTILITY_ENABLED` | `true` | the off-hot-path model work |
 | `DREAM_ENABLED` | `true` | nightly consolidation |

@@ -85,13 +85,20 @@ class TurnController:
     def run_turn(self, session_id: str, text: str,
                  trace: TurnTrace | None = None,
                  persist: bool = True,
-                 tokens: AsyncIterator[str] | None = None) -> AsyncIterator[OutEvent]:
+                 tokens: AsyncIterator[str] | None = None,
+                 image: str | None = None) -> AsyncIterator[OutEvent]:
         """Drive one turn end to end. Caller has already endpointed + transcribed.
 
         `persist=False` + a `tokens` override is the greeting path (SPEC §7): she
         speaks first from `brain.stream_greeting`, but an opener is not a turn the
         user took, so it is not remembered as one. With no override, tokens come
         from `brain.stream_reply` — the normal turn.
+
+        `image` is a picture typed alongside the words (SPEC §35), as the data
+        url the brain hands to the model. It comes through the voice route
+        rather than over HTTP for one reason: this is the path with a voice on
+        the end of it, and being shown something should not cost her the ability
+        to answer out loud.
 
         A plain method wrapping the generator, on purpose: an async generator's
         body doesn't run until the first `__anext__`, so arming the cancel token
@@ -102,12 +109,13 @@ class TurnController:
         does the route start reading the socket. Arming here closes it: the token
         is live from the moment the caller has the iterator."""
         self._cancel = asyncio.Event()      # fresh cancel token per turn
-        return self._run_turn(session_id, text, trace, persist, tokens)
+        return self._run_turn(session_id, text, trace, persist, tokens, image)
 
     async def _run_turn(self, session_id: str, text: str,
                         trace: TurnTrace | None,
                         persist: bool,
-                        tokens: AsyncIterator[str] | None) -> AsyncIterator[OutEvent]:
+                        tokens: AsyncIterator[str] | None,
+                        image: str | None = None) -> AsyncIterator[OutEvent]:
         trace = trace or TurnTrace()
         trace.mark("endpoint")
 
@@ -121,7 +129,12 @@ class TurnController:
         parser = EmotionParser(default=self.expression_default)
         sentence_q: asyncio.Queue = asyncio.Queue()
         raw_reply: list[str] = []           # model output verbatim (tags kept, for the corpus)
-        source = tokens if tokens is not None else self.brain.stream_reply(session_id, text)
+        # The keyword is passed only when there IS a picture, so a brain seam
+        # that never heard of them (the voice suite's fake) keeps its two-
+        # argument signature and its tests keep working.
+        source = tokens if tokens is not None else (
+            self.brain.stream_reply(session_id, text, image=image) if image
+            else self.brain.stream_reply(session_id, text))
 
         async def produce() -> None:
             """Drain brain tokens → expression events + sentences onto the queue."""

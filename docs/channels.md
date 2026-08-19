@@ -42,8 +42,8 @@ this is where her cold open plays.
 
 ## Telegram
 
-She's in your pocket: messages sent to the bot are ordinary turns, and their replies land back in
-that Telegram chat, selfies included.
+She's in your pocket: messages and photos sent to the bot are ordinary turns, and their replies
+land back in that Telegram chat, selfies included.
 
 ### Setup
 
@@ -92,6 +92,13 @@ With that unset, the shared pair is offered to every character without her own b
 runtime to start holds it; the rest report the medium as `held by <her>`, which is a healthy state
 rather than a fault. A companion with no bot of her own is simply not on Telegram — she's still in
 the room and the terminal.
+
+### Sending her a photo
+
+A photo (or an image sent "as a file") is the same ordinary turn with a picture on it, with the
+caption as the words — she is shown it, and answers about it. This works when the model she is
+running on can be sent pictures; when it cannot, she says so rather than ignoring what you sent.
+See [Models](models.md#can-she-see-pictures).
 
 ### Cross-chat forwarding
 

@@ -1795,3 +1795,52 @@ the things she *is* and the wrong shape for the things she is *doing*.
 - §34.4 **Nothing here executes.** The desk holds inert text. The coming code harness (§28's
   workshop) gets its own workspace **outside** the Vault precisely so that "she can write here" and
   "this can run" never become the same sentence, and its own skills folder for the same reason.
+
+---
+
+## §35 — Pictures you send her
+
+The mirror of her camera (§7.6): that one is what leaves her, this is what reaches her. A chat
+model that takes image parts as well as text can be shown something — a photo, a screenshot, a
+page of handwriting — and answer about it in the same turn, in the same voice, through the same
+committed-message path as every other line she says.
+
+- §35.1 **The capability is asked, not assumed.** Whether the configured `CHAT_MODEL` accepts
+  images is settled once at boot by asking the provider that serves it
+  (`yurios/app/providers/vision.py`): LM Studio's `capabilities.vision`, Ollama's `capabilities`,
+  OpenRouter's `architecture.input_modalities`, and LiteLLM's bundled map for a route with no
+  listing of its own. The probe **MUST NOT** be able to fail a boot: an unreachable server, an
+  unknown shape or no network at all mean "text only", which is a room without a paperclip rather
+  than a room without her. `CHAT_IMAGE_INPUT=on|off` overrides the answer and **MUST**
+  short-circuit before any request — a probe does not get the last word on a capability the user
+  can see with their own eyes. The answer rides the bus as a **sticky** `capabilities` event
+  (§10), so a page that opens an hour later gets it and a model swapped mid-conversation (§31.4)
+  changes every open room at once; it is re-asked on that swap. No frontend **MAY** offer the
+  affordance without it: an attachment button that errors is worse than one that isn't there.
+
+- §35.2 **The file goes up first; the turn names it.** `POST /api/uploads` takes one picture and
+  answers with an id; `POST /api/chat` and the voice socket's `text` frame carry `image_id`, never
+  bytes. This is what keeps a 3 MB photo out of a JSON turn body and out of a frame budget
+  measured in kilobytes — and what lets an image turn stay on the socket that has TTS on the end
+  of it, so being shown something never costs her voice. Nothing is stored as it arrived: every
+  picture **MUST** be decoded, oriented by its EXIF, capped at `CHAT_IMAGE_MAX_PX` on the long
+  side and re-encoded, which drops the metadata a holiday photo carries and means the bytes on
+  disk were written here. The shelf is `UPLOAD_DIR`, separate from `SELFIE_DIR` because her
+  gallery is hers, and bounded: the newest `UPLOAD_KEEP` survive a save.
+
+- §35.3 **The picture rides one prompt; the record keeps a note.** The image part is attached to
+  the final user message of the turn that asked (`assemble.with_image`, a copy) and **MUST NOT**
+  reach the corpus line, the session window or the journal, which keep the picture *note* instead.
+  A photo re-sent with every later turn would eat the window it was small enough to fit, and a
+  base64 blob in `corpus/turns.jsonl` is a training log nobody can read. The note is not optional:
+  without it her reply hangs off a line that said only "what do you think?", and the next prompt
+  reads as a question she answered out of nowhere.
+
+- §35.4 **A picture that did not arrive is never silent.** An `image_id` that no longer resolves
+  **MUST** refuse the turn rather than send the words alone, and a model that cannot be sent
+  pictures **MUST** refuse the upload in words. Of the three outcomes — she sees it, she says she
+  cannot, the picture quietly vanishes — only the third is unrecoverable, because nobody finds out.
+
+- §35.5 **This is conversation, not sensing.** §26 stands: the mind's SENSE still reads text, time
+  and files. She is shown a picture because somebody handed her one, in a turn; she cannot look at
+  anything on her own, and nothing here gives the tick loop eyes.

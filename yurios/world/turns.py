@@ -125,15 +125,31 @@ class TextTurns:
 
     async def run(self, text: str, *, channel: str,
                   session_id: str | None = None,
-                  client_id: str | None = None) -> dict:
+                  client_id: str | None = None,
+                  image_id: str | None = None) -> dict:
         """Drive one text turn. Returns {"session_id": …, "message": entry}
         (`message` is None for an empty reply). Raises on a mid-stream brain
-        failure — the caller decides how to surface it; nothing was committed."""
+        failure — the caller decides how to surface it; nothing was committed.
+
+        `image_id` is a picture the sender put on the shelf first
+        (`POST /api/uploads`, SPEC §35). It rides two lanes from here: the
+        transcript entry carries its URL, so every room shows what was sent, and
+        the brain gets the bytes for this one prompt. An id that no longer
+        resolves raises `LookupError` rather than quietly sending the words
+        alone — a picture that silently didn't arrive is the worst of the three
+        outcomes."""
         rt = self.rt
+        attachment = None
+        if image_id:
+            attachment = rt.uploads.get(image_id)
+            if attachment is None:
+                raise LookupError(f"no such picture: {image_id}")
         async with self._lock:
             session_id = rt.brain.resolve_session(session_id)
             user_entry = rt.post_message("user", text, channel=channel,
-                                         client_id=client_id)
+                                         client_id=client_id,
+                                         image_url=attachment.url
+                                         if attachment else None)
             rt.signals.post("user_message", {"text": text}, source=channel)
             # A selfie may be holding her brain's VRAM right now (§7.6): wait
             # at the door rather than loading the chat model back onto a card
@@ -153,9 +169,16 @@ class TextTurns:
             context = turn_context(channel=channel, client_id=client_id,
                                    session_id=session_id) \
                 if turn_context else nullcontext()
+            # The image part is the brain's business, not the runner's: what
+            # this passes is the data url, and only when there is one, so a
+            # brain seam that never heard of pictures (the route tests' fake)
+            # keeps its two-argument signature.
+            reply_kw = {"image": rt.uploads.data_url(attachment)} \
+                if attachment else {}
             try:
                 with context:
-                    async for token in rt.brain.stream_reply(session_id, text):
+                    async for token in rt.brain.stream_reply(session_id, text,
+                                                             **reply_kw):
                         raw.append(token)
                         speakable = parser.push(token)
                         # a closed tag drives the face before the text after it

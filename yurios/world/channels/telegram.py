@@ -5,7 +5,10 @@ bot-framework dependency for two HTTP calls:
 
   - **inbound**: one long-poll task on `getUpdates`. A text message from *the
     one configured chat* becomes an ordinary text turn (`rt.turns.run`), with
-    a `typing…` chat action while she thinks. Telegram is an asynchronous
+    a `typing…` chat action while she thinks. A photo becomes the same turn with
+    a picture on it (SPEC §35) — downloaded, shrunk onto her upload shelf and
+    handed to the model, when the model she runs on can see; when it cannot, she
+    says so in words rather than ignoring what you sent. Telegram is an asynchronous
     inbox, so the channel never posts `user_present` — she is *reachable*
     there, not watched; the `user_message` signal each real message produces
     is what preempts the mind to ENGAGED.
@@ -164,14 +167,30 @@ class TelegramChannel(Channel):
             log.warning("telegram: ignoring message from unconfigured chat %s",
                         chat_id)
             return
-        text = msg.get("text")
-        if not text:
+        # A photo arrives as `photo` (compressed, several sizes) or as a
+        # `document` (sent uncompressed), and its words — when there are any —
+        # arrive as the caption rather than as text.
+        text = msg.get("text") or msg.get("caption") or ""
+        picture = None
+        if self._picture_file(msg) is not None:
+            if not self.rt.image_input:
+                await self._api("sendMessage", chat_id=chat_id, text=(
+                    "(I can't see pictures with the model I'm running — "
+                    "tell me about it instead?)"))
+                return
+            picture = await self._take_photo(msg)
+            if picture is None:                  # the download failed; say so
+                await self._api("sendMessage", chat_id=chat_id, text=(
+                    "(That picture didn't come through — try sending it again?)"))
+                return
+        if not text and picture is None:
             await self._api("sendMessage", chat_id=chat_id,
-                            text="(I can only read text here, for now.)")
+                            text="(I can only read text and pictures here, for now.)")
             return
         await self._api("sendChatAction", chat_id=chat_id, action="typing")
         result = await self.rt.turns.run(
-            text, channel=self.name, session_id=self._sessions.get(chat_id))
+            text, channel=self.name, session_id=self._sessions.get(chat_id),
+            image_id=picture.id if picture else None)
         self._sessions[chat_id] = result["session_id"]
         # the reply itself arrives via _deliver — one outbound path, no echoes
 
@@ -207,6 +226,57 @@ class TelegramChannel(Channel):
         for i in range(0, len(text), MAX_MESSAGE_CHARS):
             await self._api("sendMessage", chat_id=self.chat_id,
                             text=text[i:i + MAX_MESSAGE_CHARS])
+
+    # ---- inbound pictures (SPEC §35) ----
+
+    def _picture_file(self, msg: dict) -> dict | None:
+        """The file object to fetch, if this message is (or carries) a picture.
+
+        `photo` is Telegram's compressed ladder, smallest first — the last entry
+        is the biggest, and the biggest is the one worth showing her, because the
+        shelf re-encodes it down to `CHAT_IMAGE_MAX_PX` anyway (world/uploads.py).
+        A `document` is the same picture sent uncompressed, and refusing that
+        would mean "I can see your photos unless you sent them properly"."""
+        photos = msg.get("photo")
+        if isinstance(photos, list) and photos:
+            return max(photos, key=lambda p: p.get("file_size") or p.get("width") or 0)
+        document = msg.get("document")
+        if isinstance(document, dict) and \
+                str(document.get("mime_type", "")).startswith("image/"):
+            return document
+        return None
+
+    async def _take_photo(self, msg: dict):
+        """Download the picture and put it on her shelf. None on any failure —
+        the caller answers in words, because a picture that vanished silently is
+        the one thing worse than one that was refused."""
+        file = self._picture_file(msg) or {}
+        size = file.get("file_size") or 0
+        if size and size > self.rt.cfg.upload_max_bytes:
+            log.warning("telegram: picture is %d bytes, over UPLOAD_MAX_BYTES", size)
+            return None
+        try:
+            described = await self._api("getFile", file_id=file["file_id"])
+            # The file itself is served off a different path than the API, so
+            # this is the one absolute URL this adapter builds by hand.
+            response = await self._client.get(
+                f"{self.api_base}/file/bot{self.token}/{described['file_path']}")
+            response.raise_for_status()
+            data = response.content
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:      # noqa: BLE001 — a flaky net, an expired id
+            log.warning("telegram: could not fetch the picture (%s)", e)
+            return None
+        if len(data) > self.rt.cfg.upload_max_bytes:
+            log.warning("telegram: picture is %d bytes, over UPLOAD_MAX_BYTES",
+                        len(data))
+            return None
+        try:
+            return await self.rt.save_upload(data)
+        except Exception as e:      # noqa: BLE001 — not an image, a full disk
+            log.warning("telegram: could not keep the picture (%s)", e)
+            return None
 
     def _selfie_path(self, image_url: str | None) -> Path | None:
         """A `message` with an image carries a local `/selfies/<name>` URL;

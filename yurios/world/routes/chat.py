@@ -11,6 +11,10 @@ Unlike `/ws/voice` this path never waits on the voice stack: the brain is up
 as soon as the server is, so a text channel talks while TTS models are still
 warming.
 
+A turn may carry a picture as well as words (`image_id`, SPEC §35): the file
+goes up separately (`POST /api/uploads`) and this body names it, so the shape
+of a turn stays one small JSON object whatever is attached to it.
+
 `POST /api/greeting` is the other half of the same seam: the voice route greets
 on connect, and a text channel has no connect — so it asks. Same runner, same
 once-per-session rule, same first-arrival cold open (§5.4).
@@ -31,13 +35,19 @@ router = APIRouter()
 
 
 class ChatRequest(BaseModel):
-    text: str = Field(min_length=1, max_length=16_384)
+    # Empty is allowed only with a picture: sending a photo with nothing typed
+    # is an ordinary thing to do, and `chat()` below is what enforces the pair.
+    text: str = Field(default="", max_length=16_384)
     session_id: str | None = Field(default=None, max_length=128,
                                    pattern=r"^[A-Za-z0-9._:-]+$")
     client_id: str | None = Field(default=None, max_length=64,
                                   pattern=r"^[A-Za-z0-9_-]+$")
     # who's asking (shows up on the transcript + signal source): cli, api, …
     channel: str = Field(default="api", max_length=24, pattern=r"^[a-z0-9_-]+$")
+    # a picture already on the shelf (POST /api/uploads, SPEC §35) — the id it
+    # answered with, never the bytes: this body is small on purpose
+    image_id: str | None = Field(default=None, max_length=64,
+                                 pattern=r"^[A-Za-z0-9._-]+$")
 
 
 class GreetRequest(BaseModel):
@@ -115,17 +125,25 @@ async def chat(req: ChatRequest, request: Request):
     rt = request.app.state.rt
     if req.channel == "telegram":
         raise HTTPException(422, "telegram origin is reserved for the bot adapter")
-    if not is_meaningful_transcript(req.text):
+    # A picture IS a turn, with or without words on it — the meaningfulness test
+    # exists to keep an STT hallucination from waking her, and a file somebody
+    # deliberately chose is not one. Without the picture the old rule stands.
+    if not req.image_id and not is_meaningful_transcript(req.text):
         raise HTTPException(422, "not a meaningful turn")
+    if req.image_id and not rt.image_input:
+        raise HTTPException(409, f"this model can't be sent pictures "
+                                 f"({rt.image_input_status})")
     try:
         async with request.app.state.turn_admission:
             return await _tracked(request, req.client_id, rt.turns.run(
                 req.text, channel=req.channel, session_id=req.session_id,
-                client_id=req.client_id))
+                client_id=req.client_id, image_id=req.image_id))
     except HTTPException:
         raise
     except InferenceBusy:
         raise
+    except LookupError as e:   # the picture was pruned between upload and turn
+        raise HTTPException(404, str(e))
     except Exception as e:  # noqa: BLE001 — the turn left no trace (turns.py)
         raise HTTPException(502, f"turn failed: {e}")
 

@@ -155,6 +155,18 @@ def short_tokens(n: int) -> str:
     return str(int(n))
 
 
+#: What one picture costs the window, near enough (SPEC §35). A real number
+#: exists — it is a function of the tiling the vision encoder does — and it is
+#: different for every model, so this is one figure for the whole class: about
+#: what a 1024px image costs the qwen/gemma vision stacks the local routes run.
+#: Measuring the base64 at four characters per token would be off by an order of
+#: magnitude in the *wrong* direction (a 300 KB photo reading as 100k tokens),
+#: and counting nothing at all lets a gauge sit at half while the turn overflows.
+#: Where the server volunteers usage (LM Studio does) the exact number replaces
+#: this on the next chunk anyway.
+IMAGE_TOKENS = 1200
+
+
 def estimate_messages(messages: list[dict]) -> int:
     """~4 chars/token over the whole message array, plus the per-message framing
     every chat template adds (role tags, separators). Guardrail arithmetic, the
@@ -163,7 +175,14 @@ def estimate_messages(messages: list[dict]) -> int:
     for m in messages or []:
         content = m.get("content") or ""
         if not isinstance(content, str):           # a multimodal part list
-            content = "".join(p.get("text", "") for p in content
-                              if isinstance(p, dict))
+            for part in content:
+                if not isinstance(part, dict):
+                    continue
+                if part.get("type") == "image_url":
+                    total += IMAGE_TOKENS
+                else:
+                    total += est_tokens(part.get("text", ""))
+            total += 4
+            continue
         total += est_tokens(content) + 4
     return total

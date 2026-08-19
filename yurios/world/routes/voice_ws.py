@@ -370,6 +370,7 @@ async def _in_the_room(ws: WebSocket, rt, session_id: str, safe_send,
                 if turn_task and not turn_task.done():
                     controller.cancel()
                     await asyncio.gather(turn_task, return_exceptions=True)
+                picture = None
                 if kind == "text":
                     try:
                         text = bounded_text(data.get("text"),
@@ -378,6 +379,17 @@ async def _in_the_room(ws: WebSocket, rt, session_id: str, safe_send,
                     except ValueError as exc:
                         await guard.reject_limit(str(exc))
                         return
+                    # A picture typed with the line (SPEC §35). The id, never
+                    # the bytes: the file went up over HTTP before this frame
+                    # was sent, which is what keeps this socket's frames small.
+                    image_id = data.get("image_id")
+                    if isinstance(image_id, str) and image_id:
+                        picture = rt.uploads.get(image_id) if rt.image_input else None
+                        if picture is None:
+                            await safe_send({"type": "rejected",
+                                             "client_id": data.get("client_id"),
+                                             "message": "that picture is gone"})
+                            continue
                 else:
                     # endpoint: transcribe — only if the server's VAD confirmed
                     # real speech in the utterance (B2 §4.2).
@@ -387,7 +399,8 @@ async def _in_the_room(ws: WebSocket, rt, session_id: str, safe_send,
                 gate.reset()
                 guard.reset_utterance()
                 # last net: a punctuation-only hallucination is not a turn (B2 §3.2)
-                if not is_meaningful_transcript(text):
+                # — unless a picture came with it, which nobody hallucinates.
+                if picture is None and not is_meaningful_transcript(text):
                     if kind == "text":
                         await safe_send({"type": "rejected",
                                          "client_id": data.get("client_id"),
@@ -399,14 +412,17 @@ async def _in_the_room(ws: WebSocket, rt, session_id: str, safe_send,
                 if not isinstance(client_id, str) or len(client_id) > 64:
                     client_id = None
                 entry = rt.post_message("user", text, channel="voice",
-                                        client_id=client_id)
+                                        client_id=client_id,
+                                        image_url=picture.url if picture else None)
                 await safe_send({"type": "accepted", "message": entry,
                                  "client_id": client_id})
                 # …and the SignalBus — the ENGAGED preempt rides it
                 rt.signals.post("user_message", {"text": text}, source="voice")
                 trace = TurnTrace()
                 turn_task = asyncio.create_task(
-                    run(controller.run_turn(session_id, text, trace=trace),
+                    run(controller.run_turn(
+                            session_id, text, trace=trace,
+                            image=rt.uploads.data_url(picture) if picture else None),
                         user_text=text, client_id=client_id))
     except (WebSocketDisconnect, VoiceSocketClosed):
         pass

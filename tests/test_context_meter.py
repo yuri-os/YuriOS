@@ -13,7 +13,8 @@ import json
 import pytest
 
 from yurios.app.providers.usage import chunk_prompt_tokens, chunk_text
-from yurios.world.context import ContextMeter, estimate_messages, short_tokens
+from yurios.world.context import (ContextMeter, IMAGE_TOKENS, estimate_messages,
+                                  short_tokens)
 from yurios.world.hub import EventHub
 
 pytest.importorskip("fastapi")
@@ -37,9 +38,13 @@ def test_estimate_counts_every_message_plus_its_framing():
 
 
 def test_estimate_survives_a_multimodal_content_list():
+    """A picture sent with the line (SPEC §35). The text part estimates as
+    usual; the image is charged one flat figure, because measuring its base64 at
+    four characters per token would read a thumbnail as tens of thousands."""
     msgs = [{"role": "user", "content": [{"type": "text", "text": "z" * 40},
-                                         {"type": "image_url", "image_url": {}}]}]
-    assert estimate_messages(msgs) == 10 + 4
+                                         {"type": "image_url",
+                                          "image_url": {"url": "data:" + "A" * 9000}}]}]
+    assert estimate_messages(msgs) == 10 + IMAGE_TOKENS + 4
 
 
 def test_the_servers_own_count_wins_over_the_estimate():

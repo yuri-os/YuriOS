@@ -198,3 +198,68 @@ def assemble(soul: Soul, *, user_md: str, summary: str, memories: list[Memory],
                            dropped_lore=dropped_lore,
                            dropped_knowledge=dropped_knowledge,
                            citations=[c.citation for c in knowledge])
+
+
+#: What the final user turn says when a picture arrives with no words on it.
+#: Sending a photo with no caption is an ordinary thing to do, and a user
+#: message that is *only* an image part is where local chat templates start
+#: behaving strangely — some drop the turn, some emit an empty prompt. One
+#: sentence in the user's voice costs nothing and keeps the turn well formed.
+IMAGE_ONLY_TEXT = "(I'm showing you this picture.)"
+
+
+def with_image(messages: list[dict], data_url: str) -> list[dict]:
+    """`messages`, with the picture attached to the turn that is asking (§35).
+
+    Chat models take a multimodal turn as a *list* of parts instead of a string,
+    and OpenAI's `image_url` shape is the one LiteLLM speaks to every route this
+    project reaches. Only the final user message changes; everything above it is
+    the same text prompt `assemble` built, which is what keeps the budgets, the
+    corpus record and the token estimate honest.
+
+    A copy, never in place: the caller keeps the text-only array as the record of
+    the turn (`_Pending` → the corpus), because a base64 photo in a JSONL line is
+    a training log nobody can read and a git diff nobody can review.
+    """
+    out = [dict(m) for m in messages]
+    for message in reversed(out):
+        if message.get("role") != "user":
+            continue
+        text = message.get("content")
+        text = text if isinstance(text, str) else ""
+        message["content"] = [
+            {"type": "text", "text": text.strip() or IMAGE_ONLY_TEXT},
+            {"type": "image_url", "image_url": {"url": data_url}},
+        ]
+        return out
+    raise ValueError("no user message to attach a picture to")
+
+
+#: How a turn that carried a picture reads once the picture itself is gone —
+#: in the session window a few turns later, and in the corpus record, neither of
+#: which holds image bytes. Without it her half of that exchange dangles from a
+#: line that says only "what do you think?", and the next prompt reads as a
+#: question she answered out of nowhere.
+PICTURE_NOTE = "[system note — a picture is attached to this message]"
+
+
+def note_picture(text: str) -> str:
+    """`text` with the picture note fused on, in the same register (and the same
+    place) as the hard-limits note above: the end of the user's own message."""
+    text = (text or "").strip()
+    return f"{text}\n\n{PICTURE_NOTE}" if text else PICTURE_NOTE
+
+
+def mark_picture(messages: list[dict]) -> None:
+    """Fuse the picture note onto the assembled prompt's final user message.
+
+    In place, and on the assembled array rather than on a copy, because that
+    array *is* the record of the turn: it is what the corpus logs and what the
+    prompt log points at. The image bytes never join it (`with_image` makes the
+    copy that goes on the wire), so this note is the only thing in the record
+    that says the turn had a picture in it at all.
+    """
+    for message in reversed(messages):
+        if message.get("role") == "user" and isinstance(message.get("content"), str):
+            message["content"] = note_picture(message["content"])
+            return

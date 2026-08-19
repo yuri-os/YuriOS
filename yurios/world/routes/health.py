@@ -58,6 +58,11 @@ async def health(request: Request) -> dict:
         "mind": rt.mind_status,            # "running" | "disabled" | "failed: …" (§15)
         "activity": rt.mind.activity.state if rt.mind else None,
         "selfies": rt.selfies_status,      # "openrouter" | "mock" | "mock (no key…)" | "off" (§7.6)
+        # whether she can be *sent* a picture, and why we think so (§35) — the
+        # composer takes this off the bus, but "why is there no paperclip?" is
+        # exactly the kind of question this endpoint exists to answer
+        "image_input": rt.image_input,
+        "image_input_detail": rt.image_input_status,
         "web": rt.research_status,         # "searxng" | "fake" | "off" (§7.7)
         "viewers": rt.hub.subscribers,     # attached /api/events subscribers
         "context": rt.context.snapshot(),  # prompt tokens vs the window (§11)

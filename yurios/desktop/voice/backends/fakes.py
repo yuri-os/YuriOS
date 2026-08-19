@@ -87,6 +87,7 @@ class FakeBrain:
         self.persist_calls: list[tuple[str, str, str]] = []   # every turn that persisted
         self.abandon_calls: list[str] = []                    # …and every one rolled back
         self.cold: str | None = None      # set it to be a first-ever arrival (§5.4)
+        self.images: list[str | None] = []                    # …and every picture shown
         self._gate: asyncio.Event | None = None
 
     def cold_open(self) -> str | None:
@@ -100,7 +101,12 @@ class FakeBrain:
         self._gate = asyncio.Event()
         return self._gate
 
-    async def stream_reply(self, session_id: str, text: str):
+    async def stream_reply(self, session_id: str, text: str,
+                           image: str | None = None):
+        # `image` is the data url of a picture sent with the line (SPEC §35);
+        # recorded rather than read, which is what lets a route test assert that
+        # the bytes reached the brain without a model being anywhere near it.
+        self.images.append(image)
         self.tokens_emitted = 0
         # tokenize into word-ish tokens so a mid-stream cancel is observable
         for tok in _wordish(self.reply):

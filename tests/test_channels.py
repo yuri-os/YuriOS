@@ -310,8 +310,12 @@ class ScriptedTelegram(httpx.AsyncBaseTransport):
         except ValueError:                       # multipart (sendPhoto)
             body = {"_multipart": True}
         self.calls.append((method, body))
+        if "/file/bot" in request.url.path:      # the picture itself, not the API
+            return httpx.Response(200, content=b"\x89PNG\r\n\x1a\n scripted bytes")
         if method == "getMe":
             result = {"username": "yuri_bot"}
+        elif method == "getFile":
+            result = {"file_path": "photos/one.jpg"}
         elif method == "getUpdates":
             if self.updates:
                 result = [self.updates.pop(0)]
@@ -329,17 +333,37 @@ class ScriptedTelegram(httpx.AsyncBaseTransport):
 class StubTurns:
     def __init__(self):
         self.calls: list[tuple[str, str, str | None]] = []
+        self.images: list[str | None] = []
 
-    async def run(self, text, *, channel, session_id=None):
+    async def run(self, text, *, channel, session_id=None, image_id=None):
         self.calls.append((text, channel, session_id))
+        self.images.append(image_id)
         return {"session_id": "s" * 32,
                 "message": {"id": "m1", "role": "assistant", "text": "hi"}}
 
 
-class StubRT:
+class StubUploads:
+    """The upload shelf as the channel sees it: bytes in, an id back."""
+
     def __init__(self):
+        self.saved: list[bytes] = []
+
+    def save(self, data):
+        self.saved.append(data)
+        return SimpleNamespace(id=f"pic{len(self.saved)}.jpg",
+                               url=f"/api/uploads/pic{len(self.saved)}.jpg")
+
+
+class StubRT:
+    def __init__(self, image_input=True):
         self.hub = EventHub()
         self.turns = StubTurns()
+        self.uploads = StubUploads()
+        self.image_input = image_input
+        self.cfg = SimpleNamespace(upload_max_bytes=12_000_000)
+
+    async def save_upload(self, data):
+        return self.uploads.save(data)
 
 
 def tg(transport, chat_id="42", **kw) -> TelegramChannel:
@@ -350,11 +374,21 @@ def tg(transport, chat_id="42", **kw) -> TelegramChannel:
     return ch
 
 
-def update(chat_id=42, text="hello") -> dict:
+def update(chat_id=42, text="hello", **extra) -> dict:
     msg: dict = {"chat": {"id": chat_id}}
     if text is not None:
         msg["text"] = text
+    msg.update(extra)
     return {"update_id": 1, "message": msg}
+
+
+def photo_update(caption=None) -> dict:
+    """What a phone actually sends: the compressed ladder, smallest first, and
+    the words (if any) as a caption rather than as text."""
+    sizes = [{"file_id": "small", "file_size": 900, "width": 90},
+             {"file_id": "big", "file_size": 90_000, "width": 1280}]
+    return update(text=None, photo=sizes,
+                  **({"caption": caption} if caption else {}))
 
 
 async def test_telegram_message_becomes_a_text_turn_with_typing():
@@ -399,6 +433,51 @@ async def test_pairing_names_this_characters_own_variable():
     # …and the boot panel asks for the same one
     assert await ch.start(ch.rt) == "@yuri_bot · pairing (TELEGRAM_CHAT_ID_MIA unset)"
     await ch.stop()
+
+
+async def test_telegram_photo_becomes_a_turn_with_a_picture_on_it():
+    """A picture from your pocket (SPEC §35): the biggest size is fetched, put
+    on her shelf, and the turn carries its id — with the caption as the words."""
+    tr = ScriptedTelegram()
+    ch = tg(tr)
+    await ch._handle_update(photo_update(caption="found this at the market"))
+    assert [b["file_id"] for b in tr.sent("getFile")] == ["big"]
+    assert ch.rt.uploads.saved == [b"\x89PNG\r\n\x1a\n scripted bytes"]
+    assert ch.rt.turns.calls == [("found this at the market", "telegram", None)]
+    assert ch.rt.turns.images == ["pic1.jpg"]
+    assert tr.sent("sendMessage") == []          # nothing to apologise for
+    await ch._client.aclose()
+
+
+async def test_telegram_photo_with_no_caption_is_still_a_turn():
+    tr = ScriptedTelegram()
+    ch = tg(tr)
+    await ch._handle_update(photo_update())
+    assert ch.rt.turns.calls == [("", "telegram", None)]
+    assert ch.rt.turns.images == ["pic1.jpg"]
+    await ch._client.aclose()
+
+
+async def test_telegram_uncompressed_image_document_counts_as_a_picture():
+    """Sending a photo "as a file" is the same picture; refusing it would mean
+    "I can see your photos unless you sent them properly"."""
+    tr = ScriptedTelegram()
+    ch = tg(tr)
+    await ch._handle_update(update(
+        text=None, document={"file_id": "doc", "mime_type": "image/png"}))
+    assert ch.rt.turns.images == ["pic1.jpg"]
+    await ch._client.aclose()
+
+
+async def test_telegram_says_so_when_her_model_cannot_see():
+    tr = ScriptedTelegram()
+    ch = tg(tr)
+    ch.rt.image_input = False
+    await ch._handle_update(photo_update(caption="look"))
+    assert ch.rt.turns.calls == []               # …and the words did not go alone
+    (note,) = tr.sent("sendMessage")
+    assert "can't see pictures" in note["text"]
+    await ch._client.aclose()
 
 
 async def test_telegram_non_text_gets_the_stock_line():

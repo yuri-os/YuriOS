@@ -51,6 +51,7 @@ from .inbox import Inbox
 from .turns import TextTurns
 from .research import Researcher
 from .selfies import SelfieLab, build_forge
+from .uploads import Uploads
 from .situation import render_visual_situation
 from .tools.client import MultiToolRunner, load_servers
 from .tools.fetch import build_fetcher
@@ -124,6 +125,17 @@ class Runtime:
                            log_dir=cfg.tool_log_dir, clock=self.clock,
                            max_bytes=cfg.tool_log_max_bytes)
         self.timers = TimerBoard(self.clock)
+        # Pictures *in* (SPEC §35): the shelf a photo you send her lands on,
+        # and whether the model she is speaking through can be sent one at all.
+        # The store is built unconditionally and creates nothing until the first
+        # save; `image_input` is settled on the event loop (start_async), because
+        # answering it means asking her provider and a constructor may not wait
+        # on a network. Until then the composer sees `false` — a paperclip that
+        # appears a second late is better than one that appears and errors.
+        self.uploads = Uploads(cfg.upload_dir, max_px=cfg.chat_image_max_px,
+                               keep=cfg.upload_keep)
+        self.image_input = False
+        self.image_input_status = "not probed yet"
         # her camera (SPEC §7.6): the forge behind the SelfieLab. Built
         # even when tools are faked (tests inject a fake runner but still want
         # the realisation path); "off" leaves her without one.
@@ -420,6 +432,16 @@ class Runtime:
             # she still runs: LM Studio JIT-loads per request, slowly (§3.1)
             self.boot.done("models", state="failed", detail="none pinned — see the log")
 
+    # ---- pictures you send her (SPEC §35) ----
+
+    async def save_upload(self, data: bytes):
+        """Put one sent picture on the shelf, off the event loop.
+
+        Decoding, orienting and re-encoding a phone photo is real CPU work, and
+        this loop is also carrying a token stream and the SSE fan-out — the same
+        reason TTS synthesis runs in a thread (desktop/voice/turn.py)."""
+        return await asyncio.to_thread(self.uploads.save, data)
+
     # ---- the transcript (SPEC §2.6) ----
 
     def post_message(self, role: str, text: str, *, image_url: str | None = None,
@@ -524,10 +546,40 @@ class Runtime:
 
     # ---- async lifecycle (runs on the server's event loop) ----
 
+    async def _probe_image_input(self) -> None:
+        """Settle `image_input` from the provider (app/providers/vision.py).
+
+        The status string beside it is the point as much as the flag: "text
+        only" with no reason attached is what sends someone to the docs looking
+        for a switch that was never the problem. It shows in /api/health and,
+        when the answer is no, in the boot panel."""
+        from yurios.app.providers.vision import probe
+        try:
+            self.image_input, self.image_input_status = await probe(self.cfg)
+        except Exception as e:                 # noqa: BLE001 — never a boot failure
+            log.warning("could not tell whether %s takes images (%s) — assuming "
+                        "text only", self.cfg.chat_model, e)
+            self.image_input, self.image_input_status = False, f"probe failed: {e}"
+        log.info("pictures to her: %s (%s)",
+                 "on" if self.image_input else "off", self.image_input_status)
+        # Sticky, so a page that opens an hour from now learns it on subscribe
+        # and a model swapped live (retune) reaches every open room at once —
+        # the §10 rule that cross-surface state is an event, not a poll.
+        self.hub.publish("capabilities",
+                         {"image_input": self.image_input,
+                          "detail": self.image_input_status},
+                         sticky="capabilities")
+
     async def start_async(self) -> None:
         self.loop = asyncio.get_running_loop()
         # the render thread closes/opens the gate from off-loop; tell it where
         self.park_gate.bind(self.loop)
+        # Can she be shown a picture? (SPEC §35) Her provider is asked once, at
+        # boot, and the answer rides the `hello` event to every room — that is
+        # what puts the paperclip in the composer, or leaves it out. Never fatal:
+        # a probe that cannot reach the server answers "text only", which is a
+        # room without a paperclip, not a room without her.
+        await self._probe_image_input()
         # the hands (SPEC §7.2): spawn/connect, discover, wire — or degrade.
         # tools_backend=off, a missing `mcp` install, or a dead server all leave
         # her hand-less but talking; /api/health says which happened.
@@ -722,6 +774,11 @@ class Runtime:
             # here, no restart) must retire the first-run chooser — and a
             # cleared override must revive it.
             self.model_configured = is_configured(self.cfg.chat_model)
+        if "chat_model" in applied:
+            # A different model has different senses (§35). Re-asked here, on
+            # the swap, so the composer's paperclip appears or disappears with
+            # the model rather than at the next restart.
+            await self._probe_image_input()
         if applied and self.cfg.chat_model.startswith("lm_studio/"):
             task = asyncio.create_task(self._repin_lmstudio(), name="lmstudio-repin")
             self._tasks.append(task)           # cancelled with the rest on shutdown…
@@ -893,7 +950,7 @@ def create_app(cfg: Config | None = None, *, brain=None, chat_model=None,
     from yurios.desktop.routes import settings as b2_settings
 
     from .routes import channels, chat, events, health, live2d, mind, voice_ws
-    from .routes import inbox, onboarding
+    from .routes import inbox, onboarding, uploads
     app.include_router(health.router)
     app.include_router(onboarding.router)
     app.include_router(events.router)
@@ -907,6 +964,9 @@ def create_app(cfg: Config | None = None, *, brain=None, chat_model=None,
     # the text-turn seam over HTTP (SPEC §10.5): what the CLI chat — and any
     # future remote frontend — drives instead of the voice socket.
     app.include_router(chat.router)
+    # …and the picture that can come with one (SPEC §35): the composer puts the
+    # file here first, then names it in the turn.
+    app.include_router(uploads.router)
     # the inner-life surface (SPEC §24.3): journal, goals, pending self-edits,
     # the tick trace — what converts autonomy from creepy to an inner life.
     app.include_router(mind.router)

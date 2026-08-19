@@ -30,6 +30,20 @@ def _empty_installation(tmp_path_factory):
 
 
 @pytest.fixture(autouse=True)
+def fresh_park_gate():
+    """One process-wide park door is right for a host and wrong for a test run.
+
+    `world/vram.shared_gate` is a module singleton because four characters
+    share one card; pytest is one process running hundreds of runtimes, so a
+    gate a failed test left shut would silently hold every later one at the
+    door. Each test gets a clean one."""
+    from yurios.world.vram import reset_shared_gate
+    reset_shared_gate()
+    yield
+    reset_shared_gate()
+
+
+@pytest.fixture(autouse=True)
 def installation_elsewhere(_empty_installation, monkeypatch):
     """Keep the CLI's idea of "the installation" off this machine's real one.
 

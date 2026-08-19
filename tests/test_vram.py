@@ -276,7 +276,7 @@ def test_a_render_that_decides_not_to_park_reopens_a_pre_shut_gate(cfg, spied):
     """The lab shuts the gate before waiting for a quiet moment, and the card
     can free up in between — that decision must not strand queued turns."""
     p = make_parker(cfg, 14.0)                   # plenty of room by now
-    p.gate.close()
+    p.gate.close(p)                              # as the lab shuts it: on her behalf
     with p.parked() as borrowed:
         pass
     assert borrowed is False
@@ -320,6 +320,83 @@ def test_the_gate_can_be_shut_from_the_render_worker_thread():
         return blocked, await gate.wait()
 
     assert asyncio.run(scenario()) == (False, True)
+
+
+# ---- one card, four characters ----------------------------------------------
+# A host runs every character in one process, on one GPU, against one LM Studio
+# server. The gate has to be process-wide or it guards only the character whose
+# own camera is rendering — which is how a night lost two of four dreamt
+# selfies with every park in the log reporting success.
+
+def test_every_runtime_gets_the_same_door(cfg):
+    from yurios.world.vram import shared_gate
+    assert shared_gate() is shared_gate()
+    assert make_parker(cfg, 5.0).gate is not shared_gate()   # standalone keeps its own
+
+
+def test_one_characters_park_holds_anothers_caller_at_the_door(cfg, spied,
+                                                                monkeypatch):
+    """Adia's render, Yuri's dream call: the door is the same door."""
+    from yurios.world.vram import shared_gate
+
+    async def scenario():
+        gate = shared_gate()
+        gate.bind(asyncio.get_running_loop())
+        adia = make_parker(cfg, 5.0, selfie_backend="diffusers")
+        adia.gate = gate
+        monkeypatch.setattr(adia, "_await_free", lambda before: None)
+        with adia.parked():                       # adia has the card
+            yuri_call = asyncio.create_task(gate.wait(timeout_s=5))
+            await asyncio.sleep(0)
+            held = not yuri_call.done()           # yuri's dream call queues
+        return held, await asyncio.wait_for(yuri_call, 1)
+
+    assert asyncio.run(scenario()) == (True, True)
+
+
+def test_a_second_camera_deciding_not_to_park_leaves_the_first_door_shut(
+        cfg, spied, monkeypatch):
+    """The bug an unowned door would have: B opens the window A is standing in."""
+    from yurios.world.vram import shared_gate
+
+    gate = shared_gate()
+    adia = make_parker(cfg, 5.0)                  # short card → parks
+    iris = make_parker(cfg, 14.0)                 # roomy card → does not
+    adia.gate = iris.gate = gate
+    monkeypatch.setattr(adia, "_await_free", lambda before: None)
+    with adia.parked() as borrowed:
+        assert borrowed is True
+        with iris.parked() as also:
+            assert also is False                  # nothing to park for
+        assert gate._open.is_set() is False       # adia's window is still hers
+    assert gate._open.is_set() is True
+
+
+def test_two_cameras_do_not_render_on_one_card_at_once(cfg, spied, monkeypatch):
+    """The park lock is the card's, not the parker's."""
+    import threading
+    from yurios.world.vram import shared_gate
+
+    adia, iris = make_parker(cfg, 5.0), make_parker(cfg, 5.0)
+    adia.gate = iris.gate = shared_gate()
+    for p in (adia, iris):
+        monkeypatch.setattr(p, "_await_free", lambda before: None)
+    inside = threading.Event()
+    overlapped = []
+
+    def second():
+        with iris.parked():
+            overlapped.append(inside.is_set())
+
+    with adia.parked():
+        inside.set()
+        t = threading.Thread(target=second)
+        t.start()
+        t.join(0.3)                               # blocked on the card, not done
+        assert t.is_alive()
+        inside.clear()
+    t.join(2)
+    assert overlapped == [False]                  # it only got in after adia left
 
 
 # ---- the other half of the door: callers that are not turns ------------------

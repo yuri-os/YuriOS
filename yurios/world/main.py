@@ -146,8 +146,14 @@ class Runtime:
         # instead of loading the chat model back onto the card the render is
         # still filling. Built unconditionally — every turn waits on it, and
         # with no camera it simply never closes.
-        from .vram import ParkGate
-        self.park_gate = ParkGate()
+        #
+        # Process-wide, not one per runtime. A host runs every character in
+        # this process and they share one GPU and one LM Studio server, so a
+        # door that only her own turns wait at is not a door: it was Yuri's
+        # dream call that loaded the model back onto the card Adia's render was
+        # holding, and both parks logged success while doing it.
+        from .vram import shared_gate
+        self.park_gate = shared_gate()
         if cfg.selfie_backend != "off":
             forge, self.selfies_status = build_forge(cfg)
             from .vram import LLMParker

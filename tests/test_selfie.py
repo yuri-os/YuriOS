@@ -126,10 +126,10 @@ async def test_cancelling_while_waiting_for_quiet_reopens_the_gate(cfg, clock, f
     class Gate:
         closed = False
 
-        def close(self):
+        def close(self, owner=None):
             self.closed = True
 
-        def open(self):
+        def open(self, owner=None):
             self.closed = False
 
     class Parker:

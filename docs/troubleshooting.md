@@ -180,6 +180,14 @@ turns do, and a park waits for a call that is already running rather than evicti
 log line is `park: a caller is waiting for the render to give the LLM back`; a whole render queue
 is worth waiting out, because nobody is sitting there watching a dream.
 
+**With several characters running, some of the night's selfies fail with CUDA out of memory** —
+one host process, one GPU, one LM Studio server, but the park window used to be per character.
+Her camera would park her *own* brain and start rendering, and the character whose night began
+thirty seconds later would ask the utility model a question, which loaded the shared chat model
+straight back onto the card mid-render. Every park in the log reports success while it happens,
+because from each character's point of view it did. The door is now process-wide, and so is the
+lock that stops two cameras rendering on one card at once.
+
 **The first selfie after a restart works and the rest fail with CUDA out of memory** — the camera
 keeps its pipeline warm between renders, and on a card that can't hold the pipeline *and* her
 brain, that warmth is what fills the card. Parking frees her brain and nothing else, so it can

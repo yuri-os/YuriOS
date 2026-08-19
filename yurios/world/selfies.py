@@ -446,7 +446,7 @@ class SelfieLab:
                 # The cleanup scope starts before this close: cancellation while
                 # draining the current turn must never strand the gate shut.
                 if gate is not None:
-                    gate.close()
+                    gate.close(self.parker)
                 await self.quiet()
             worker = asyncio.create_task(asyncio.to_thread(
                 self._render, kind, save=False, **kw))
@@ -495,7 +495,7 @@ class SelfieLab:
             # between the close above and the render never reaches it — and a
             # gate stuck shut is a companion who stops answering.
             if gate is not None:
-                gate.open()
+                gate.open(self.parker)
         if failed:
             # Only now: while the `except` above was running, the live
             # exception's traceback still pinned the dead pipeline's frames,

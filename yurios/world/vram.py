@@ -53,6 +53,27 @@ patience: a person waiting on a reply gets `_GATE_WAIT_S`, a dream job gets
 off-turn counterpart to `Runtime.turn_started` — the park waits for a live
 utility call the same way it waits for a live turn, rather than pulling the
 weights out from under one.
+
+**And the door belongs to the card, not to the character.** A host runs every
+character in one process against one GPU and one LM Studio server, so a gate
+per runtime guards only the character whose own camera is rendering — and the
+call that loaded the model back was *another character's*. The recovered log
+of the night that lost two selfies reads, in one process:
+
+    02:14:06  DREAM for Yuri queued: another night is running
+    02:14:33  adia's lab: parking needs the GPU
+    02:14:33  LiteLLM completion() qwen3.8-27b   ← someone else's dream call
+    02:14:34  park: lending the GPU (0.3 GiB free)
+    02:14:40  DREAM summarise failed — 400 fetch failed   ← evicted under it
+    02:14:47  park: 14.3 GiB free — enough for a resident render
+    02:17:38  diffusers: 4.1 GiB free   ← the 27B came back, 10.2 GiB, mid-load
+    02:18:11  selfie render failed on the card — OutOfMemoryError
+
+Both parks in that night logged success while it happened. So `shared_gate()`
+is process-wide, `_PARK_LOCK` serialises the park windows across characters
+(two resident pipelines on one card fit no better than a pipeline and a
+brain), and the door tracks *which* parker shut it, so a second camera
+deciding it need not park cannot open the window the first is standing in.
 """
 from __future__ import annotations
 
@@ -102,6 +123,36 @@ PATIENT_WAIT_S = 900.0
 _QUIET_WAIT_S = 240.0
 
 
+#: The one door and the one loan, for the whole process. A YuriOS host runs
+#: every character in one process (`world/host.py`), and they are not four
+#: machines: one GPU, one LM Studio server, one set of weights that all four
+#: of them park and un-park. A gate per runtime therefore stops only the
+#: character whose own camera is rendering — which is how a night lost half
+#: its selfies with every park in the log reporting success. Module-global for
+#: the same reason `dreamjobs._NIGHT_LOCK` is: characters each build their own
+#: camera, and nothing in the system should have to know they share a card.
+_SHARED_GATE: Optional["ParkGate"] = None
+#: Serialises the park windows themselves, across characters. Two cameras
+#: rendering at once is two resident pipelines on one card, which no amount of
+#: parking makes fit; the second render waits for the first.
+_PARK_LOCK = threading.Lock()
+
+
+def shared_gate() -> "ParkGate":
+    """The process-wide park door (see `_SHARED_GATE`)."""
+    global _SHARED_GATE
+    if _SHARED_GATE is None:
+        _SHARED_GATE = ParkGate()
+    return _SHARED_GATE
+
+
+def reset_shared_gate() -> None:
+    """Drop the process-wide door — for tests, which must not inherit a gate
+    another test left shut."""
+    global _SHARED_GATE
+    _SHARED_GATE = None
+
+
 class ParkGate:
     """The park window, made waitable — the missing half of the quiet gate.
 
@@ -138,6 +189,12 @@ class ParkGate:
         self._idle = asyncio.Event()
         self._idle.set()
         self._holders = 0
+        # Which parkers are holding the door shut. A set rather than a flag
+        # because one card can have several cameras on it — one per character
+        # runtime — and B deciding not to park must not open the door A's park
+        # is standing behind. `open` from someone who never closed it is still
+        # the no-op every path out of a park relies on.
+        self._closers: set = set()
         self._loop: Optional[asyncio.AbstractEventLoop] = None
 
     def bind(self, loop: asyncio.AbstractEventLoop) -> None:
@@ -205,21 +262,30 @@ class ParkGate:
                         timeout_s)
             return False
 
-    def close(self) -> None:
-        """Shut the door: arriving turns queue until `open`."""
-        self._hop(False)
+    def close(self, owner=None) -> None:
+        """Shut the door for `owner`: arriving callers queue until it opens.
 
-    def open(self) -> None:
-        """Let them through. Idempotent, and safe to call when never closed —
-        every path out of a park runs it, including the ones that didn't park."""
-        self._hop(True)
+        `owner` is whichever parker is borrowing the card — the door stays shut
+        until every closer has let go, so two cameras on one GPU cannot open
+        each other's park window."""
+        self._hop(False, owner)
 
-    def _hop(self, opened: bool) -> None:
+    def open(self, owner=None) -> None:
+        """Let them through, on `owner`'s behalf. Idempotent, and safe to call
+        when this owner never closed it — every path out of a park runs it,
+        including the ones that didn't park."""
+        self._hop(True, owner)
+
+    def _hop(self, opened: bool, owner=None) -> None:
         """Apply the flag on the loop that owns the waiters, from either side.
         No loop (tests, pre-startup, a closed loop) → set it directly; the
         Event is only ever *awaited* from the loop thread anyway."""
         def apply() -> None:
-            self._open.set() if opened else self._open.clear()
+            if opened:
+                self._closers.discard(owner)
+            else:
+                self._closers.add(owner)
+            self._open.set() if not self._closers else self._open.clear()
 
         loop = self._loop
         try:
@@ -276,7 +342,9 @@ class LLMParker:
         # "can these two live together?" — see can_keep_pipeline_warm.
         self.brain_headroom = float(
             getattr(cfg, "selfie_warm_headroom_gib", _BRAIN_HEADROOM_GIB))
-        self._lock = threading.Lock()
+        # Process-wide, not per-parker: the thing being serialised is the card,
+        # and every character's camera renders on the same one.
+        self._lock = _PARK_LOCK
 
     def _ids(self) -> list[str]:
         """Her LM Studio models, as the server names them (empty list when her
@@ -386,7 +454,7 @@ class LLMParker:
             # The lab shuts the gate before it waits for a quiet moment, and
             # the card can have freed up in between — a decision not to park
             # must never leave turns queued behind a door nobody will open.
-            self.gate.open()
+            self.gate.open(self)
             yield False
             return
         with self._lock:
@@ -398,7 +466,7 @@ class LLMParker:
             log.info("park: lending the GPU to one render — LM Studio %s, "
                      "%d in-process GGUF (%.1f GiB free, floor %.0f)",
                      ids, self._gguf_resident(), before, self.floor)
-            self.gate.close()        # usually already shut by the lab; idempotent
+            self.gate.close(self)    # usually already shut by the lab; idempotent
             if ids:
                 evict(cfg.lmstudio_base_url, ids)
             # Also runs with nothing resident: it drops the in-process load
@@ -426,4 +494,4 @@ class LLMParker:
                         # Even a failed restore opens the door: the next turn
                         # reloads her (LM Studio's JIT, gguf's lazy _load) —
                         # the fallback the gate exists to postpone, not prevent.
-                        self.gate.open()
+                        self.gate.open(self)

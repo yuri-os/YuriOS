@@ -101,7 +101,7 @@ class Runtime:
         # the boot log the UI shows while she wakes (SPEC §6.4). Voice services
         # are declared here and resolved on the warm-up thread; tools/mind on
         # the event loop (start_async); selfies is known now. /api/boot serves it.
-        self.boot = BootBoard()
+        self.boot = BootBoard(who=cfg.character_id)
         rates = {"set_timer": cfg.tool_rate_timer,
                  "play_music": cfg.tool_rate_music}
         if cfg.selfie_backend != "off":        # absent from the allowlist = no hand (§7.3)
@@ -343,22 +343,32 @@ class Runtime:
     def _probe_context_window(self, cfg) -> str:
         """Ask LM Studio how big the window her chat model is loaded with is.
 
-        Worth a call even when CONTEXT_LENGTH said: what we asked for and what
-        the server managed are not the same claim, and a window that wouldn't fit
-        in RAM comes back smaller. Only an lm_studio/… route has a local server
-        to ask. Returns a short label for the boot panel, "" when nothing was
+        Worth a call even when CONTEXT_LENGTH said: what .env asked for and what
+        the server seated are not the same claim — a model somebody loaded by
+        hand keeps the window they gave it, and one too big for the card comes
+        back smaller. Only an lm_studio/… route has a local server to ask. Returns a short label for the boot panel, "" when nothing was
         learned."""
         if not cfg.chat_model.startswith("lm_studio/"):
             return f"{short_tokens(cfg.context_length)} ctx" if cfg.context_length else ""
         from yurios.app.providers.lmstudio import probe_context
         found = probe_context(cfg.lmstudio_base_url,
                               cfg.chat_model.split("/", 1)[1])
-        if found["loaded"] and cfg.context_length \
+        # A window smaller than CONTEXT_LENGTH is news, not a fault: someone
+        # loaded that model in LM Studio themselves and we run in what they
+        # loaded (providers/lmstudio.ensure_resident — reloading 16 GB of
+        # weights to widen a window is not ours to decide). The pinning path
+        # says so already and knows whose load it was, so this only speaks for
+        # the case nobody covered: preload off, LM Studio JIT-loading in
+        # whatever its own config says. Once, at info — this runs per character
+        # and on every model swap, and a warning that fires four times a boot
+        # for a working setup teaches people to read past warnings.
+        if not cfg.lmstudio_preload and found["loaded"] and cfg.context_length \
                 and found["loaded"] != cfg.context_length:
-            log.warning("LM Studio loaded %s in a %d-token window, not the "
-                        "CONTEXT_LENGTH=%d in .env — the gauge shows what she "
-                        "actually has (too big to fit? try a smaller one)",
-                        cfg.chat_model, found["loaded"], cfg.context_length)
+            log.info("LM Studio has %s in a %d-token window, not the "
+                     "CONTEXT_LENGTH=%d in .env — the gauge shows what she "
+                     "actually has; LM Studio's own load config is what sets "
+                     "it while LMSTUDIO_PRELOAD is off",
+                     cfg.chat_model, found["loaded"], cfg.context_length)
         if not found["loaded"]:
             if cfg.context_length:                # asked for one; trust it
                 return f"{short_tokens(cfg.context_length)} ctx"

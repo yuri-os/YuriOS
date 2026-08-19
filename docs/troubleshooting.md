@@ -55,6 +55,22 @@ interleave commits in one Vault. Fix the paths in `data/characters.json`.
 **`unsupported character registry schema`** — `characters.json` was written by a different version.
 It's refused rather than guessed at.
 
+**A start that takes minutes** — that can be normal, and `yurios start` no longer gives up on it.
+Cold-loading a 27B in LM Studio is ~3½ minutes by itself, and each character brings up its own
+embedder and tool server after that. The wait runs on progress, not a stopwatch: every boot step
+is echoed as it lands (`  … yuri · memory · embedding model…`) and the same lines go to the log.
+It stops for two things — a log that has said nothing for five minutes (or `LMSTUDIO_LOAD_TIMEOUT_S`,
+whichever is longer, since a model load is one silent call), and any answer from the port.
+
+**`she answered 503: no active character`** — the host is up and every character failed to start,
+so there is nothing to wait for. Read `yurios log` back to the first `boot: … failed`. On a
+single-card machine the usual cause is CUDA out of memory: the chat model fills the card and what
+loads next can't get a slice of it. Her embedder falls back to the CPU rather than take the boot
+down with it, but the real fix is a context window the card can afford — a 27B at
+`CONTEXT_LENGTH=32768` leaves nothing behind it on 16 GB, where 24576 does. That number governs a
+load *she* performs; a model you loaded in LM Studio yourself keeps the window you gave it, so
+unload it there once for a new `CONTEXT_LENGTH` to take.
+
 ## She's silent
 
 Check `/api/health`'s `voice` block first.

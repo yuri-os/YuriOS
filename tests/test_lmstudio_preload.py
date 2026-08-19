@@ -150,6 +150,42 @@ def test_a_model_pinned_too_small_is_adopted_not_reloaded(caplog):
     assert "4096" in caplog.text and "32768" in caplog.text
 
 
+def test_adopting_a_hand_loaded_window_is_never_a_warning(caplog):
+    """The window you loaded her in is the one she gets. Saying so is useful;
+    saying it as a WARNING — once per character, every boot, on a setup that
+    works — is how people learn to read past warnings."""
+    small = {**GEMMA, "loaded_instances": [
+        {"id": GEMMA["key"], "config": {"context_length": 18688}}]}
+    with caplog.at_level("INFO", logger="mvw.lmstudio"):
+        ensure_resident("http://lms/v1", [GEMMA["key"]], context_length=32768,
+                        transport=transport([small]))
+
+    assert [r.levelname for r in caplog.records] == ["INFO"]
+
+
+def test_a_window_smaller_than_we_asked_for_is_a_warning_when_we_loaded_it(caplog):
+    """The other half: a load WE performed that came back short is the one that
+    ends in "context size has been exceeded" later, and nobody else can tell it
+    was ours."""
+    entry = {**GEMMA}
+    seated = {"id": GEMMA["key"], "config": {"context_length": 8192}}
+
+    def handler(request):
+        if request.url.path == "/api/v1/models":
+            return httpx.Response(200, json={"models": [entry]})
+        entry["loaded_instances"] = [seated]      # what the server actually seated
+        return httpx.Response(200, json={"status": "loaded", "load_time_seconds": 9.0})
+
+    with caplog.at_level("INFO", logger="mvw.lmstudio"):
+        ensure_resident("http://lms/v1", [GEMMA["key"]], context_length=32768,
+                        transport=httpx.MockTransport(handler))
+
+    warnings = [r.message for r in caplog.records if r.levelname == "WARNING"]
+    assert len(warnings) == 1 and "8192" in warnings[0] and "32768" in warnings[0]
+    # …and the slow step announced itself before it blocked, not after
+    assert "loading" in caplog.records[0].message
+
+
 def test_a_model_already_big_enough_is_left_alone():
     big = {**GEMMA, "loaded_instances": [
         {"id": GEMMA["key"], "config": {"context_length": 65536}}]}

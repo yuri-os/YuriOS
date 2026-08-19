@@ -26,7 +26,17 @@ _PROVIDER_PREFIXES = {
     "openrouter": "openrouter/",
 }
 _SELFIE_BACKENDS = ("openrouter", "diffusers", "off")
-_START_TIMEOUT_SECONDS = 180.0
+# How long `yurios start` waits for her to answer. NOT a wall clock on the whole
+# boot: a 27B model loading in LM Studio, an embedder pulling torch off a cold
+# page cache, and four characters each bringing up their own tool server add up
+# to minutes, and a start that gives up thirty seconds short kills a boot that
+# was working — then the next attempt starts the same slow load from scratch.
+# So the clock runs on SILENCE. While she is still writing to the log she is
+# still waking, and we wait; when the log has said nothing for this long she is
+# wedged, not slow. The ceiling is the backstop for the other failure — a
+# supervisor restarting her in a loop talks forever without ever serving.
+_START_QUIET_SECONDS = 300.0
+_START_CEILING_SECONDS = 1800.0
 # Longer than the supervisor's own grace period for the server (daemon.py), so
 # `yurios stop` never gives up while she is still being put down properly.
 _STOP_TIMEOUT_SECONDS = 25.0
@@ -74,23 +84,107 @@ def _owner_headers(cfg: Config) -> dict[str, str]:
 
 
 def _wait_for_ready(cfg: Config, *, proc: subprocess.Popen | None = None) -> str | None:
-    """Return an error when the server fails to become healthy before the deadline."""
-    deadline = time.monotonic() + _START_TIMEOUT_SECONDS
-    while time.monotonic() < deadline:
+    """Return an error when the server fails to become healthy, or None once it
+    does. Waits as long as she is visibly still waking (_quiet_allowance) and
+    narrates the boot steps she reaches while we stand there."""
+    waking = _BootWatch(daemon.log_path(_root()))
+    allowance = _quiet_allowance(cfg)
+    ceiling = time.monotonic() + _START_CEILING_SECONDS
+    quiet_since = time.monotonic()
+    while time.monotonic() < ceiling:
         gone = proc is not None and proc.poll() is not None
         try:
             response = httpx.get(_health_url(cfg), timeout=1.0,
                                  headers=_owner_headers(cfg))
             response.raise_for_status()
             return None
+        except httpx.HTTPStatusError as e:
+            # An answer of any kind ends the wait: the port only opens after
+            # every character has started or failed (world/host.py lifespan), so
+            # what comes back is a verdict, not a stage. Standing here waiting
+            # out the silence after a 503 would just delay the same bad news by
+            # ten minutes — and this is the one it delays, a card too full for
+            # her memory to load.
+            return f"she answered {e.response.status_code}: {_refusal(e.response)}"
         except httpx.HTTPError:
             # A supervisor that exits because another one already holds the
             # runtime (two `yurios start`s racing) is not a failed start — but
             # only the health check can tell that from a daemon that died.
             if gone:
                 return f"daemon exited with status {proc.returncode}"
+            if waking.poll():
+                quiet_since = time.monotonic()
+            elif time.monotonic() - quiet_since > allowance:
+                return (f"nothing written to the log for {allowance:.0f} "
+                        f"seconds — she is stuck, not slow{waking.last_step}")
             time.sleep(_POLL_INTERVAL_SECONDS)
-    return f"timed out after {_START_TIMEOUT_SECONDS:.0f} seconds"
+    return f"gave up after {_START_CEILING_SECONDS / 60:.0f} minutes"
+
+
+def _refusal(response: httpx.Response) -> str:
+    """The reason inside a refusal, in as few words as it came in."""
+    try:
+        detail = response.json().get("detail")
+    except Exception:                       # noqa: BLE001 - html, empty, anything
+        detail = None
+    return str(detail or response.text or response.reason_phrase).strip()[:200]
+
+
+def _quiet_allowance(cfg: Config) -> float:
+    """How long she may say nothing before we call it a hang.
+
+    Loading a model in LM Studio is one POST that returns when the weights are
+    in — up to LMSTUDIO_LOAD_TIMEOUT_S of it, and 17 GB off a cold disk uses a
+    good deal of that. It announces itself before it blocks (providers/lmstudio),
+    so the silence that follows is work, not a wedge; a patience shorter than the
+    load's own timeout would fail a start that was always going to succeed."""
+    if (cfg.chat_model or "").startswith("lm_studio/") and cfg.lmstudio_preload:
+        return max(_START_QUIET_SECONDS, cfg.lmstudio_load_timeout_s)
+    return _START_QUIET_SECONDS
+
+
+class _BootWatch:
+    """The daemon log, read forward from where this start found it.
+
+    Two jobs, one file handle. It answers "is she still doing something" — the
+    only evidence there is before the server serves, since /api/boot lives behind
+    the port that isn't open yet — and it echoes her boot narration (world/boot.py
+    writes `boot:` lines) so a three-minute start says which model it is waiting
+    on instead of nothing at all."""
+
+    def __init__(self, path: Path, *, echo=print) -> None:
+        self.path = path
+        self._echo = echo
+        self._offset = self._size()
+        self.last_step = ""
+
+    def _size(self) -> int:
+        try:
+            return self.path.stat().st_size
+        except OSError:
+            return 0
+
+    def poll(self) -> bool:
+        """True when the log has grown since the last look; prints any boot step
+        that arrived in what it grew by."""
+        size = self._size()
+        if size == self._offset:
+            return False
+        if size < self._offset:       # truncated out from under us: start over
+            self._offset = 0
+        try:
+            with self.path.open("r", encoding="utf-8", errors="replace") as fh:
+                fh.seek(self._offset)
+                fresh = fh.read()
+                self._offset = fh.tell()
+        except OSError:
+            return False
+        for line in fresh.splitlines():
+            _, marker, step = line.partition("boot: ")
+            if marker and step.strip():
+                self.last_step = f" — last step: {step.strip()}"
+                self._echo(f"  … {step.strip()}")
+        return True
 
 
 def _wait_for_exit(path: Path) -> bool:

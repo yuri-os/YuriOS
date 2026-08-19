@@ -59,6 +59,46 @@ def test_empty_board_is_not_done():
     assert BootBoard().snapshot()["done"] is False
 
 
+def test_every_move_is_narrated_to_the_log(caplog):
+    """The panel only exists once the port is open, and the slow half of boot
+    happens before that — so the log is the only witness, and `yurios start`
+    reads it to tell a slow wake from a wedged one."""
+    ticks = iter([0.0, 0.0, 41.0])                     # t0, start, done
+    b = BootBoard(clock=lambda: next(ticks))
+    b.declare("embed", "memory · embedding model")
+    with caplog.at_level("INFO", logger="world.boot"):
+        b.start("embed", detail="BAAI/bge-small-en-v1.5")
+        b.done("embed", detail="BAAI/bge-small-en-v1.5 · 384d")
+
+    started, finished = [r.message for r in caplog.records]
+    assert started == "boot: memory · embedding model… (BAAI/bge-small-en-v1.5)"
+    assert finished == ("boot: memory · embedding model ready in 41s — "
+                        "BAAI/bge-small-en-v1.5 · 384d")
+
+
+def test_the_narration_names_the_character_in_a_house_of_them(caplog):
+    """Four characters boot into one log file; four unlabelled "embedding model
+    ready" lines record nothing anyone can act on."""
+    b = BootBoard(who="virelle")
+    b.declare("tools", "hands · tool server")
+    with caplog.at_level("INFO", logger="world.boot"):
+        b.start("tools")
+        b.done("tools", detail="mcp · 17 tools")
+
+    assert caplog.records[-1].message.startswith("boot: virelle · hands · tool server ready")
+
+
+def test_a_failed_stage_is_narrated_as_a_warning(caplog):
+    b = BootBoard()
+    b.declare("tools", "hands · tool server")
+    with caplog.at_level("INFO", logger="world.boot"):
+        b.start("tools")
+        b.done("tools", state="failed", detail="no such server")
+
+    assert caplog.records[-1].levelname == "WARNING"
+    assert "hands · tool server failed" in caplog.records[-1].message
+
+
 # ---- the endpoint, wired through the real Runtime --------------------------
 
 def test_api_boot_reaches_done_with_every_service_settled(cfg):

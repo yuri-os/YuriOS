@@ -16,12 +16,21 @@ show progress *before* she's ready to be entered.
 
 Thread-safe on purpose: the voice models warm on a worker thread while tools and
 the mind come up on the event loop, so both writers touch one lock.
+
+Every move is also narrated to the log, prefixed `boot:`. The panel is only
+visible once the server answers requests, and the slowest half of boot happens
+before that — a cold embedder, a 27B model loading in LM Studio. Those lines are
+what `yurios start` watches to tell "still waking" from "wedged" (yurios/cli.py),
+and what the log has to show afterwards to explain where three minutes went.
 """
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from typing import Callable
+
+log = logging.getLogger("world.boot")
 
 PENDING = "pending"
 LOADING = "loading"
@@ -35,7 +44,13 @@ _DONE_STATES = (READY, FAILED, SKIPPED)
 class BootBoard:
     """An ordered set of boot services and their live state (SPEC §2)."""
 
-    def __init__(self, *, clock: Callable[[], float] = time.perf_counter):
+    def __init__(self, *, who: str = "",
+                 clock: Callable[[], float] = time.perf_counter):
+        # `who` only ever reaches the log. A house of four characters boots four
+        # of these into one file, and four identical "embedding model ready"
+        # lines with nothing to tell them apart is a log that hides what it is
+        # recording. The panel needs no such prefix: it is per character already.
+        self._who = f"{who} · " if who else ""
         self._clock = clock
         self._t0 = clock()
         self._lock = threading.Lock()
@@ -60,6 +75,11 @@ class BootBoard:
             if detail:
                 s["detail"] = detail
             s["_start"] = self._clock()
+            label, detail = s["label"], s["detail"]
+        # outside the lock: logging can block on a slow handler, and the voice
+        # thread is waiting on this same one
+        log.info("boot: %s%s…%s", self._who, label,
+                 f" ({detail})" if detail else "")
 
     def done(self, key: str, *, state: str = READY, detail: str = "") -> None:
         with self._lock:
@@ -69,6 +89,11 @@ class BootBoard:
                 s["detail"] = detail
             if s["_start"] is not None and s["seconds"] is None:
                 s["seconds"] = round(self._clock() - s["_start"], 1)
+            label, detail, seconds = s["label"], s["detail"], s["seconds"]
+        took = f" in {seconds:.0f}s" if seconds else ""
+        line = (f"boot: {self._who}{label} {state}{took}"
+                + (f" — {detail}" if detail else ""))
+        (log.warning if state == FAILED else log.info)(line)
 
     def unresolved(self, keys) -> list[str]:
         """Which of `keys` are declared but still pending/loading — used to

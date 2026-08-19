@@ -1,6 +1,8 @@
 """Fresh installs remain offline until the user chooses a chat model."""
 from __future__ import annotations
 
+import httpx
+
 from yurios.app.main import UnconfiguredChatModel, build_chat_model
 from yurios.models import (DEFAULT_HUGGINGFACE_MODEL, NONE, ModelCheck,
                             RECOMMENDED_MODELS, gguf_connection_defaults,
@@ -354,12 +356,98 @@ def test_start_terminates_daemon_when_health_check_times_out(tmp_path, monkeypat
     assert "failed to start: timed out after 120 seconds" in capsys.readouterr().err
 
 
-def test_health_wait_times_out_after_two_minutes(monkeypatch):
+def _nobody_home(url, **kwargs):
+    """Nothing listening on the port — the only honest way to test the waiting,
+    since the machine running the tests may well have a real YuriOS up."""
+    raise httpx.ConnectError("connection refused")
+
+
+def test_health_wait_gives_up_on_a_log_that_has_gone_silent(tmp_path, monkeypatch):
+    """Silence is the failure, not elapsed time: a daemon writing nothing is one
+    that isn't coming up."""
     from yurios import cli
 
-    monkeypatch.setattr(cli, "_START_TIMEOUT_SECONDS", 0)
+    monkeypatch.setattr(cli, "_root", lambda: tmp_path)
+    monkeypatch.setattr(cli, "_START_QUIET_SECONDS", 0)
+    monkeypatch.setattr(cli.httpx, "get", _nobody_home)
 
-    assert cli._wait_for_ready(Config(_env_file=None)) == "timed out after 0 seconds"
+    failure = cli._wait_for_ready(Config(_env_file=None))
+
+    assert "nothing written to the log" in failure
+
+
+def test_health_wait_keeps_waiting_while_the_log_still_moves(tmp_path, monkeypatch,
+                                                             capsys):
+    """The bug this exists for: a start that gave up at a fixed 180s killed a boot
+    that was three minutes in and still loading a 27B model. As long as she is
+    saying something, the clock resets."""
+    from yurios import cli
+
+    log = tmp_path / ".yurios" / "yurios.log"
+    log.parent.mkdir(parents=True)
+    log.write_text("")
+    monkeypatch.setattr(cli, "_root", lambda: tmp_path)
+    monkeypatch.setattr(cli, "_START_QUIET_SECONDS", 0)   # every quiet poll is fatal
+    monkeypatch.setattr(cli, "_POLL_INTERVAL_SECONDS", 0)
+
+    attempts = []
+
+    def health(url, **kwargs):
+        attempts.append(url)
+        if len(attempts) < 4:
+            with log.open("a") as fh:
+                fh.write(f"2026-01-01 world.boot INFO: boot: mind · language "
+                         f"models… (pass {len(attempts)})\n")
+            raise httpx.ConnectError("not up yet")
+        return httpx.Response(200, json={"ok": True},
+                              request=httpx.Request("GET", url))
+
+    monkeypatch.setattr(cli.httpx, "get", health)
+
+    assert cli._wait_for_ready(Config(_env_file=None)) is None
+    assert len(attempts) == 4
+    # and the wait says what she is doing rather than standing there mute
+    assert "mind · language models" in capsys.readouterr().out
+
+
+def test_patience_covers_the_slowest_thing_she_can_do_in_silence():
+    """A cold LM Studio load is one POST that blocks for as long as it blocks —
+    giving up sooner than its own timeout fails starts that were fine."""
+    from yurios import cli
+
+    quiet = Config(_env_file=None, chat_model="lm_studio/qwen/qwen3.8-27b",
+                   lmstudio_load_timeout_s=600.0)
+    assert cli._quiet_allowance(quiet) == 600.0
+    # nothing local to wait on: the plain allowance, not a model loader's
+    assert cli._quiet_allowance(Config(_env_file=None)) == cli._START_QUIET_SECONDS
+
+
+def test_health_wait_stops_at_the_ceiling_even_while_the_log_moves(tmp_path,
+                                                                   monkeypatch):
+    """A supervisor restarting her in a loop writes forever without ever serving."""
+    from yurios import cli
+
+    monkeypatch.setattr(cli, "_root", lambda: tmp_path)
+    monkeypatch.setattr(cli, "_START_CEILING_SECONDS", 0)
+    monkeypatch.setattr(cli.httpx, "get", _nobody_home)
+
+    assert cli._wait_for_ready(Config(_env_file=None)) == "gave up after 0 minutes"
+
+
+def test_a_server_that_answers_a_refusal_is_a_verdict_not_a_stage(tmp_path,
+                                                                  monkeypatch):
+    """The port opens only once every character has started or failed, so a 503
+    means the boot is over and the news is bad — waiting out the silence after it
+    would just report the same thing ten minutes later."""
+    from yurios import cli
+
+    monkeypatch.setattr(cli, "_root", lambda: tmp_path)
+    monkeypatch.setattr(cli.httpx, "get", lambda url, **kw: httpx.Response(
+        503, json={"detail": "no active character"},
+        request=httpx.Request("GET", url)))
+
+    assert cli._wait_for_ready(Config(_env_file=None)) == \
+        "she answered 503: no active character"
 
 
 def test_log_prints_the_daemon_log(tmp_path, monkeypatch, capsys):

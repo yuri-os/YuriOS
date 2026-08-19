@@ -205,9 +205,14 @@ def ensure_resident(base_url: str, model_ids: list[str], *,
         if pinned:
             have = max((_instance_ctx(i) for i in pinned), default=0)
             if 0 < want and 0 < have < want:
-                log.info("LM Studio: %s already resident in a %d-token window — "
-                         "using it as loaded; CONTEXT_LENGTH=%d would need a "
-                         "reload in LM Studio to take effect", key, have, want)
+                # Not a fault, and deliberately not a warning: the window you
+                # loaded her in is the window she gets, and CONTEXT_LENGTH only
+                # ever described a load we perform. Said once so the gauge's
+                # number has a provenance, and then left alone.
+                log.info("LM Studio: %s is loaded in a %d-token window — hers "
+                         "for this run; CONTEXT_LENGTH=%d in .env applies to a "
+                         "load she does herself, so it takes a reload in LM "
+                         "Studio to change", key, have, want)
             else:
                 log.info("LM Studio: %s already resident", key)
             resident.append(key)
@@ -224,10 +229,29 @@ def ensure_resident(base_url: str, model_ids: list[str], *,
                 payload: dict = {"model": key}
                 if want > 0:
                     payload["context_length"] = int(want)
+                # Said BEFORE the call, not after: this is the one step of boot
+                # that can hold everything else for minutes (a 27B off a cold
+                # disk), and a log that only speaks once it returns looks
+                # identical to a hang — to a person reading it and to the start
+                # command watching it (yurios/cli.py).
+                log.info("LM Studio: loading %s into memory%s — a cold model "
+                         "off disk can take minutes", key,
+                         f" in a {want}-token window" if want > 0 else "")
                 r = client.post(f"{root}/api/v1/models/load", json=payload)
                 r.raise_for_status()
             log.info("LM Studio: pinned %s in memory (%.1fs)",
                      key, r.json().get("load_time_seconds", 0.0))
+            # The window we asked for and the window we got are two claims, and
+            # a server that quietly seats a smaller one is exactly how a
+            # conversation ends in "Context size has been exceeded" three hours
+            # later. This is the only place that knows the load was OURS, so it
+            # is the only place the shortfall is worth a warning.
+            if want > 0:
+                got = probe_context(base_url, key, transport=transport)["loaded"]
+                if 0 < got < want:
+                    log.warning("LM Studio loaded %s in a %d-token window, not "
+                                "the CONTEXT_LENGTH=%d it was asked for — that "
+                                "is what fit", key, got, want)
             resident.append(key)
         except Exception as e:
             detail = getattr(getattr(e, "response", None), "text", "") or str(e)

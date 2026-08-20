@@ -128,6 +128,7 @@ vault/
 ├── world/                    # the world model (Part II, §19)
 ├── knowledge/                # the drop-folder knowledge layer (Part II, §20)
 ├── goals.md                  # her intentions (Part II, §22)
+├── dreams/                   # the night's roster, one file per job (Part II, §21.2)
 ├── state/                    # sessions, activity, budget, engine cursor, pending edits
 └── .gitignore                # memory/index/ (derived, never committed)
 ```
@@ -166,6 +167,14 @@ search runs again next turn, and because of the three it is the least *hers*.
 Blocks 7 and 8 are the two retrieval slots and **MUST** stay separate (§20): memory cites a
 conversation turn, knowledge cites a document + span. A page she read **MUST NOT** be
 assembled as something the user told her.
+
+Blocks **1, 2, 3 and 5 are the identity half**, and they are not the turn's alone:
+`soul_preamble()` renders the same four for the prompts the *mind* builds between turns — goal
+work, the diary, the nightly stock-take (§22.4, §21.2). One function, so the talking self and
+the thinking self cannot drift into two different people, which is exactly what they were while
+those prompts carried no card at all. It is a sibling of `assemble()` rather than a refactor of
+it: this function is under the golden-transcript test and its block order is normative, and a
+DREAM job at 4am has no user message, no window and no retrieval to give it.
 
 **The honesty constraint** (property: honest memory) is a fixed block: *she remembers only
 what is in the memory blocks and the current conversation; asked about something with no
@@ -1252,6 +1261,29 @@ that set and a poor place to stop.
   (§21, wrapping `DreamConsolidator`), `diary`, `strategy`, `selfie` — and adding a fifth **MUST**
   require only a class and a name in `BUILTIN_JOBS`: the ladder, the trace, the budget, the debug
   page and the manual trigger all derive from the roster.
+- **The roster is hers, not this file's.** `vault/dreams/<name>.md` — YAML frontmatter (`title`,
+  `description`, `priority`, `per_day`, `enabled`, `soul`, `output`) over a body that **is** the
+  system prompt — is loaded after the builtins and overlaid on them. A file named after a builtin
+  **MUST** retune it and **MUST NOT** replace its `work`: `diary` stays a `DiaryJob` and keeps
+  `relabel()` and its day bookkeeping however its prompt is rewritten, because those are
+  correctness and the prompt is taste. A file with an unused name becomes a `PromptJob` — read the
+  day's journal, ask, write `output` to the desk. `enabled: false` switches a job off; it **MUST
+  NOT** switch one on that the house has no backend for (the §26.1 two-switch rule, applied to the
+  night). A folder README and any file without frontmatter are **not** jobs, and a mangled file
+  **MUST** cost that one job and never the night (§34.3's `SKILL.md` rule). The folder is
+  versioned and seeded (§34.1) with the prompts compiled into `dreamjobs.py`, so a fresh vault
+  dreams identically and the first edit to one reads as a diff. The runner **MUST** write the
+  folder on first sight when it is absent — the seeders run once at creation, so a folder invented
+  today exists in no vault made yesterday, and a roster nobody can see is a roster nobody will
+  edit. It fires on an absent *folder* and never an absent file: a deleted job stays deleted.
+- **A job's prompt carries who she is, unless it is extraction** (§22.4). `soul: full` for
+  `diary`, `strategy` and `selfie` — a diary written by something with no self is the clearest
+  failure in this section, and the selfie prompt asks her to describe a photograph *of herself*
+  and had no appearance in it at all. `consolidate` ships `soul: off`: `facts.md` is the store
+  every other job and every turn reads *from*, and a fact coloured by the mood of whoever wrote it
+  down is a fact the next reader inherits wrong. Overridable per character like any other flag.
+  `DreamJob.cost()` **MUST** price the preamble it will send, or the night's first item is
+  underbilled and §21.2's anti-wedge rule starves everything queued behind it.
 - **Priority order over one shared budget.** Jobs run highest-priority first and share
   `MIND_DREAM_TICK_TOKENS`; `consolidate` runs first because the others read `facts.md`. The first
   item of a night **MUST** run however big it is (§21's anti-wedge rule, which matters more here:
@@ -1335,9 +1367,17 @@ optional due time, **provenance**, and a **commitment strategy**; lifecycle
   every time is a goal that never advances. The horizon is bounded by `MIND_GOAL_MAX_STEPS`
   (`meta.steps`), after which the goal waits or the commitment strategy lets it go.
 - §22.4 **A working step gets the same context as a conversational turn.** The desk digest, the
-  skills catalog, the situation, the durable facts and her other open goals — she **MUST NOT** be
-  measurably dumber alone than she is talking to you, which is backwards for a project whose thesis
-  is the inner life. **Including what the goal was about**: a promise is scanned as the predicate
+  skills catalog, the situation, the durable facts, her other open goals — **and who she is**: the
+  identity blocks of §7.1 (voice law, persona backbone, scenario, `USER.md`), rendered by
+  `assemble.soul_preamble` and fused onto the system message by `MindLoop._utility`. She **MUST
+  NOT** be measurably dumber alone than she is talking to you, which is backwards for a project
+  whose thesis is the inner life. **The persona is the block this clause used to omit**, and its
+  absence was worse than any of the others would have been: the retrieval slots make a step better
+  informed, while the card is what makes the step *hers*. Without it every character on a machine
+  wrote the same working note, and "she has a personality" was a claim about the chat window only.
+  The preamble is droppable to `brief` (voice law + backbone + personality) under
+  `MIND_SOUL_IN_PROMPTS`, in §7.2's order — what places her goes before what she is — and a soul
+  that cannot be read **MUST** cost the block and never the call (§20.2's rule for the shelf). **Including what the goal was about**: a promise is scanned as the predicate
   after "I'll", so the subject stays behind in their sentence, and a step handed "find out which one
   is faster" alone invents a subject for it with total confidence. A goal filed from an exchange
   **MUST** carry that exchange (`meta.about`), because the goal outlives the conversation.
@@ -1414,9 +1454,14 @@ inert until the first is true: `MIND_TOOLS_ENABLED` (**false**), `MIND_TOOL_ALLO
 `MIND_TOOL_CALLS_PER_DAY`, `MIND_TOOL_PRESSURE_CEILING`,
 `MIND_TOOL_COOLDOWN_{CHEAP,EXPENSIVE}_S` plus the per-tool `MIND_TOOL_COOLDOWN_S` override, and the
 mind guard's own buckets `TOOL_RATE_MIND_{DESK,WEB,CAMERA,OTHER}`. The self-edit door (§23) is
-rationed by `TOOL_RATE_SELFEDIT`. The DREAM pipeline (§21.2) has **no** per-job switch: the
-roster lives in `mind/dreamjobs.py`, and a job whose prerequisite is absent (the camera, for
-`selfie`) takes itself out of the night through `DreamJob.enabled`. The port is **8768**.
+rationed by `TOOL_RATE_SELFEDIT`. The DREAM pipeline's per-job switch is not a knob but a file:
+`vault/dreams/<name>.md` sets `enabled`, `priority`, `per_day`, `soul` and the prompt itself
+(§21.2), and a job whose prerequisite is absent (the camera, for `selfie`) still takes itself out
+of the night through `DreamJob.enabled` regardless of what the file says. The soul in her private
+prompts (§22.4): `MIND_SOUL_IN_PROMPTS` (`full` | `brief` | `off`) and `MIND_SOUL_CACHE_S` — the
+one pair here that defaults **on**, because a prompt that was always meant to carry the card is a
+defect and a defect fix shipped switched off ships the defect; `off` exists so the difference stays
+measurable and reversible. The port is **8768**.
 
 ---
 
@@ -1529,7 +1574,17 @@ brain with fake models.
   resumable progress, a once-a-night job not walking backwards through history, a job that wrote
   nothing still clearing its day so the ladder can leave DREAM, a failing job neither ending the
   night nor marking its day, the dry run that thinks and writes nothing, and the report carrying the
-  prompt verbatim — `test_dreamjobs.py`); her **desk** (every climb, dotfile and symlink out refused
+  prompt verbatim — `test_dreamjobs.py`); the roster **a character owns** (a job file switching a
+  builtin off, retuning one without replacing its `work`, a new name becoming a job, a mangled file
+  costing one job and not the night, a README not being a job, a file unable to force on a job the
+  house has no backend for, and the seeded files reproducing the built-in night byte for byte —
+  §21.2); **who is thinking** (`test_mind_soul.py`: two different cards producing different private
+  prompts and different diaries — the one test that fails on a mind whose prompts carry no persona;
+  the preamble holding identity and nothing turn-shaped; `brief` dropping what places her and
+  keeping what she is; `MIND_SOUL_IN_PROMPTS=off` restoring the old prompt exactly; a soul that
+  raises costing the block and not the step; the render cached, and invalidated by `soul/` mtime so
+  an approved self-edit lands without a restart; and the conversational prompt not moving); her
+  **desk** (every climb, dotfile and symlink out refused
   by one enforcement point, the ceilings, the digest being an index not the contents, the skill
   catalog costing a line per skill, a disabled skill leaving the catalog but not the disk, a mangled
   `SKILL.md` costing one entry — `test_workspace.py`) and its hands (unadvertised without a vault,
@@ -1881,8 +1936,9 @@ and the sandbox that makes that safe. Every other write path in the mind is narr
 the things she *is* and the wrong shape for the things she is *doing*.
 
 - §34.1 **`vault/workspace/` is her desk.** No schema, no ceremony: drafts, research scratch, the
-  middle of a thought. `vault/skills/` is the same primitive pointed at instructions. Both live
-  **inside** the Vault and travel when the folder is copied; only skills are **versioned**.
+  middle of a thought. `vault/skills/` is the same primitive pointed at instructions, and
+  `vault/dreams/` is it pointed at the night (§21.2). All three live **inside** the Vault and
+  travel when the folder is copied; skills and dreams are **versioned** and the desk is not.
 
   The desk **MUST NOT** be git-tracked. Scratch churns, and a draft rewritten four times while she
   works something out is four commits of a diff nobody will read — the Vault's `git log` is the

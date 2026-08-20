@@ -219,6 +219,81 @@ Not in here: anything that runs. The code harness gets its own workspace outside
 the Vault. And no dotfiles — her tools refuse them.
 """
 
+#: The night's roster, as files (§21.2). Seeded with the prompts that are
+#: compiled into `mind/dreamjobs.py`, so a fresh vault behaves exactly as it did
+#: before this folder existed and the first edit shows up as a real diff. A
+#: character whose diary should ask a different question edits one file; a
+#: character who should not keep a diary at all sets one flag.
+#: The seeded roster. The prompts are pulled from `mind/dreamjobs.py` rather than
+#: copied, so the two can never drift: the day someone improves the built-in
+#: diary prompt, every vault seeded afterwards gets the improvement, and nobody
+#: has to remember that a second copy of it lives over here.
+def _seed_job_files() -> dict[str, str]:
+    from yurios.mind import dreamjobs as dj
+
+    def front(name, title, desc, priority, per_day, soul, body):
+        # `yaml.safe_dump` for the free-text fields, not an f-string: a
+        # description is prose and prose contains colons. One of these written by
+        # hand with a colon in it is a job that silently stops loading, which is
+        # exactly the failure the loader's warning exists to make visible — no
+        # reason to seed one.
+        meta = yaml.safe_dump(
+            {"name": name, "title": title, "description": desc,
+             "priority": priority, "per_day": per_day,
+             "enabled": True, "soul": soul},
+            sort_keys=False, allow_unicode=True, default_flow_style=False)
+        return f"---\n{meta}---\n\n{body.strip()}\n"
+
+    return {
+        "diary.md": front(
+            "diary", "Diary", dj.DiaryJob.description, dj.DiaryJob.priority,
+            dj.DiaryJob.per_day, dj.DiaryJob.soul, dj.DIARY_SYSTEM),
+        "strategy.md": front(
+            "strategy", "Strategy", dj.StrategyJob.description,
+            dj.StrategyJob.priority, dj.StrategyJob.per_day,
+            dj.StrategyJob.soul, dj.STRATEGY_SYSTEM),
+        "selfie.md": front(
+            "selfie", "Selfie", dj.SelfieJob.description, dj.SelfieJob.priority,
+            dj.SelfieJob.per_day, dj.SelfieJob.soul, dj.SELFIE_SYSTEM),
+    }
+
+
+DREAMS_README = """# Dreams
+
+What she does at night, one file per job. Each is YAML frontmatter over a body
+that **is** the system prompt she is given:
+
+    ---
+    name: diary
+    title: Diary
+    description: A private entry per day, in her own voice.
+    priority: 0.6
+    per_day: true
+    enabled: true
+    soul: full
+    ---
+
+    Write YOUR private diary entry about that day...
+
+A file named after a built-in job (`consolidate`, `diary`, `strategy`, `selfie`)
+**retunes** it — the prompt, the priority, whether it runs at all — and leaves
+its behaviour alone, so the diary still knows which half of the journal is hers
+however you rewrite the question. A file with any other name becomes a new job:
+it reads the day's journal, asks what you asked, and writes the answer to the
+desk at `output:` (default `<name>/{day}.md`).
+
+`soul:` decides whether her character card leads the prompt. `full` for anything
+written in her voice — that is what stops every character's diary reading the
+same. `off` for mechanical work; `consolidate` ships that way, because the facts
+it distils are read by everyone afterwards.
+
+`enabled: false` switches a job off. It cannot switch one *on* that the house has
+no backend for — `selfie` still needs a camera.
+
+This folder is versioned, like `skills/` and unlike `workspace/`: how she spends
+the hours nobody sees is worth being able to read back.
+"""
+
 SKILLS_README = """# Skills
 
 One folder per skill, each with a `SKILL.md`:
@@ -512,6 +587,9 @@ def _create_vault(vault: Path, fields: Mapping[str, Any], name: str,
     _write(vault / "state" / ".gitignore", INBOX_GITIGNORE)
     _write(vault / "workspace" / "README.md", WORKSPACE_README)
     _write(vault / "skills" / "README.md", SKILLS_README)
+    _write(vault / "dreams" / "README.md", DREAMS_README)
+    for fname, body in _seed_job_files().items():
+        _write(vault / "dreams" / fname, body)
     _write(vault / "skills" / "document-editing" / "SKILL.md", DOCUMENT_EDITING_SKILL)
     _write(vault / "world" / "beliefs.jsonl", "")
     # Where she is, from her own card (characters/setting.py). Mechanical and

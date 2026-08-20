@@ -52,7 +52,10 @@ import asyncio
 import logging
 import re
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Awaitable, Callable
+
+import yaml
 
 from yurios.world import correlate
 from yurios.world.clock import Clock
@@ -62,7 +65,7 @@ from .dream import DreamConsolidator
 from .journal import canonical_day, is_canonical_day
 from .util import day_of, iso_of, read_json, write_json
 from .vaultio import MindVault
-from .workspace import SkillStore, Workspace
+from .workspace import FRONTMATTER_RE, SkillStore, Workspace
 
 log = logging.getLogger("mind.dreamjobs")
 
@@ -162,6 +165,16 @@ class DreamContext:
     # writing gets an entry in the wrong voice — see DIARY_SYSTEM.
     char_name: str = "she"
     user_name: str = "the user"
+    #: Renders the persona blocks a job's prompt opens with (§22.4). A callable
+    #: rather than a string because the runner is built once at boot and a soul
+    #: can change under it — through the self-edit gate, or because the user
+    #: edited PERSONA.md at lunchtime. `MindLoop._soul_text` does the caching.
+    soul_text: Callable[[], str] | None = None
+    #: This job's appetite for it, set by the runner before each job from the
+    #: job's own `soul` attribute. Not one switch for the night: the diary and
+    #: the stock-take are hers and must sound like it, while consolidation is
+    #: extraction and `facts.md` should read the same whoever distilled it.
+    soul: str = "off"                  # full | off
     day: str = ""                      # the day this run is working on
     dry_run: bool = False
     job: str = ""                      # set by the runner before each job
@@ -182,6 +195,21 @@ class DreamContext:
             self.exchanges.append(Exchange(self.job, system, user,
                                            "(no utility model configured)"))
             return ""
+        # Who is writing this (§22.4). Fused onto the system message here, not
+        # inside each job's prompt constant, so that a job added by dropping a
+        # file in `vault/dreams/` gets it for free and cannot forget to. The
+        # `Exchange` below records the fused text, which is the point: the debug
+        # page has to show the prompt that was actually sent, or the transcript
+        # is a description of a different call.
+        if self.soul != "off" and self.soul_text is not None:
+            try:
+                preamble = self.soul_text()
+            except Exception:  # noqa: BLE001 — an absent self is not a dead job
+                log.warning("DREAM job %s: no soul preamble", self.job,
+                            exc_info=True)
+                preamble = ""
+            if preamble:
+                system = f"{preamble}\n\n{system}".strip()
         try:
             out = await self.utility([{"role": "system", "content": system},
                                       {"role": "user", "content": user}])
@@ -254,6 +282,19 @@ class DreamContext:
         self.note_call("write_note", {"path": rel, "bytes": len(text)},
                        result=f"wrote {rel}",
                        duration_ms=(self.clock.now() - started) * 1000.0)
+
+    def soul_chars(self) -> int:
+        """How many characters of persona this job's prompt will carry (§22.4).
+
+        Rendering it to measure it is not waste: `MindLoop._soul_text` caches,
+        so the estimate and the call that follows it share one render.
+        """
+        if self.soul == "off" or self.soul_text is None:
+            return 0
+        try:
+            return len(self.soul_text())
+        except Exception:  # noqa: BLE001
+            return 0
 
     def corr_id(self) -> str | None:
         """The unit of work this job is running inside (`world/correlate.py`).
@@ -334,10 +375,35 @@ class DreamJob:
     #: also record it. Only `consolidate` does, because `dream_progress.json`
     #: predates this file and is the ledger every shipped vault already has.
     owns_ledger = False
+    #: Whether this job's prompt opens with who she is (§22.4). `full` for the
+    #: jobs that write in her voice about her own day; `off` for the ones doing
+    #: mechanical extraction, where a persona would be a thumb on the scale.
+    #: Overridable per character from `vault/dreams/<name>.md`.
+    soul = "full"
+    #: Set from a job file's `enabled:`. A separate attribute rather than a
+    #: mutated `enabled()` because two jobs already override that method for
+    #: reasons of their own — the selfie needs a camera — and a file must be
+    #: able to say "not tonight" without arguing with `SELFIE_BACKEND=off`.
+    #: Both have to agree: a file can switch a job off, never force one on that
+    #: the house has no backend for.
+    _enabled = True
+    #: A job file's body, when one replaced this job's prompt. Empty = the
+    #: prompt compiled into this file, which is also what a fresh vault gets.
+    prompt_override = ""
 
     def enabled(self, cfg) -> bool:
-        """Config's say. The default is on whenever DREAM itself is."""
-        return True
+        """Config's say, and the character's. On whenever DREAM itself is,
+        unless her own `vault/dreams/<name>.md` says otherwise."""
+        return self._enabled
+
+    def system(self, default: str) -> str:
+        """This job's system prompt: hers if she wrote one, else the built-in.
+
+        Every job asks for its prompt through here, so overriding one is a file
+        drop rather than a patch — and so the override cannot silently miss a
+        job that built its prompt some other way.
+        """
+        return self.prompt_override or default
 
     def backlog(self, ctx: DreamContext, ledger: JobLedger) -> list[str]:
         days = ctx.finished_days()
@@ -364,7 +430,12 @@ class DreamJob:
         stalled every job queued behind it.
         """
         read = min(ctx.journal_bytes(day), JOURNAL_CHARS)
-        return max(64, (read + PROMPT_OVERHEAD_CHARS) // 4)
+        # …plus the persona blocks, when this job carries them (§22.4). Not
+        # optional accounting: the preamble is over a thousand tokens, and §21.2
+        # runs the night's first item however big it is. Underpricing the first
+        # job means the ceiling is hit by the *second*, and every cheaper job
+        # queued behind it starves on a night that looked affordable.
+        return max(64, (read + PROMPT_OVERHEAD_CHARS + ctx.soul_chars()) // 4)
 
     async def work(self, ctx: DreamContext, day: str) -> JobReport:
         raise NotImplementedError
@@ -372,11 +443,26 @@ class DreamJob:
     def as_dict(self) -> dict:
         return {"name": self.name, "title": self.title,
                 "description": self.description, "priority": self.priority,
-                "per_day": self.per_day}
+                "per_day": self.per_day, "soul": self.soul,
+                # Where this job's prompt came from. Named `from_file` and not
+                # `custom`, which is what it said first and was wrong the moment
+                # a seeded vault reported every job as customised: the seeders
+                # write the built-in prompts *as* files, so "there is a file" and
+                # "somebody changed it" are different claims. This is the first,
+                # and it is the one the debug page needs — it says where to go
+                # and look.
+                "from_file": bool(self.prompt_override)}
 
 
 class ConsolidateJob(DreamJob):
     """The original DREAM: a day's journal → the few durable facts (§21).
+
+    The one job that runs without her persona in front of it (`soul = "off"`).
+    Distilling "they have a sister called Mei" is extraction, and `facts.md` is
+    the store every other job and every turn reads *from* — a fact coloured by
+    the mood of the character who wrote it down is a fact the next character to
+    read this vault inherits wrong. The flag is overridable per character like
+    any other, for whoever disagrees.
 
     Wraps `DreamConsolidator` rather than reimplementing it, and delegates its
     backlog and its ledger there too — that class has owned
@@ -387,6 +473,8 @@ class ConsolidateJob(DreamJob):
     `facts.md`: on any given night the diary should be able to see what
     consolidation just learned.
     """
+
+    soul = "off"
 
     name = "consolidate"
     title = "Consolidate"
@@ -504,7 +592,8 @@ class DiaryJob(DreamJob):
             out.result = "nothing happened that day"
             return out
         entry = await ctx.ask(
-            DIARY_SYSTEM.format(char=ctx.char_name, user=ctx.user_name),
+            self.system(DIARY_SYSTEM).format(char=ctx.char_name,
+                                             user=ctx.user_name),
             f"The day: {day}\n\n{text}")
         if not entry or entry.strip().upper().startswith("NOTHING"):
             out.result = "nothing worth writing down"
@@ -516,11 +605,20 @@ class DiaryJob(DreamJob):
         return out
 
 
+#: The only one of these that never named her at all. The other three at least
+#: said "You are {char}"; this one opened "You are taking stock of your own
+#: goals", which is a sentence any character could have thought and therefore a
+#: sentence none of them thought in particular. With the persona blocks above it
+#: (§22.4) the naming is redundant, and it is kept anyway — the same belt-and-
+#: braces §21.2 records for the journal's pronouns, where two rounds of clever
+#: wording lost to one plain label.
 STRATEGY_SYSTEM = (
-    "You are taking stock of your own goals, alone, with no one waiting. Look "
-    "at what you're carrying and say plainly: what actually matters here, what "
-    "has gone stale, and the one thing worth doing next. Under 150 words. No "
-    "preamble, no headings, no numbered list — just the thinking.")
+    "You are {char}, taking stock of your own goals, alone, with no one "
+    "waiting. Look at what you're carrying and say plainly: what actually "
+    "matters here, what has gone stale, and the one thing worth doing next — "
+    "and let it be *your* judgement of what matters, not a neutral audit. "
+    "Under 150 words. No preamble, no headings, no numbered list — just the "
+    "thinking.")
 
 
 class StrategyJob(DreamJob):
@@ -553,7 +651,7 @@ class StrategyJob(DreamJob):
             + (f", due {g.due}" if g.due else "") + ")"
             for g in open_goals[:20])
         thinking = await ctx.ask(
-            STRATEGY_SYSTEM,
+            self.system(STRATEGY_SYSTEM).format(char=ctx.char_name),
             f"Today is {day}.\n\nYour open goals:\n{listing}\n\n"
             f"What you know:\n{ctx.facts()}")
         if not thinking:
@@ -598,7 +696,8 @@ class SelfieJob(DreamJob):
     per_day = False
 
     def enabled(self, cfg) -> bool:
-        return getattr(cfg, "selfie_backend", "off") != "off"
+        return (self._enabled
+                and getattr(cfg, "selfie_backend", "off") != "off")
 
     async def work(self, ctx: DreamContext, day: str) -> JobReport:
         out = JobReport(name=self.name, days=[day])
@@ -607,7 +706,8 @@ class SelfieJob(DreamJob):
             out.result = "nothing happened that day"
             return out
         look = await ctx.ask(
-            SELFIE_SYSTEM.format(char=ctx.char_name, user=ctx.user_name),
+            self.system(SELFIE_SYSTEM).format(char=ctx.char_name,
+                                              user=ctx.user_name),
             f"The day: {day}\n\n{text}")
         if not look or look.strip().upper().startswith("NOTHING"):
             out.result = "no picture in that day"
@@ -645,6 +745,153 @@ class SelfieJob(DreamJob):
 
 #: The night's roster. `consolidate` is constructed by the runner because it
 #: needs the consolidator; the rest take no arguments. Adding a job is adding a
+# --- jobs a character owns: `vault/dreams/<name>.md` (SPEC §21.2) --------------
+#
+# The roster used to be this file and only this file: a Python tuple, and an
+# `enabled()` that returned True for everything. So every character's night was
+# the same night — the same four jobs, in the same order, asking the same
+# questions — which is a strange shape for the one part of the system whose
+# entire subject is what *this* character made of *her* day.
+#
+# A job file is a `SKILL.md` pointed at the night (§34.3): frontmatter that says
+# what the job is and when it runs, over a body that IS the system prompt. The
+# format is borrowed rather than invented because it is already the format she
+# writes in, already versioned, and already survives being edited by hand.
+
+#: Frontmatter keys a file may set on a builtin. Deliberately not `name` (it is
+#: the match key) and not anything that would change a builtin's `work` — a file
+#: may retune a job, never re-implement one. `DiaryJob` keeps `relabel()` and its
+#: day bookkeeping no matter what its file says, because those are correctness
+#: and the prompt is taste.
+JOB_FILE_KEYS = ("title", "description", "priority", "per_day", "enabled", "soul")
+
+
+@dataclass
+class JobFile:
+    """One `vault/dreams/<name>.md`, parsed."""
+    name: str
+    front: dict
+    prompt: str
+
+    def applies_to(self, job: "DreamJob") -> None:
+        """Overlay this file's frontmatter onto a builtin, in place."""
+        for key in JOB_FILE_KEYS:
+            if key not in self.front:
+                continue
+            value = self.front[key]
+            if key == "priority":
+                try:
+                    value = float(value)
+                except (TypeError, ValueError):
+                    continue
+            elif key in ("per_day", "enabled"):
+                value = value is not False
+            elif key == "soul":
+                value = "off" if str(value).lower() in ("off", "none", "false") else "full"
+            else:
+                value = str(value)
+            setattr(job, key if key != "enabled" else "_enabled", value)
+        if self.prompt.strip():
+            job.prompt_override = self.prompt.strip()
+
+
+def load_job_files(root: Path) -> list[JobFile]:
+    """Every readable `<name>.md` under `vault/dreams/`.
+
+    A mangled file costs that one job and never the night — §34.3's rule for a
+    broken `SKILL.md`, and it matters more here: these files are edited by hand
+    at midnight by someone who wanted a different diary, and one stray colon
+    must not be why nothing consolidated.
+    """
+    if not root.is_dir():
+        return []
+    out: list[JobFile] = []
+    for path in sorted(root.glob("*.md")):
+        # The folder's own README is documentation, not a job. Skipped by name
+        # *and* by the frontmatter rule below, because the seeders put a README
+        # in every folder they make (§34.1) and one that ran as a nightly prompt
+        # would ask the model to be a help page, every night, forever.
+        if path.name.startswith(".") or path.stem.lower() == "readme":
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            log.warning("dream job %s could not be read; skipping", path.name)
+            continue
+        m = FRONTMATTER_RE.match(text)
+        if not m:
+            # A job declares itself or it is not one. Without this, any stray
+            # `.md` somebody drops in here — notes, a draft, a paste — becomes a
+            # prompt the model is handed at 4am.
+            log.warning("dream job %s has no frontmatter; skipping", path.name)
+            continue
+        try:
+            loaded = yaml.safe_load(m.group(1)) or {}
+        except yaml.YAMLError:
+            log.warning("dream job %s has unreadable frontmatter; skipping",
+                        path.name)
+            continue
+        front: dict = loaded if isinstance(loaded, dict) else {}
+        body = text[m.end():]
+        name = str(front.get("name") or path.stem).strip()
+        if not name:
+            continue
+        out.append(JobFile(name=name, front=front, prompt=body))
+    return out
+
+
+class PromptJob(DreamJob):
+    """A job that is nothing but a prompt — the shape a new one takes.
+
+    Read the day's journal, ask the question the file asks, write the answer to
+    the desk. That covers most of what the built-in jobs do; what it cannot do
+    is the reason the other three stay in Python (consolidation writes to
+    `memory/`, the selfie dispatches a camera, the stock-take reads the goal
+    store). Adding a fifth kind of night no longer means adding a fifth class.
+    """
+
+    owns_ledger = False
+
+    def __init__(self, spec: JobFile):
+        self.name = spec.name
+        self.title = str(spec.front.get("title") or spec.name.title())
+        self.description = str(spec.front.get("description") or "")
+        try:
+            self.priority = float(spec.front.get("priority", 0.3))
+        except (TypeError, ValueError):
+            self.priority = 0.3
+        self.per_day = spec.front.get("per_day", True) is not False
+        self._enabled = spec.front.get("enabled", True) is not False
+        self.soul = ("off" if str(spec.front.get("soul", "full")).lower()
+                     in ("off", "none", "false") else "full")
+        self.output = str(spec.front.get("output") or f"{self.name}/{{day}}.md")
+        self.prompt_override = spec.prompt.strip()
+
+    def enabled(self, cfg) -> bool:
+        return self._enabled
+
+    async def work(self, ctx: DreamContext, day: str) -> JobReport:
+        out = JobReport(name=self.name, days=[day])
+        journal = ctx.journal(day)
+        if not journal.strip():
+            out.result = "nothing in the journal for that day"
+            return out
+        system = self.system("").format(char=ctx.char_name,
+                                        user=ctx.user_name)
+        answer = await ctx.ask(system, f"Today is {day}.\n\n{journal}")
+        if not answer:
+            out.result = "nothing came of it"
+            return out
+        # `{day}` is the only substitution, and `Workspace.resolve` refuses the
+        # rest: a path out of the desk, a dotfile, a `..`. A job file is written
+        # by the person who owns the vault, but it is still a path from a file.
+        ctx.put(self.output.format(day=day), f"{answer}\n")
+        out.changed = True
+        out.result = f"wrote {len(answer)} chars"
+        out.note = f"{self.title.lower()}: wrote something for {day}"
+        return out
+
+
 #: class above and a name here.
 BUILTIN_JOBS: tuple[type[DreamJob], ...] = (DiaryJob, StrategyJob, SelfieJob)
 
@@ -720,7 +967,8 @@ class DreamRunner:
                  skills: SkillStore | None = None,
                  utility: UtilityCall | None = None,
                  selfie: Callable[[dict], None] | None = None,
-                 audit: Callable[..., None] | None = None):
+                 audit: Callable[..., None] | None = None,
+                 soul_text: Callable[[], str] | None = None):
         self.vault = vault
         self.store = store
         self.clock = clock
@@ -731,10 +979,74 @@ class DreamRunner:
         self.utility = utility
         self.selfie = selfie
         self.audit = audit
+        self.soul_text = soul_text
         self.ledger = JobLedger(vault.vault / "state" / "dream_jobs.json")
         self.jobs: list[DreamJob] = [ConsolidateJob(consolidator)]
         self.jobs += [cls() for cls in BUILTIN_JOBS]
+        self._apply_job_files()
         self.jobs.sort(key=lambda j: j.priority, reverse=True)
+
+    #: Where a character keeps the jobs that are hers (§21.2, §34.1). Versioned
+    #: like `skills/` and unlike `workspace/`: a night's job is a durable
+    #: statement about how she spends the hours nobody sees, and changing one is
+    #: exactly the kind of change worth reading back.
+    JOBS_DIR = "dreams"
+
+    @staticmethod
+    def _seed_jobs_dir(root: Path) -> None:
+        """Write the folder on first sight, for a vault that predates it.
+
+        The seeders (§34.1) only run once, at creation, so a folder invented
+        today exists in no vault created yesterday — the reason
+        `KnowledgeStore.INDEX_GITIGNORE` and the inbox both write themselves
+        lazily, and the same reason applies here with more force: a roster
+        nobody can see is a roster nobody will edit.
+
+        Seeded with the prompts already compiled into this file, so an existing
+        vault's night does not change on the boot that grows the folder. Only
+        ever written when the directory is absent — a character who deleted a
+        job file meant it, and a seeder that restored it every boot would be a
+        bug that looks like a haunting.
+        """
+        if root.exists():
+            return
+        from yurios.characters.importer import DREAMS_README, _seed_job_files
+        root.mkdir(parents=True, exist_ok=True)
+        (root / "README.md").write_text(DREAMS_README, encoding="utf-8")
+        for fname, body in _seed_job_files().items():
+            (root / fname).write_text(body, encoding="utf-8")
+        log.info("seeded the dream roster into %s", root)
+
+    def _apply_job_files(self) -> None:
+        """Overlay `vault/dreams/` onto the built-in roster.
+
+        Builtins first, files second, and the order is the design. A file whose
+        name matches a builtin retunes it — prompt, priority, cadence, whether
+        it runs at all — and does **not** replace its `work`, so `diary` keeps
+        `relabel()` and its day bookkeeping however its prompt is rewritten. A
+        file with a new name becomes a `PromptJob`. `consolidate` accepts a file
+        like any other, which is worth saying plainly: it can be retuned, and it
+        cannot be removed, because it is the job every other job reads from.
+        """
+        root = self.vault.vault / self.JOBS_DIR
+        try:
+            self._seed_jobs_dir(root)
+            specs = load_job_files(root)
+        except Exception:  # noqa: BLE001 — a bad folder is not a lost night
+            log.exception("dream job files could not be read")
+            return
+        by_name = {j.name: j for j in self.jobs}
+        for spec in specs:
+            existing = by_name.get(spec.name)
+            try:
+                if existing is not None:
+                    spec.applies_to(existing)
+                else:
+                    job = PromptJob(spec)
+                    self.jobs.append(job)
+                    by_name[job.name] = job
+            except Exception:  # noqa: BLE001 — one bad file, one lost job
+                log.exception("dream job %s could not be loaded", spec.name)
 
     # ------------------------------------------------------------------ roster
 
@@ -749,6 +1061,7 @@ class DreamRunner:
             vault=self.vault, store=self.store, clock=self.clock,
             goals=self.goals, workspace=self.workspace, skills=self.skills,
             utility=self.utility, selfie=self.selfie, audit=self.audit,
+            soul_text=self.soul_text,
             char_name=str(getattr(self.cfg, "companion_name", "") or "she"),
             user_name=str(getattr(self.cfg, "user_name", "") or "the user"),
             **kw)
@@ -820,7 +1133,8 @@ class DreamRunner:
         touched = False
 
         for job in jobs:
-            ctx = self._context(day="", dry_run=dry_run, job=job.name)
+            ctx = self._context(day="", dry_run=dry_run, job=job.name,
+                                soul=job.soul)
             try:
                 pending = [day] if day else job.backlog(ctx, self.ledger)
             except Exception:  # noqa: BLE001

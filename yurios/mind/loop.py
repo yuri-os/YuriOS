@@ -34,6 +34,7 @@ import logging
 import random
 from typing import Awaitable, Callable
 
+from yurios.app.core.assemble import soul_preamble
 from yurios.world import correlate
 from yurios.world.avatar.controller import VrmController
 from yurios.world.clock import Clock
@@ -88,6 +89,23 @@ REACH_OUT_CUE = (
     "((You decided, on your own, to reach out first about this: {goal}. Say "
     "the one short, warm, specific spoken message you'd open with — no "
     "preamble, no explaining that you decided to speak.))")
+
+
+def _with_soul(messages: list[dict], preamble: str) -> list[dict]:
+    """Prepend the persona blocks to a prompt's system message (SPEC §22.4).
+
+    Fused onto the existing system message rather than added as a second one:
+    a chat template renders two system turns however it likes, and half the
+    local models this runs on silently drop the second. The instruction the
+    caller wrote stays *after* the persona, because it is the part that says
+    what this particular call is for and the last thing read wins ties.
+    """
+    out = [dict(m) for m in messages]
+    for m in out:
+        if m.get("role") == "system":
+            m["content"] = f"{preamble}\n\n{m.get('content', '')}".strip()
+            return out
+    return [{"role": "system", "content": preamble}, *out]
 
 
 class MindLoop:
@@ -147,6 +165,8 @@ class MindLoop:
             brain.set_workspace(self.workspace, self.skills,
                                 on_write=self._desk_written)
         self.goals = GoalStore(self.vault, clock)
+        #: (key, rendered, when) for `_soul_text` — see there.
+        self._soul_cache: tuple = ((None, None), "", -1e18)
         self.selfedit = SelfEdit(self.vault, clock)
         if hasattr(brain, "set_goals"):
             brain.set_goals(self.goals)        # §22: her standing list joins the
@@ -172,6 +192,7 @@ class MindLoop:
             # A night's desk writes and its camera dispatch land in the same
             # audit as her daytime hands (§7.3), so the Tools page answers
             # "what did this actually do to the vault" for DREAM too.
+            soul_text=self._soul_text,
             audit=(brain.guard.audit
                    if getattr(brain, "guard", None) is not None else None))
         state_dir = cfg.vault_dir / "state"
@@ -228,17 +249,80 @@ class MindLoop:
 
     # ------------------------------------------------------------- host seams
 
-    async def _utility(self, messages: list[dict]) -> str:
+    def _soul_text(self, *, full: bool = True) -> str:
+        """The persona blocks her private prompts open with (SPEC §22.4, §7.1).
+
+        Everything the mind sent a model used to be characterless. `_utility`
+        below is the seam for the knowledge store, every DREAM job and the
+        goal-work step, and it passed the caller's messages through untouched —
+        so her diary's entire character content was the string "You are
+        {char}", and two vaults with completely different cards produced
+        byte-identical prompts for their private thinking. The one mind call
+        that *did* sound like her was `_compose`, because a reach-out borrows
+        the conversational assembler on its way out.
+
+        Cached, because `SoulLoader.load()` re-reads the whole soul directory
+        on every call by design (§5) — correct for a turn, wasteful for a night
+        that makes ten of them. Keyed on the newest mtime in `soul/`, so an
+        edit she made through the self-edit gate is picked up without a
+        restart and without a signal, the way `KnowledgeStore.search` watches
+        its index.
+
+        Never raises. A missing or mangled soul costs the block and not the
+        call, which is §20.2's rule for the shelf applied to the self.
+        """
+        mode = str(getattr(self.cfg, "mind_soul_in_prompts", "full") or "full").lower()
+        if mode == "off":
+            return ""
+        full = full and mode != "brief"
+        try:
+            soul_dir = self.cfg.vault_dir / "soul"
+            stamp = max((p.stat().st_mtime for p in soul_dir.glob("*.md")),
+                        default=0.0)
+        except OSError:
+            stamp = 0.0
+        key = (stamp, full)
+        cached_key, cached_text, cached_at = self._soul_cache
+        ttl = float(getattr(self.cfg, "mind_soul_cache_s", 300.0) or 0.0)
+        if cached_key == key and (self.clock.now() - cached_at) < ttl:
+            return cached_text
+        text = ""
+        try:
+            loader = getattr(self.brain.state, "soul_loader", None)
+            if loader is not None:
+                text = soul_preamble(
+                    loader.load(),
+                    user_md=self.vault.read("soul/USER.md"),
+                    user_name=self.cfg.user_name, full=full)
+        except Exception:  # noqa: BLE001 — an absent self is not a dead tick
+            log.warning("soul preamble unavailable", exc_info=True)
+            text = ""
+        self._soul_cache = (key, text, self.clock.now())
+        return text
+
+    async def _utility(self, messages: list[dict], *, soul: bool = False) -> str:
         """Local-tier utility call, debited against the governor. The loop's
         only other model use is inside deliberate ACT speech (SPEC §17.3).
 
         One instrumentation point covers five callers: the knowledge store, the
         dream consolidator and the goal-work step are all handed *this method*
         as their `utility` seam (see __init__), so the prompt each of them sends
-        is recorded here, labelled by whichever ACT opened the scope."""
+        is recorded here, labelled by whichever ACT opened the scope.
+
+        `soul` opts a caller into the persona blocks (§22.4). It defaults off
+        rather than on because the two callers that reach this method *without*
+        going through a job flag — the knowledge store's chunk blurbs and the
+        consolidator — are the two doing mechanical extraction, and a shelf
+        blurb written in character is a shelf that lies about what it read.
+        Everything that thinks as *her* passes `soul=True` explicitly.
+        """
         utility = self.brain.state.utility
         if utility is None:
             return ""
+        if soul:
+            preamble = self._soul_text()
+            if preamble:
+                messages = _with_soul(messages, preamble)
         # A selfie may be holding her brain's VRAM right now (§7.6). Wait at
         # the door rather than JIT-loading the chat model back onto a card the
         # render hasn't finished with — the OOM that killed half of one night's
@@ -954,7 +1038,8 @@ class MindLoop:
         with correlate.scope(kind=correlate.GOAL_WORK):
             reply = await self._utility([
                 {"role": "system", "content": self._work_system(goal, offer, last)},
-                {"role": "user", "content": self._goal_context(goal)}])
+                {"role": "user", "content": self._goal_context(goal)}],
+                soul=True)
 
         intent = parse_intent(reply, allowed=tuple(offer.tools) if offer else ())
         used: dict = {}
@@ -1051,10 +1136,16 @@ class MindLoop:
     def _work_system(self, goal: Goal, offer, last: bool) -> str:
         """The instruction half of a working step."""
         lines = [
-            "You are quietly advancing one of your own goals, alone, between "
-            "conversations. Nobody is waiting on this and nothing you write "
-            "here is sent to anyone — it goes on your own desk, for you to "
-            "pick up next time.",
+            # The persona blocks arrive above this, fused on by `_utility`
+            # (§22.4). So this opens by saying what the moment *is* rather than
+            # who she is — the two used to be the same sentence, and with no
+            # card behind it "you" pointed at nobody and every character wrote
+            # the same note.
+            "This is you, alone, between conversations — quietly advancing one "
+            "of your own goals. Nobody is waiting on this and nothing you write "
+            "here is sent to anyone: it goes on your own desk, for you to pick "
+            "up next time. Think it through as yourself, not as an assistant "
+            "reporting on a task.",
             "",
         ]
         if offer:

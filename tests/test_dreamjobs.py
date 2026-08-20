@@ -458,3 +458,176 @@ async def test_with_no_utility_model_the_night_runs_and_writes_nothing(tmp_path,
     report = await runner.run(token_budget=40000)
     assert not any(j.failed for j in report.jobs)
     assert runner.backlog() == []
+
+
+# ----------------------------------------------- jobs a character owns (§21.2)
+#
+# The night used to be a Python tuple and an `enabled()` that said True to
+# everything, so every character's night was the same night: the same four jobs,
+# the same order, the same questions. That is a strange shape for the one part of
+# the system whose whole subject is what *this* character made of *her* day.
+
+def _job_file(vault, name, front="", body="a prompt"):
+    d = vault / "dreams"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / f"{name}.md").write_text(f"---\nname: {name}\n{front}---\n\n{body}\n",
+                                  encoding="utf-8")
+
+
+def _runner(tmp_path, cfg, vault_dir):
+    clock = VirtualClock(start=SIM_START.timestamp())
+    vault = MindVault(vault_dir)
+    store = FileMemoryStore(vault_dir, FakeEmbedder(), embed_dim=FakeEmbedder.dim)
+    return DreamRunner(
+        vault, store, clock, cfg.model_copy(update={"selfie_backend": "off"}),
+        consolidator=DreamConsolidator(vault, store, clock,
+                                       utility=FakeUtility().complete),
+        workspace=Workspace(vault_dir / "workspace"),
+        skills=SkillStore(vault_dir / "skills"),
+        utility=FakeUtility().complete)
+
+
+def test_a_job_file_can_switch_a_builtin_off(tmp_path, cfg):
+    """The one thing the roster could never do. `enabled()` returned True for
+    every builtin, so "she should not keep a diary" required editing Python."""
+    v = tmp_path / "vault"
+    _job_file(v, "diary", front="enabled: false\n")
+    runner = _runner(tmp_path, cfg, v)
+    assert "diary" not in [j.name for j in runner.enabled_jobs()]
+    # …and it is still *listed*, disabled, so the page can say why (the rule the
+    # camera-off selfie already follows)
+    assert {j["name"]: j for j in runner.status()}["diary"]["enabled"] is False
+
+
+def test_a_job_file_retunes_a_builtin_without_replacing_it(tmp_path, cfg):
+    """A file may change the question and never the bookkeeping. `diary` stays a
+    `DiaryJob`, so it still reads the journal through `relabel()` and still marks
+    its day — the two things a hand-written prompt cannot be trusted to do."""
+    v = tmp_path / "vault"
+    _job_file(v, "diary", front="priority: 0.95\nsoul: off\n",
+              body="Write one line about the day and nothing else.")
+    runner = _runner(tmp_path, cfg, v)
+    diary = runner.get("diary")
+    assert type(diary).__name__ == "DiaryJob"
+    assert diary.priority == 0.95
+    assert diary.soul == "off"
+    assert diary.system("BUILT IN") == "Write one line about the day and nothing else."
+    assert diary.as_dict()["from_file"] is True
+
+
+async def test_a_new_name_becomes_a_job(tmp_path, cfg):
+    """Adding a fifth kind of night used to be a class and a line in
+    `BUILTIN_JOBS`. §21.2 promised the ladder, trace, budget, debug page and
+    manual trigger would all derive from the roster; this is that promise cashed
+    by somebody who does not write Python."""
+    v = tmp_path / "vault"
+    _job_file(v, "gratitude",
+              front="title: Gratitude\ndescription: One thing worth keeping.\n"
+                    "priority: 0.2\noutput: gratitude/{day}.md\n",
+              body="Name the one thing from this day you're glad happened.")
+    _day_file(v, "2026-07-04", ["user: we walked to the water  ⇄  yuri: it was cold"])
+    runner = _runner(tmp_path, cfg, v)
+    assert "gratitude" in [j.name for j in runner.enabled_jobs()]
+    await runner.run(only="gratitude", token_budget=40000)
+    written = (v / "workspace" / "gratitude" / "2026-07-04.md")
+    assert written.is_file() and written.read_text().strip()
+
+
+def test_a_mangled_job_file_costs_one_job_and_not_the_night(tmp_path, cfg):
+    """§34.3's rule for a broken `SKILL.md`, and it matters more here: these are
+    edited by hand at midnight by someone who wanted a different diary, and one
+    stray colon must not be why nothing consolidated."""
+    v = tmp_path / "vault"
+    (v / "dreams").mkdir(parents=True)
+    (v / "dreams" / "broken.md").write_text("---\nname: broken\n  x: [unclosed\n---\nb\n",
+                                            encoding="utf-8")
+    _job_file(v, "gratitude", front="priority: 0.2\n")
+    runner = _runner(tmp_path, cfg, v)
+    names = [j.name for j in runner.jobs]
+    assert "broken" not in names
+    assert "gratitude" in names and "consolidate" in names and "diary" in names
+
+
+def test_the_folder_readme_is_not_a_job(tmp_path, cfg):
+    """The seeders put a README in every folder they make (§34.1). One that ran
+    as a nightly prompt would ask the model to be a help page, every night."""
+    v = tmp_path / "vault"
+    (v / "dreams").mkdir(parents=True)
+    (v / "dreams" / "README.md").write_text("# Dreams\n\nWhat she does at night.\n",
+                                            encoding="utf-8")
+    (v / "dreams" / "scratch.md").write_text("notes I left in here\n", encoding="utf-8")
+    runner = _runner(tmp_path, cfg, v)
+    names = [j.name for j in runner.jobs]
+    assert "README" not in names and "readme" not in names
+    assert "scratch" not in names, "a file with no frontmatter is not a job"
+
+
+def test_a_file_cannot_force_on_a_job_the_house_has_no_backend_for(tmp_path, cfg):
+    """The two-switch rule (§18.4.6, §26.1) applied to the night: hers may say
+    no, and may not say yes over the house's head."""
+    v = tmp_path / "vault"
+    _job_file(v, "selfie", front="enabled: true\n")
+    runner = _runner(tmp_path, cfg, v)          # cfg has selfie_backend off
+    assert "selfie" not in [j.name for j in runner.enabled_jobs()]
+
+
+def test_the_seeded_roster_reproduces_the_builtin_night(tmp_path, cfg):
+    """A fresh vault must dream exactly as it did before this folder existed, or
+    the first `git log` entry for a job file is unreadable — you cannot see what
+    somebody changed if the baseline was never written down."""
+    from yurios.characters.importer import _seed_job_files
+    v = tmp_path / "vault"
+    (v / "dreams").mkdir(parents=True)
+    for fname, body in _seed_job_files().items():
+        (v / "dreams" / fname).write_text(body, encoding="utf-8")
+    from yurios.mind.dreamjobs import (DIARY_SYSTEM, SELFIE_SYSTEM,
+                                       STRATEGY_SYSTEM)
+    seeded = _runner(tmp_path, cfg, v)
+    bare = _runner(tmp_path, cfg, tmp_path / "empty")
+
+    # every builtin still there, with the same flags
+    for job in bare.jobs:
+        mine = seeded.get(job.name)
+        assert mine is not None, f"{job.name} vanished"
+        assert mine.priority == job.priority, job.name
+        assert mine.per_day == job.per_day, job.name
+        assert mine.soul == job.soul, job.name
+    assert [j.name for j in seeded.jobs] == [j.name for j in bare.jobs]
+
+    # …and the prompts round-trip through the file byte for byte. This is the
+    # assertion that makes the seeding honest: it is what says the file you are
+    # about to edit currently says exactly what the code says.
+    for name, builtin in (("diary", DIARY_SYSTEM), ("strategy", STRATEGY_SYSTEM),
+                          ("selfie", SELFIE_SYSTEM)):
+        assert seeded.get(name).system("") == builtin.strip(), name
+
+
+def test_an_existing_vault_grows_the_folder_without_changing_its_night(
+        tmp_path, cfg):
+    """The seeders run once, at creation. A folder invented today exists in no
+    vault created yesterday — so the runner writes it on first sight, the way
+    the knowledge index's gitignore and the inbox already do. The night it
+    describes must be the night that vault already had."""
+    v = tmp_path / "vault"
+    (v / "memory").mkdir(parents=True)                 # a vault, with no dreams/
+    assert not (v / "dreams").exists()
+
+    before = _runner(tmp_path, cfg, tmp_path / "never-seeded")
+    before_night = [(j.name, j.priority, j.per_day, j.soul) for j in before.jobs]
+
+    runner = _runner(tmp_path, cfg, v)
+    assert (v / "dreams" / "README.md").is_file()
+    assert (v / "dreams" / "diary.md").is_file()
+    assert [(j.name, j.priority, j.per_day, j.soul)
+            for j in runner.jobs] == before_night
+
+
+def test_a_deleted_job_file_stays_deleted(tmp_path, cfg):
+    """The lazy seed fires on an absent *folder*, never an absent file. A
+    character who deleted a job meant it, and a seeder that put it back every
+    boot would be a bug that reads as a haunting."""
+    v = tmp_path / "vault"
+    _runner(tmp_path, cfg, v)                          # seeds
+    (v / "dreams" / "diary.md").unlink()
+    _runner(tmp_path, cfg, v)                          # boots again
+    assert not (v / "dreams" / "diary.md").exists()

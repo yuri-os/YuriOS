@@ -201,6 +201,24 @@ class Config(VoiceConfig):
     # safety net for the run that died without posting one, because a goal
     # stranded in `waiting` is invisible to every gate she has.
     mind_dispatch_timeout_s: float = 3600.0
+    # --- the soul in her private prompts (SPEC §22.4, §7.1) ---
+    # Everything the mind sends a model used to be characterless: goal work, the
+    # diary and the nightly stock-take got a bare instruction and a name token,
+    # so two vaults with completely different cards thought in the same voice.
+    # `full` gives those prompts the identity blocks a turn already carries;
+    # `brief` drops the scenario and USER.md for a small utility model on a tight
+    # window; `off` restores the old prompts exactly, which is what makes the
+    # difference measurable rather than a matter of opinion.
+    #
+    # Default on, unlike every other knob that costs tokens. This is not a new
+    # capability being offered cautiously — it is a defect, and a defect fix that
+    # ships switched off ships the defect.
+    mind_soul_in_prompts: str = "full"          # full | brief | off
+    # How long a rendered preamble is reused. SoulLoader re-reads the whole soul
+    # directory per call by design (§5) — right for a turn, wasteful for a night
+    # of ten jobs. Invalidated by soul/ mtime regardless, so an approved
+    # self-edit lands without waiting this out.
+    mind_soul_cache_s: float = 300.0
     mind_daily_tokens: int = 200_000            # the budget governor's cap (§17.3)
     mind_dream_tick_tokens: int = 40000         # per-DREAM-tick consolidation budget (§21)
     mind_trace_max_bytes: int = 2_000_000       # ticks.jsonl rotates to .1 past this size

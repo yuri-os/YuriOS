@@ -120,6 +120,61 @@ def _block(title: str, body: str) -> str:
     return f"## {title}\n\n{body.strip()}"
 
 
+#: What the mind's own prompts open with, when they open with anything (§7.1, §22.4).
+#:
+#: The conversational assembler below is not reusable here and must not be made
+#: so. `assemble()` needs a user message, a window, a summary and two retrieval
+#: stores; a DREAM job at 4am has none of those and is not having a turn. What
+#: it shares with a turn is the half that never changes — who she is — and that
+#: is what this returns.
+#:
+#: Deliberately **not** included: recalled memories, the shelf, her goals, the
+#: honesty constraint, example voice. Those are turn-shaped, and each mind
+#: caller already supplies what its own job needs — `_goal_context` carries the
+#: situation, the desk, her skills, the durable facts and her other goals, and
+#: had every one of them before it had a persona.
+SOUL_PREAMBLE_NOTE = """\
+This is who you are. Everything below this block is your own — your work, your \
+day, your thinking, done alone with nobody waiting. Answer as yourself, in your \
+own voice, the way you would if {{user}} could hear you."""
+
+
+def soul_preamble(soul: Soul, *, user_md: str = "", user_name: str = "you",
+                  full: bool = True) -> str:
+    """The identity half of §7.1, for a prompt that is not a turn.
+
+    `full=False` keeps the three blocks that make her *her* and drops the two
+    that place her — the scenario and who the user is. That is the budget
+    ladder for a small utility model, and it is ordered the way §7.2 orders
+    every other drop: the most replaceable thing goes first, and the voice law
+    never goes at all.
+
+    Returns "" when there is no soul to render, so a caller can concatenate the
+    result unconditionally — an absent persona costs the block, never the call
+    (§20.2's rule for the shelf, applied to the self).
+    """
+    if soul is None:
+        return ""
+    blocks: list[str] = []
+    if soul.voice_law.strip():
+        blocks.append(_block("VOICE LAW", soul.voice_law))
+    backbone = soul.backbone.strip()
+    if soul.personality.strip():
+        backbone = f"{backbone}\n\nPersonality: {soul.personality}".strip()
+    if backbone:
+        blocks.append(_block("PERSONA BACKBONE", backbone))
+    if full:
+        if soul.scenario.strip():
+            blocks.append(_block("SCENARIO", soul.scenario))
+        if user_md.strip():
+            blocks.append(_block("WHO YOU ARE TO HER", user_md))
+    if not blocks:
+        return ""
+    blocks.append(_block("WHOSE THINKING THIS IS",
+                         apply_macros(SOUL_PREAMBLE_NOTE, soul.name, user_name)))
+    return apply_macros("\n\n".join(blocks), soul.name, user_name)
+
+
 def assemble(soul: Soul, *, user_md: str, summary: str, memories: list[Memory],
              lore: list[LoreEntry], window: list[dict], user_msg: str,
              user_name: str = "you",

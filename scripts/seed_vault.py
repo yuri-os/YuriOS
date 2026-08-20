@@ -29,7 +29,7 @@ import yaml  # noqa: E402
 from yurios.app import vaultgit  # noqa: E402
 from yurios.app.core.soul import parse_md, split_sections  # noqa: E402
 from yurios.characters.importer import (  # noqa: E402
-    SKILLS_README, WORKSPACE_README)
+    DREAMS_README, SKILLS_README, WORKSPACE_README, _seed_job_files)
 from yurios.mind.workspace import WORKSPACE_GITIGNORE  # noqa: E402
 from yurios.world.inbox import GITIGNORE as INBOX_GITIGNORE  # noqa: E402
 
@@ -102,6 +102,13 @@ def seed(soul_src: Path, vault: Path) -> None:
     vaultgit.atomic_write(vault / "state" / ".gitignore", INBOX_GITIGNORE)
     vaultgit.atomic_write(vault / "workspace" / "README.md", WORKSPACE_README)
     vaultgit.atomic_write(vault / "skills" / "README.md", SKILLS_README)
+    # …and the night's roster (§21.2). Seeded with the prompts already compiled
+    # into `mind/dreamjobs.py`, so a fresh vault dreams exactly as it did before
+    # this folder existed — and the first time somebody edits one, `git log`
+    # shows what changed and what it used to say.
+    vaultgit.atomic_write(vault / "dreams" / "README.md", DREAMS_README)
+    for fname, body in _seed_job_files().items():
+        vaultgit.atomic_write(vault / "dreams" / fname, body)
     vaultgit.atomic_write(vault / ".gitignore", VAULT_GITIGNORE)
 
     # ONE git repo — the mind (§4.1). Backed up by copying the folder.

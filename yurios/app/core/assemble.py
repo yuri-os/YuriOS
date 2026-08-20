@@ -8,6 +8,7 @@ window. Block ordering and budgets are normative (§7.1–7.2):
     3. SCENARIO / PLACE                — SCENARIO#Scenario
     4. LORE                            — matched WORLD.md entries (this turn)
     5. WHO YOU ARE TO HER              — vault/soul/USER.md, whole (it's small)
+    5b. WHAT YOU'RE WORKING ON         — vault/goals.md, the open ones (§22)
     6. WHAT YOU'VE TALKED ABOUT        — vault/memory/summary.md
     7. THINGS THAT MAY BE RELEVANT     — recall(user_msg, k), tagged with age
     8. WHAT YOU'VE READ                — knowledge.search(user_msg, k), with citations
@@ -21,8 +22,11 @@ its own block, its own store, and its own citations rather than being folded in
 among the memories.
 
 On overflow: examples first, then knowledge, then recalled memories, then
-lorebook; NEVER the voice law, persona, USER.md, or the honesty constraint
-(§7.2). Hard limits land AFTER the history (V2/V3 post-history semantics) —
+lorebook, then her open goals; NEVER the voice law, persona, USER.md, or the
+honesty constraint (§7.2). Goals go last of the droppables because they are the
+smallest block here and the one whose absence she cannot notice — a companion
+who re-promises what she is already working on is the failure this block exists
+to stop. Hard limits land AFTER the history (V2/V3 post-history semantics) —
 fused onto the final user message, the last thing read before replying.
 """
 from __future__ import annotations
@@ -56,6 +60,20 @@ Things you have read and kept: books {{user}} put on your shelf, and pages you \
 looked up yourself. This is reading, not memory — none of it is something \
 {{user}} told you, so never answer as though they did. Use it when it helps, in \
 your own words, and you can say where it came from if it matters."""
+
+
+#: The lead line on the goals block (§22). It says the two things the block is
+#: for: these are already hers, so promising them again is a broken promise
+#: waiting to happen; and they are a *list she keeps*, so she may refer to one
+#: out loud rather than inventing a fresh intention every time the subject
+#: comes up. Without this block the talking-self and the intending-self are two
+#: different people who have never met.
+GOALS_NOTE = """\
+What you are already working on — your own standing list, the same one the \
+quiet hours between conversations work through. These are commitments you have \
+ALREADY made, so don't promise them again as though they were new; refer to \
+one, ask about it, or say where it got to. If you take on something new here, \
+say so plainly and it will be added."""
 
 
 class Known(Protocol):
@@ -94,6 +112,7 @@ class AssembledPrompt:
     dropped_memories: int = 0     # overflow accounting (§7.2)
     dropped_lore: int = 0
     dropped_knowledge: int = 0
+    dropped_goals: int = 0
     citations: list[str] = field(default_factory=list)   # what block 8 carried
 
 
@@ -105,6 +124,7 @@ def assemble(soul: Soul, *, user_md: str, summary: str, memories: list[Memory],
              lore: list[LoreEntry], window: list[dict], user_msg: str,
              user_name: str = "you",
              knowledge: Sequence[Known] = (),
+             goals: Sequence[str] = (),
              system_budget_tokens: int = 8000,
              lorebook_budget_tokens: int = 400,
              knowledge_budget_tokens: int = 900) -> AssembledPrompt:
@@ -125,10 +145,12 @@ def assemble(soul: Soul, *, user_md: str, summary: str, memories: list[Memory],
         knowledge.pop()
 
     memories = list(memories)
-    dropped_memories = dropped_lore = dropped_knowledge = 0
+    goals = list(goals)
+    dropped_memories = dropped_lore = dropped_knowledge = dropped_goals = 0
 
     def build_system(mems: list[Memory], lore_now: list[LoreEntry],
-                     known: list[Known], include_examples: bool) -> str:
+                     known: list[Known], goals_now: list[str],
+                     include_examples: bool) -> str:
         blocks: list[str] = [
             _block("VOICE LAW", soul.voice_law),
             _block("PERSONA BACKBONE",
@@ -139,6 +161,11 @@ def assemble(soul: Soul, *, user_md: str, summary: str, memories: list[Memory],
             blocks.append(_block("LORE", "\n\n".join(
                 f"[{e.name}] {e.content}" for e in lore_now)))
         blocks.append(_block("WHO YOU ARE TO HER", user_md or "(nothing yet)"))
+        if goals_now:
+            blocks.append(_block(
+                "WHAT YOU'RE WORKING ON",
+                apply_macros(GOALS_NOTE, soul.name, user_name) + "\n\n"
+                + "\n".join(f"- {g}" for g in goals_now)))
         if summary.strip():
             blocks.append(_block("WHAT YOU'VE TALKED ABOUT", summary))
         if mems:
@@ -164,22 +191,33 @@ def assemble(soul: Soul, *, user_md: str, summary: str, memories: list[Memory],
     # away what she remembers about you to keep a paragraph of Wikipedia is the
     # wrong trade for this project, and the ladder is where that gets decided.
     include_examples = True
-    system = build_system(memories, lore, knowledge, include_examples)
+
+    def rebuild() -> str:
+        return build_system(memories, lore, knowledge, goals, include_examples)
+
+    system = rebuild()
     if est_tokens(system) > system_budget_tokens:
         include_examples = False
-        system = build_system(memories, lore, knowledge, include_examples)
+        system = rebuild()
     while est_tokens(system) > system_budget_tokens and knowledge:
         knowledge.pop()         # lowest-scoring chunk goes first
         dropped_knowledge += 1
-        system = build_system(memories, lore, knowledge, include_examples)
+        system = rebuild()
     while est_tokens(system) > system_budget_tokens and memories:
         memories.pop()          # lowest-ranked recalled memory goes first
         dropped_memories += 1
-        system = build_system(memories, lore, knowledge, include_examples)
+        system = rebuild()
     while est_tokens(system) > system_budget_tokens and lore:
         lore.pop()
         dropped_lore += 1
-        system = build_system(memories, lore, knowledge, include_examples)
+        system = rebuild()
+    # …and only then her goals — the oldest first, because the list is appended
+    # to and the thing she took on this morning is the one she is likeliest to
+    # be about to re-promise.
+    while est_tokens(system) > system_budget_tokens and goals:
+        goals.pop(0)
+        dropped_goals += 1
+        system = rebuild()
 
     # hard limits AFTER the history (§7.1): fused onto the final user message so
     # they are the last thing read before replying (the Messages API folds
@@ -197,6 +235,7 @@ def assemble(soul: Soul, *, user_md: str, summary: str, memories: list[Memory],
                            dropped_memories=dropped_memories,
                            dropped_lore=dropped_lore,
                            dropped_knowledge=dropped_knowledge,
+                           dropped_goals=dropped_goals,
                            citations=[c.citation for c in knowledge])
 
 

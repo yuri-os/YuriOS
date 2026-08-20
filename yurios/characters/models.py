@@ -75,6 +75,15 @@ class LoopSwitches:
     mind: bool = True
     utility: bool = True
     dream: bool = True
+    #: Whether *this* character's mind may reach for a tool on its own (SPEC
+    #: §26, as amended). In series with the house switch `MIND_TOOLS_ENABLED`,
+    #: the §18.4.6 notify pattern: the house says whether anything on this
+    #: machine may act unasked, this says who. Defaults to on for the same
+    #: reason the doorbell does — the house switch is off, and two stacked
+    #: opt-ins would leave a character inert after you turned the capability on
+    #: and never told you why. Turning it off mid-run denies the next call
+    #: rather than cancelling one already dispatched, and says so in the audit.
+    hands: bool = True
 
 
 @dataclass(slots=True)

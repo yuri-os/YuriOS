@@ -36,6 +36,9 @@ class Config(VoiceConfig):
                                                 #   local writes, no outside party
                                                 #   — a loop-catcher, not a ration
     timer_max_minutes: int = 180                # set_timer upper bound (§7.1)
+    tool_rate_selfedit: int = 1                 # `propose_edit` (§23) — the one
+                                                #   hand that reaches at who she
+                                                #   is. Deliberation, not a loop
 
     # --- the web: search, read, research (SPEC §7.7) ---
     # searxng = your own metasearch instance — keyless AND third-party-less,
@@ -188,6 +191,16 @@ class Config(VoiceConfig):
     mind_interrupt_threshold: float = 0.75      # gate 2: salience-to-interrupt (§18.2)
     mind_max_interrupts_per_day: int = 3        # the hard daily cap (§18.2)
     mind_consider_cooldown_s: float = 3600.0    # min gap between re-chewing one goal
+    # How many working ticks one goal gets before it has to wait or be let go
+    # (SPEC §22). The bound is what keeps "she works on it across ticks" from
+    # becoming "she chews the same goal forever": three steps is enough to read
+    # the desk, do a thing, and write down where it got to.
+    mind_goal_max_steps: int = 3
+    # How long a goal sits in `waiting` on work it dispatched before the loop
+    # wakes it anyway. `task_completion` is the ordinary way back; this is the
+    # safety net for the run that died without posting one, because a goal
+    # stranded in `waiting` is invisible to every gate she has.
+    mind_dispatch_timeout_s: float = 3600.0
     mind_daily_tokens: int = 200_000            # the budget governor's cap (§17.3)
     mind_dream_tick_tokens: int = 40000         # per-DREAM-tick consolidation budget (§21)
     mind_trace_max_bytes: int = 2_000_000       # ticks.jsonl rotates to .1 past this size
@@ -200,6 +213,62 @@ class Config(VoiceConfig):
     mind_prompt_log_max_bytes: int = 32_000_000  # traces/prompts.jsonl (whole prompts)
     mind_prompt_capture: bool = True            # off = no assembled prompts on disk
     mind_prompt_max_chars: int = 200_000        # per-message cap inside a prompt record
+
+    # --- her hands, in the loop (SPEC §26, as amended — mind-initiated tools) ---
+    # The house switch, and it is OFF. Everything below is inert until this is
+    # true, and off means the hands are not described to her at all — a
+    # capability she may not use is not advertised (the SEARCH_BACKEND=off rule,
+    # generalised). The character's own `hands` switch is in series with this
+    # one (characters/models.py, LoopSwitches): the house decides whether
+    # anything on this machine may act unasked, hers decides whether she is one
+    # of the ones that may, and she can never talk her way past the house.
+    mind_tools_enabled: bool = False
+    # Explicit names, comma-separated. No wildcard, no inheritance from the
+    # conversational allowlist, and EMPTY BY DEFAULT even when the switch above
+    # is on — turning the capability on and choosing which hands are two
+    # separate decisions.
+    #   e.g. MIND_TOOL_ALLOWLIST=write_note,append_note,read_note,list_notes
+    mind_tool_allowlist: str = ""
+    # A cap, not a governor. Unlike MIND_DAILY_TOKENS — which is a post-hoc
+    # estimate and cannot stand between a call and the run it starts — this is
+    # checked *before* dispatch and refuses. Rolls at local midnight, beside
+    # MIND_MAX_INTERRUPTS_PER_DAY, which it is deliberately shaped like.
+    mind_tool_calls_per_day: int = 8
+    # Budget pressure above which the expensive class is simply unavailable.
+    # Also a precondition rather than an estimate: for the mind and only the
+    # mind, spending is checked before the money leaves.
+    mind_tool_pressure_ceiling: float = 0.5
+    # The fingerprint cooldown (world/tools/guard.py `_fingerprint`), by class.
+    # `Guard.turn()` is one dedupe scope per *reply*; the mind has ticks, not
+    # turns, so without a persistent ledger nothing stops it re-dispatching the
+    # same call every tick forever. Going and reading the web about something is
+    # days; desk work is an hour.
+    #
+    # An hour and not ten minutes, and the number is not free: it has to be at
+    # least MIND_CONSIDER_COOLDOWN_S, which is how long a goal waits before it
+    # is re-chewed. A cooldown shorter than that is not a cooldown — the goal
+    # comes back round, the ledger has already forgotten, and she writes the
+    # identical note every hour forever. Whichever of the two is larger wins
+    # (see `Hands._cooldown_s`), so raising the consider cooldown cannot quietly
+    # reopen the loop this closes.
+    # Six hours, not the "minutes" a desk write first looked like it wanted:
+    # with MIND_CONSIDER_COOLDOWN_S at an hour, anything under an hour is
+    # inoperative and an hour exactly is one heartbeat of jitter away from being
+    # inoperative. A note she wrote for a goal this morning does not want
+    # rewriting this afternoon.
+    mind_tool_cooldown_cheap_s: float = 21_600.0
+    mind_tool_cooldown_expensive_s: float = 172_800.0   # two days
+    # …and the per-tool override, when one wants its own: a `tool=seconds`
+    # list, e.g. "web_search=3600,research=604800".
+    mind_tool_cooldown_s: str = ""
+    # The mind guard's own token buckets (§7.3). A SECOND Guard instance with
+    # its own buckets, not a share of conversation's: a night of autonomous
+    # work must not leave the morning's request denied, and the reverse must
+    # hold too. Conservative on purpose — these are ticks, not a conversation.
+    tool_rate_mind_desk: int = 4                # calls/minute
+    tool_rate_mind_web: int = 1
+    tool_rate_mind_camera: int = 1
+    tool_rate_mind_other: int = 1               # anything else on the allowlist
 
     # activity-state cadences + drift timeouts (§17.1)
     mind_engaged_cadence_s: float = 2.0

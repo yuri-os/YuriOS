@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import subprocess
 
-from yurios.mind.goals import extract_promises
+from yurios.mind.goals import extract_promises, promise_kind
 
 from .conftest import make_mind, run_mind
 
@@ -161,6 +161,36 @@ def test_promise_scan_shapes():
     assert extract_promises("I'll never leave.", "") == []
 
 
+def test_a_promise_is_split_into_work_and_news():
+    """Which half decides everything downstream: a `task` gets a working step
+    and may reach for a hand, a `reach_out` gets Gate 2 and a message. Filed as
+    one kind, the other never happens."""
+    def kind(reply, msg=""):
+        text, prov = extract_promises(reply, msg)[0]
+        return promise_kind(text, prov)
+
+    for reply in ("I'll look into those for you.",
+                  "Let me find out how they differ.",
+                  "I'll write that down.",
+                  "I want to think about it properly first.",
+                  "I'll ask around about it."):
+        assert kind(reply) == "task", reply
+    for reply in ("I'll let you know once I've read it.",
+                  "I'll tell you what I find.",
+                  "I'll get back to you on that.",
+                  "I'll remind you about the dentist.",
+                  "I'll keep you posted.",
+                  "I'll try to let you know before then."):
+        assert kind(reply) == "reach_out", reply
+
+    # the verb she leads with is the promise; what follows it is when
+    assert kind("I'll read it and let you know.") == "task"
+    assert kind("I'll let you know once I've read it.") == "reach_out"
+    # an explicit ask is a reach_out however it is phrased — being told is the
+    # whole of what was asked for, and doing it quietly is doing the opposite
+    assert kind("", "remind me to look into the boiler") == "reach_out"
+
+
 async def test_what_she_read_reaches_the_next_prompt(cfg, seeded_vault):
     """§20.2 end to end, on the real MindLoop and the real brain: a doc lands on
     the shelf, the tick ingests it, and the *next turn she assembles* carries it
@@ -243,3 +273,42 @@ async def test_a_park_starting_now_waits_for_the_call_already_running(
     release.set()
     await asyncio.wait_for(call, 1)
     assert await asyncio.wait_for(quiet, 1) is True
+
+
+async def test_a_restart_does_not_leave_her_deaf_to_the_next_signals(
+        cfg, seeded_vault):
+    """`bus_offset` is persisted; the queue it indexes is not.
+
+    Found live: she was restarted mid-session, and the first three signals of
+    the new process — a turn, its commit, and the approval of her own self-edit
+    — went straight past her, because the offset she woke up with already
+    pointed beyond the end of an empty queue.
+    """
+    rig = make_mind(cfg, seeded_vault)
+    rig.mind.bus.post("user_message", {"text": "hello?"}, source="web")
+    rig.mind.bus.post("user_present", {}, source="frontend")
+    await rig.mind.tick()
+    rig.mind._persist()
+    assert rig.mind.offset == 2
+
+    fresh = make_mind(cfg, seeded_vault)          # same vault, new bus
+    assert fresh.mind.offset == 2, "the offset really is restored from disk"
+    fresh.mind.bus.post("user_message", {"text": "still here"}, source="web")
+    trace = await fresh.mind.tick()
+    assert [s["type"] for s in trace["sensed"]] == ["user_message"]
+    assert fresh.mind.offset == 1
+
+
+async def test_a_loop_switched_off_and_on_does_not_re_read_the_queue(
+        cfg, seeded_vault):
+    """The other half of the restore: the same bus, a rebuilt mind. Here the
+    offset is the only thing standing between her and every signal of the
+    session arriving a second time."""
+    rig = make_mind(cfg, seeded_vault)
+    rig.mind.bus.post("user_message", {"text": "hello?"}, source="web")
+    await rig.mind.tick()
+    rig.mind._persist()
+
+    rebuilt = make_mind(cfg, seeded_vault, bus=rig.mind.bus)   # live queue
+    trace = await rebuilt.mind.tick()
+    assert trace["sensed"] == [], "already read once is already read"

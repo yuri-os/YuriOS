@@ -309,8 +309,41 @@ class MindRig:
         return out
 
 
-def make_mind(cfg, vault, clock=None, *, chat=None, seed=7) -> MindRig:
-    """The real ToolBrain (fake models) + the real MindLoop, on a VirtualClock."""
+class ScriptedUtility:
+    """A utility model that answers goal-work steps from a script, and hands
+    everything else to `FakeUtility`.
+
+    Goal work is one utility call that may emit one structured intent
+    (mind/hands.py), so scripting *that* line is how a test drives a
+    mind-initiated tool call without a model. Everything else the loop asks for
+    — the dream jobs, the partner ops — still gets the honest fake, or one
+    night's consolidation would break every hands test."""
+
+    def __init__(self, *lines: str):
+        self.lines = list(lines)
+        self.calls: list[list[dict]] = []
+        self.fallback = FakeUtility()
+
+    async def complete(self, messages, **params):
+        self.calls.append([dict(m) for m in messages])
+        system = (messages[0].get("content", "") if messages else "").lower()
+        if "advancing one of your own goals" in system and self.lines:
+            return self.lines.pop(0)
+        return await self.fallback.complete(messages, **params)
+
+
+def make_mind(cfg, vault, clock=None, *, chat=None, seed=7,
+              utility=None, tools=None, specs=None, bus=None) -> MindRig:
+    """The real ToolBrain (fake models) + the real MindLoop, on a VirtualClock.
+
+    `tools` wires a ToolRunner onto the brain the way `Runtime.start_async`
+    does, which is what her own hands need to exist at all (mind/hands.py reads
+    the runner off the brain). Left out, she is handless — the shipped default,
+    and what every test written before the hands assumes.
+
+    `bus` hands a second mind the *same* queue, which is what a loop switched
+    off and on again gets: a rebuilt MindLoop on a SignalBus that never went
+    away. Left out, each rig gets its own, which is what a restart gets."""
     from yurios.world.brain import ToolBrain
     from yurios.world.hub import EventHub
     from yurios.world.tools.guard import Guard
@@ -331,10 +364,14 @@ def make_mind(cfg, vault, clock=None, *, chat=None, seed=7) -> MindRig:
     controller = SpyController()
     brain = ToolBrain.build(cfg, guard=guard, timers=timers,
                             controller=controller, chat_model=chat,
-                            utility_model=FakeUtility(), embedder=FakeEmbedder())
+                            utility_model=utility or FakeUtility(),
+                            embedder=FakeEmbedder())
+    if tools is not None:
+        from yurios.world.tools.fakes import SPECS
+        brain.set_tools(tools, list(SPECS) if specs is None else specs)
     speak = SpeakRecorder(clock)
     post = PostRecorder(clock)
-    mind = MindLoop(cfg, clock, bus=SignalBus(clock), brain=brain,
+    mind = MindLoop(cfg, clock, bus=bus or SignalBus(clock), brain=brain,
                     controller=controller, timers=timers, hub=EventHub(),
                     speak=speak, post_message=post)
     return MindRig(mind, clock, speak, post, timers, controller, chat)

@@ -177,6 +177,9 @@ class ToolBrain(BrainAdapter):
         self.controller = controller
         self.selfies = selfies                 # SelfieLab | None (§7.6)
         self.research = research               # Researcher | None (§7.7)
+        # mind/selfedit.py's door (§23), wired by the MindLoop the same way the
+        # shelf and the desk are. None means the tool was never advertised.
+        self.selfedit = None
         self.runner: Optional[ToolRunner] = None
         self.world = None                      # WorldModelStore, wired by the mind
         self._directive: str = ""
@@ -200,6 +203,15 @@ class ToolBrain(BrainAdapter):
         self._directive = build_directive(
             specs, user_name=self.cfg.user_name,
             max_calls=self.cfg.tool_max_calls_per_turn) if runner and specs else ""
+
+    def set_selfedit(self, selfedit) -> None:
+        """Wire the §23 self-edit door, so `propose_edit` has somewhere to land.
+
+        Late-bound like `set_world` and `set_knowledge`: `SelfEdit` belongs to
+        the MindLoop. The tool is only advertised where the mind runs, so an
+        unwired door means the branch below is unreachable rather than lossy.
+        """
+        self.selfedit = selfedit
 
     def set_world(self, world) -> None:
         """Wire the mind's WorldModelStore (SPEC §19.2). This is the seam swap
@@ -446,13 +458,31 @@ class ToolBrain(BrainAdapter):
         self._realise(call, full_text)
         return text
 
-    def _realise(self, call: ToolCall, result: str) -> None:
+    def realise(self, tool: str, result: str, *, extra: dict | None = None) -> None:
+        """`_realise` for a caller that has a tool name and a result string
+        rather than a parsed marker — which is the mind (mind/loop.py).
+
+        The same host-side effects, deliberately: a timer she set for herself at
+        3am is scheduled by the same line as a timer you asked for, and a render
+        she started for a goal reaches `SelfieLab.start` the same way. `extra`
+        is merged into the contract before realisation, which is how the mind
+        stamps `_deliver: "vault"` and `_goal_id` onto work it started (§18,
+        principle 8; §22, principle 7).
+        """
+        self._realise(ToolCall(tool=tool, args={}), result, extra=extra)
+
+    def _realise(self, call: ToolCall, result: str,
+                 extra: dict | None = None) -> None:
         """Host-side effects (SPEC §7.5): the server returned the contract; the
         host owns the clock and the stage, so scheduling and sound happen here."""
         try:
             data = json.loads(result)
         except ValueError:
             return
+        if extra:
+            # Merged before every branch below, so a stamp cannot be forgotten
+            # by whichever one happens to handle the tool.
+            data = {**data, **extra}
         if call.tool in DESK_WRITE_TOOLS:
             # She wrote inside the Vault, from the other process (§34.2). Say so
             # here and the next tick commits it under a message that names what
@@ -471,6 +501,19 @@ class ToolBrain(BrainAdapter):
                                       volume=data.get("volume"))
             else:
                 self.controller.music("stop")
+        elif call.tool == "propose_edit" and data.get("status") == "proposed":
+            # The §7.5 split at its sharpest: the server said what she is asking
+            # for, and the queue, the approval UI, the journal line and the git
+            # commit all live here. She has already been told it was queued —
+            # which is true, because `classify` sends every soul surface to the
+            # queue and this branch cannot reach the constitution (the server
+            # refuses it, `MindVault` refuses it, and `propose` refuses it).
+            if self.selfedit is not None:
+                try:
+                    self.selfedit.propose(data["surface"], data.get("content", ""),
+                                          reason=data.get("reason", ""))
+                except Exception:
+                    log.exception("propose_edit: couldn't queue the proposal")
         elif call.tool == "read_page" and data.get("text"):
             # The page she just read, onto the shelf (§7.7). This is the branch
             # the whole read_page contract is shaped around: `data` here is the

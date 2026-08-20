@@ -87,7 +87,11 @@ async def test_api_journal_serves_her_day(client_with_mind):
 
 async def test_edit_decision_rides_the_signal_bus(client_with_mind):
     c, rig = client_with_mind
-    edit = rig.mind.selfedit.propose("soul/PERSONA.md", "v2\n", reason="grown")
+    # Shaped: `soul.yaml` points at these headings, and a rewrite that drops
+    # them is refused before it can be queued (test_selfedit.py).
+    persona = ("---\nsoul: persona\nmutable: true\npersonality: \"quiet\"\n"
+               "---\n# Persona\n\n## Appearance\n\nv2\n\n## Manner\n\nv2\n")
+    edit = rig.mind.selfedit.propose("soul/PERSONA.md", persona, reason="grown")
     assert edit.outcome == "queued"
     r = c.post(f"/api/mind/edits/{edit.id}", json={"approve": True})
     assert r.json()["queued"] is True
@@ -95,7 +99,7 @@ async def test_edit_decision_rides_the_signal_bus(client_with_mind):
     assert rig.mind.selfedit.pending()
     await rig.mind.tick()
     assert rig.mind.selfedit.pending() == []
-    assert rig.mind.vault.read("soul/PERSONA.md") == "v2\n"
+    assert rig.mind.vault.read("soul/PERSONA.md") == persona
     # and the decision itself is journaled
     day_files = list((rig.mind.vault.vault / "memory" / "episodic").glob("*.md"))
     assert any("you applied my edit" in p.read_text() for p in day_files)

@@ -61,6 +61,40 @@ def test_example_enables_flash_attention_for_direct_gguf():
     assert cfg.selfie_backend == "off"
 
 
+def test_the_example_never_hands_a_comment_over_as_a_value():
+    """`KEY=              # what it means` is a trap for any knob whose default
+    is empty: python-dotenv reads the whole remainder as the value, so copying
+    `.env.example` to `.env` sets it to the prose. It shipped that way for
+    `SELFIE_LOCAL_MODEL` — a checkpoint path of English, failing at load with a
+    message about a file nobody named — and `MIND_TOOL_ALLOWLIST` would be
+    worse: the allowlist is the whole of what her hands may touch (§26.1), and
+    a garbage one is a configuration nobody can read the meaning of.
+
+    So the rule is a rule: an empty-valued key carries its comment on the lines
+    ABOVE it, never after the `=`."""
+    import dotenv
+
+    swallowed = {key: value for key, value in dotenv.dotenv_values(".env.example").items()
+                 if value and value.lstrip().startswith("#")}
+    assert not swallowed, (
+        "these keys took their trailing comment as their value — move the "
+        f"comment above the assignment: {sorted(swallowed)}")
+
+
+def test_the_example_ships_her_hands_off_and_empty():
+    """The default-off proof, read off the file a new install actually copies
+    (§26.1). Two separate decisions, and `.env.example` makes neither of them."""
+    cfg = Config(_env_file=".env.example")
+
+    assert not cfg.mind_tools_enabled
+    assert cfg.mind_tool_allowlist == ""
+    # …and even were both flipped, the caps are the shipped ones
+    assert cfg.mind_tool_calls_per_day == 8
+    assert cfg.mind_tool_pressure_ceiling == 0.5
+    # a cooldown shorter than the goal's own re-consider gap is not a cooldown
+    assert cfg.mind_tool_cooldown_cheap_s >= cfg.mind_consider_cooldown_s
+
+
 def test_importing_yurios_quiets_the_libraries_that_phone_out():
     """§3: `import litellm` otherwise GETs a 1.67 MB price map from GitHub at every
     start, and Hugging Face downloads report your torch build and AI harness. The

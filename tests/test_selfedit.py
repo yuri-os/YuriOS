@@ -7,7 +7,7 @@ import subprocess
 
 import pytest
 
-from yurios.mind.selfedit import SelfEdit
+from yurios.mind.selfedit import SelfEdit, SoulShapeError
 from yurios.mind.vaultio import ConstitutionReadOnly, MindVault
 from yurios.world.clock import VirtualClock
 
@@ -89,3 +89,66 @@ def test_paths_cannot_escape_the_vault(rig):
     _, vault = rig
     with pytest.raises(PermissionError):
         vault.write("../outside.md", "nope")
+
+
+# --- a rewrite that would stop her booting (SPEC §23) ------------------------------
+
+SOUL_YAML = """\
+name: "Test"
+fields:
+  description:
+    - PERSONA.md#Appearance
+  personality: PERSONA.md@personality
+  creator_notes: NOTES.md
+"""
+
+PERSONA = """\
+---
+soul: persona
+personality: "quiet"
+---
+# Persona
+
+## Appearance
+
+Dark hair.
+"""
+
+
+@pytest.fixture
+def manifested(rig):
+    """The same rig, plus the manifest that says what PERSONA.md must answer."""
+    selfedit, vault = rig
+    (vault.vault / "soul" / "soul.yaml").write_text(SOUL_YAML)
+    (vault.vault / "soul" / "PERSONA.md").write_text(PERSONA)
+    return selfedit, vault
+
+
+def test_a_rewrite_that_drops_what_soul_yaml_points_at_is_refused(manifested):
+    """The failure this exists for: a model handed "content is the whole new
+    file" returns good prose with the headings sanded off, the edit is approved
+    because the prose reads fine, and the character then fails to *start*."""
+    selfedit, vault = manifested
+    with pytest.raises(SoulShapeError) as exc:
+        selfedit.propose("soul/PERSONA.md", "She is quieter now.\n",
+                         reason="I have got quieter")
+    assert "## Appearance" in str(exc.value)
+    assert "personality" in str(exc.value)
+    assert selfedit.pending() == [], "refused at the proposal, never queued"
+    assert vault.read("soul/PERSONA.md") == PERSONA
+
+
+def test_a_rewrite_that_keeps_its_shape_still_queues(manifested):
+    """The guard is about structure, not about what she may say inside it."""
+    selfedit, _vault = manifested
+    grown = PERSONA.replace("Dark hair.", "Dark hair, shorter than it was.")
+    assert selfedit.propose("soul/PERSONA.md", grown,
+                            reason="I cut it").outcome == "queued"
+
+
+def test_a_file_the_manifest_asks_nothing_of_is_free_prose(manifested):
+    """NOTES.md is referenced whole, so there is no shape to keep — and the
+    check must not invent one."""
+    selfedit, _vault = manifested
+    assert selfedit.propose("soul/NOTES.md", "anything at all\n",
+                            reason="a note").outcome == "queued"

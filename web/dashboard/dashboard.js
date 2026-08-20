@@ -182,6 +182,17 @@ function characterCard(character) {
       ? `Let ${character.name}'s reach-outs raise a desktop notification. Her inbox fills either way.`
       : "Notifications are off for this node — set NOTIFY_ENABLED=true in .env to use this.",
   });
+  // Her hands (SPEC §26, as amended): whether the mind may reach for a tool on
+  // its own. In series with the house switch, and inert-with-a-reason when the
+  // house has not installed the capability — the doorbell's rule exactly.
+  // Turning it off lands before her next tick and never restarts her, which is
+  // what makes it a kill switch rather than a setting.
+  const handsLabel = () => switchLabel("hands", "Hands", character.hands.enabled, {
+    disabled: !character.hands.available,
+    title: character.hands.available
+      ? `Let ${character.name}'s own goals reach for a tool between conversations. Whatever she makes is kept for her, not sent to you.`
+      : "Autonomous tool use is off for this node — set MIND_TOOLS_ENABLED=true in .env to use this.",
+  });
   const details = element("button", {
     className: "open-detail",
     attrs: { type: "button", "data-action": "details", "aria-label": `Inspect ${character.name}`, title: "Inspect details" },
@@ -209,7 +220,7 @@ function characterCard(character) {
     debug);
   const controls = element("div", { className: "loop-stack" },
     loopLabel("mind", "Mind"), loopLabel("utility", "Utility"), loopLabel("dream", "Dream"),
-    notifyLabel());
+    handsLabel(), notifyLabel());
   const footer = element("div", { className: "card-footer" }, controls, ways, details);
   card.append(top, body, footer);
   return card;
@@ -271,8 +282,12 @@ async function setLoop(id, key, enabled, input) {
   input.disabled = true;
   // `notify` is not a loop and does not live in the same bag on the record.
   const set = (value) => {
+    // `notify` is not a loop and does not live in the same bag on the record;
+    // `hands` is one, but it is also mirrored under its own key so the tile can
+    // read the house switch beside it.
     if (key === "notify") character.notify.enabled = value;
     else character.loops[key] = value;
+    if (key === "hands") character.hands.enabled = value;
     if (key === "mind") character.loopEnabled = value;
   };
   set(enabled);
@@ -289,10 +304,14 @@ async function setLoop(id, key, enabled, input) {
       ? (enabled
         ? `${character.name} can raise a desktop notification when she reaches out.`
         : `${character.name} will reach out to her inbox only — no desktop notification.`)
-      : `${character.name}'s ${key} work ${enabled ? "enabled" : "disabled"}.`);
+      : key === "hands"
+        ? (enabled
+          ? `${character.name} may reach for a tool while working her own goals.`
+          : `${character.name}'s next autonomous tool call will be denied. Anything already running finishes.`)
+        : `${character.name}'s ${key} work ${enabled ? "enabled" : "disabled"}.`);
   } catch (error) {
     set(!enabled);
-    toast(`${key === "notify" ? "Notification" : "Loop"} change failed: `
+    toast(`${key === "notify" ? "Notification" : key === "hands" ? "Hands" : "Loop"} change failed: `
       + `${errorMessage(error)}`, "error");
   }
   renderCharacters();
@@ -627,7 +646,7 @@ function settingsValues() {
   // unchecked box entirely, so unticking one would look like no change at all.
   return {
     ...Object.fromEntries(new FormData(form).entries()),
-    ...Object.fromEntries(["mind", "utility", "dream", "notify"].map(
+    ...Object.fromEntries(["mind", "utility", "dream", "hands", "notify"].map(
       (key) => [key, form.elements[key].checked])),
   };
 }
@@ -641,6 +660,16 @@ function snapshotSettings() {
  * teaches people not to trust the panel. When `NOTIFY_ENABLED` is off the field
  * still shows her stored answer — it is real, and it takes effect the moment the
  * node's switch goes on — but it says so instead of looking live. */
+function setHandsAvailability(form, available) {
+  const field = form.elements.hands.closest("label");
+  form.elements.hands.disabled = !available;
+  if (field) {
+    field.classList.toggle("is-inert", !available);
+    field.title = available ? ""
+      : "Autonomous tool use is off for this node — set MIND_TOOLS_ENABLED=true in .env.";
+  }
+}
+
 function setNotifyAvailability(form, available) {
   const field = form.elements.notify.closest("label");
   form.elements.notify.disabled = !available;
@@ -664,7 +693,8 @@ async function openSettings() {
   form.elements.body_backend.value = character.raw?.body_backend || "";
   form.elements.body_model.value = character.raw?.body_model || "";
   for (const name of ["personality", "scenario", "first_mes"]) form.elements[name].value = "";
-  for (const key of ["mind", "utility", "dream"]) form.elements[key].checked = character.loops[key];
+  for (const key of ["mind", "utility", "dream", "hands"]) form.elements[key].checked = character.loops[key];
+  setHandsAvailability(form, character.hands.available);
   // `notify` is not one of the loops — see NotifyBinding. The house switch can
   // leave it inert, so the reason is on the field rather than left to be guessed.
   form.elements.notify.checked = character.notify.enabled;

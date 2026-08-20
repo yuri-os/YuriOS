@@ -121,6 +121,12 @@ class Runtime:
         if cfg.skills_enabled:
             for tool in SKILL_TOOLS:
                 rates[tool] = cfg.tool_rate_desk
+        # the self-edit door (§23). Advertised only where the mind runs, because
+        # the queue it writes into is only read there — and rationed hard: this
+        # is the one hand that reaches at who she is, and a proposal a minute
+        # is not deliberation, it is a loop with a git history.
+        if cfg.mind_enabled:
+            rates["propose_edit"] = cfg.tool_rate_selfedit
         self.guard = Guard(rates_per_min=rates,
                            log_dir=cfg.tool_log_dir, clock=self.clock,
                            max_bytes=cfg.tool_log_max_bytes)
@@ -170,7 +176,8 @@ class Runtime:
                                          resident_free_gib=forge.backend.RESIDENT_FREE_GIB,
                                          gate=self.park_gate),
                                      quiet=self.wait_turns_idle,
-                                     situation=self.visual_situation)
+                                     situation=self.visual_situation,
+                                     signal=self.post_signal)
         # Her reading desk (SPEC §7.7): the same start-don't-await shape as the
         # camera, and the place a fetched page turns into a shelved document.
         # The knowledge store is passed as a GETTER because it belongs to the
@@ -192,7 +199,7 @@ class Runtime:
                 search, fetcher, clock=self.clock,
                 post=self.post_message, speak=self.speak_ambient,
                 knowledge=lambda: self.mind.knowledge if self.mind else None,
-                notify=self.hub.publish)
+                notify=self.hub.publish, signal=self.post_signal)
             self.research_status = cfg.search_backend
         # Whether the providers behind her voice are ours to rebuild (SPEC §31.4).
         # An injected brain or an injected model belongs to the caller — a live
@@ -251,6 +258,10 @@ class Runtime:
                                  max_bytes=cfg.mind_signal_max_bytes)
         self.mind: MindLoop | None = None
         self.mind_status = "disabled"
+        # Her half of the two switches behind her hands (§26.1). Held here
+        # because the host seeds it from her record before there is a mind to
+        # tell, and because a revoke has to survive the mind being rebuilt.
+        self._hands_granted = True
         # the channel seam (SPEC §10.5): one text-turn runner shared by every
         # non-voice medium, and the manager that runs the in-process channel
         # adapters (Telegram now; WhatsApp / a game-engine NPC API later).
@@ -448,6 +459,20 @@ class Runtime:
         reason TTS synthesis runs in a thread (desktop/voice/turn.py)."""
         return await asyncio.to_thread(self.uploads.save, data)
 
+    # ---- the inbound inbox (SPEC §16) ----
+
+    def post_signal(self, type_: str, payload: dict | None = None,
+                    source: str = "host"):
+        """Put one fact on the bus for SENSE to find.
+
+        A bound method rather than `self.signals.post` handed round directly,
+        because the two off-turn workers (the camera, the reading desk) are
+        built before the bus is and would capture a name that doesn't exist
+        yet. It also keeps the rule that producers post facts and never call
+        into the mind: this is the whole of the seam they get.
+        """
+        return self.signals.post(type_, payload, source=source)
+
     # ---- the transcript (SPEC §2.6) ----
 
     def post_message(self, role: str, text: str, *, image_url: str | None = None,
@@ -624,6 +649,9 @@ class Runtime:
                 "VAULT_DIR": str(self.cfg.vault_dir),
                 "WORKSPACE_ENABLED": "1" if self.cfg.workspace_enabled else "0",
                 "SKILLS_ENABLED": "1" if self.cfg.skills_enabled else "0",
+                # §23: unadvertised without a mind, because the queue it writes
+                # into is only ever read by the loop and the inner-life panel.
+                "SELFEDIT_ENABLED": "1" if self.cfg.mind_enabled else "0",
             })
             # …plus anybody else's hands (§7.2). With no MCP_SERVERS file this
             # is skipped entirely and she runs on her own server alone, exactly
@@ -715,6 +743,7 @@ class Runtime:
                                      speak=self.speak_ambient,
                                      post_message=self.post_message,
                                      park_gate=self.park_gate)
+                self.mind.set_hands_enabled(self._hands_granted)
                 self.mind_status = "running"
                 self.boot.done("mind", detail=f"running · {self.mind.activity.state}")
                 self._mind_task = asyncio.create_task(self.mind.run(), name="mind")
@@ -848,6 +877,23 @@ class Runtime:
             await asyncio.gather(self._mind_task, return_exceptions=True)
         self._mind_task = None
         self.mind_status = "paused"
+
+    def set_hands_enabled(self, enabled: bool) -> None:
+        """Grant or revoke this character's autonomous hands, live (§26, amended).
+
+        Synchronous and never restarts her: the whole value of a kill switch is
+        that it lands before the next tick, and one that needed a rebuild would
+        be a setting wearing a switch's clothes. A revoke cancels nothing
+        already dispatched and denies everything after it, in the audit.
+
+        Recorded even when there is no mind yet: `start()` seeds this from her
+        record before `start_async` builds one, and a mind rebuilt later (a
+        model change, a restart of the loop alone) must not come back with the
+        hands she was refused.
+        """
+        self._hands_granted = bool(enabled)
+        if self.mind is not None:
+            self.mind.set_hands_enabled(enabled)
 
 
 # uvicorn waits this long for open connections to drain on Ctrl+C before it

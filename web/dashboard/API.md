@@ -21,9 +21,20 @@ Returns either a JSON array or `{ "characters": [...] }`. Each active character 
   "model": "openrouter/example/model",
   "voice": "alloy",
   "unread": { "count": 2, "selfies": 1, "latest": "2026-08-14T03:05:00" },
+  "loops": { "mind": true, "utility": true, "dream": true, "hands": true },
+  "notify": { "enabled": true, "available": false },
+  "hands": { "enabled": true, "available": false },
   "updated_at": "2026-07-28T10:42:00Z"
 }
 ```
+
+`notify` and `hands` are the same shape and are read the same way: `enabled` is this
+character's switch, `available` is the **house** switch behind it (`NOTIFY_ENABLED`,
+`MIND_TOOLS_ENABLED`). The two are in series — a character can never talk her way past the
+house — so when `available` is false the board shows her toggle **inert with the reason on
+it**, rather than offering a switch that quietly does nothing. `hands` is whether her mind
+may reach for a tool between conversations (SPEC §26.1); it is also mirrored in `loops` for
+the four-switch stack on the tile.
 
 `unread` is what she reached out about while nobody was in the room (SPEC §18.4) — the tile wears
 a mark when `count` is above zero, and says *picture* rather than *message* when `selfies` accounts
@@ -46,6 +57,14 @@ Recognized states are `awake`, `engaged`, `dreaming`, `resting`, `attention`, an
 Returns the updated character object, `{ "character": {...} }`, or any successful
 JSON acknowledgement. The dashboard updates optimistically and rolls back on a
 non-2xx response.
+
+`PATCH /api/characters/{id}/controls` takes any of `mind`, `utility`, `dream`, `hands`
+and `notify` as booleans. `utility`, `dream` and `notify` are wired at construction and so
+rebuild the runtime; `mind` and `hands` reach the running character live. `hands` in
+particular **must** land before her next tick without a restart — it is the kill switch for
+autonomous tool use, and one that needed a rebuild would be a setting wearing a switch's
+clothes. Revoking it cancels nothing already dispatched and denies everything after it, in
+`tool-logs/calls.jsonl`.
 
 ## Character detail
 
@@ -82,7 +101,7 @@ character **without a restart**, and the response carries `applied: [...]` namin
 what moved on the live runtime. The character is rebuilt only when the save
 actually changed something wired at construction — her name, voice, body, or the
 utility/dream loops — so posting the whole form with one new model value keeps
-her conversation alive.
+her conversation alive. `mind` and `hands` are applied live rather than rebuilding her.
 
 ## Her brain
 

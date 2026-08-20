@@ -69,6 +69,10 @@ class BrainAdapter:
         self.workspace = None
         self.skills = None
         self._on_desk_write = None
+        # mind/goals.py's store (§22), wired by MindLoop and just as nullable.
+        # Without it the goals block simply isn't assembled — which is Build #1's
+        # behaviour and every mindless runtime's.
+        self.goals = None
 
     def set_prompt_log(self, prompt_log) -> None:
         """Wire the sink that records what she was actually asked (SPEC §24.2)."""
@@ -82,6 +86,36 @@ class BrainAdapter:
         mind is off.
         """
         self.knowledge = store
+
+    def set_goals(self, store) -> None:
+        """Wire her own standing list into the §7.1 assembly (the §22 block).
+
+        Late-bound like the shelf and the desk, and for the same reason: the
+        GoalStore belongs to the MindLoop. Until this is called she talks with
+        no idea what she is already working on — which is how a companion ends
+        up promising the same thing three evenings running.
+        """
+        self.goals = store
+
+    def _open_goals(self) -> list[str]:
+        """Her open goals, newest last, as one line each. Never raises: a
+        `goals.md` somebody hand-edited into nonsense is a turn without the
+        block, not a turn that doesn't happen (the shelf's rule)."""
+        if self.goals is None or getattr(self.cfg, "goals_in_prompt", 12) <= 0:
+            return []
+        try:
+            open_goals = self.goals.open_goals()
+        except Exception:       # noqa: BLE001 — a mangled goals.md
+            log.warning("goal list failed; assembling without it", exc_info=True)
+            return []
+        lines: list[str] = []
+        for goal in open_goals[-getattr(self.cfg, "goals_in_prompt", 12):]:
+            # The state is worth a word: "waiting" is the difference between a
+            # thing she has not started and a thing she is blocked on, and only
+            # one of those is worth asking them about.
+            mark = "" if goal.state == "pending" else f" ({goal.state})"
+            lines.append(f"{goal.text}{mark}")
+        return lines
 
     def set_workspace(self, workspace, skills, on_write=None) -> None:
         """Wire her desk and her skills into the prompt (SPEC §34.3).
@@ -193,6 +227,7 @@ class BrainAdapter:
             summary=self.state.store.read_summary(),
             memories=self.state.store.recall(text, self.cfg.retrieval_k),
             knowledge=self._recall_knowledge(text),
+            goals=self._open_goals(),
             lore=lore,
             window=window,
             user_msg=text,

@@ -44,7 +44,9 @@ from yurios.world.vram import PATIENT_WAIT_S, ParkGate
 from .budget import BudgetGovernor
 from .dream import DreamConsolidator
 from .dreamjobs import DreamRunner
-from .goals import Goal, GoalStore, extract_promises
+from .goals import Goal, GoalStore, extract_promises, promise_kind
+from .hands import (START_DONT_AWAIT, Hands, build_guard, klass, parse_intent,
+                    stamp_contract)
 from .journal import Journal
 from .knowledge import KnowledgeStore
 from .promptlog import PromptLog
@@ -146,6 +148,13 @@ class MindLoop:
                                 on_write=self._desk_written)
         self.goals = GoalStore(self.vault, clock)
         self.selfedit = SelfEdit(self.vault, clock)
+        if hasattr(brain, "set_goals"):
+            brain.set_goals(self.goals)        # §22: her standing list joins the
+                                               # conversational prompt, so the
+                                               # talking-self and the intending-
+                                               # self stop being two people
+        if hasattr(brain, "set_selfedit"):
+            brain.set_selfedit(self.selfedit)  # §23: `propose_edit` gets a door
         self.journal = Journal(self.vault, clock, hub, store=state.store)
         self.dream = DreamConsolidator(self.vault, state.store, clock,
                                        utility=self._utility
@@ -171,6 +180,14 @@ class MindLoop:
         self.budget = BudgetGovernor(state_dir, clock,
                                      daily_tokens=cfg.mind_daily_tokens)
         self.trace = TickTrace(cfg.trace_dir, clock, max_bytes=cfg.mind_trace_max_bytes)
+        # Her hands, in the loop (SPEC §26, as amended — mind/hands.py). Built
+        # unconditionally and off by default: `enabled` is one property to read
+        # rather than a None to test for at six call sites, and the guard is a
+        # SECOND instance with its own buckets so a night of autonomous work can
+        # never leave the morning's request rate-limited.
+        self.hands = Hands(cfg=cfg, clock=clock,
+                           guard=build_guard(cfg, clock),
+                           runner=lambda: getattr(self.brain, "runner", None))
         # Share the runtime's sink when there is one, so her conversational
         # prompts and her private ones land in one file with one rotation state.
         # A test brain has none; build our own rather than lose the record.
@@ -184,6 +201,20 @@ class MindLoop:
         self.interrupts: dict = st.get("interrupts", {"date": "", "count": 0})
         self.considered: dict = st.get("considered", {})
         self.last_tick_ts: float | None = st.get("last_tick_ts")
+        # goal id -> when to consider it next (SPEC §16, the `wakeup` signal).
+        # A goal that decided "look at this again after lunch" said something the
+        # hourly consider cooldown cannot express, and a restart that forgot it
+        # would quietly turn a scheduled follow-up into an hourly one.
+        self.wakeups: dict = st.get("wakeups", {})
+        # Which day's reconsideration has already run (§22.2). Commitment
+        # strategies used to apply only after a suspend gap — i.e. only when the
+        # machine had slept two hours — so a goal that went stale while she was
+        # awake was defended forever by a strategy that never got asked.
+        self.reconsidered_on: str = st.get("reconsidered_on", "")
+        # The one-shot §5.4 handoff, below. A date rather than a bool so the
+        # journal line and the goal it files can be traced back to the day.
+        self.bootstrapped_on: str = st.get("bootstrapped_on", "")
+        self.hands.load(st)
 
         self._session: str | None = None       # lazy brain session for her own words
         self._pending_announce: list = []      # timer promises awaiting delivery
@@ -329,6 +360,16 @@ class MindLoop:
         while not self.timers.due.empty():     # landed countdowns become signals
             t = self.timers.due.get_nowait()
             self.bus.post("timer", {"label": t.label, "id": t.id}, source="host")
+        # …and the wakes the loop scheduled for itself (SPEC §16). A goal that
+        # said "look at this again after lunch" said something the hourly
+        # consider cooldown cannot express, and a run she dispatched and never
+        # heard back from needs a floor under how long it may strand its goal.
+        # Posted as signals rather than slept on, so `signals.jsonl` still
+        # answers "what woke her at 3am" for this reason too.
+        for goal_id, at in sorted(self.wakeups.items(), key=lambda kv: kv[1]):
+            if now >= float(at):
+                self.wakeups.pop(goal_id, None)
+                self.bus.post("wakeup", {"goal": goal_id}, source="mind")
 
         batch, new_offset = self.bus.next(self.offset)
         surprise = 0.0
@@ -348,11 +389,30 @@ class MindLoop:
                 # is the promise scan — her own words become goals she must keep
                 for text, prov in extract_promises(
                         sig.payload.get("reply", ""), sig.payload.get("text", "")):
+                    kind = promise_kind(text, prov)
                     g = self.goals.add(
-                        text, kind="reach_out", priority=0.6,
-                        due=iso_of(self.clock.now() + 24 * 3600),
-                        commitment="single-minded", provenance=prov)
-                    reflect_notes.append(f"I promised: {g.text}")
+                        text, kind=kind,
+                        # Work she took on outranks talking about work, and it
+                        # has to clear gate 1 *now* rather than in twelve hours:
+                        # 0.6 scores 0.36, under every threshold, which is how
+                        # every promise she ever made sat untouched until its due
+                        # time turned it into something to say instead.
+                        priority=0.6 if kind == "reach_out" else 0.7,
+                        # A reach-out is a thing to say by a time. Work isn't: a
+                        # due date on "look into that" is a deadline she invented,
+                        # and `reconsider()` would eventually hold her to it.
+                        due=(iso_of(self.clock.now() + 24 * 3600)
+                             if kind == "reach_out" else None),
+                        commitment="single-minded", provenance=prov,
+                        # What it was *about*, which the scan drops: it keeps
+                        # the predicate after "I'll" and the subject was in
+                        # their sentence. Kept on the goal rather than looked up
+                        # later because the goal outlives the conversation.
+                        meta=({"about": self._trim(sig.payload.get("text", ""))}
+                              if kind == "task" else None))
+                    reflect_notes.append(
+                        f"I promised: {g.text}" if kind == "reach_out"
+                        else f"I took that on: {g.text}")
             elif sig.type == "selfedit_decision":
                 res = self.selfedit.decide(sig.payload.get("id", ""),
                                            bool(sig.payload.get("approve")))
@@ -366,11 +426,36 @@ class MindLoop:
                     "I caught up on what expired and what still matters")
             elif sig.type == "timer":
                 self._pending_announce.append(sig.payload)
+            elif sig.type == "wakeup":
+                # The wake IS the effect: clearing the consider cooldown is what
+                # lets APPRAISE look at that goal again on this very tick. It is
+                # bookkeeping, not an intention — "she woke up" was never a thing
+                # for her to do.
+                note = self._wake_goal(str(sig.payload.get("goal", "")))
+                if note:
+                    reflect_notes.append(note)
+            elif sig.type == "task_completion":
+                # Bookkeeping first — the goal that dispatched this comes back
+                # from `waiting` here, where it cannot starve behind another
+                # intention — and then on to APPRAISE, which is where the
+                # journal line about it is decided (the branch in ACT).
+                note = self._land_dispatched(sig)
+                if note:
+                    reflect_notes.append(note)
+                actionable.append(sig)
             elif sig.type in ("user_present", "user_absent"):
                 pass                           # observed above; greeting is the
                                                # voice route's job in this build
             else:
                 actionable.append(sig)
+
+        # REGULATE's daily duties, performed here rather than after ACT because
+        # both of their outputs belong to *this* tick: the goals a rollover
+        # retires or files are goals APPRAISE has to see now, and the lines it
+        # writes are lines REFLECT has to journal now. Idempotent and dated, so
+        # a restart at 23:59 does not do the day twice.
+        reflect_notes.extend(self._day_rollover(now))
+        reflect_notes.extend(self._bootstrap_handoff(now))
 
         # ---- APPRAISE (cheap by construction: heuristics, no model) ----------
         appraisals: list[Appraisal] = [
@@ -378,13 +463,34 @@ class MindLoop:
         if self._pending_announce and not self._engaged_now():
             appraisals.append(Appraisal("announce", "impulse", 0.9,
                                         "a timer landed — a promise due"))
+        # Which of her hands, if any, are reachable this tick (§26, as amended).
+        # Computed in APPRAISE and checked again at dispatch, so a hand that is
+        # blocked shows up in the trace as a runner-up with its reason rather
+        # than as an exception inside an act that already committed.
+        offer = self.hands.offer(
+            state=self.activity.state,
+            pressure=self.budget.pressure(),
+            user_present=bool(self.world.snapshot().get("user_present")))
         for g in self.goals.open_goals():
             if g.state == "waiting":
                 continue
             last = self.considered.get(g.id)
             if last and (now - last) < self.cfg.mind_consider_cooldown_s:
                 continue                       # don't re-chew one goal every tick
-            appraisals.append(appraise_goal(g, self.clock))
+            a = appraise_goal(g, self.clock)
+            if offer and g.kind != "reach_out":
+                # Same goal, same score — the difference is only whether the
+                # step she takes may be a reach as well as a thought (principle
+                # 7: a tool call is a step of an open goal, never free-floating).
+                a = Appraisal(g, "tool_step", a.score,
+                              f"{a.why}; hands: {', '.join(offer.tools)}")
+            appraisals.append(a)
+        if offer.reason:
+            # Configured, and blocked for a nameable reason. Scored 0.0, which
+            # is below every threshold there is: this exists to be *read* in the
+            # trace, not to compete. With the house switch off there is no
+            # reason string at all — off means invisible (principle 9).
+            appraisals.append(Appraisal("tool_step", "impulse", 0.0, offer.reason))
         if self.knowledge.pending_docs():
             appraisals.append(Appraisal("ingest", "impulse", 0.55,
                                         "new document on the shelf"))
@@ -403,7 +509,12 @@ class MindLoop:
         chosen = next((a for a in appraisals
                        if a.score >= self.cfg.mind_act_threshold), None)
         decided = {"intention": self._describe(chosen),
-                   "runners_up": [self._describe(a) for a in appraisals[1:4]]}
+                   "runners_up": [self._describe(a) for a in appraisals[1:4]],
+                   # what her hands could reach for, and why not when they
+                   # couldn't — the "what did she do at 4am" question, answered
+                   # in the same record as the decision that answered it
+                   "hands": {"available": list(offer.tools),
+                             "blocked": offer.reason}}
         # more than one thing worth doing? one intention per tick still holds —
         # the runners-up just shorten the next heartbeat instead of piling into
         # this one (the DREAM chunking discipline, generalised)
@@ -415,7 +526,7 @@ class MindLoop:
         interrupt: dict = {}
         if chosen is not None:
             try:
-                acted, interrupt, act_notes = await self._act(chosen)
+                acted, interrupt, act_notes = await self._act(chosen, offer)
                 reflect_notes.extend(act_notes)
             except Exception as e:  # noqa: BLE001 — a failed act never kills the loop
                 log.exception("ACT failed")
@@ -433,7 +544,8 @@ class MindLoop:
             "activity_state": self.activity.state,
             "sensed": [{"type": s.type, "id": s.id} for s in batch],
             "appraised": [{"what": self._describe(a),
-                           "score_to_act": round(a.score, 3)} for a in appraisals],
+                           "score_to_act": round(a.score, 3),
+                           "why": a.why} for a in appraisals],
             "decided": decided, "acted": acted, "interrupt": interrupt,
         }
         self.trace.record(tick_id=self._tick_id, **trace_rec)
@@ -464,11 +576,14 @@ class MindLoop:
             return f"signal:{a.subject.type}"
         if a.kind == "goal":
             return f"goal:{a.subject.text[:50]}"
+        if a.kind == "tool_step":
+            return f"tool_step:{a.subject.text[:50]}"
         return str(a.subject)
 
     # --------------------------------------------------------------------- ACT
 
-    async def _act(self, chosen: Appraisal) -> tuple[dict, dict, list[str]]:
+    async def _act(self, chosen: Appraisal,
+                   offer=None) -> tuple[dict, dict, list[str]]:
         if chosen.subject == "announce":
             return await self._act_announce()
         if chosen.subject == "self_talk":
@@ -485,12 +600,15 @@ class MindLoop:
                         [f"finished something I'd started: "
                          f"{sig.payload.get('task', 'a task')}"])
             return ({"what": "noted", "result": f"noted {sig.type}"}, {}, [])
-        if chosen.kind == "goal":
+        if chosen.kind in ("goal", "tool_step"):
             goal: Goal = chosen.subject
             self.considered[goal.id] = self.clock.now()
             if goal.kind == "reach_out":
                 return await self._act_reach_out(goal)
-            return await self._act_goal_work(goal)
+            # `tool_step` is reachable ONLY from here (§26, as amended): a hand
+            # she reaches for is a step of an open goal or it does not happen.
+            return await self._act_goal_work(
+                goal, offer if chosen.kind == "tool_step" else None)
         return ({"what": None, "result": "rest"}, {}, [])
 
     async def _act_announce(self) -> tuple[dict, dict, list[str]]:
@@ -626,20 +744,398 @@ class MindLoop:
         return ({"what": "speak", "result": f"reached out: {goal.text}"},
                 interrupt, [f"reached out first about {goal.text}"])
 
-    async def _act_goal_work(self, goal: Goal) -> tuple[dict, dict, list[str]]:
-        """Advance a task/maintenance goal with one bounded local-tier step —
-        a working note in the journal, never a message to the user."""
+    # ---- the goal lifecycle's two return paths (SPEC §22, §16) ----------------
+
+    def _wake_goal(self, goal_id: str) -> str:
+        """A `wakeup` the loop scheduled has landed.
+
+        Two things it can mean, and the goal's own state says which: a parked
+        goal is due another look (clear the consider cooldown and let APPRAISE
+        see it), or a goal has been sitting in `waiting` on work that never
+        posted its `task_completion` (unstrand it, and say so — a goal invisible
+        to every gate she has is worse than one that failed).
+        """
+        goal = self.goals.get(goal_id) if goal_id else None
+        if goal is None or goal.state not in ("pending", "active", "waiting"):
+            return ""
+        self.considered.pop(goal.id, None)
+        if goal.state != "waiting":
+            return ""
+        dispatched = goal.dispatched
+        self.goals.update(goal.id, state="active", meta={"dispatched": {}})
+        if dispatched:
+            return (f"the {dispatched.get('tool', 'work')} I started for "
+                    f"“{goal.text}” never came back; picking it up myself")
+        return f"came back to: {goal.text}"
+
+    def _land_dispatched(self, sig: Signal) -> str:
+        """`task_completion` → the goal that dispatched it returns to `active`.
+
+        This is the whole reason the signal type existed and was never posted:
+        the loop was built for a return path and the return path was a stub.
+        Bookkeeping, done in SENSE, so a busy tick cannot leave a finished run's
+        goal stranded in `waiting` behind some louder intention.
+        """
+        goal_id = str(sig.payload.get("goal_id") or "")
+        goal = self.goals.get(goal_id) if goal_id else None
+        if goal is None or goal.state != "waiting":
+            return ""
+        self.goals.update(goal.id, state="active", meta={"dispatched": {}})
+        self.considered.pop(goal.id, None)     # workable again on this very tick
+        self.wakeups.pop(goal.id, None)        # the safety net is not needed now
+        what = sig.payload.get("kind") or "work"
+        where = ("it's in the vault, not in the chat"
+                 if sig.payload.get("deliver") == "vault" else "it's in the chat")
+        return (f"the {what} I started for “{goal.text}” came back — {where}")
+
+    async def _act_maintenance(self, goal: Goal,
+                               auto: str) -> tuple[dict, dict, list[str]]:
+        """A `maintenance:*` goal that stands for a standing leftover (§22).
+
+        It does not get a paragraph written about it — it gets the leftover
+        done, through the same act the cheap impulse path uses, and it closes
+        itself the moment there is nothing left. That is what keeps the goals
+        page from filling with to-dos nobody can finish by reading them.
+        """
+        if auto == "shelf":
+            acted, interrupt, notes = await self._act_ingest()
+            left = bool(self.knowledge.pending_docs())
+        elif self.activity.state != DREAM:
+            # Defence, not a path she is expected to take: the dream goal
+            # carries no due time precisely so it never outranks the window
+            # that owns this decision (§21). If somebody raises its priority by
+            # hand, it still waits for the night rather than starting one.
+            self.goals.update(goal.id, meta={"last_step": iso_of(self.clock.now())})
+            return ({"what": None, "result": "the backlog waits for tonight"},
+                    {}, [f"still to do tonight: {goal.text}"])
+        else:
+            acted, interrupt, notes = await self._act_dream()
+            left = bool(self.dreams.backlog())
+        state = "active" if left else "done"
+        if state == "done":
+            notes.append(f"cleared: {goal.text}")
+        self.goals.update(goal.id, state=state,
+                          meta={"steps": goal.steps + 1,
+                                "last_step": iso_of(self.clock.now())})
+        return ({**acted, "goal": goal.id, "state": state}, interrupt, notes)
+
+    #: Where a goal's working notes live (§34.1, §22). One file per goal, in her
+    #: own workspace, so "what did she work out about this" is a file a person
+    #: can open — and so the next tick can read back what the last one concluded
+    #: instead of starting from the goal's one-line text every time.
+    GOAL_DESK = "goals/{id}.md"
+
+    def _goal_desk_path(self, goal: Goal) -> str:
+        return self.GOAL_DESK.format(id=goal.id)
+
+    def _goal_desk_read(self, goal: Goal, *, limit: int = 3000) -> str:
+        """What she has already worked out about this goal, newest at the end."""
+        if self.workspace is None:
+            return ""
+        try:
+            text = self.workspace.read(self._goal_desk_path(goal), default="") or ""
+        except Exception:  # noqa: BLE001 — a desk file is never worth a dead tick
+            log.warning("goal desk read failed", exc_info=True)
+            return ""
+        return text[-limit:]
+
+    def _goal_desk_write(self, goal: Goal, line: str) -> None:
+        """Append one step's conclusion to the goal's desk file.
+
+        Append rather than replace: the value of the file is the trail. The
+        workspace already caps file and tree size and jails the path
+        (mind/workspace.py), so an unbounded trail is a caught error rather than
+        a full disk — and the per-tick single-step rule bounds the rate.
+        """
+        if self.workspace is None or not line.strip():
+            return
+        stamp = iso_of(self.clock.now())
+        try:
+            self.workspace.append(self._goal_desk_path(goal),
+                                  f"\n## {stamp}\n\n{line.strip()}\n")
+        except Exception:  # noqa: BLE001
+            log.warning("goal desk write failed", exc_info=True)
+            return
+        # …and the same journal line a desk tool would have produced, so the
+        # inner-life page shows the write whichever hand made it (§34.2).
+        self._desk_notes.append(f"wrote up where I got to: "
+                                f"{self._goal_desk_path(goal)}")
+        self.vault.mark_dirty()
+
+    def _goal_context(self, goal: Goal) -> str:
+        """Everything the *conversational* prompt would have given her, minus
+        the conversation (SPEC §7.1, §34.3, §19.2).
+
+        She was measurably dumber alone than she is talking to you: chat gets
+        the desk digest, the skills catalog, the situation and the shelf, and
+        goal work got the goal's one-line text and nothing else. That is
+        backwards for a project whose whole thesis is the inner life, and it is
+        why every private step read like a fortune cookie.
+        """
+        parts: list[str] = [f"THE GOAL\n\n{goal.text}"]
+        meta = [f"kind: {goal.kind}", f"state: {goal.state}",
+                f"step {goal.steps + 1} of {self.cfg.mind_goal_max_steps}",
+                f"why you have it: {goal.provenance}"]
+        if goal.due:
+            meta.append(f"due: {goal.due}")
+        parts.append("ABOUT IT\n\n" + "\n".join(f"- {m}" for m in meta))
+        # The exchange that made it, when it was made by one. A promise is
+        # scanned as the *predicate* after "I'll", so "which of the two kettles
+        # boils faster" survives only as "find out which one is faster for you"
+        # — and a working step handed that alone invents a subject for it with
+        # complete confidence. It only became visible when tasks started being
+        # worked; as `reach_out` goals these never got a step at all.
+        about = str(goal.meta.get("about") or "").strip()
+        if about:
+            parts.append(f"WHERE THIS CAME FROM\n\nThey said: “{about}”")
+        desk = self._goal_desk_read(goal)
+        if desk.strip():
+            parts.append("WHAT YOU HAVE ALREADY WORKED OUT ON THIS\n\n" + desk.strip())
+        try:
+            parts.append("THE SITUATION RIGHT NOW\n\n" + self.world.situation())
+        except Exception:  # noqa: BLE001
+            log.debug("goal work: no situation", exc_info=True)
+        if self.workspace is not None:
+            digest = self.workspace.digest(limit=12)
+            if digest:
+                parts.append("YOUR DESK (paths only — `read_note` opens one)"
+                             "\n\n" + digest)
+        if self.skills is not None:
+            catalog = self.skills.catalog(limit=12)
+            if catalog:
+                parts.append("SKILLS YOU HAVE WRITTEN DOWN\n\n" + catalog)
+        facts = self.vault.read("memory/semantic/facts.md")[-1200:].strip()
+        if facts:
+            parts.append("WHAT YOU KNOW ABOUT THEM\n\n" + facts)
+        other = [g.text for g in self.goals.open_goals() if g.id != goal.id][-8:]
+        if other:
+            parts.append("YOUR OTHER OPEN GOALS (do not work these now)\n\n"
+                         + "\n".join(f"- {t}" for t in other))
+        return "\n\n".join(parts)
+
+    async def _act_goal_work(self, goal: Goal,
+                             offer=None) -> tuple[dict, dict, list[str]]:
+        """Advance one task/maintenance goal by exactly one step (SPEC §22).
+
+        The lifecycle is the point. A goal used to be created `pending`, worked
+        once, and marked `done` — which meant "she does things while you're
+        gone" was one paragraph of a local model and a tick. Now:
+
+            pending → active     on the first step
+            active  → waiting    when it is blocked on the user, or on work it
+                                 dispatched and will not await (§7.6)
+            active  → done       when the step says the work is finished
+            active  → waiting/abandoned  when the step budget runs out, by
+                                 whichever the commitment strategy says
+
+        One step is one utility call that may emit **one** intent: a thought, or
+        — when her hands are offered — one tool call. Never both, never two;
+        that is "one intention per tick" applied one level down.
+
+        Nothing here ever speaks. The product of a step lands on her desk and in
+        her journal; reaching the user is Gate 2's decision, made about a
+        `reach_out` goal, on some later tick.
+        """
+        notes: list[str] = []
+        # A maintenance goal that only *stands for* a leftover does not get a
+        # paragraph written about it — it gets the leftover done. The impulses
+        # are still the cheap path (§21, §20.1); this is what makes the standing
+        # record of them something more than a line in a checklist.
+        auto = goal.meta.get("auto")
+        if auto in ("shelf", "dream"):
+            return await self._act_maintenance(goal, auto)
+
+        if goal.state == "pending":
+            self.goals.update(goal.id, state="active")
+            goal.state = "active"
+        step = goal.steps + 1
+        last = step >= max(1, int(self.cfg.mind_goal_max_steps))
+
         with correlate.scope(kind=correlate.GOAL_WORK):
-            note = await self._utility([
-                {"role": "system",
-                 "content": "You are quietly advancing one of your own goals. "
-                            "Write a short working note (<=80 words) of what you "
-                            "concluded or want to try next. Just the note."},
-                {"role": "user", "content": f"The goal: {goal.text}"}])
-        note = (note or "").strip() or f"(sat with it; nothing new yet on: {goal.text})"
-        self.goals.set_state(goal.id, "done")
-        return ({"what": "goal_work", "result": "worked the goal; journaled"},
-                {}, [f"worked on: {goal.text} — {note[:120]}"])
+            reply = await self._utility([
+                {"role": "system", "content": self._work_system(goal, offer, last)},
+                {"role": "user", "content": self._goal_context(goal)}])
+
+        intent = parse_intent(reply, allowed=tuple(offer.tools) if offer else ())
+        used: dict = {}
+        if intent.kind == "use":
+            used, note = await self._tool_step(goal, intent, offer)
+            notes.append(note)
+        else:
+            note = (intent.text or "").strip() or \
+                f"(sat with it; nothing new yet on: {goal.text})"
+            self._goal_desk_write(goal, note)
+            notes.append(f"worked on: {goal.text} — {note[:160]}")
+
+        meta: dict = {"steps": step, "last_step": iso_of(self.clock.now())}
+        if used.get("dispatched"):
+            # Start-don't-await: the answer comes back as `task_completion`, and
+            # until it does there is nothing to think about (§7.6, §16).
+            meta["dispatched"] = used["dispatched"]
+            state = "waiting"
+            self.wakeups[goal.id] = (self.clock.now()
+                                     + float(self.cfg.mind_dispatch_timeout_s))
+            notes.append("…and I'm waiting on it before I go further")
+        elif self._finished(intent.text):
+            state = "done"
+            notes.append(f"finished: {goal.text}")
+            notes += self._offer_to_tell(goal)
+        elif last:
+            # The horizon (§22): three steps and it either waits for something to
+            # change or the commitment strategy lets it go. Without this a goal
+            # loops forever, which is the failure a lifecycle exists to prevent.
+            if goal.commitment == "open-minded" and goal.is_stale(self.clock):
+                state = "abandoned"
+                notes.append(f"let go of: {goal.text} (I gave it what I had)")
+            else:
+                state = "waiting"
+                self.wakeups[goal.id] = self.clock.now() + 12 * 3600
+                notes.append(f"parked: {goal.text} — I've taken it as far as I "
+                             "can on my own for now")
+        else:
+            state = "active"
+
+        self.goals.update(goal.id, state=state, meta=meta)
+        did = (f"{used['tool']} ({used['verdict']})" if used
+               else "thought about it")
+        return ({"what": "tool_step" if used else "goal_work",
+                 "result": f"step {step}: {did}", "goal": goal.id,
+                 "state": state,
+                 **({"tool": used["tool"], "verdict": used["verdict"]}
+                    if used else {})},
+                {}, notes)
+
+    #: The words a step uses when it means "this goal is finished". Deliberately
+    #: a phrase she has to *choose*, not a heuristic over the note's contents: a
+    #: goal closing itself because a paragraph sounded conclusive is how a
+    #: standing commitment quietly disappears.
+    DONE_MARK = "goal complete"
+
+    @staticmethod
+    def _trim(text: str, limit: int = 200) -> str:
+        """One line, short enough that `goals.md` still reads as a checklist —
+        the meta field rides on the goal's own line."""
+        one = " ".join((text or "").split())
+        return one if len(one) <= limit else one[:limit - 1].rstrip() + "…"
+
+    def _offer_to_tell(self, goal: Goal) -> list[str]:
+        """A promise she has now kept becomes something to say (§18.2, §22.1).
+
+        Splitting a promise into work and news is what makes her do the work at
+        all — but the news half has to be filed by something, or the split just
+        loses it, and "I'll look into that" becomes a thing she quietly does and
+        never mentions. That is a worse companion than the one who talked about
+        everything and did none of it.
+
+        Only her own promises. Work you planted is on the desk where you left
+        it, maintenance is nobody's business but hers, and a `followup` never
+        gets a follow-up of its own — reaching out is already the act.
+
+        `open-minded` on purpose: news has a shelf life. If Gate 2 never finds a
+        moment inside a day, letting it go is better company than opening with
+        something she finished the day before yesterday.
+        """
+        if goal.kind != "task" or not goal.provenance.startswith("promise:"):
+            return []
+        self.goals.add(
+            f"tell them what came of “{goal.text}” — it's in "
+            f"{self.GOAL_DESK.format(id=goal.id)}",
+            kind="reach_out", priority=0.6,
+            due=iso_of(self.clock.now() + 24 * 3600),
+            commitment="open-minded", provenance=f"followup:{goal.id}")
+        return [f"…and they should hear what came of it: {goal.text}"]
+
+    def _finished(self, note: str) -> bool:
+        return self.DONE_MARK in (note or "").lower()
+
+    def _work_system(self, goal: Goal, offer, last: bool) -> str:
+        """The instruction half of a working step."""
+        lines = [
+            "You are quietly advancing one of your own goals, alone, between "
+            "conversations. Nobody is waiting on this and nothing you write "
+            "here is sent to anyone — it goes on your own desk, for you to "
+            "pick up next time.",
+            "",
+        ]
+        if offer:
+            lines.append(self.hands.catalog(tuple(offer.tools)))
+        else:
+            lines.append(
+                "Write a short working note (<=80 words) of what you concluded "
+                "or want to try next. Just the note.")
+        lines += [
+            "",
+            # "in your note" was ambiguous the moment she had hands: she read it
+            # as the note file she was writing and put the words inside
+            # `append_note`, where nothing reads them, and a finished goal parked
+            # for twelve hours instead of closing. Name the line instead.
+            f'When the goal is genuinely finished, write "{self.DONE_MARK}" '
+            + ("on your `think` line — and only then. Words inside a tool call "
+               "are not read." if offer else "in your note — and only then."),
+        ]
+        if last:
+            lines.append(
+                "This is the last step you get on this goal for now, so make it "
+                "the one that leaves the clearest trail for next time.")
+        return "\n".join(line for line in lines if line is not None)
+
+    # ---- the hands, in one tick (SPEC §26, as amended) -------------------------
+
+    async def _tool_step(self, goal: Goal, intent,
+                         offer) -> tuple[dict, str]:
+        """One mind-initiated tool call: check → dispatch → realise → journal.
+
+        Every precondition is checked again here, not because DECIDE's check was
+        wrong but because the switch can be revoked between the two — which is
+        exactly what a kill switch has to survive. A denial is audited and
+        becomes a working note; it is never an exception, and it never costs the
+        goal its step.
+        """
+        args = dict(intent.args)
+        ok, why = self.hands.check(
+            intent.tool, args, state=self.activity.state,
+            pressure=self.budget.pressure(),
+            user_present=bool(self.world.snapshot().get("user_present")))
+        if not ok:
+            self.hands.deny(intent.tool, args, why)
+            note = f"wanted to {intent.tool} for “{goal.text}” but didn't: {why}"
+            self._goal_desk_write(goal, note)
+            # A refused reach is still a reach, and the trace should say so:
+            # "she thought about it" and "she tried to look it up and the cap
+            # was spent" are different ticks, and only one of them is a reason
+            # to go and change a knob.
+            return ({"tool": intent.tool, "verdict": "denied", "why": why,
+                     "class": klass(intent.tool), "dispatched": {}}, note)
+
+        # Principle 7: every autonomous call names the goal that wanted it, so
+        # `goals.md` stays the complete, readable list of what her hands might do.
+        self.hands.spend(intent.tool, args)
+        with correlate.scope(kind=correlate.MIND_TOOL):
+            result = await self.hands.execute(
+                intent.tool, args, timeout_s=self.cfg.tool_timeout_s)
+            # Host-side realisation (§7.5) — the timer actually scheduled, the
+            # render actually started. The stamp is what makes the product land
+            # in the Vault instead of in the chat (§18, principle 8).
+            realise = getattr(self.brain, "realise", None)
+            if callable(realise):
+                try:
+                    realise(intent.tool, result,
+                            extra=stamp_contract({}, goal_id=goal.id))
+                except Exception:  # noqa: BLE001 — realisation is not the call
+                    log.exception("mind tool realisation failed")
+
+        dispatched: dict = {}
+        if intent.tool in START_DONT_AWAIT and '"started"' in result:
+            dispatched = {"tool": intent.tool, "at": iso_of(self.clock.now())}
+        short = result[:160].replace("\n", " ")
+        note = f"reached for {intent.tool} on “{goal.text}” → {short}"
+        # Her reason first, the result under it. A desk that records only what a
+        # hand returned reads, three ticks later, as a list of things that
+        # happened to her rather than steps she took — and she re-does them.
+        why = (intent.text or "").strip()
+        self._goal_desk_write(goal, f"{why}\n\n{note}" if why else note)
+        return ({"tool": intent.tool, "verdict": "ok",
+                 "class": klass(intent.tool), "dispatched": dispatched}, note)
 
     # ----------------------------------------------------------- body reflexes
 
@@ -687,7 +1183,147 @@ class MindLoop:
     def _persist(self) -> None:
         write_json(self.state_path, {
             "bus_offset": self.offset, "interrupts": self.interrupts,
-            "considered": self.considered, "last_tick_ts": self.last_tick_ts})
+            "considered": self.considered, "last_tick_ts": self.last_tick_ts,
+            "wakeups": self.wakeups, "reconsidered_on": self.reconsidered_on,
+            "bootstrapped_on": self.bootstrapped_on,
+            # the fingerprint ledger and the daily call count, beside
+            # `interrupts` and rolling at the same local midnight (§26, amended)
+            **self.hands.snapshot()})
+
+    # ---- REGULATE's daily duties ----------------------------------------------
+
+    def _day_rollover(self, now: float) -> list[str]:
+        """Once per local day: apply commitment strategies, roll the hands'
+        caps, and file what has been left standing (SPEC §22.2, §26).
+
+        `reconsider()` used to run on `suspend_gap` alone — i.e. only after the
+        machine had slept two hours — so a goal that went stale while she was
+        awake was defended forever by a strategy nobody ever asked. Cheap and
+        idempotent, which is why once a day is enough and more would be noise.
+        """
+        today = day_of(now)
+        if self.reconsidered_on == today:
+            return []
+        self.reconsidered_on = today
+        self.hands.roll()
+        notes = [f"let go of: {g.text} (the moment for it passed)"
+                 for g in self.goals.reconsider()]
+        return notes + self._file_maintenance()
+
+    #: The two standing leftovers that become goals rather than staying impulses
+    #: (SPEC §22, provenance `maintenance:*`). Fixed text, because the dedupe in
+    #: `GoalStore.add` is by text and a count in the title would file a new goal
+    #: every morning.
+    #: `(which, provenance, text, due_hours)`. The due time is what decides
+    #: whether the goal is a *record* or a *plan*, because `appraise_goal` adds
+    #: 0.35 once a goal is due and that is the difference between scoring under
+    #: the ingest impulse and scoring over it:
+    #:
+    #:   * the shelf gets one. A drop she has not read for a day has stopped
+    #:     being something the cheap impulse keeps declining to reach and
+    #:     started being something she should go and do.
+    #:   * DREAM does not. The night IS the schedule (§21, §17.1), and a goal
+    #:     that outranked the dream window would be one half of the system
+    #:     arguing with the other about when to consolidate.
+    MAINTENANCE = (
+        ("shelf", "maintenance:shelf",
+         "read what's still sitting unread on my shelf", 24.0),
+        ("dream", "maintenance:dream",
+         "catch up on the nights I haven't consolidated yet", None),
+    )
+
+    def _leftover(self, which: str) -> bool:
+        if which == "shelf":
+            return bool(self.knowledge.pending_docs())
+        return bool(self.cfg.dream_enabled and self.cfg.utility_enabled
+                    and self.dreams.backlog())
+
+    def _file_maintenance(self) -> list[str]:
+        """Standing leftovers become goals; cleared ones close themselves.
+
+        Ingest and DREAM stay impulses — that is the cheap path and it is
+        right. What was missing is that a shelf nobody got round to for three
+        days is a *commitment*, and the goals page is where commitments are
+        visible. Documented in `goals.py` as `maintenance:*` since the store was
+        written, and never created until now.
+        """
+        notes: list[str] = []
+        # Keyed on `meta.auto`, which only this method ever writes — NOT on the
+        # provenance, which a person or a dream job may reasonably reuse. A
+        # reconciler that closed every goal wearing a familiar label would close
+        # work she filed herself, which is the opposite of a maintenance sweep.
+        open_now = {g.meta.get("auto"): g for g in self.goals.open_goals()
+                    if g.meta.get("auto")}
+        for which, provenance, text, due_hours in self.MAINTENANCE:
+            existing = open_now.get(which)
+            if self._leftover(which):
+                if existing is not None:
+                    continue
+                self.goals.add(
+                    text, kind="maintenance", priority=0.4,
+                    due=(iso_of(self.clock.now() + due_hours * 3600)
+                         if due_hours else None),
+                    # `single-minded`, not `open-minded`, and the due time is
+                    # why: `reconsider()` abandons an open-minded goal the
+                    # moment it goes stale, which for a due-dated one is the
+                    # very tick it becomes worth doing. A leftover drops when it
+                    # is moot, and the reconciler above is what decides that —
+                    # the shelf is empty, so the goal closes `done`.
+                    commitment="single-minded", provenance=provenance,
+                    meta={"auto": which})
+                notes.append(f"put it on my own list: {text}")
+            elif existing is not None:
+                self.goals.set_state(existing.id, "done")
+                notes.append(f"cleared: {existing.text}")
+        return notes
+
+    def _bootstrap_handoff(self, now: float) -> list[str]:
+        """The first session's handoff, once (SPEC §5.4, `soul-src/BOOTSTRAP.md`).
+
+        The bootstrap file names three things the runtime should be left holding
+        when it retires: a seeded `USER.md`, a first `MEMORY.md` line, and one
+        standing `reach_out` in `goals.md`. The first two are the post-turn
+        pipeline's, and it already does them (`app/memory/partner.py`,
+        `store.remember`). The third was prose and nothing else — so the very
+        first thing she ever learned about you produced no intention at all.
+
+        Detected here rather than pushed from the retirement site because
+        retirement happens in three places across two servers, none of which can
+        reach a GoalStore without the app layer importing the mind layer. File
+        presence is the flag, exactly as it is for the greeting; the date is
+        persisted so this is a one-shot, not a thing that re-files whenever the
+        goal is completed.
+        """
+        if self.bootstrapped_on:
+            return []
+        soul = self.cfg.vault_dir / "soul"
+        if (soul / "BOOTSTRAP.md").is_file():
+            return []                          # she has not met you yet
+        if not (soul / "onboarded" / "BOOTSTRAP.done.md").is_file():
+            # No bootstrap was ever installed (an imported card, a hand-built
+            # vault). Nothing to hand off, and nothing to keep checking for.
+            self.bootstrapped_on = day_of(now)
+            return []
+        self.bootstrapped_on = day_of(now)
+        goal = self.goals.add(
+            f"pick up where the first conversation left off with "
+            f"{self.cfg.user_name} — ask how the thing they told me about is going",
+            kind="reach_out", priority=0.55,
+            due=iso_of(now + 36 * 3600), commitment="open-minded",
+            provenance="bootstrap:first-session")
+        return [f"our first conversation is done; I want to follow it up: {goal.text}"]
+
+    def set_hands_enabled(self, enabled: bool) -> None:
+        """The live kill switch (SPEC §26, as amended, and §32).
+
+        Revoking cancels nothing already dispatched — a research run that is
+        halfway through somebody's website cannot be recalled and pretending
+        otherwise would be a lie — but every subsequent call is denied, and the
+        denial is audited like any other. Granting takes effect on the next tick
+        without a restart, which is the property that makes this a switch rather
+        than a setting.
+        """
+        self.hands.granted = bool(enabled)
 
     def cadence(self) -> float:
         """REGULATE's other half: how long until the next heartbeat — the
@@ -700,6 +1336,11 @@ class MindLoop:
         for g in self.goals.open_goals():
             if g.due and g.state == "pending":
                 delay = max(1.0, min(delay, ts_of_iso(g.due) - now))
+        # …and a wake she scheduled for herself (§16). Without this a follow-up
+        # set for twenty minutes' time waits out a DORMANT cadence of fifteen
+        # minutes and lands whenever the heartbeat happens to fall.
+        for at in self.wakeups.values():
+            delay = max(1.0, min(delay, float(at) - now))
         return delay
 
     async def run(self) -> None:
@@ -732,6 +1373,15 @@ class MindLoop:
             "dream_jobs": self.dreams.status(),
             "workspace": (self.workspace.digest(limit=10)
                           if self.workspace else ""),
+            # her hands, as the switchboard and the inner-life page read them
+            # (§26, as amended). `available` is empty and `granted` irrelevant
+            # while the house switch is off — which is what "off means
+            # invisible" looks like from outside.
+            "hands": {"enabled": self.hands.enabled,
+                      "granted": self.hands.granted,
+                      "allowlist": list(self.hands.allowlist),
+                      "calls_today": self.hands.spent.get("count", 0),
+                      "calls_per_day": self.cfg.mind_tool_calls_per_day},
             "skills": [s.as_dict() for s in self.skills.all()]
                       if self.skills else [],
         }

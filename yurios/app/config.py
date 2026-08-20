@@ -113,6 +113,10 @@ class Config(BaseSettings):
     knowledge_k: int = 3             # shelf chunks injected (0 = slot off)
     knowledge_min_score: float = 0.05  # hybrid score floor, below which it's noise
     knowledge_budget_tokens: int = 900
+    # her own standing list, in the conversational prompt (§22). Newest N, not
+    # all of them: a goal list is a checklist that only grows, and the twelve
+    # most recent open ones are what she could plausibly be about to re-promise.
+    goals_in_prompt: int = 12        # 0 = the block is off
     system_budget_tokens: int = 8000  # §7.2 overflow ceiling for the system block
     temperature: float = 0.9
 

@@ -93,6 +93,13 @@ SPECS = [
              {"properties": {"topic": {"type": "string"},
                              "depth": {"type": "integer"}},
               "required": ["topic"]}),
+    ToolSpec("propose_edit", "Propose a change to one of your own soul files. "
+             "`content` is the complete new text; nothing takes effect until "
+             "it is approved.",
+             {"properties": {"surface": {"type": "string"},
+                             "content": {"type": "string"},
+                             "reason": {"type": "string"}},
+              "required": ["surface", "content", "reason"]}),
 ]
 
 #: What the fake `read_page` returns as page text. Long enough that the guard's
@@ -166,6 +173,16 @@ class FakeToolRunner:
                                "saved": True})
         if tool == "delete_skill":
             return json.dumps({"name": args.get("name"), "deleted": True})
+        if tool == "propose_edit":
+            surface = str(args.get("surface") or "").replace("\\", "/")
+            name = surface.split("/")[-1]
+            if name == "CONSTITUTION.md":
+                raise RuntimeError("your constitution is read-only, even to you")
+            return json.dumps({"status": "proposed", "surface": f"soul/{name}",
+                               "content": args.get("content") or "",
+                               "reason": args.get("reason") or "",
+                               "chars": len(args.get("content") or ""),
+                               "risk": "high", "queued": True})
         if tool == "take_selfie":
             return json.dumps({"id": f"fake{len(self.calls)}",
                                "look": args.get("look") or None,

@@ -46,6 +46,9 @@ class FakeRuntime:
     async def set_mind_enabled(self, enabled: bool):
         return None
 
+    def set_hands_enabled(self, enabled: bool):
+        self.hands_granted = enabled
+
 
 def record(root: Path, character_id: str = "yuri", *, enabled=True, autostart=None):
     paths = CharacterPaths.under(root / "characters" / character_id)
@@ -628,6 +631,57 @@ def test_host_refuses_overlapping_character_storage(tmp_path):
         assert "storage overlaps" in str(exc)
     else:
         raise AssertionError("overlapping character roots were accepted")
+
+
+# ---- two switches in series (SPEC §26.1, §18.4.6) --------------------------
+
+
+def test_a_character_cannot_talk_her_way_past_the_house_hands_switch(tmp_path):
+    """`MIND_TOOLS_ENABLED` decides whether anything on this machine may reach
+    for a tool unasked. Hers decides whether she is one of the ones that may.
+
+    The two are multiplied in `Hands.enabled`, not folded into her config here:
+    hers is a live switch, and a config that had already absorbed a `False`
+    could never be told `True` again without a restart — which is the one thing
+    a kill switch may not need. The config carries the house's word only, so
+    what her config says is exactly what the house said."""
+    her = record(tmp_path, "yuri")
+    off_house = Config(data_dir=tmp_path, _env_file=None, mind_tools_enabled=False)
+    on_house = Config(data_dir=tmp_path, _env_file=None, mind_tools_enabled=True)
+
+    for hers in (True, False):
+        her.loops.hands = hers
+        assert not config_for_character(off_house, her).mind_tools_enabled
+        assert config_for_character(on_house, her).mind_tools_enabled
+
+
+def test_the_hands_switch_goes_back_on_without_a_restart(tmp_path):
+    """Found live: revoked, then granted again, and she never reached for
+    anything — with nothing in the trace to say why, because off is invisible.
+    The grant lives on the runtime so both directions land on the next tick."""
+    from yurios.world.main import Runtime
+
+    class FakeRuntime:
+        mind = None
+        _hands_granted = True
+        set_hands_enabled = Runtime.set_hands_enabled
+
+    rt = FakeRuntime()
+    rt.set_hands_enabled(False)
+    assert rt._hands_granted is False
+    rt.set_hands_enabled(True)
+    assert rt._hands_granted is True, "a switch that only turns off is a fuse"
+
+
+def test_the_house_hands_switch_is_off_out_of_the_box(tmp_path):
+    """The default-off proof, at the configuration layer: nothing a fresh
+    install does turns this on by accident."""
+    her = record(tmp_path, "yuri")
+    assert not Config(_env_file=None).mind_tools_enabled
+    assert not config_for_character(
+        Config(data_dir=tmp_path, _env_file=None), her).mind_tools_enabled
+    # …and even switched on, no hand is named, so nothing is reachable
+    assert Config(_env_file=None).mind_tool_allowlist == ""
 
 
 # ---- her own brain: the per-character connection (SPEC §31.1–§31.4) --------

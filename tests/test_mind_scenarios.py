@@ -110,21 +110,69 @@ async def test_suspend_gap_one_catchup_not_thirty_good_mornings(cfg, seeded_vaul
 
 # --- her own promise becomes a goal she keeps -------------------------------------
 
-async def test_promise_extraction_files_a_goal(cfg, seeded_vault):
+async def test_a_promise_of_work_files_a_task_she_can_start_now(cfg, seeded_vault):
+    """"I'll sleep on cat names" is work; "and tell you tomorrow" is when she
+    reports. Filed as a `reach_out` — which is what every promise used to be —
+    the work half simply never happened: she would wait out the due time and
+    then talk about a thing she had not done."""
     rig = make_mind(cfg, seeded_vault)
     rig.say("can you think about names for the cat?",
             reply="Ooh. I'll sleep on cat names and tell you tomorrow.")
     await rig.mind.tick()
-    goals = rig.mind.goals.open_goals()
-    assert any("sleep on cat names" in g.text for g in goals)
-    g = next(g for g in goals if "cat names" in g.text)
-    assert g.kind == "reach_out"
+    g = next(g for g in rig.mind.goals.open_goals() if "cat names" in g.text)
+    assert g.kind == "task"
     assert g.provenance == "promise:her-own-words"
-    assert g.due is not None                       # promises are time-bound
-    # and the promise is journaled the moment it's made
+    # No due date: work she took on is not a thing she owes by a time, and an
+    # invented deadline is one `reconsider()` would eventually hold her to.
+    assert g.due is None
+    # …and it clears gate 1 on its own, which at 0.6 and no due it would not
+    from yurios.mind.policy import appraise_goal
+    assert appraise_goal(g, rig.clock).score >= rig.mind.cfg.mind_act_threshold
+    day = "2026-07-06"
+    journal = (seeded_vault / "memory" / "episodic" / f"{day}.md").read_text()
+    assert "I took that on" in journal
+    # …and it remembers what it was *about*: the scan keeps the predicate after
+    # "I'll", so without this the working step has no subject and invents one.
+    assert "names for the cat" in g.meta.get("about", "")
+    assert "names for the cat" in rig.mind._goal_context(g)
+
+
+async def test_a_promise_to_tell_is_still_a_reach_out(cfg, seeded_vault):
+    """The other half. Leading with the report is the report."""
+    rig = make_mind(cfg, seeded_vault)
+    rig.say("did the parcel arrive?",
+            reply="Not yet. I'll let you know the moment it turns up.")
+    await rig.mind.tick()
+    g = next(g for g in rig.mind.goals.open_goals() if "turns up" in g.text)
+    assert g.kind == "reach_out"
+    assert g.due is not None                       # a thing to say, by a time
     day = "2026-07-06"
     journal = (seeded_vault / "memory" / "episodic" / f"{day}.md").read_text()
     assert "I promised" in journal
+
+
+async def test_finishing_promised_work_files_the_telling(cfg, seeded_vault):
+    """The split has to put the news back, or "I'll look into that" becomes a
+    thing she quietly does and never mentions."""
+    from .conftest import ScriptedUtility
+    rig = make_mind(cfg, seeded_vault,
+                    utility=ScriptedUtility("think it's a Turkish van. goal complete"))
+    rig.say("what breed was that cat?", reply="I'll look up that breed for you.")
+    # One tick: SENSE files it and APPRAISE can see it the same time round, so
+    # a thing she just said she would do is a thing she starts on now.
+    trace = await rig.mind.tick()
+    assert trace["acted"]["what"] == "goal_work"
+
+    work = next(g for g in rig.mind.goals.all() if "look up" in g.text)
+    assert work.state == "done"
+    told = [g for g in rig.mind.goals.open_goals()
+            if g.provenance == f"followup:{work.id}"]
+    assert len(told) == 1, "the person she promised is owed the answer"
+    assert told[0].kind == "reach_out"
+    # open-minded: news has a shelf life, and Gate 2 still rules on it
+    assert told[0].commitment == "open-minded"
+    assert work.id in told[0].text, "…and it says where the answer is"
+    assert rig.post.proactive() == [], "filing it is not saying it"
 
 
 # --- a timer is a promise: queued until deliverable ---------------------------------

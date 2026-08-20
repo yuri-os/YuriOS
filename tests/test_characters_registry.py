@@ -23,7 +23,7 @@ def test_registry_round_trip_uses_stable_id_and_portable_paths(tmp_path):
         display=DisplayMetadata("A Name", creator="Creator", tags=["one"]),
         paths=CharacterPaths.under(character_root),
         lifecycle=LifecycleFlags(enabled=True, autostart=True, review_required=False),
-        loops=LoopSwitches(mind=True, utility=False, dream=False),
+        loops=LoopSwitches(mind=True, utility=False, dream=False, hands=False),
         models=ModelBinding(chat="local/chat", utility="local/utility"),
     )
 
@@ -35,6 +35,11 @@ def test_registry_round_trip_uses_stable_id_and_portable_paths(tmp_path):
     assert loaded.display.name == "A Name"
     assert loaded.lifecycle.autostart
     assert not loaded.loops.utility
+    # …and her hands (SPEC §26.1), which is the switch that decides whether her
+    # mind may reach for a tool with nobody in the room. A switch that silently
+    # reverted to its permissive default across a restart would be the worst
+    # possible one to lose in this file.
+    assert not loaded.loops.hands
     assert loaded.models.chat == "local/chat"
     assert loaded.paths.vault == character_root.resolve() / "vault"
     raw = json.loads((root / "characters.json").read_text(encoding="utf-8"))

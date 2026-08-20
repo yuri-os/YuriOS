@@ -47,6 +47,7 @@ export function normalizeCharacter(raw, index = 0) {
       mind: boolean(loops.mind ?? source.loop_enabled ?? runtime.loop_enabled),
       utility: boolean(loops.utility ?? true),
       dream: boolean(loops.dream ?? true),
+      hands: boolean(loops.hands ?? true),
     },
     // Her doorbell (SPEC §18.4.6). `available` is the house switch
     // (`NOTIFY_ENABLED`): when it is off, nobody's reach-out can reach a
@@ -61,6 +62,17 @@ export function normalizeCharacter(raw, index = 0) {
         ? source.notify : source.notify?.enabled ?? true),
       available: boolean(typeof source.notify === "boolean"
         ? source.notify_available : source.notify?.available),
+    },
+    // Whether her mind may reach for a tool between conversations (SPEC §26,
+    // as amended). Read exactly like the doorbell above and for the same
+    // reason: `available` is the house switch (`MIND_TOOLS_ENABLED`), and with
+    // it off the per-character toggle is shown inert rather than pretending a
+    // character can grant herself a capability this node has not installed.
+    hands: {
+      enabled: boolean(typeof source.hands === "boolean"
+        ? source.hands : source.hands?.enabled ?? loops.hands ?? true),
+      available: boolean(typeof source.hands === "boolean"
+        ? source.hands_available : source.hands?.available),
     },
     // A card this node did not write arrives parked until someone reads it
     // through (SPEC §28) — no runtime behind any of her rooms until then.

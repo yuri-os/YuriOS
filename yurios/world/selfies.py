@@ -89,6 +89,21 @@ def _noun(kind: str) -> str:
     return "picture" if kind == "picture" else "selfie"
 
 
+def _to_vault(contract: dict) -> bool:
+    """Does this shot land in the gallery alone, or in the chat too?
+
+    `_deliver: "vault"` is the mind's stamp (SPEC §18, the landing rule): work
+    she started for herself has no turn waiting on it, so the product goes to
+    the Vault and Gate 2 decides, later, whether to mention it.
+
+    The DREAM selfie is the one grandfathered exception and does NOT carry the
+    stamp — a picture she dreamt and left in the chat is shipped behaviour, one
+    object, and a gift (mind/dreamjobs.py). The inconsistency is deliberate:
+    a research digest is not a gift.
+    """
+    return str(contract.get("_deliver") or "") == "vault"
+
+
 def _unprompted(contract: dict) -> bool:
     """Did she take this one unasked? — the `proactive` marking the photo is
     committed with (§15.5).
@@ -216,7 +231,8 @@ class SelfieLab:
                  notify: Optional[Callable[[str, dict], None]] = None,
                  parker=None,
                  quiet: Optional[Callable[[], Awaitable[None]]] = None,
-                 situation: Optional[Callable[[], str]] = None):
+                 situation: Optional[Callable[[], str]] = None,
+                 signal: Optional[Callable[..., object]] = None):
         self.forge = forge
         self.clock = clock
         self.post = post                       # Runtime.post_message
@@ -225,6 +241,10 @@ class SelfieLab:
         self.parker = parker                   # LLMParker | None (world/vram.py)
         self.quiet = quiet                     # Runtime.wait_turns_idle | None
         self.situation = situation             # () -> visual facts about now
+        # SignalBus.post — the §16 return path for dispatched work. The hub's
+        # `selfie_status` is for a page that is watching the render; this is for
+        # the mind, which is not, and whose goal is sitting in `waiting` on it.
+        self.signal = signal
         self._tasks: set[asyncio.Task] = set()
         self._task_ids: dict[asyncio.Task, str] = {}
         self._contracts: dict[asyncio.Task, dict] = {}
@@ -480,16 +500,21 @@ class SelfieLab:
         except Exception as e:                 # render failed: say so, quietly
             failed = True
             log.exception("%s render failed", noun)
-            post_kw = {"proactive": _unprompted(c)}
-            if c.get("_channel"):
-                post_kw["channel"] = c["_channel"]
-            if c.get("_client_id"):
-                post_kw["client_id"] = c["_client_id"]
-            post_kw["selfie_id"] = str(c.get("id", ""))
-            self.post("assistant",
-                      f"(the {noun} didn't come out — {type(e).__name__})",
-                      **post_kw)
+            if not _to_vault(c):
+                post_kw = {"proactive": _unprompted(c)}
+                if c.get("_channel"):
+                    post_kw["channel"] = c["_channel"]
+                if c.get("_client_id"):
+                    post_kw["client_id"] = c["_client_id"]
+                post_kw["selfie_id"] = str(c.get("id", ""))
+                self.post("assistant",
+                          f"(the {noun} didn't come out — {type(e).__name__})",
+                          **post_kw)
             self._status(c, "error")
+            # A goal waiting on this must not wait forever: the failure is a
+            # completion too, and the next tick is what decides what to do
+            # about it.
+            self._completed(c, {"noun": noun, "error": type(e).__name__})
         finally:
             # `parked()` reopens the gate on every path it runs, but a cancel
             # between the close above and the render never reaches it — and a
@@ -514,16 +539,23 @@ class SelfieLab:
         # clears it on arrival; one rendered into an empty room keeps its badge.
         # Only the successful render — a badge that resolves to "it didn't come
         # out" is a notification about nothing.
-        post_kw = {"image_url": f"/selfies/{name}",
-                   "proactive": _unprompted(c),
-                   "unheard": _unprompted(c)}
-        if c.get("_channel"):
-            post_kw["channel"] = c["_channel"]
-        if c.get("_client_id"):
-            post_kw["client_id"] = c["_client_id"]
-        post_kw["selfie_id"] = str(c.get("id", ""))
-        self.post("assistant", "", **post_kw)
+        if not _to_vault(c):
+            post_kw = {"image_url": f"/selfies/{name}",
+                       "proactive": _unprompted(c),
+                       "unheard": _unprompted(c)}
+            if c.get("_channel"):
+                post_kw["channel"] = c["_channel"]
+            if c.get("_client_id"):
+                post_kw["client_id"] = c["_client_id"]
+            post_kw["selfie_id"] = str(c.get("id", ""))
+            self.post("assistant", "", **post_kw)
         self._status(c, "done")
+        self._completed(c, {"noun": noun, "image_url": f"/selfies/{name}",
+                            "detail": detail or ""})
+        if _to_vault(c):
+            # The gallery has it and `task_completion` says so; showing it to
+            # anyone is Gate 2's decision on a later tick (§18, principle 8).
+            return
         # one soft line about it, only if she's free — a drop is fine (§8.3):
         # unlike a timer, the photo itself already landed.
         try:
@@ -531,6 +563,22 @@ class SelfieLab:
                                                  detail=detail or "a new shot"))
         except Exception:
             log.exception("%s announce failed", noun)
+
+    def _completed(self, c: dict, detail: dict) -> None:
+        """`task_completion` — the §16 return path, posted for every finished
+        render. Never raises: a runtime with no bus is an ordinary one."""
+        if self.signal is None:
+            return
+        try:
+            self.signal("task_completion",
+                        {"task": f"a {detail.get('noun', 'picture')} she took",
+                         "kind": "selfie", "id": str(c.get("id", "")),
+                         "goal_id": c.get("_goal_id"),
+                         "deliver": "vault" if _to_vault(c) else "chat",
+                         **detail},
+                        source="selfies")
+        except Exception:
+            log.exception("selfies: couldn't post task_completion")
 
     async def close(self) -> None:
         for t in list(self._tasks):

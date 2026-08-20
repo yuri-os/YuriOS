@@ -24,12 +24,27 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from yurios.characters.soulfiles import shape_complaint
 from yurios.world.clock import Clock
 
 from .util import iso_of, new_id, read_json, write_json
 from .vaultio import ConstitutionReadOnly, MindVault
 
 LOW_RISK_PREFIXES = ("memory/", "world/", "knowledge/")
+
+
+class SoulShapeError(ValueError):
+    """A rewrite that would stop a soul file answering what `soul.yaml` asks.
+
+    Not a privacy or permission refusal — the surface is hers to edit and the
+    prose may well be better. It is that `soul.yaml` points *into* these files
+    by heading and by frontmatter key, and a reference that stops resolving
+    raises when her prompt is next assembled. A model handed "content is the
+    whole new file" writes good prose with the headings sanded off, and the
+    character then fails to **start** — which is the one outcome a self-edit
+    must never be able to cause, because a bricked character cannot be talked
+    to about the edit that bricked her.
+    """
 
 
 @dataclass
@@ -53,10 +68,23 @@ class SelfEdit:
             return "low"
         return "high"     # soul/* and every unknown surface fail safe to the queue
 
+    def _shape_complaint(self, surface: str, content: str) -> str:
+        """What this rewrite would break, or "" if it breaks nothing."""
+        if not surface.startswith("soul/") or not surface.endswith(".md"):
+            return ""
+        return shape_complaint(self.vault.vault / "soul",
+                               surface.rsplit("/", 1)[-1], content)
+
     def propose(self, surface: str, content: str, *, reason: str) -> EditResult:
         surface = surface.replace("\\", "/")
         if surface.endswith("soul/CONSTITUTION.md"):
             raise ConstitutionReadOnly(surface)   # not even a queued proposal
+        complaint = self._shape_complaint(surface, content)
+        if complaint:
+            # Refused at proposal, not at approval: she is still in the
+            # conversation here and can be told what she dropped, whereas an
+            # approval is a click hours later on a queue entry that looked fine.
+            raise SoulShapeError(complaint)
         edit_id = new_id("e")
         if self.classify(surface) == "low":
             self.vault.write(surface, content, gate=True)

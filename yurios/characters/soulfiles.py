@@ -27,10 +27,13 @@ wrong kind: a card that quietly lost its personality.
 """
 from __future__ import annotations
 
+import logging
 import re
 from pathlib import Path
 
 import yaml
+
+log = logging.getLogger("characters.soulfiles")
 
 FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 H2_RE = re.compile(r"^##\s+(.*?)\s*$", re.MULTILINE)
@@ -45,9 +48,14 @@ class SoulPrivacyError(PermissionError):
         super().__init__(f"soul file {name!r} is not readable here: {reason}")
 
 
-def parse_md(path: Path) -> tuple[dict, str]:
-    """Return (frontmatter dict, body) for a soul .md file."""
-    text = path.read_text(encoding="utf-8")
+def parse_md_text(text: str) -> tuple[dict, str]:
+    """Return (frontmatter dict, body) for soul .md *content*.
+
+    Split out from `parse_md` so a file that does not exist yet can be held to
+    the same reading — a proposed rewrite is checked against the manifest before
+    it is ever written (`mind/selfedit.py`), and it must be read by exactly the
+    parser that will read it afterwards or the check proves nothing.
+    """
     m = FRONTMATTER_RE.match(text)
     if m:
         front = yaml.safe_load(m.group(1)) or {}
@@ -55,6 +63,11 @@ def parse_md(path: Path) -> tuple[dict, str]:
     else:
         front, body = {}, text
     return front, body
+
+
+def parse_md(path: Path) -> tuple[dict, str]:
+    """Return (frontmatter dict, body) for a soul .md file."""
+    return parse_md_text(path.read_text(encoding="utf-8"))
 
 
 def split_sections(body: str) -> dict[str, str]:
@@ -66,6 +79,61 @@ def split_sections(body: str) -> dict[str, str]:
         end = matches[i + 1].start() if i + 1 < len(matches) else len(body)
         sections[m.group(1).strip()] = body[start:end].strip()
     return sections
+
+
+def manifest_refs(soul_dir: Path, fname: str) -> tuple[list[str], list[str]]:
+    """(headings, frontmatter keys) `soul.yaml` asks one file for.
+
+    Read off the manifest rather than a hardcoded table, so a card with its own
+    shape is held to its own shape. A manifest that cannot be read at all yields
+    nothing: a check that failed *closed* here would refuse every soul edit on
+    any vault whose manifest we merely failed to parse.
+    """
+    try:
+        manifest = yaml.safe_load(
+            (Path(soul_dir) / "soul.yaml").read_text(encoding="utf-8")) or {}
+        fields = manifest.get("fields") or {}
+        items = list(fields.values())
+    except (OSError, yaml.YAMLError, AttributeError) as exc:
+        log.warning("soul.yaml unreadable, skipping the shape check: %s", exc)
+        return [], []
+    headings: list[str] = []
+    keys: list[str] = []
+    while items:
+        ref = items.pop()
+        if isinstance(ref, (list, tuple)):
+            items.extend(ref)
+        elif isinstance(ref, str) and ref.startswith(fname):
+            if "#" in ref:
+                headings.append(ref.split("#", 1)[1].strip())
+            elif "@" in ref:
+                keys.append(ref.split("@", 1)[1].strip())
+    return headings, keys
+
+
+def shape_complaint(soul_dir: Path, fname: str, content: str) -> str:
+    """What rewriting `fname` with `content` would break, or "" if nothing.
+
+    `soul.yaml` points *into* these files by heading and by frontmatter key, and
+    a reference that stops resolving raises when her prompt is next assembled.
+    Hand a model "content is the whole new file" and it writes good prose with
+    the headings sanded off — and the character then fails to **start**, which
+    is the one outcome a self-edit must never be able to cause, because a
+    bricked character cannot be talked to about the edit that bricked her.
+    """
+    headings, keys = manifest_refs(soul_dir, fname)
+    if not headings and not keys:
+        return ""
+    front, body = parse_md_text(content)
+    have = split_sections(body)
+    missing = [f"## {h}" for h in headings if h not in have]
+    missing += [f"`{k}:` in the frontmatter" for k in keys
+                if not str((front or {}).get(k, "")).strip()]
+    if not missing:
+        return ""
+    return (f"{fname} would lose {', '.join(missing)}, which soul.yaml points "
+            f"at — read the file first and keep its headings and its "
+            f"frontmatter, changing only the prose under them")
 
 
 #: Where a consumed bootstrap goes to rest (§5.4). One canonical path, so the

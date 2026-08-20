@@ -47,6 +47,18 @@ ANNOUNCE_CUE = (
     "the chat now. Say one short line about what you found, nothing else.))")
 
 
+def _to_vault(contract: dict) -> bool:
+    """Does this run's product land in the Vault rather than in the chat?
+
+    The stamp is `_deliver: "vault"`, put on the contract by whoever built it
+    (SPEC §18, principle 8). A conversational `research` has no stamp and keeps
+    the shipped behaviour exactly: the summary lands in the chat the sentence
+    came from, because somebody asked and is waiting. The mind stamps every
+    contract it builds, because nobody is.
+    """
+    return str(contract.get("_deliver") or "") == "vault"
+
+
 def _slug(text: str) -> str:
     """A filename that is still recognisable as the thing it came from — the
     shelf is a directory a human opens, so `web-tea-ceremony-1723.md` beats a
@@ -94,7 +106,8 @@ class Researcher:
                  post: Callable[..., dict],
                  speak: Callable[[str], Awaitable[bool]],
                  knowledge: Optional[Callable[[], object]] = None,
-                 notify: Optional[Callable[[str, dict], None]] = None):
+                 notify: Optional[Callable[[str, dict], None]] = None,
+                 signal: Optional[Callable[..., object]] = None):
         self.search = search
         self.fetcher = fetcher
         self.clock = clock
@@ -102,6 +115,11 @@ class Researcher:
         self.speak = speak                     # Runtime.speak_ambient (§8.4)
         self.knowledge = knowledge             # () -> KnowledgeStore | None
         self.notify = notify                   # EventHub.publish, when hosted
+        # SignalBus.post — the return path for work the loop dispatched (§16).
+        # `research_status` on the hub is for a page that is *watching*; this is
+        # for the mind, which is not, and which has a goal sitting in `waiting`
+        # until this fires. Nullable: a runtime with no bus (tests) still reads.
+        self.signal = signal
         self._tasks: set[asyncio.Task] = set()
         #: id -> the record the inner-life panel reads (§24.3). Ordered, and
         #: trimmed to the last few finished runs.
@@ -365,7 +383,14 @@ class Researcher:
                          "again if you need the detail)")
         self._say(c, "\n".join(lines))
         self._status(c, "done")
+        self._completed(c, {"pages": len(pages), "shelved": kept,
+                            "docs": [p.get("doc") for p in pages if p.get("doc")]})
 
+        if _to_vault(c):
+            # A product she went and got for herself is not a delivery (§18, the
+            # landing rule): the shelf has it, `task_completion` says so, and
+            # whether the user hears about it is Gate 2's call on a later tick.
+            return
         try:
             await self.speak(ANNOUNCE_CUE.format(topic=topic, count=len(pages)))
         except Exception:
@@ -374,7 +399,17 @@ class Researcher:
     def _say(self, c: dict, text: str) -> None:
         """One message into the chat the run came from. Mirrors the selfie
         lab's posting rules: proactive, and routed back to the channel and
-        client that asked, because the answer arrives long after the sentence."""
+        client that asked, because the answer arrives long after the sentence.
+
+        Unless the contract says the product lands in the Vault (§18, the
+        landing rule) — a run the *mind* started has no chat it came from and
+        no turn waiting on it, and a research digest posting itself at 4am is
+        Gate 2 bypassed by the back door. Then the shelf is the whole delivery
+        and the line goes to the log instead."""
+        if _to_vault(c):
+            log.info("research: %s (kept in the vault, nothing posted)",
+                     text.splitlines()[0] if text else "")
+            return
         kw: dict = {"proactive": True}
         if c.get("_channel"):
             kw["channel"] = c["_channel"]
@@ -384,6 +419,27 @@ class Researcher:
             self.post("assistant", text, **kw)
         except Exception:
             log.exception("research: couldn't post the result")
+
+    def _completed(self, c: dict, detail: dict) -> None:
+        """`task_completion` — the return path the tick loop was built for (§16).
+
+        Posted for every finished run, not only the mind's: the loop folds it
+        into the world model and journals "finished something I'd started",
+        which is true of a run the user asked for as well. Never raises — a
+        bus that isn't there is an ordinary configuration.
+        """
+        if self.signal is None:
+            return
+        try:
+            self.signal("task_completion",
+                        {"task": f"reading up on {c.get('topic') or 'something'}",
+                         "kind": "research", "id": str(c.get("id", "")),
+                         "goal_id": c.get("_goal_id"),
+                         "deliver": "vault" if _to_vault(c) else "chat",
+                         **detail},
+                        source="research")
+        except Exception:
+            log.exception("research: couldn't post task_completion")
 
     async def close(self) -> None:
         for t in list(self._tasks):

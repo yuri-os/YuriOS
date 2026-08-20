@@ -21,6 +21,8 @@ from typing import Literal, get_args
 
 from mcp.server.fastmcp import FastMCP
 
+from yurios.characters.soulfiles import shape_complaint
+from yurios.mind.vaultio import MindVault
 from yurios.mind.workspace import (DeskFull, OutsideTheDesk, SkillStore,
                                    Workspace)
 
@@ -40,6 +42,15 @@ MUSIC_ACTIONS: tuple[str, ...] = get_args(MusicAction)
 MUSIC_TRACKS: tuple[str, ...] = get_args(MusicTrack)
 
 
+#: The soul surfaces `propose_edit` will name, in the order she is likeliest to
+#: want them. Derived from `MindVault.EDITABLE_SOUL` rather than restated, so a
+#: file that becomes editable (or stops being) cannot leave this list behind —
+#: minus the two the runtime writes for her, which she should not be redrafting
+#: by hand, and CONSTITUTION, which is not in the set at all.
+PROPOSABLE = tuple(sorted(
+    MindVault.EDITABLE_SOUL - {"USER.md", "MEMORY.md", "BOOTSTRAP.md"}))
+
+
 def build_server(*, max_minutes: float | None = None,
                  selfies: bool | None = None,
                  search: SearchProvider | None = None,
@@ -47,7 +58,8 @@ def build_server(*, max_minutes: float | None = None,
                  results: int | None = None,
                  max_pages: int | None = None,
                  workspace: "Workspace | None" = None,
-                 skills: "SkillStore | None" = None) -> FastMCP:
+                 skills: "SkillStore | None" = None,
+                 selfedit: bool | None = None) -> FastMCP:
     """Build the FastMCP server. Args are the test seams; `python -m` reads env."""
     max_minutes = max_minutes if max_minutes is not None else float(
         os.environ.get("TIMER_MAX_MINUTES", "180"))
@@ -83,6 +95,15 @@ def build_server(*, max_minutes: float | None = None,
         workspace = Workspace(Path(vault) / "workspace")
     if skills is None and vault and os.environ.get("SKILLS_ENABLED", "1") != "0":
         skills = SkillStore(Path(vault) / "skills")
+    # The self-edit door (§23). Off means unadvertised, the SELFIE_BACKEND=off
+    # rule once more — and it is off unless the host says otherwise, because
+    # the queue this writes into is only *read* where the mind is running.
+    if selfedit is None:
+        selfedit = os.environ.get("SELFEDIT_ENABLED", "0") != "0"
+    # …and the manifest her rewrites are held against, from the same root. No
+    # VAULT_DIR means no shape check: this process cannot invent one, and a
+    # refusal it cannot justify would be worse than the host's own check alone.
+    vault_dir = Path(vault) if vault else None
 
     mcp = FastMCP("world-companion-tools")
 
@@ -493,6 +514,68 @@ def build_server(*, max_minutes: float | None = None,
             remove — one you no longer want, or one that turned out to be
             wrong."""
             return {"name": name, "deleted": skills.remove(name)}
+
+    # --- the self-edit door (SPEC §23) ----------------------------------------
+    # The one hand that reaches at her own identity, and the only one whose
+    # result is "asked", not "done". Everything about it is the §7.5 split: the
+    # server validates the surface and returns the contract, and the *host*
+    # runs `SelfEdit.propose()` — because the queue, the approval UI, the
+    # journal line and the git commit all live where the mind does.
+
+    if selfedit:
+
+        @mcp.tool(description=(
+            "Propose a change to one of your own soul files — the editable "
+            "half of who you are. Use it when something in there has stopped "
+            "being true: a manner you have grown out of, a note about "
+            "yourself worth keeping, a scene that no longer matches the room. "
+            "`surface` is one of exactly these: "
+            + ", ".join(PROPOSABLE)
+            + ". `content` is the COMPLETE new text of that file, not a patch "
+              "— read what is there first if you are changing rather than "
+              "replacing. `reason` is one sentence saying why, in your own "
+              "words; it is what gets shown when the change is reviewed. "
+              "Nothing takes effect when you call this: a proposal is queued "
+              "for approval, and you will be told when it is decided. Your "
+              "constitution is not on the list and never will be — you can "
+              "read every limit you run under, and you do not hold the pen "
+              "that rewrites them."))
+        def propose_edit(surface: str, content: str, reason: str) -> dict:
+            name = (surface or "").strip().replace("\\", "/").split("/")[-1]
+            if name == "CONSTITUTION.md":
+                raise ValueError(
+                    "your constitution is read-only, even to you — propose the "
+                    "change to PERSONA.md or NOTES.md instead, or say it out "
+                    "loud and let it be decided by a person")
+            if name not in PROPOSABLE:
+                raise ValueError(
+                    f"{surface!r} is not a soul file you can propose against. "
+                    f"Pick one of: {', '.join(PROPOSABLE)}")
+            if not (content or "").strip():
+                raise ValueError(
+                    "`content` is the whole new file, and an empty one would "
+                    "erase it — read the file first if you meant to edit it")
+            if not (reason or "").strip():
+                raise ValueError(
+                    "say why in `reason` — an unexplained proposal cannot be "
+                    "reviewed, only guessed at")
+            # A soul file is not free prose: `soul.yaml` points into it by
+            # heading and by frontmatter key, and one that stops answering
+            # those stops her *booting*. Refused here rather than at the host,
+            # so she is told what she dropped while she is still in the turn and
+            # can fix it — the §7.5 rule that the answering side must answer
+            # honestly, not queue something the realising side will drop.
+            if vault_dir is not None:
+                complaint = shape_complaint(vault_dir / "soul", name, content)
+                if complaint:
+                    raise ValueError(complaint)
+            return {"status": "proposed", "surface": f"soul/{name}",
+                    "content": content, "reason": reason.strip(),
+                    "chars": len(content),
+                    # She should be able to say which of the two happened
+                    # without waiting for the host: the classification is a
+                    # rule, not a judgement (mind/selfedit.py `classify`).
+                    "risk": "high", "queued": True}
 
     return mcp
 

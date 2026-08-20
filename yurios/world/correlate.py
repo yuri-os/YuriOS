@@ -36,6 +36,7 @@ COMPOSE = "compose"         # a reach-out being written (gate 2 already crossed)
 UTILITY = "utility"         # the small model, unattributed
 DREAM = "dream"             # DREAM-state consolidation
 GOAL_WORK = "goal_work"     # deliberate work on an open goal
+MIND_TOOL = "mind_tool"     # a tool the mind reached for on its own (§26, amended)
 KNOWLEDGE = "knowledge"     # ingesting something you dropped on her shelf
 HOST = "host"               # no scope was in view
 

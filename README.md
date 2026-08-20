@@ -100,6 +100,30 @@ What stands between you and that:
   passage and model-call counts, and a stop button that keeps what she has already read.
 - **`RESEARCH_MAX_PAGES` and `TOOL_RATE_RESEARCH`** bound how far one run and one minute
   can reach.
+- **`MIND_TOOLS_ENABLED=false` is the default**, and it is the switch that decides whether
+  any of this can happen *without you in the room*. Everything above assumes you said
+  something first. With this off — the shipped state — her background loop thinks and
+  writes to her journal and never reaches for a tool at all. Turning it on is two
+  decisions, not one: the switch, and then `MIND_TOOL_ALLOWLIST`, which names the permitted
+  hands explicitly and is empty even once the switch is true.
+
+Once you do turn it on, the numbers that actually stop a runaway night are different from
+the ones above, because they are *preconditions* rather than estimates:
+
+- **`MIND_TOOL_CALLS_PER_DAY` (8) is a cap, not a governor.** It is checked before the call
+  and it refuses. `MIND_TOOL_PRESSURE_CEILING` (0.5) does the same thing with the budget:
+  over it, the expensive hands — `research`, `read_page`, `web_search`, the cameras — are
+  simply not offered.
+- **The same call is refused for hours.** A persistent fingerprint ledger survives restarts,
+  so "she re-dispatched the same research every tick all night" cannot happen.
+- **Her buckets are not your buckets.** The mind gets its own rate limits
+  (`TOOL_RATE_MIND_*`), so a busy night cannot leave your morning request denied.
+- **Nothing she makes this way is sent to you.** It goes on her shelf, in her gallery, or on
+  her desk. Whether you ever hear about it is the same reach-out gate as everything else,
+  with the same quiet hours and the same daily cap.
+- **`tool-logs/calls.jsonl` marks every one of them `mind_tool`.** "What did she do at 4am"
+  is a file you read, not a vibe — and the switchboard's fourth toggle revokes her hands
+  before her next tick, without restarting her.
 
 If you point her at a paid API — chat, utility or embeddings — set a spend limit with the
 provider as well. For the first few days, watch the numbers on the inner-life tab.

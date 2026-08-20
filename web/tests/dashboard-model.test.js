@@ -73,6 +73,34 @@ describe('normalizeCharacter', () => {
     });
   });
 
+  describe('her hands', () => {
+    // SPEC §26.1. Read exactly like the doorbell, and for the same reason:
+    // `available` is the house switch MIND_TOOLS_ENABLED, and with it off the
+    // per-character toggle is inert rather than pretending a character can
+    // grant herself a capability this node has not installed.
+    it('reads the board shape', () => {
+      const character = normalizeCharacter(row({ hands: { enabled: false, available: true } }));
+      expect(character.hands).toEqual({ enabled: false, available: true });
+      expect(character.loops.hands).toBe(true); // the loops bag is its own answer
+    });
+
+    it('reads the settings form shape without snapping the switch back on', () => {
+      const character = normalizeCharacter(row({ hands: false, hands_available: true }));
+      expect(character.hands.enabled).toBe(false);
+      expect(character.hands.available).toBe(true);
+    });
+
+    it('falls back to the loops bag when only that arrived', () => {
+      expect(normalizeCharacter(row({ loops: { hands: false } })).hands.enabled).toBe(false);
+    });
+
+    it('is unavailable when the house switch says nothing', () => {
+      // MIND_TOOLS_ENABLED is off out of the box, so this is the ordinary case
+      // and the switch must read as inert rather than as available-and-on.
+      expect(normalizeCharacter(row()).hands.available).toBe(false);
+    });
+  });
+
   it('counts unread only when the count is a real positive number', () => {
     expect(normalizeCharacter(row({ unread: { count: '3', selfies: 1 } })).unread)
       .toMatchObject({ count: 3, selfies: 1 });

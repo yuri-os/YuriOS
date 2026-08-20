@@ -499,3 +499,33 @@ async def test_the_desk_hands_explain_their_arguments_too(tmp_path):
             for arg in (tool.inputSchema.get("properties") or {}):
                 assert f"`{arg}`" in described, (
                     f"{tool.name}'s `{arg}` is never explained to her")
+
+
+# --- propose_edit: the contract answers honestly (SPEC §7.5, §23) -----------------
+
+async def test_propose_edit_refuses_a_rewrite_that_would_stop_her_booting(
+        tmp_path, monkeypatch):
+    """The answering side must answer honestly. Queuing something the host will
+    drop — or worse, apply, leaving a character that fails to start — is the one
+    thing the §7.5 split may not do."""
+    soul = tmp_path / "soul"
+    soul.mkdir()
+    (soul / "soul.yaml").write_text(
+        'name: "T"\nfields:\n  description:\n    - PERSONA.md#Appearance\n')
+    (soul / "PERSONA.md").write_text("# Persona\n\n## Appearance\n\nDark hair.\n")
+    monkeypatch.setenv("VAULT_DIR", str(tmp_path))
+
+    async with create_connected_server_and_client_session(
+            server(selfedit=True)._mcp_server) as s:
+        bad = await s.call_tool("propose_edit", {
+            "surface": "soul/PERSONA.md", "content": "She is quieter now.\n",
+            "reason": "I have got quieter"})
+        assert bad.isError
+        assert "## Appearance" in result_text(bad)
+
+        ok = await s.call_tool("propose_edit", {
+            "surface": "soul/PERSONA.md",
+            "content": "# Persona\n\n## Appearance\n\nShorter hair now.\n",
+            "reason": "I cut it"})
+        assert not ok.isError
+        assert json.loads(result_text(ok))["status"] == "proposed"

@@ -97,6 +97,20 @@ class SignalBus:
         self._loop = asyncio.get_running_loop()
 
     def next(self, offset: int, limit: int = 64) -> tuple[list[Signal], int]:
+        # The offset is persisted across restarts (`bus_offset`) and the queue
+        # is not, so a restored offset can point past the end of a queue that
+        # starts empty every boot — and then the loop silently skips exactly
+        # that many *new* signals before it hears anything again. Found live:
+        # after one restart she never sensed the approval of her own self-edit.
+        #
+        # Within one process the offset can never outrun the queue, which only
+        # grows; past the end means it belongs to a queue that no longer exists,
+        # and everything here is unread. Restoring it is still right for a mind
+        # rebuilt on a *live* bus (a loop switched off and on again) — that is
+        # the case this leaves alone.
+        if offset > len(self._signals):
+            offset = 0
+        offset = max(offset, 0)
         batch = self._signals[offset:offset + limit]
         return batch, offset + len(batch)
 

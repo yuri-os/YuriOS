@@ -12,8 +12,16 @@ starves the loop within weeks. The sources, stamped on every goal:
     ("I'll look into that") and files each one; a companion who forgets her
     own promises is worse than one who forgets yours.
   * `maintenance:*` — DREAM backlog, knowledge drops.
+  * `followup:<goal>` — work she finished, waiting to be mentioned.
 The file itself is a markdown checklist: `cat vault/goals.md` reads as her
 to-do list, because it is one.
+
+A promise splits two ways and the difference decides everything downstream.
+"I'll tell you when it lands" is a `reach_out`: the whole content is that you
+hear it, so its act is a message and Gate 2 rules on it. "I'll look into that"
+is a `task`: the content is work, its act is a working step, and it may reach
+for a hand (§26.2). Filing both as `reach_out` — which is what this did until
+`promise_kind` — meant she talked about everything and did none of it.
 """
 from __future__ import annotations
 
@@ -50,6 +58,29 @@ class Goal:
     def is_stale(self, clock: Clock) -> bool:
         """Past due — whether it is defended or dropped is the commitment's call."""
         return self.due is not None and ts_of_iso(self.due) < clock.now()
+
+    @property
+    def steps(self) -> int:
+        """How many working ticks this goal has already had (SPEC §22).
+
+        The horizon lives in `meta` rather than in a column because it is
+        bookkeeping the *loop* keeps, not something a person reading
+        `goals.md` as a checklist needs a heading for.
+        """
+        try:
+            return int(self.meta.get("steps", 0))
+        except (TypeError, ValueError):
+            return 0
+
+    @property
+    def dispatched(self) -> dict:
+        """The tool call this goal is waiting on, or `{}` (SPEC §22, §7.3).
+
+        Written when a `tool_step` starts work the loop will not await, read
+        when `task_completion` comes back to decide which goal it belongs to.
+        """
+        d = self.meta.get("dispatched")
+        return d if isinstance(d, dict) else {}
 
 
 LINE_RE = re.compile(r"^- \[(?P<done>[ x~])\] \((?P<id>[\w-]+)\) (?P<text>.*?)"
@@ -126,11 +157,38 @@ class GoalStore:
         return g
 
     def set_state(self, goal_id: str, state: str) -> None:
+        self.update(goal_id, state=state)
+
+    def update(self, goal_id: str, *, state: str | None = None,
+               meta: dict | None = None, priority: float | None = None,
+               due: str | None = None) -> Goal | None:
+        """One read-modify-write over `goals.md`, for everything a working tick
+        changes about a goal at once.
+
+        `set_state` used to be the only mutator, which is why the lifecycle was
+        never used: advancing a goal means moving its state *and* recording what
+        step it is on *and* often when to look at it again, and three separate
+        rewrites of the checklist would be three chances to lose one of them.
+        `meta` is merged, not replaced — the provenance a dispatched tool call
+        leaves behind must survive the next step's step-counter bump.
+        """
         goals = self.all()
+        found: Goal | None = None
         for g in goals:
-            if g.id == goal_id:
+            if g.id != goal_id:
+                continue
+            found = g
+            if state is not None:
                 g.state = state
-        self._save(goals)
+            if meta:
+                g.meta = {**g.meta, **meta}
+            if priority is not None:
+                g.priority = priority
+            if due is not None:
+                g.due = due
+        if found is not None:
+            self._save(goals)
+        return found
 
     def reconsider(self) -> list[Goal]:
         """Apply commitment strategies to stale goals (SPEC §22.2): blind is
@@ -160,18 +218,134 @@ def _parse_meta(raw: str) -> dict:
 
 
 # --- REFLECT's promise scan (SPEC §22.1) ---------------------------------------
-
-PROMISE_RE = re.compile(
-    r"\bI(?:'ll| will)\s+(?!never|not\b)(.{4,100}?)(?:[.!?\n]|$)", re.I)
+#
+# A promise is not only "I'll". Live, the commitments that went unfiled were the
+# softer ones — "let me look that up", "I can dig into that tonight", "I want to
+# read more about it before I answer" — which is exactly the register a warm
+# companion makes most of her commitments in. So the scan is a small family of
+# openers rather than one, with three rules holding it steady:
+#
+#   * **the negation guard is shared.** "I'll never leave", "let me not push",
+#     "I can't look that up" are not promises and must never become goals; the
+#     guard is written once, in `_NEGATED`, and every opener consults it.
+#   * **the cap and the dedupe stay.** At most three per exchange (a reply that
+#     enumerates six things is not six commitments), and the same commitment
+#     phrased twice in one reply is one goal.
+#   * **conditionals are left alone.** "if you want, I can…" is an offer she is
+#     waiting on an answer to, not something she has taken on — filing it makes
+#     her chase work nobody asked for.
+PROMISE_RES = (
+    # "I'll look into it", "I will read it tonight"
+    re.compile(r"\bI(?:'ll| will| shall)\s+(.{4,100}?)(?:[.!?\n]|$)", re.I),
+    # "let me look that up" — an offer she has already started making good on
+    re.compile(r"\blet me\s+(.{4,100}?)(?:[.!?\n]|$)", re.I),
+    # "I can look that up", "I could dig into it" — capability offered as intent
+    re.compile(r"\bI(?: can| could| should)\s+(.{4,100}?)(?:[.!?\n]|$)", re.I),
+    # "I want to read up on it first", "I'd like to think about it"
+    re.compile(r"\bI(?: want to| need to|'d like to| mean to)\s+"
+               r"(.{4,100}?)(?:[.!?\n]|$)", re.I),
+    # "I'm going to sit with that"
+    re.compile(r"\bI(?:'m| am) going to\s+(.{4,100}?)(?:[.!?\n]|$)", re.I),
+)
 REMIND_RE = re.compile(r"\bremind me to\s+(.{4,100}?)(?:[.!?\n]|$)", re.I)
+
+#: What the opener may not be followed by. `not`/`never` invert the promise;
+#: the modal "have to"/"had to" turns "I can" into a report rather than an offer.
+_NEGATED = re.compile(r"^(?:never|not|n't|no\b|hardly|barely)\b", re.I)
+
+#: An opener sitting inside a conditional is a question, not a commitment. Only
+#: the clause the opener starts is inspected, so "I'll read it if you send it"
+#: still files — she committed and named a precondition, which is different from
+#: "if you like, I can read it".
+_CONDITIONAL = re.compile(r"\b(?:if|unless|whether)\b[^.!?\n]{0,60}$", re.I)
+
+#: …and the same offer, phrased with the condition on the end. "if you send it"
+#: is a precondition on work she took on; "if you want" is her asking. Only the
+#: second is excluded, and only because it is the one she is waiting on an
+#: answer to.
+_TRAILING_OFFER = re.compile(
+    r",?\s*\b(?:if|unless)\s+(?:you|you'd|you would)\s+"
+    r"(?:want|like|wish|prefer|care)\b.*$", re.I)
+
+
+def _clean(text: str) -> str:
+    return text.strip().rstrip(",;:").strip()
+
+
+#: Telling verbs: the promise whose whole substance is that *they* hear it.
+#:
+#: Anchored at the front of the captured predicate on purpose. "I'll read it and
+#: let you know" is work with a report on the end, and the work is the half she
+#: has to do first — so it files as a `task`, and finishing it is what schedules
+#: the telling (`_offer_to_tell`). "I'll let you know once I've read it" leads
+#: with the report and files as a `reach_out`. The leading verb is the promise;
+#: everything after it is when.
+_TELLING_RE = re.compile(
+    # optional throat-clearing before the verb — "probably tell you", "try to
+    # let you know", "go and ask you". Deliberately a closed list: a wildcard
+    # here would eat the verb it is supposed to be standing in front of.
+    r"^(?:(?:probably|definitely|certainly|then|also|just|first|soon|quickly|"
+    r"actually|maybe)\s+|(?:try|make sure|be sure|remember)\s+to\s+|"
+    r"(?:go|come)\s+(?:and\s+)?)*"
+    r"(?:"
+    r"(?:tell|remind|update|warn|notify|ping|message|text|email|call|show|"
+    r"send|ask|nudge|alert|answer)\s+you\b"
+    r"|let\s+you\s+know"
+    r"|keep\s+you\s+(?:posted|updated|informed|in\s+the\s+loop)"
+    r"|fill\s+you\s+in"
+    r"|(?:get|come|circle)\s+back\s+to\s+you"
+    r"|(?:report|check|circle)\s+back\b"
+    r"|follow\s+up\s+with\s+you"
+    r"|run\s+(?:it|this|that|them)\s+(?:by|past)\s+you"
+    r"|share\s+(?:it|this|that|them)\s+with\s+you"
+    r")", re.I)
+
+
+def promise_kind(text: str, provenance: str) -> str:
+    """`task` or `reach_out` — which half of a promise this one is (§22.1).
+
+    Only her own words are ever a `task`. An explicit "remind me to…" is a
+    `reach_out` by definition however it is phrased: the entire thing they asked
+    for is to be told, and doing it quietly would be doing the opposite.
+
+    Anything else defaults to `reach_out`, which is the behaviour every goal had
+    before this existed — an unrecognised provenance should not silently gain a
+    capability, it should keep the one it had.
+    """
+    if not provenance.startswith("promise:"):
+        return "reach_out"
+    return "reach_out" if _TELLING_RE.match(_clean(text)) else "task"
 
 
 def extract_promises(reply: str, user_msg: str) -> list[tuple[str, str]]:
     """Scan an exchange for commitments: hers, in her own words, and the
-    user's explicit remind-me asks. Returns (text, provenance) pairs."""
-    out = []
-    for m in PROMISE_RE.finditer(reply or ""):
-        out.append((m.group(1).strip().rstrip(","), "promise:her-own-words"))
+    user's explicit remind-me asks. Returns (text, provenance) pairs.
+
+    Hers first and capped at three, because a reply that offers a list is one
+    conversation, not a day's work — and a companion who files everything she
+    ever said "I could" about ends up with a to-do list she can only fail."""
+    out: list[tuple[str, str]] = []
+    seen: set[str] = set()
+
+    def take(text: str, provenance: str) -> None:
+        if _TRAILING_OFFER.search(text):
+            return
+        text = _clean(text)
+        key = text.lower()
+        if not text or _NEGATED.match(text) or key in seen:
+            return
+        seen.add(key)
+        out.append((text, provenance))
+
+    # The user's explicit asks go in first, so a reply full of soft offers can
+    # never spend the whole budget on her own words and drop the one thing she
+    # was actually *told* to remember.
     for m in REMIND_RE.finditer(user_msg or ""):
-        out.append((m.group(1).strip().rstrip(","), "user:remind-me"))
+        take(m.group(1), "user:remind-me")
+    for pattern in PROMISE_RES:
+        for m in pattern.finditer(reply or ""):
+            # the clause this opener sits in, up to where it starts
+            if _CONDITIONAL.search((reply or "")[:m.start()].rsplit("\n", 1)[-1]):
+                continue
+            take(m.group(1), "promise:her-own-words")
     return out[:3]

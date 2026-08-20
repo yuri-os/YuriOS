@@ -309,6 +309,18 @@ def config_for_character(base: Config, record: CharacterRecord,
         # notification on your desktop; hers says whether she is one of the ones
         # that may. A character can never talk her way past `NOTIFY_ENABLED`.
         "notify_enabled": base.notify_enabled and record.notify.enabled,
+        # …and the same two-switches-in-series rule for her hands (SPEC §26, as
+        # amended). The house switch says whether anything on this machine may
+        # reach for a tool unasked; hers says whether she is one of the ones
+        # that may. A character can never talk her way past MIND_TOOLS_ENABLED.
+        #
+        # Multiplied at the *point of use* (`Hands.enabled`) rather than here,
+        # unlike `notify_enabled` above, because hers is a live switch: folded
+        # into the config at boot, revoking it and granting it again inside one
+        # process would leave the config saying no forever, and the grant is the
+        # only half a running mind can be told about. `start()` seeds the grant
+        # from her record before the first tick; this stays the house's word.
+        "mind_tools_enabled": base.mind_tools_enabled,
     }
     env = _env_values(base, environ)       # read once; both resolutions want it
     (update["telegram_bot_token"], update["telegram_chat_id"],
@@ -527,6 +539,10 @@ class CharacterHost:
                                  manage_lifespan=False, mount_frontend=False,
                                  protect_access=False, limit_http_body=False)
                 app.state.rt.voice_ws_limiter = self.voice_ws_limiter
+                # The second of the two switches, before the first tick can run
+                # (§26.1). It lives on the runtime rather than in the config so
+                # that the switchboard can revoke and restore it live.
+                app.state.rt.set_hands_enabled(record.loops.hands)
                 await app.state.rt.start_async()
                 self.apps[character_id] = app
                 self.states[character_id] = "ready"
@@ -585,13 +601,19 @@ class CharacterHost:
             "review_required": record.lifecycle.review_required,
             "loop_enabled": record.loops.mind and self.states.get(record.id) == "ready",
             "loops": {"mind": record.loops.mind, "utility": record.loops.utility,
-                      "dream": record.loops.dream},
+                      "dream": record.loops.dream, "hands": record.loops.hands},
             # Her doorbell (SPEC §18.4.6). `available` is the house switch, sent
             # so the board can show the toggle as inert-with-a-reason instead of
             # letting you flip something that cannot ring: a switch that silently
             # does nothing is worse than one you can see is not connected.
             "notify": {"enabled": record.notify.enabled,
                        "available": self.base.notify_enabled},
+            # …and the same shape for her hands (SPEC §26, as amended), for the
+            # same reason: `available` is the house switch MIND_TOOLS_ENABLED,
+            # and the tile shows hers inert-with-a-reason when the house has not
+            # installed the capability at all.
+            "hands": {"enabled": record.loops.hands,
+                      "available": self.base.mind_tools_enabled},
             "model": record.models.chat or self.base.chat_model,
             "voice": record.voice.voice_id or record.voice.tts_backend or self.base.tts_backend,
             "connection_profile": record.connection.profile,
@@ -1299,8 +1321,12 @@ def create_host_app(base: Config, registry: CharacterRegistry | None = None) -> 
             "body_backend": record.body.backend, "body_model": record.body.model,
             "enabled": record.lifecycle.enabled, "review_required": record.lifecycle.review_required,
             "mind": record.loops.mind, "utility": record.loops.utility,
-            "dream": record.loops.dream,
+            "dream": record.loops.dream, "hands": record.loops.hands,
             "notify": record.notify.enabled,
+            # The house switch behind her hands, read-only here for the same
+            # reason `notify_available` is: a toggle that quietly does nothing
+            # is worse than one shown inert with the reason on it.
+            "hands_available": base.mind_tools_enabled,
             # The house switch, read-only here: the form shows her toggle as
             # inert rather than pretending a character can turn on a doorbell
             # this node has not installed.
@@ -1352,7 +1378,7 @@ def create_host_app(base: Config, registry: CharacterRegistry | None = None) -> 
                                           if key in _OPTION_KEYS}, base)
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
-        for key in ("mind", "utility", "dream"):
+        for key in ("mind", "utility", "dream", "hands"):
             if key in body:
                 setattr(record.loops, key, bool(body[key]))
         if "notify" in body:
@@ -1392,6 +1418,8 @@ def create_host_app(base: Config, registry: CharacterRegistry | None = None) -> 
                 applied = (await host.retune(record))["applied"]
                 if "mind" in body:
                     await host.runtime(character_id).set_mind_enabled(record.loops.mind)
+                if "hands" in body:
+                    host.runtime(character_id).set_hands_enabled(record.loops.hands)
         elif record.lifecycle.enabled:
             await host.start(character_id)
         return {"character": host.summary(record), "applied": applied}
@@ -1438,10 +1466,15 @@ def create_host_app(base: Config, registry: CharacterRegistry | None = None) -> 
         record = require(character_id)
         body = await request.json()
         restart = False
-        for key in ("mind", "utility", "dream"):
+        for key in ("mind", "utility", "dream", "hands"):
             if key in body:
                 value = bool(body[key])
-                restart = restart or (key != "mind" and value != getattr(record.loops, key))
+                # `hands` reaches a running mind live (`set_hands_enabled`), so
+                # it is not a reason to take her conversation down — and it must
+                # not be, because revoking it is the kill switch and a kill
+                # switch that needs a restart is not one.
+                restart = restart or (key not in ("mind", "hands")
+                                      and value != getattr(record.loops, key))
                 setattr(record.loops, key, value)
         # Her doorbell rides the same endpoint as the loop switches because it is
         # the same kind of thing to the person flipping it. It restarts her for
@@ -1454,8 +1487,12 @@ def create_host_app(base: Config, registry: CharacterRegistry | None = None) -> 
         registry.upsert(record)
         if restart and host.runtime(character_id):
             await host.restart(character_id)
-        elif "mind" in body and host.runtime(character_id):
-            await host.runtime(character_id).set_mind_enabled(record.loops.mind)
+        else:
+            rt = host.runtime(character_id)
+            if rt is not None and "mind" in body:
+                await rt.set_mind_enabled(record.loops.mind)
+            if rt is not None and "hands" in body:
+                rt.set_hands_enabled(record.loops.hands)
         return {"character": host.summary(record)}
 
     @app.get("/api/characters/{character_id}/journal")

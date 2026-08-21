@@ -85,6 +85,58 @@ JOURNAL_CHARS = 6000
 #: enough to stop a runaway night, and being wrong high costs a job its turn.
 PROMPT_OVERHEAD_CHARS = 4000
 
+#: Slack left between the report prompt and the model's context window when the
+#: retry works out how much room the answer has. chars/4 is an estimate and the
+#: tokeniser is entitled to disagree with it; a retry that overshoots the window
+#: fails the same way the first attempt did.
+REPORT_WINDOW_MARGIN = 512
+
+#: How long the reasoning pass before the report may run, where the server
+#: honours it — `characters/optimize.py` climbs the same ladder on the same
+#: failure, and it is the knob that leaves room for the answer without turning
+#: the model into a different one.
+#:
+#: Unset by default, and that is a measurement rather than caution. Against LM
+#: Studio serving a 27B Qwen, `reasoning_effort` changes nothing: `low` on a
+#: one-sentence question produced *more* reasoning than sending nothing (451
+#: tokens against 335), and `low` on a real report spent all 2,500 of its
+#: tokens thinking and answered with an empty string — the same failure, to the
+#: token, as sending no effort at all. So it is offered as a hint for the
+#: stacks that implement it and never relied on: what has to work everywhere is
+#: the room the retry hands over.
+REPORT_EFFORTS = ("low", "medium", "high")
+
+#: Room to think, on top of what the report itself is worth. A ceiling bounds
+#: the *call*, not the pass inside it, so a budget sized for the answer is a
+#: budget the thinking eats before she writes a word — 2,500 tokens went 2,500
+#: to reasoning and 0 to the report, measured. `report_max_tokens` therefore
+#: means what the report is worth, and this is added to it rather than the two
+#: fighting over one number.
+#:
+#: The size is measured too, and it is why this is twice
+#: `characters/optimize.py`'s `REASONING_ALLOWANCE` rather than equal to it: a
+#: local 27B handed a night's reading (4,339 prompt tokens, three pages) spent
+#: **10,049 tokens** thinking and then wrote the whole report in 698. A pass
+#: over a night of gathered material is simply a longer pass than a pass over
+#: one character card. Asking high is free — nothing bills for a ceiling, only
+#: for what is generated — and asking low costs the whole call.
+REPORT_REASONING_ALLOWANCE = 12288
+
+#: How long the writing call may take, in seconds. Not a token count — a wall
+#: clock, and the one the report kept dying against: LiteLLM's own default is
+#: 600s, which is generous for a turn somebody is waiting on and short for a
+#: reasoning model writing a page. Measured, a report call ran **1,802 seconds**
+#: and died of the timeout rather than of anything wrong with the answer, and at
+#: this model's ~6.5 tokens a second 600s is under 4,000 tokens however large a
+#: ceiling the call was given.
+#:
+#: An hour, because the first guess of half an hour was also measured and also
+#: too short: the call that finally finished took **2,151 seconds** — 10,049
+#: tokens of thinking and 698 of report. Nobody is waiting at 4am, and what
+#: keeps the night finite is the caps above, not this. A faster model finishes
+#: in a fraction of it and never notices the number.
+REPORT_TIMEOUT_S = 3600
+
 #: A research round's answer is one line of intent, so it is capped hard —
 #: belt and braces beside `thinking=False`, for a model that ignores the
 #: soft-switch and would otherwise think until `UTILITY_MAX_TOKENS` runs out.
@@ -955,6 +1007,34 @@ def _as_float(value, fallback: float) -> float:
         return fallback
 
 
+def _as_effort(value, fallback: str) -> str:
+    """One of `REPORT_EFFORTS`, or "" for whatever the server does by default.
+
+    An unset key takes whatever the caller's default is; anything the server
+    would not recognise becomes "" rather than a guess, because a rejected
+    `reasoning_effort` is a failed call and a job file is written by hand.
+    """
+    if value is None:
+        return fallback
+    text = str(value).strip().lower()
+    return text if text in REPORT_EFFORTS else ""
+
+
+def _shorter_effort(effort: str) -> str:
+    """One notch down the ladder, and `low` is the floor.
+
+    Unset steps down to `low` rather than staying unset: the retry is there
+    because a pass ran away with the ceiling, and asking for the shortest one
+    is the only version of "think less" available to send. On a server that
+    ignores it that costs nothing, which is the case it was measured against.
+    """
+    if not effort:
+        return "low"
+    if effort in ("high", "medium"):
+        return REPORT_EFFORTS[REPORT_EFFORTS.index(effort) - 1]
+    return effort
+
+
 def _as_int(value, fallback: int, *, ceiling: int) -> int:
     """A frontmatter number, floored at 1 and clamped to the house ceiling.
 
@@ -1151,6 +1231,53 @@ RESEARCH_FIRST_MOVE = ("\n\nYou have gathered nothing yet, so your first action 
                        "is a search. Thinking alone gathers nothing, and there "
                        "is no report to write from an empty session.")
 
+#: Appended to every round, with the numbers as they stand. A model that
+#: cannot see its budget spends it: the first full live night went twelve rounds
+#: without once saying it had enough, five of them bare thoughts that gathered
+#: nothing, and stopped mid-gather because the moves ran out rather than because
+#: she was done. Telling her what is left turns "when do I stop" from a guess
+#: into arithmetic, and the report is written from a corpus she chose to finish
+#: with instead of one a cap cut off.
+RESEARCH_BUDGET = ("\n\nYou have {steps} move(s) left, {searches} search(es) and "
+                   "{pages} page(s). When the moves run out you write the report "
+                   "from whatever you have by then — so spend them on gathering. "
+                   "A line that is only a thought still costs a move and brings "
+                   "nothing back.")
+
+#: What the writing call is handed, around everything she gathered. Two things
+#: it has to say and the job file cannot, because the file is the brief and this
+#: is the material: that the corpus is the whole of what she has — a market
+#: brief with a price in it she never read is worse than no brief — and that the
+#: person reading has seen none of it.
+REPORT_CORPUS = (
+    "Today is {day}. This is everything you gathered tonight: your searches, "
+    "the pages you opened, and your own notes as you went.\n\n{gathered}\n\n"
+    "That is all you have. Every figure and every claim in what you write now "
+    "comes from what is above — where it does not go far enough, say so plainly "
+    "instead of filling the gap. Whoever reads this has seen none of it.")
+
+#: Words that carry no search intent, dropped before two queries are compared.
+_QUERY_NOISE = frozenset(
+    "a an and are as at by for from how in is it of on or the to what when "
+    "where which who why with".split())
+
+#: How alike two queries have to be before the second is treated as the first
+#: one again. Measured off a live night: "stock market sector rotation leaders
+#: laggards August 19 2026" followed two rounds later by "stock market sector
+#: performance leaders laggards August 19 2026" — one word apart, the same
+#: results, a move gone. Exact-match dedupe cannot see that, and a model that
+#: has just been let down by a dead link reaches for the rephrase every time.
+#:
+#: The number is arithmetic rather than taste. Swapping one word of an n-word
+#: query scores (n-1)/(n+1), which is 0.67 at five words and 0.8 at nine, so
+#: anything above two-thirds catches the rephrase only in long queries and lets
+#: it through in short ones. At two-thirds a single swapped word is caught from
+#: five words up, and *two* different words score (n-2)/(n+2) — 0.6 at eight —
+#: so a genuine follow-up still runs: "gold silver price outlook" against
+#: "gold silver price today" scores 0.6, and "bitcoin price outlook" against
+#: "ethereum price outlook" scores 0.5.
+QUERY_SAME_ENOUGH = 2 / 3
+
 #: What she says to stop early. Matched as a substring rather than parsed, and
 #: the loop stops on two quiet rounds anyway — this only saves a round.
 RESEARCH_DONE = "nothing further"
@@ -1236,16 +1363,58 @@ class ResearchJob(FileJob):
         # think, and is the number to raise if reports come back cut off.
         self.report_max_tokens = _as_int(front.get("report_max_tokens"), 2500,
                                          ceiling=32000)
-        # …and whether it gets a reasoning pass at all. On by default — the
-        # report is the one call in the night where thinking earns its keep —
-        # but a slow local model is a good reason to turn it off, and that is
-        # the character's decision to make, not this file's.
+        # …and whether it gets a reasoning pass. ON: the report is the one call
+        # in the night that earns one — everything before it is plumbing, and
+        # this is where she actually decides what she thinks. The rounds run
+        # without it precisely so that this one can afford it.
         self.report_thinking = front.get("report_thinking", True) is not False
+        # …and how long that pass may be, on a server that implements the ask
+        # (`REPORT_EFFORTS`). Unset takes whatever the model does on its own.
+        self.report_effort = _as_effort(front.get("report_effort"), "")
+        # …and how long the call may take. See `REPORT_TIMEOUT_S`: on a local
+        # reasoning model this is the limit that actually bites, long before
+        # any of the token numbers above do.
+        self.report_timeout_s = _as_int(front.get("report_timeout_s"),
+                                        REPORT_TIMEOUT_S, ceiling=7200)
         self.shelve = front.get("shelve", True) is not False
         self.deliver = ("chat" if str(front.get("deliver", "desk")).lower()
                         == "chat" else "desk")
         self.output = str(front.get("output")
                           or f"reports/{self.name}/{{day}}.md")
+
+    def report_ceiling(self, cfg, prompt_chars: int) -> int:
+        """What the first writing call may spend: the report, and room to think.
+
+        Without a pass this is simply what the report is worth. With one it is
+        that plus `REPORT_REASONING_ALLOWANCE`, and the window is still the hard
+        stop — asking a server for more than fits is not free everywhere, and a
+        first call that overruns the window fails the way the retry is there to
+        rescue.
+        """
+        if not self.report_thinking:
+            return self.report_max_tokens
+        return min(self.report_max_tokens + REPORT_REASONING_ALLOWANCE,
+                   self.retry_max_tokens(cfg, prompt_chars))
+
+    def retry_max_tokens(self, cfg, prompt_chars: int) -> int:
+        """Everything the window has left, once the prompt is in it.
+
+        The retry exists because the first ceiling was too small for the
+        thinking this model wanted; a second guess of the same shape would
+        truncate in the same place. So it is not a guess — it is the window
+        minus what the prompt occupies, minus a margin for the tokeniser
+        disagreeing with chars/4.
+        """
+        window = int(getattr(cfg, "context_length", 0) or 0)
+        if window <= 0:
+            # No window configured is not a reason to give up on the report;
+            # it is a reason not to pretend to know. Twice the allowance is
+            # what `characters/optimize.py` reaches for on its own retry, and
+            # it is guaranteed to be more than the first call already asked
+            # for — a retry that asks for what it just had is ceremony.
+            return self.report_max_tokens + REPORT_REASONING_ALLOWANCE * 2
+        return max(self.report_max_tokens,
+                   window - (prompt_chars // 4) - REPORT_WINDOW_MARGIN)
 
     # ---------------------------------------------------------------- limits
 
@@ -1280,7 +1449,12 @@ class ResearchJob(FileJob):
         overhead = (PROMPT_OVERHEAD_CHARS + ctx.soul_chars()
                     + len(self.prompt_override))
         chars = (steps / 2 + 1) * self.context_chars + (steps + 1) * overhead
-        return max(64, int(chars // 4))
+        # …plus what the report is allowed to say. Prompt tokens are most of a
+        # night but not all of it, and the writing call is the one place the
+        # completion is a real number rather than a line of intent — on a
+        # reasoning model it is the largest single thing the night spends.
+        return max(64, int(chars // 4) + self.report_max_tokens
+                   + (REPORT_REASONING_ALLOWANCE if self.report_thinking else 0))
 
     def _steps_hint(self) -> int:
         """`max_steps` as the file asks for it, with no config to clamp against.
@@ -1301,21 +1475,24 @@ class ResearchJob(FileJob):
         if self.topics:
             gathered.add("plan", "What you set out to look at: "
                          + "; ".join(self.topics))
-        seen_queries: set[str] = set()
+        seen_queries: dict[str, frozenset[str]] = {}
         seen_urls: set[str] = set()
         quiet = 0
         searched = 0
         opened = 0
         broke = ""
         try:
-            for _ in range(steps):
+            for move in range(steps):
                 system = RESEARCH_LOOP_SYSTEM.format(char=ctx.char_name,
                                                      brief=brief)
                 reply = await ctx.ask(
                     system,
                     f"Today is {day}.\n\n{gathered.render(self.context_chars)}"
                     f"\n\n{RESEARCH_CATALOG}"
-                    + ("" if searched or opened else RESEARCH_FIRST_MOVE),
+                    + ("" if searched or opened else RESEARCH_FIRST_MOVE)
+                    + RESEARCH_BUDGET.format(steps=steps - move,
+                                             searches=searches - searched,
+                                             pages=pages - opened),
                     # No reasoning pass, and a short leash. The answer is one
                     # line naming a search or a page; there is no version of
                     # thinking harder that improves it, and on a local
@@ -1349,21 +1526,30 @@ class ResearchJob(FileJob):
                     continue
                 if intent.text:
                     gathered.add("note", f"You thought: {intent.text}")
+                # She reached for something, so she has not gone quiet — and
+                # that is true however the reach turns out. Resetting this only
+                # on a *successful* one meant a dead link left the counter
+                # standing and the next thought ended the night: the same
+                # mistake as counting the paywall, one step further down. What
+                # bounds a night of bad links is `max_steps`, not this.
+                quiet = 0
                 if intent.tool == "web_search":
                     query = str(intent.args.get("query") or "").strip()
-                    if not query or query.lower() in seen_queries:
-                        gathered.add("note", "(that search was already run — "
-                                             "try a different angle, or read "
-                                             "something you found)")
+                    already = (_already_asked(_query_key(query), seen_queries)
+                               if query else "")
+                    if not query or already:
+                        gathered.add("note", f'(you already searched "{already}"'
+                                             " and this is the same question in "
+                                             "other words — open one of those "
+                                             "results, or ask a different one)")
                         continue
                     if searched >= searches:
                         broke = "out of searches"
                         break
-                    seen_queries.add(query.lower())
+                    seen_queries[query] = _query_key(query)
                     searched += 1
                     rows = await ctx.search(query, self.results)
                     gathered.add("results", _search_rows(query, rows))
-                    quiet = 0
                     continue
                 url = str(intent.args.get("url") or "").strip()
                 if not url or url in seen_urls:
@@ -1385,7 +1571,6 @@ class ResearchJob(FileJob):
                     continue
                 gathered.add("page", f"{page.get('title') or url}\n{url}\n"
                                      f"{text[:self.step_chars]}")
-                quiet = 0
             else:
                 broke = "out of rounds"
         except Exception:
@@ -1404,12 +1589,37 @@ class ResearchJob(FileJob):
             # Marking the day is what stops her re-deciding this every night.
             out.result = f"nothing worth a report ({broke})"
             return out
-        report = await ctx.ask(brief,
-                               f"Today is {day}. This is everything you "
-                               f"gathered:\n\n"
-                               f"{gathered.render(self.context_chars)}",
-                               thinking=self.report_thinking,
-                               max_tokens=self.report_max_tokens)
+        corpus = REPORT_CORPUS.format(
+            day=day, gathered=gathered.render(self.context_chars))
+        prompt_chars = len(brief) + len(corpus)
+        ceiling = self.report_ceiling(ctx.cfg, prompt_chars)
+        report = await ctx.ask(brief, corpus, thinking=self.report_thinking,
+                               reasoning_effort=self.report_effort,
+                               timeout=self.report_timeout_s,
+                               max_tokens=ceiling)
+        if not report and self.report_thinking:
+            # It thought until the ceiling and never spoke. A ceiling bounds
+            # the *call*, not the thinking, so the whole budget can land inside
+            # a <think> block that is then cut off — 431 seconds and an empty
+            # string, measured. Both halves of the retry answer that: more
+            # room, and a shorter pass to fit in it. What it never does is
+            # drop the pass — that would trade the one call in the night that
+            # earns thinking for the one failure it must never have.
+            #
+            # Bounded by the window, not by hope: a second ceiling that does
+            # not fit alongside the prompt would truncate in exactly the same
+            # place, so the retry asks for what is actually left.
+            room = self.retry_max_tokens(ctx.cfg, prompt_chars)
+            effort = _shorter_effort(self.report_effort)
+            if room > ceiling or effort != self.report_effort:
+                log.info("DREAM job %s: the report thought past %d tokens; "
+                         "giving it %d at %s effort and asking again",
+                         self.name, ceiling, room,
+                         effort or "the server default")
+                report = await ctx.ask(brief, corpus, thinking=True,
+                                       reasoning_effort=effort,
+                                       timeout=self.report_timeout_s,
+                                       max_tokens=room)
         if not report:
             out.result = f"gathered {opened} pages and wrote nothing of them"
             return out
@@ -1456,18 +1666,58 @@ def _search_rows(query: str, rows: list[dict]) -> str:
     return "\n".join(lines)
 
 
+#: A list marker at the head of a line, and nothing else — `*Energy*` keeps
+#: its emphasis where a blanket strip would eat it.
+_BULLET = re.compile(r"^[-*•+]\s+|^\d+[.)]\s+")
+
+
+def _query_key(query: str) -> frozenset[str]:
+    """A query as the words that carry its intent, order and noise gone."""
+    words = re.findall(r"[a-z0-9]+", query.lower())
+    return frozenset(w for w in words if w not in _QUERY_NOISE)
+
+
+def _already_asked(key: frozenset[str], seen) -> str:
+    """The earlier query this one is a rephrase of, or "".
+
+    Jaccard rather than equality, for the reason in `QUERY_SAME_ENOUGH`: the
+    duplicate that costs a night is never a duplicate, it is one word moved.
+    """
+    for query, other in seen.items():
+        both = key | other
+        if both and len(key & other) / len(both) >= QUERY_SAME_ENOUGH:
+            return query
+    return ""
+
+
 def _lede(report: str) -> str:
     """The one line that goes in the chat, off the top of the report.
 
     Her own first sentence rather than a summary of it: asking a model to
     summarise something it just wrote is a call spent to say the same thing
     worse, and the report is one click away in any case.
+
+    Her first *sentence*, though, not her first line — a report that opens
+    "## The tape" would otherwise arrive in chat as the words "The tape", which
+    tells you nothing you did not already know from the card's title. Headings
+    are skipped in favour of the prose under them, and only a report that is
+    nothing but headings falls back to one.
     """
-    for line in report.splitlines():
-        line = line.strip().lstrip("#").strip()
-        if line and not line.startswith(("---", "===")):
+    heading = ""
+    for raw in report.splitlines():
+        line = raw.strip()
+        if not line or line.startswith(("---", "===", "***", "___", "|")):
+            continue
+        if line.startswith("#"):
+            heading = heading or line.lstrip("#").strip()
+            continue
+        # A bullet is prose with a dash in front of it; the dash is not hers.
+        # Only the marker, though — `- *Energy* is the only bid` keeps its
+        # emphasis, and a line that is nothing but rule characters is not prose.
+        line = _BULLET.sub("", line, count=1).strip()
+        if line:
             return line[:280]
-    return "I wrote you something."
+    return heading[:280] or "I wrote you something."
 
 
 class _CapsDefaults:
@@ -1531,6 +1781,15 @@ def validate_job_file(name: str, text: str) -> str:
     if kind not in JOB_KINDS and name not in BUILTIN_NAMES:
         return (f"kind: {kind} isn't one this build knows — "
                 f"it's one of {', '.join(sorted(JOB_KINDS))}")
+    # The one place a typo here can be caught while somebody is looking at it.
+    # The runner stays lenient — an effort it does not know is dropped rather
+    # than allowed to fail a night at 4am — but a door that says nothing lets
+    # the typo through to a report written with a setting nobody chose.
+    if front.get("report_effort") is not None and not _as_effort(
+            front.get("report_effort"), ""):
+        return (f"report_effort: {front['report_effort']} isn't one of "
+                f"{', '.join(REPORT_EFFORTS)} — it is how long the reasoning "
+                "pass before the report may run")
     return ""
 
 

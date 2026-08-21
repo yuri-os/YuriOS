@@ -188,10 +188,20 @@ class LiteLLMUtilityModel:
         if not params.get("thinking", self.thinking):
             messages = _no_think_messages(messages)
             body.update(_NO_THINK_BODY)
-        if params.get("reasoning_effort"):
+        elif params.get("reasoning_effort"):
+            # Only with the pass on: `thinking=False` *is* an effort of "none",
+            # so a caller that passes both — a research job handing every call
+            # the same effort — must not have its no-think quietly undone.
             body["reasoning_effort"] = params["reasoning_effort"]
         if body:
             extra["extra_body"] = body
+        # LiteLLM's own default is 600 seconds, which is a daytime number: it is
+        # generous for a turn somebody is waiting on and short for a reasoning
+        # model writing a page at 4am. Measured, a report call ran 1,802 seconds
+        # and died of this rather than of anything wrong with the answer — so a
+        # caller that knows it is asking for a long one may say so.
+        if params.get("timeout"):
+            extra["timeout"] = params["timeout"]
         async with inference_admission():
             response = await litellm.acompletion(
                 model=self.model,

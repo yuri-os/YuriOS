@@ -14,7 +14,9 @@ import yaml
 from yurios.app.memory.store import FileMemoryStore
 from yurios.mind.dream import DreamConsolidator
 from yurios.mind.dreamjobs import (JOB_NAME_RE, PROMPT_OVERHEAD_CHARS,
-                                   ROUND_MAX_TOKENS,
+                                   REPORT_REASONING_ALLOWANCE, REPORT_TIMEOUT_S,
+                                   ROUND_MAX_TOKENS, _already_asked, _lede,
+                                   _query_key, _shorter_effort,
                                    DreamJob, DreamRunner, JobReport, PromptJob,
                                    ResearchJob, validate_job_file)
 from yurios.mind.vaultio import MindVault
@@ -745,17 +747,26 @@ class ScriptedModel:
 
 
 class ScriptedFetcher(FakeFetcher):
-    """`FakeFetcher` with a set of URLs that refuse to open."""
+    """`FakeFetcher` with URLs that refuse to open, and ones that open empty.
+
+    The two are different failures and the loop treats them differently: a
+    raise is the web being broken, an empty body is a paywall or a page that
+    wanted a browser — the commonest thing a real night meets.
+    """
 
     def __init__(self):
         super().__init__()
         self.fail: set[str] = set()
+        self.empty: set[str] = set()
 
     async def fetch(self, url):
         if url in self.fail:
             self.fetched.append(url)
             raise ValueError(f"{url} is gone")
-        return await super().fetch(url)
+        page = await super().fetch(url)
+        if url in self.empty:
+            page = dict(page, text="")
+        return page
 
 
 class _Shelf:
@@ -989,7 +1000,8 @@ async def test_a_research_round_asks_for_no_reasoning_pass(research_rig_with):
     Both calls are bounded, and separately. The write inherited
     `UTILITY_MAX_TOKENS` at first, which is sized for extraction: against the
     same model that call ran past nineteen minutes and never returned, because
-    a reasoning model handed 15,000 tokens will use them.
+    a reasoning model handed 15,000 tokens will use them. Bounding it was not
+    enough either — see `test_the_report_never_comes_back_empty_after_thinking`.
     """
     runner, _vault, model, _fetcher = research_rig_with(
         ['use read_page {"url": "https://example.invalid/overview"}',
@@ -999,31 +1011,291 @@ async def test_a_research_round_asks_for_no_reasoning_pass(research_rig_with):
     rounds, write = model.params[:-1], model.params[-1]
     assert rounds and all(p.get("thinking") is False for p in rounds)
     assert all(p.get("max_tokens") == ROUND_MAX_TOKENS for p in rounds)
-    # the report thinks, and is still not allowed to think forever
-    assert write["thinking"] is True
-    assert write["max_tokens"] == 2500
+    # …and the report gets room the rounds do not: what the report is worth,
+    # plus room to think, because a ceiling bounds the call and not the pass.
+    assert write["max_tokens"] == 2500 + REPORT_REASONING_ALLOWANCE
     assert write["max_tokens"] > ROUND_MAX_TOKENS
 
 
+async def test_a_page_that_gave_nothing_is_still_her_reaching(research_rig_with):
+    """Two quiet rounds mean she has stopped reaching, and a dead link is not
+    that. A live night ended on "two quiet rounds" with one thought either side
+    of a page that came back empty — the same mistake as counting the paywall,
+    one step further down. What bounds a night of bad links is `max_steps`."""
+    runner, _vault, model, fetcher = research_rig_with(
+        ['use read_page {"url": "https://example.invalid/overview"}',
+         "think that gave me the shape of it",
+         'use read_page {"url": "https://example.invalid/empty"}',
+         "think still nothing on the second half",
+         'use read_page {"url": "https://example.invalid/deep"}',
+         "think nothing further", REPORT])
+    fetcher.empty.add("https://example.invalid/empty")
+    report = await runner.run(only="market-brief")
+    assert report.jobs[0].changed
+    assert "she had enough" in report.jobs[0].result
+
+
+async def test_the_same_question_in_other_words_is_the_same_question(research_rig_with):
+    """The duplicate that costs a night is never a duplicate — it is one word
+    moved. A live night ran "stock market sector rotation leaders laggards
+    August 19 2026" and then, two rounds later, the same line with
+    "performance" for "rotation": same results, one move gone. A model that has
+    just been let down by a dead link reaches for the rephrase every time."""
+    runner, _vault, model, _fetcher = research_rig_with(
+        ['use web_search {"query": "stock market sector rotation leaders August 19"}',
+         'use web_search {"query": "stock market sector performance leaders August 19"}',
+         'use web_search {"query": "gold silver price outlook"}',
+         'use read_page {"url": "https://example.invalid/overview"}',
+         "think nothing further", REPORT])
+    runner.utility = _recording(model)
+    report = await runner.run(only="market-brief")
+    searches = [s for s in report.steps if s.tool == "web_search"]
+    assert len(searches) == 2                  # the rephrase never went out
+    assert "gold silver price outlook" in str(searches[-1].args)
+    # …and she is told which earlier question it was, not just refused
+    assert "sector rotation leaders" in model.seen[2][-1]["content"]
+
+
+def test_a_genuine_follow_up_is_not_mistaken_for_a_rephrase():
+    """The guard has to let the second question through, or a night that starts
+    with gold can never ask about silver."""
+    close = _query_key("stock market sector rotation leaders laggards Aug 19")
+    same = _query_key("stock market sector performance leaders laggards Aug 19")
+    apart = _query_key("gold silver price today")
+    assert _already_asked(same, {"a": close}) == "a"
+    assert _already_asked(apart, {"a": _query_key("gold silver price outlook")}) == ""
+    # …and the noise words are not what makes two questions alike
+    assert _query_key("what is the price of gold") == _query_key("price gold")
+
+
+async def test_the_write_call_is_told_the_corpus_is_all_she_has(research_rig_with):
+    """The one instruction the job file cannot give, because the file is the
+    brief and this is the material. A market brief with a price in it she never
+    read is worse than no market brief, so the framing says where the figures
+    have to come from and what to do where they run out."""
+    runner, _vault, model, _fetcher = research_rig_with(
+        ['use read_page {"url": "https://example.invalid/overview"}',
+         "think nothing further", REPORT])
+    runner.utility = _recording(model)
+    await runner.run(only="market-brief")
+    write = model.seen[-1][-1]["content"]
+    assert "That is all you have" in write
+    assert "has seen none of it" in write
+    assert "example.invalid/overview" in write          # …around the corpus
+
+
+def test_the_chat_lede_is_her_first_sentence_not_her_first_heading():
+    """A report opening `## The tape` would otherwise arrive in chat as the
+    words "The tape" — which repeats the card's title and says nothing."""
+    assert _lede("## The tape\nSemis led, everything else drifted.") == (
+        "Semis led, everything else drifted.")
+    assert _lede("# Brief\n\n- Energy is the only bid.") == (
+        "Energy is the only bid.")
+    # a bullet loses its marker and keeps its emphasis
+    assert _lede("1. *Energy* is the only bid.") == "*Energy* is the only bid."
+    # nothing but headings still says something, and an empty report says so
+    assert _lede("## The tape\n### Later") == "The tape"
+    assert _lede("   \n---\n***\n") == "I wrote you something."
+
+
+async def test_every_round_is_told_what_is_left_of_the_night(research_rig_with):
+    """A model that cannot see its budget spends it. The first full live night
+    went the whole twelve rounds without once saying it had enough — five of
+    them bare thoughts — and stopped because the moves ran out, mid-gather.
+    The numbers make stopping arithmetic instead of a guess, and they have to
+    be the real ones: a budget line that lies is worse than none."""
+    runner, _vault, model, _fetcher = research_rig_with(
+        ['use web_search {"query": "the tape"}',
+         'use read_page {"url": "https://example.invalid/overview"}',
+         "think nothing further", REPORT],
+        front={"max_steps": 12, "max_searches": 10, "max_pages": 10})
+    runner.utility = _recording(model)
+    await runner.run(only="market-brief")
+    first, second, third = (m[-1]["content"] for m in model.seen[:3])
+    assert "12 move(s) left, 10 search(es) and 10 page(s)" in first
+    assert "11 move(s) left, 9 search(es) and 10 page(s)" in second
+    assert "10 move(s) left, 9 search(es) and 9 page(s)" in third
+
+
+async def test_the_writing_call_is_given_a_nights_worth_of_wall_clock(research_rig_with):
+    """The limit that actually bit, and the one no token ceiling could fix.
+    A report call ran 1,802 seconds and died of the client's 600-second default
+    rather than of anything wrong with the answer — and at a local model's few
+    tokens a second, 600 seconds is under 4,000 tokens however much room the
+    call was given. Nobody is waiting at 4am."""
+    runner, _vault, model, _fetcher = research_rig_with(
+        ['use read_page {"url": "https://example.invalid/overview"}',
+         "think nothing further", REPORT])
+    runner.utility = _recording(model)
+    await runner.run(only="market-brief")
+    rounds, write = model.params[:-1], model.params[-1]
+    assert write["timeout"] == REPORT_TIMEOUT_S >= 1800
+    # …and the rounds keep the ordinary one: a round that hangs for half an
+    # hour is a night that never finishes, and its answer is one line.
+    assert all("timeout" not in p for p in rounds)
+
+
+async def test_the_report_never_comes_back_empty_after_thinking(research_rig_with):
+    """The rule this whole job is built on: the failure mode is a shorter
+    report, never no report.
+
+    Capping a reasoning model's tokens bounds the *call*, not the thinking, so
+    the entire ceiling can go into a <think> block that is then cut off — which
+    is exactly what a live night did: 431 seconds, 2,500 tokens, and an empty
+    string back. The answer is more room, not less thinking: this is the one
+    call in the night that earns a reasoning pass, and trading it away to avoid
+    an empty answer would be fixing the wrong half.
+    """
+    runner, vault, model, _fetcher = research_rig_with(
+        ['use read_page {"url": "https://example.invalid/overview"}',
+         "think nothing further",
+         "",            # thought past the ceiling and never spoke
+         REPORT])       # …and says it plainly with room to finish
+    runner.utility = _recording(model)
+    report = await runner.run(only="market-brief")
+    assert report.jobs[0].changed
+    assert (vault / "workspace" / "reports" / "market-brief"
+            / "2026-07-05.md").read_text().startswith("## The tape")
+    first, retry = model.params[-2], model.params[-1]
+    assert first["thinking"] is True and retry["thinking"] is True
+    assert retry["max_tokens"] > first["max_tokens"]
+    # …and the pass is shortened, not dropped: the retry answers both halves
+    # of what went wrong — too little room, and too much of it spent thinking.
+    assert first["reasoning_effort"] == ""      # …whatever the server does
+    assert retry["reasoning_effort"] == "low"   # …and the shortest it will ask
+
+
+def test_the_retry_asks_for_what_the_window_actually_has(rig):
+    """Not a bigger guess — the window minus the prompt. A second ceiling that
+    does not fit alongside the corpus truncates in exactly the same place the
+    first one did, which would make the retry ceremony."""
+    runner, _clock, vault = rig
+    _write_job(vault, "market-brief", KIND_RESEARCH)
+    runner.reload()
+    job = runner.get("market-brief")
+    cfg = runner.cfg.model_copy(update={"context_length": 24576})
+    assert job.retry_max_tokens(cfg, 20000) == 24576 - 5000 - 512
+    # a prompt that fills the window leaves the first ceiling, never less
+    assert job.retry_max_tokens(cfg, 400000) == job.report_max_tokens
+    # …and with no window configured it still asks for meaningfully more than
+    # the first call already had, which is the only thing that makes it a retry
+    unset = runner.cfg.model_copy(update={"context_length": 0})
+    assert job.retry_max_tokens(unset, 20000) > job.report_ceiling(unset, 20000)
+
+
+async def test_the_report_is_the_call_that_gets_to_think(research_rig_with):
+    """The rounds go without a reasoning pass so that this one can have it.
+    Everything before the report is plumbing — which page to open next is not
+    a question thinking improves — and this is where she decides what she
+    actually thinks about what she read."""
+    runner, _vault, model, _fetcher = research_rig_with(
+        ['use read_page {"url": "https://example.invalid/overview"}',
+         "think nothing further", REPORT])
+    runner.utility = _recording(model)
+    await runner.run(only="market-brief")
+    assert model.params[-1]["thinking"] is True
+    assert all(p["thinking"] is False for p in model.params[:-1])
+
+
 async def test_the_report_call_is_tunable_from_the_file(research_rig_with):
-    """A slow local model is a good reason to take the reasoning pass off the
-    report too, and that is the character's decision, not this file's."""
+    """How much a report is worth is the character's decision, not this file's
+    — and `report_max_tokens` is what the *report* is worth. The thinking gets
+    its own allowance on top, so that raising one never quietly starves the
+    other; a job that asks for no pass gets exactly the number it asked for."""
     runner, _vault, model, _fetcher = research_rig_with(
         ['use read_page {"url": "https://example.invalid/overview"}',
          "think nothing further", REPORT],
-        front={"report_thinking": False, "report_max_tokens": 900})
+        front={"report_thinking": True, "report_max_tokens": 9000})
     runner.utility = _recording(model)
     await runner.run(only="market-brief")
     write = model.params[-1]
-    assert write["thinking"] is False and write["max_tokens"] == 900
+    assert write["thinking"] is True
+    assert write["max_tokens"] == 9000 + REPORT_REASONING_ALLOWANCE
+
+
+def test_a_report_that_does_not_think_asks_for_exactly_what_it_wants(rig):
+    """The allowance is room for a pass, so a job that has turned the pass off
+    is handed the number it asked for and not a token more."""
+    runner, _clock, vault = rig
+    _write_job(vault, "market-brief", _with_front(
+        KIND_RESEARCH, {"report_thinking": False, "report_max_tokens": 900}))
+    runner.reload()
+    job = runner.get("market-brief")
+    cfg = runner.cfg.model_copy(update={"context_length": 24576})
+    assert job.report_ceiling(cfg, 20000) == 900
+
+
+def test_the_first_write_call_never_overruns_the_window(rig):
+    """Room to think is asked for, not assumed: a local server handed more than
+    its window has does not always clamp, and a first call that overruns fails
+    exactly the way the retry exists to rescue."""
+    runner, _clock, vault = rig
+    _write_job(vault, "market-brief", KIND_RESEARCH)
+    runner.reload()
+    job = runner.get("market-brief")
+    cfg = runner.cfg.model_copy(update={"context_length": 24576})
+    # a small prompt leaves room for the whole allowance…
+    assert job.report_ceiling(cfg, 4000) == 2500 + REPORT_REASONING_ALLOWANCE
+    # …and a prompt that fills the window takes what is left, never more
+    assert job.report_ceiling(cfg, 70000) == job.retry_max_tokens(cfg, 70000)
+
+
+async def test_the_length_of_the_reasoning_pass_is_the_files_call(research_rig_with):
+    """`report_effort` is the knob between the two measured failures: a pass
+    long enough to fill the ceiling and answer with nothing, and no pass at
+    all. The file gets to choose where on that ladder its model sits."""
+    runner, _vault, model, _fetcher = research_rig_with(
+        ['use read_page {"url": "https://example.invalid/overview"}',
+         "think nothing further", REPORT],
+        front={"report_effort": "high"})
+    runner.utility = _recording(model)
+    await runner.run(only="market-brief")
+    assert model.params[-1]["reasoning_effort"] == "high"
+
+
+def test_an_effort_the_server_would_refuse_is_not_sent(rig):
+    """A rejected `reasoning_effort` is a failed call, and a job file is
+    written by hand. Unset and misspelt both fall back to whatever the server
+    does on its own, which is never a failure — the editor is where a typo gets
+    told about, not the night."""
+    runner, _clock, vault = rig
+    _write_job(vault, "market-brief", KIND_RESEARCH)
+    runner.reload()
+    assert runner.get("market-brief").report_effort == ""
+    _write_job(vault, "market-brief", _with_front(KIND_RESEARCH,
+                                                  {"report_effort": "ludicrous"}))
+    runner.reload()
+    assert runner.get("market-brief").report_effort == ""
+
+
+def test_the_editor_catches_an_effort_the_runner_would_shrug_at():
+    """Both halves of the same rule: the runner never fails a night over a
+    typo, and the door somebody is standing at says what the typo was."""
+    good = _with_front(KIND_RESEARCH, {"report_effort": "high"})
+    assert validate_job_file("market-brief", good) == ""
+    bad = _with_front(KIND_RESEARCH, {"report_effort": "ludicrous"})
+    assert "low, medium, high" in validate_job_file("market-brief", bad)
+
+
+def test_the_shorter_pass_bottoms_out_rather_than_turning_off():
+    """One notch down each time, and `low` is the floor — the retry may ask her
+    to think less and must never arrive at not thinking."""
+    assert _shorter_effort("high") == "medium"
+    assert _shorter_effort("medium") == "low"
+    assert _shorter_effort("low") == "low"
+    # …and unset steps down rather than staying unset: the retry exists because
+    # a pass ran away, and the shortest one is the only "think less" to send.
+    assert _shorter_effort("") == "low"
 
 
 def _recording(model):
-    """Wrap the scripted model so the per-call params are visible."""
+    """Wrap the scripted model so the per-call params and prompts are visible."""
     model.params = []
+    model.seen = []
 
     async def call(messages, **params):
         model.params.append(params)
+        model.seen.append(messages)
         return await model.complete(messages, **params)
     return call
 

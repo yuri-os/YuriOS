@@ -1386,12 +1386,49 @@ written from a vault alone.
   round against a local 27B cost 1,227 reasoning tokens and **200 seconds** to emit a single line
   naming a search — twelve of those is a night that never finishes, and the same round with the
   reasoning pass off took **13 seconds**. The line naming her next search is not a question
-  thinking improves. The report is, and keeps the full pass — but it **MUST NOT** inherit
+  thinking improves. The report is — it is the one call in the night where she decides what she
+  actually thinks — and the rounds go without a pass precisely so that this one can afford one.
+
+  **The limit that bites first is the clock, not the ceiling.** A reasoning model writing a page
+  takes minutes, and the HTTP client's default deadline is sized for a turn somebody is waiting on:
+  measured, a report call ran **1,802 seconds** and died of LiteLLM's 600-second default with the
+  answer still coming. At a local model's few tokens a second that deadline caps the call under
+  4,000 tokens however large a ceiling it was given, which makes every token number below a
+  fiction until it is lifted. So the writing call **MUST** carry its own timeout, sized for a
+  night nobody is waiting on (`REPORT_TIMEOUT_S`, an hour — the call that finally finished took
+  **2,151 seconds**); the rounds **MUST NOT**, because
+  their answer is one line and a round that hangs is a night that never finishes. What keeps the
+  night finite is the caps, not the deadline.
+
+  The consequence is worth stating rather than discovering: inference admission is one slot
+  process-wide, so the night's one long call is the one thing that can make a turn wait, and a
+  half-hour deadline is a half-hour wait. It is bounded by when DREAM runs at all — from DORMANT,
+  inside the window, with nobody talking — and that is the whole reason the report is the *only*
+  call given a deadline like this.
+
+  It **MUST** still be bounded, and bounding it is subtler than it looks. It **MUST NOT** inherit
   `UTILITY_MAX_TOKENS`, which is sized for extraction: given that budget the same model spent
-  **nineteen minutes** on one report and had not finished. A reasoning model handed fifteen
-  thousand tokens will use them. Both the ceiling and the pass are per-job settings
-  (`report_max_tokens`, `report_thinking`), because how slow a model is too slow is a property of
-  the house and not of this file.
+  **nineteen minutes** on one page and had not finished. But a ceiling bounds the *call*, not the
+  thinking — set to 2,500 the whole budget landed inside a `<think>` block that was then cut off,
+  and the night answered with an **empty string** after 431 seconds. So `report_max_tokens` is what
+  the *report* is worth, and a reasoning allowance is added to it rather than taken out of it: the
+  two **MUST NOT** be made to fight over one number, because the pass always wins that fight and
+  the report is what loses. The allowance is sized from the measurement and not from the answer —
+  the same model spent **10,049 tokens** thinking and then wrote the report in **698** — and
+  asking high is free, since nothing bills for a ceiling, only for what is generated. The window
+  remains the hard stop on the sum. An empty answer from a
+  thinking report **MUST** be retried with **more room, never with the pass removed**: the fix for
+  thinking that ran out of space is space, and a shorter pass to fit in it. `reasoning_effort` is
+  the ask for that shortening, and the retry steps one notch down it as it hands over the room —
+  but it **MUST NOT** be what the fix depends on: measured against LM Studio serving a 27B Qwen it
+  does nothing whatsoever, `low` producing the same empty answer at the same token count as no
+  effort at all. The room is the half that has to work everywhere. The
+  retry's ceiling **MUST** be derived from the model's context window minus the prompt, not
+  guessed again — a second guess of the same shape truncates in the same place. `report_effort`,
+  `report_max_tokens` and `report_thinking` are per-job because how much a report is worth is a
+  property of the job, not of this file. `thinking=False` **MUST** win over any `reasoning_effort`
+  the same call carries: off is not a shorter pass, and a job that hands every call one effort
+  must not have its silent rounds quietly given one back.
 - **The corpus forgets pages first.** Past `context_chars`, the oldest page body is dropped and
   its search row and her own notes are kept. What she looked at and what she made of it is the
   thread of the session; losing that makes the next round re-search ground already covered, while
@@ -1400,6 +1437,29 @@ written from a vault alone.
   one-line-of-intent format rather than the conversational marker grammar, for the reason that
   file gives: a reply is a stream she is talking through and a tick is not, and anything
   unparseable **MUST** fail safe towards thinking rather than towards an error.
+- **Every round is told what is left of the night.** The move, search and page counts still
+  standing ride in each round's prompt. A model that cannot see its budget spends it: the first
+  full live night went all twelve rounds without once saying it had enough, five of them bare
+  thoughts that gathered nothing, and ended mid-gather because the cap arrived rather than because
+  she was done. The numbers **MUST** be the real remaining ones — a budget line that lies is worse
+  than none — and this is a nudge, never a mechanism: the caps are still what stop the night.
+- **Quiet means she stopped reaching, and only that.** The two-quiet-rounds stop **MUST** count
+  rounds where she reached for nothing — never rounds where the web failed her. A search that dies,
+  a page behind a paywall, a link that returns an empty body: all of those are her reaching, and
+  a night that treats them as her having had enough ends after one dead link. Both halves of this
+  were live failures rather than hypotheticals. What bounds a night of bad links is `max_steps`.
+- **A rephrase is the same search.** Two queries are compared as sets of their meaning-bearing
+  words, and one close enough to an earlier query (`QUERY_SAME_ENOUGH`) is refused with the
+  earlier one quoted back. Exact-match dedupe is not enough and the live nights show why: the
+  duplicate that costs a move is never a duplicate, it is one word moved — a model that has just
+  been let down by a dead link reaches for the rephrase every time. The refusal **MUST** name the
+  earlier query, because "you already asked that" without saying what is a round she spends
+  guessing.
+- **The writing call is told the corpus is the whole of it.** Around what she gathered, and
+  separate from the job file's brief, because the file says what to write and this says what it is
+  made of: every figure comes from the material, a gap is said plainly rather than filled, and the
+  reader has seen none of it. A market brief containing a price she never read is worse than no
+  market brief.
 - **The file's body is the brief for the *report*, not for the search.** The loop's own framing is
   compiled in, because it is the same whether she is reading the tape or reading the literature.
   This is the one place §21.2's "the body **is** the system prompt" is scoped rather than literal,

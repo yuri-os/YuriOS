@@ -298,6 +298,27 @@ shelved in her knowledge store, and the night is bounded on every axis: `max_sea
 also carries its own token budget, because a night of reading the web on one shared ceiling either
 never fits or eats consolidation on the night it does.
 
+She cannot search the same thing twice, and "the same thing" is judged on the words that carry
+the meaning rather than on the exact string — the wasted move is never a repeat, it is one word
+swapped after a dead link.
+
+The report at the end is the one call in the night that gets a reasoning pass — which page to
+open next is not a question thinking improves, and the rounds go without one precisely so this one
+can afford it. The limit that bites first on a local model is not a token count but the clock: a reasoning pass
+over a night of reading takes minutes, and the HTTP client's ordinary ten-minute deadline killed a
+report that was still being written after thirty-six — ten thousand tokens of thinking, then a
+page. So the writing call carries its own
+`report_timeout_s` (default 3600) while the rounds keep the ordinary one — their answer is one
+line, and a round that hangs is a night that never finishes.
+
+How long the report itself may be is `report_max_tokens`, and room to think is added on top of it
+— because a ceiling bounds the call and not the pass inside it, and given 2,500 tokens for both,
+one 27B put all 2,500 into its own reasoning and answered with an empty string. If that still
+happens the report is asked again with whatever the context window has left, and
+the shortest reasoning pass it can ask for — more room and a shorter pass, never no pass.
+`report_effort` (`low` / `medium` / `high`) asks for that shortening up front, on a server that
+implements it; the same 27B ignored it completely, so it is a hint rather than a limit.
+
 Two frontmatter keys are worth knowing whichever kind you pick. **`standing: true`** runs a job
 every night whether or not you spoke to her — anything looking at the world rather than at the
 conversation needs it, because a day nobody talked is not a day her journal has. And

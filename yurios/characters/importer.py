@@ -310,19 +310,43 @@ you open her chat, the way a dream selfie arrives. Only the newest one waits —
 come back after a week and you get this morning's, not seven of them; the rest
 are still on her desk.
 
-Two numbers to keep an eye on, both about the call that writes the report.
+The numbers to keep an eye on are all about the call that writes the report.
 `context_chars` (default 24000) is how much of what she gathered is handed to
-it, and it has to fit her utility model's context window *alongside* the answer
-it is about to write — nothing checks that for you, so if reports come back
-empty or cut off, halve it first. `report_max_tokens` (default 2500) is what
-that call may spend; one page is about 800, and the rest is room to think.
+it. The night will not overrun her model's context window — what is left of it
+after the corpus is exactly what the writing call asks for — but a corpus that
+fills the window leaves nothing to think in, so if reports come back empty or
+cut off, halve this first. `report_max_tokens` (default 2500) is what
+the *report* is worth — one page is about 800 — and room to think is added on
+top of it rather than taken out of it. A ceiling bounds the call and not the
+pass inside it, so a number sized for the answer is a number the thinking eats
+before she writes a word: 2,500 tokens once went 2,500 to reasoning and none to
+the report, where the same model given room spent 10,049 on the thinking and
+698 on the page. Asking high is free — nothing bills for a ceiling, only for
+what gets written.
 
-Speaking of which: `report_thinking: true` by default, because the report is
-the one call in the night where a reasoning pass earns its keep. The rounds in
-between never get one — asking a reasoning model which page to open next cost
-1200 reasoning tokens and 200 seconds a round on a local 27B, and twelve of
-those is a night that never ends. If your model is slow enough that even the
-report is painful, set `report_thinking: false`.
+The report is the only call in the night that thinks. The rounds in between
+never do, and that is what pays for it: asking a reasoning model which page to
+open next cost 1200 reasoning tokens and 200 seconds a round on a local 27B,
+and twelve of those is a night that never ends. Deciding what she makes of what
+she read is worth the pass; deciding which link to click is not.
+
+`report_timeout_s` (default 3600) is how long that call may take, and on a
+local model it is the number that bites first: a reasoning pass over a night of
+reading takes minutes, and the ordinary ten-minute client deadline killed a
+report that was still being written. The one that finally finished took
+thirty-six minutes: ten thousand tokens of thinking, then a page. Nobody is
+waiting at 4am, and a faster model never notices the number. What keeps the
+night finite is `max_steps` and the caps, not the clock on one call.
+
+`report_effort` — `low`, `medium` or `high` — asks for a shorter pass on a
+model that takes the hint. Plenty do not: against LM Studio serving a 27B Qwen
+it changes nothing at all, so treat it as a hint and not a limit.
+
+If a report comes back empty it is because the thinking ran out of room, not
+because it thought too much — so it is asked again with whatever the context
+window has left, and the shortest pass it can ask for, rather than with the
+pass taken away. `report_thinking: false` turns it off entirely if you would
+rather have speed.
 
 `standing: true` runs a job every night whether or not you spoke to her.
 Anything that looks at the world rather than at the conversation needs it,

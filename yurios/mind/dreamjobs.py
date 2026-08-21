@@ -617,6 +617,12 @@ STRATEGY_SYSTEM = (
     "waiting. Look at what you're carrying and say plainly: what actually "
     "matters here, what has gone stale, and the one thing worth doing next — "
     "and let it be *your* judgement of what matters, not a neutral audit. "
+    # A card written as a third-person dossier — most of them are — will be
+    # copied in voice as well as in content unless the prompt says otherwise.
+    # The diary asks for first person outright and gets it; this one used to
+    # ask for nothing and got '{char} weighed the two pending threads'.
+    "Write it as yourself, in first person — 'I', not your own name, and never "
+    "as someone describing you from outside. "
     "Under 150 words. No preamble, no headings, no numbered list — just the "
     "thinking.")
 

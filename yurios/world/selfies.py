@@ -440,9 +440,17 @@ class SelfieLab:
             scene, mood = c.get("scene") or None, c.get("mood") or None
             framing, lighting = c.get("framing") or None, c.get("lighting") or None
             look, avoid = c.get("look") or "", c.get("avoid") or ""
-            wardrobe = c.get("wardrobe") or "everyday"   # the tier she asked the
-            # tool for; unprompted shots stay in the everyday default (→ ch. 11:
-            # the yaml gates nothing — whether a tier renders is the backend's call)
+            wardrobe = c.get("wardrobe") or None         # the tier she asked the
+            # tool for (→ ch. 11: the yaml gates nothing — whether a tier
+            # renders is the backend's call). A shot with nothing to go on falls
+            # back to the everyday register; a shot she *described* does not.
+            # `compose()` already holds the rule — "unasked is unasked" — and
+            # forcing a tier here was the one slot that walked around it, so a
+            # look reading "a soft dark silk dress" arrived at the renderer with
+            # "Wearing a soft oversized sweater" appended after it, and the
+            # renderer believed the last thing it was told.
+            if wardrobe is None and not look.strip():
+                wardrobe = "everyday"
             # What she didn't say, the world says (§7.6): the hour, the weather,
             # the room she is actually in this minute. Read at render time rather
             # than at ask time — a few seconds either way changes nothing, and it

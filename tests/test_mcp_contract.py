@@ -164,7 +164,8 @@ async def test_take_selfie_contract_and_freeform_passthrough():
         data = json.loads(result_text(r))
         assert data["status"] == "started"
         assert data["scene"] is None and data["mood"] is None
-        assert data["wardrobe"] is None                # everyday default, host-side
+        assert data["wardrobe"] is None                # host-side, and only
+        # when she described nothing either (world/selfies.py)
 
         # every tier in the shipped library is nameable, and the contract
         # carries the ask through

@@ -200,7 +200,8 @@ async def test_selfie_jobs_are_serialized(cfg, clock, forge):
 
 async def test_wardrobe_rides_the_contract_and_defaults_to_everyday(cfg, clock, forge):
     """The asked-for wardrobe reaches the forge (a named tier, or free-form —
-    the contract refuses nothing); a contract without one stays everyday."""
+    the contract refuses nothing); a contract with nothing to go on at all
+    stays everyday."""
     rec = Recorder()
     lab = SelfieLab(forge, clock=clock, post=rec.post, speak=rec.speak)
     lab.start({"id": "w1", "scene": "bed", "mood": "tender",
@@ -214,6 +215,42 @@ async def test_wardrobe_rides_the_contract_and_defaults_to_everyday(cfg, clock, 
         meta = json.loads(png.with_suffix(".json").read_text())
         tiers[post["image_url"].split("-")[-1]] = meta["template"]["wardrobe"]
     assert tiers == {"w1.png": "dressy", "w2.png": "everyday"}
+
+
+async def test_the_default_wardrobe_shuts_up_when_she_dressed_herself(cfg, clock,
+                                                                     forge):
+    """Same rule as the situation, one slot over: what she said, nobody argues
+    with. A `look` naming an outfit used to get the everyday tier stapled on
+    after it, and the renderer believes the last thing it is told — so she
+    described a silk dress and was rendered in a sweater. An outfit she or the
+    caller *asked* for still wins; a shot with nothing to go on still gets the
+    everyday register."""
+    rec = Recorder()
+    dress = "in a soft dark silk dress on the window seat"
+    lab = SelfieLab(forge, clock=clock, post=rec.post, speak=rec.speak)
+    lab.start({"id": "dressed", "look": dress, "status": "started"})
+    lab.start({"id": "asked", "look": dress, "wardrobe": "cozy",
+               "status": "started"})
+    lab.start({"id": "mute", "status": "started"})
+    await settle(lab)
+
+    metas = {}
+    for post in rec.posts:
+        png = cfg.selfie_dir / post["image_url"].removeprefix("/selfies/")
+        key = post["image_url"].split("-")[-1].removesuffix(".png")
+        metas[key] = json.loads(png.with_suffix(".json").read_text())
+
+    sweater = "soft oversized sweater"
+    assert dress in metas["dressed"]["prompt"]
+    assert sweater not in metas["dressed"]["prompt"]
+    assert "wardrobe" not in metas["dressed"]["template"]
+    # an explicit ask is still an ask, described or not
+    assert metas["asked"]["template"]["wardrobe"] == "cozy"
+    assert sweater not in metas["asked"]["prompt"]
+    # and the unprompted shot, which has no words of hers to respect, is
+    # dressed by the library exactly as before
+    assert metas["mute"]["template"]["wardrobe"] == "everyday"
+    assert sweater in metas["mute"]["prompt"]
 
 
 async def test_her_own_words_reach_the_render_and_the_ledger(cfg, clock, forge):

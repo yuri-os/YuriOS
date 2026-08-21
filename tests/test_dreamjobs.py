@@ -602,6 +602,29 @@ def test_the_seeded_roster_reproduces_the_builtin_night(tmp_path, cfg):
         assert seeded.get(name).system("") == builtin.strip(), name
 
 
+def test_the_prose_jobs_ask_for_first_person_outright(tmp_path, cfg):
+    """Most character cards are written as a third-person dossier, and since
+    the soul reaches these prompts the model has that prose in front of it —
+    which it will copy in voice as well as in content. Saying "answer as
+    yourself" is not enough: the diary says "first person" outright and gets
+    it, and the night the strategy note said nothing it came back as "Adia
+    weighed the two pending threads…". Both prose jobs must ask.
+
+    Not the selfie: a picture described from outside is still a picture of
+    her, and the renderer prefers it that way.
+    """
+    from yurios.mind.dreamjobs import DIARY_SYSTEM, STRATEGY_SYSTEM
+    for name, prompt in (("diary", DIARY_SYSTEM), ("strategy", STRATEGY_SYSTEM)):
+        assert "first person" in prompt.lower(), name
+
+    # and the seeded file a character actually edits carries it too — the
+    # roster reads the file, so a clause only in Python reaches nobody
+    v = tmp_path / "vault"
+    (v / "memory").mkdir(parents=True)
+    runner = _runner(tmp_path, cfg, v)
+    assert "first person" in runner.get("strategy").system("").lower()
+
+
 def test_an_existing_vault_grows_the_folder_without_changing_its_night(
         tmp_path, cfg):
     """The seeders run once, at creation. A folder invented today exists in no

@@ -300,7 +300,11 @@ def _replace_section(path: Path, heading: str, value: str) -> None:
     else:
         following = re.search(r"(?m)^##\s+", text[match.end():])
         end = match.end() + following.start() if following else len(text)
-        text = text[:match.start()] + block + text[end:]
+        # The cut runs right up to the next `##`, blank separator and all, so
+        # the block has to put that blank line back — otherwise the heading
+        # below lands flush against this section's last paragraph.
+        rest = text[end:]
+        text = text[:match.start()] + block + ("\n" + rest if rest.strip() else "")
     path.write_text(text.rstrip() + "\n", encoding="utf-8")
 
 

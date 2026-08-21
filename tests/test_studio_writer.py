@@ -178,3 +178,29 @@ def test_saving_twice_does_not_accumulate(soul):
     write_soul(soul, _draft(alternate_greetings=["evening", "morning"]))
 
     assert (soul / "SCENARIO.md").read_text(encoding="utf-8") == first
+
+
+# ---- the section blocks ----------------------------------------------------
+
+def test_a_replaced_section_keeps_its_blank_line_before_the_next_heading(soul):
+    """The cut runs to the next `##`, blank separator included, so a block that
+    ended in a single newline left `## Manner` flush against the last line of
+    Appearance. Valid markdown by luck of the leading `#`, but the file people
+    hand-edit came back from every studio save looking mangled."""
+    (soul / "PERSONA.md").write_text(
+        "---\nsoul: persona\n---\n\n# Yuri - Persona\n\n"
+        "## Appearance\n\nold\n\n## Manner\n\nold\n", encoding="utf-8")
+    write_soul(soul, _draft(appearance="tall and quiet", manner="warm"))
+
+    assert (soul / "PERSONA.md").read_text(encoding="utf-8").endswith(
+        "## Appearance\n\ntall and quiet\n\n## Manner\n\nwarm\n")
+
+
+def test_a_section_written_into_a_fresh_persona_is_spaced_the_same(soul):
+    """The importer's PERSONA.md is the common case: the studio's first save has
+    to leave it looking exactly like the one the importer wrote."""
+    write_soul(soul, _draft(appearance="tall", manner="warm"))
+    text = (soul / "PERSONA.md").read_text(encoding="utf-8")
+
+    assert "\n\n## Manner\n" in text
+    assert "\n\n\n" not in text

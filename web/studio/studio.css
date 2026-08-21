@@ -66,7 +66,13 @@ code { font: 11px/1.5 var(--font-mono); color: var(--soft); }
 .topbar {
   height: var(--bar-h);
   display: grid;
-  grid-template-columns: minmax(200px, 1fr) auto minmax(200px, 1fr);
+  /* The actions track is sized to what it holds, not to a share of the bar.
+     As `minmax(200px, 1fr)` it capped at a third of the width, and the three
+     buttons — which need 361px with their labels on — overflowed it leftwards
+     (they are `justify-self: end`) straight through the save state. Between the
+     720px breakpoint that drops the labels and about 1000px, "Saved" sat
+     underneath "Switchboard". The brand shrinks instead; it has the slack. */
+  grid-template-columns: minmax(0, 1fr) auto minmax(max-content, 1fr);
   align-items: center;
   gap: 24px;
   padding: 0 clamp(18px, 3vw, 40px);

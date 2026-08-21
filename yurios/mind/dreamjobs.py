@@ -1268,15 +1268,17 @@ _QUERY_NOISE = frozenset(
 #: results, a move gone. Exact-match dedupe cannot see that, and a model that
 #: has just been let down by a dead link reaches for the rephrase every time.
 #:
-#: The number is arithmetic rather than taste. Swapping one word of an n-word
-#: query scores (n-1)/(n+1), which is 0.67 at five words and 0.8 at nine, so
-#: anything above two-thirds catches the rephrase only in long queries and lets
-#: it through in short ones. At two-thirds a single swapped word is caught from
-#: five words up, and *two* different words score (n-2)/(n+2) — 0.6 at eight —
-#: so a genuine follow-up still runs: "gold silver price outlook" against
-#: "gold silver price today" scores 0.6, and "bitcoin price outlook" against
-#: "ethereum price outlook" scores 0.5.
-QUERY_SAME_ENOUGH = 2 / 3
+#: The number is arithmetic rather than taste, and it was set twice. Swapping
+#: one word of an n-word query scores (n-1)/(n+1) — 0.78 at eight words, 0.8 at
+#: nine — while changing *two* scores (n-2)/(n+2), which is 0.67 at ten. Two
+#: thirds caught both, and a live night showed what that costs: "US stock
+#: market today August 20 2026 sentiment momentum leaders" and "US stock market
+#: sector rotation momentum leaders August 20 2026" score exactly 0.67 and are
+#: not the same question — sentiment and rotation are two different things to
+#: go and find out. Three quarters catches the single swapped word from eight
+#: words up and lets a two-word change through at any length, which is the line
+#: between a rephrase and a follow-up.
+QUERY_SAME_ENOUGH = 0.75
 
 #: What she says to stop early. Matched as a substring rather than parsed, and
 #: the loop stops on two quiet rounds anyway — this only saves a round.
@@ -1420,11 +1422,11 @@ class ResearchJob(FileJob):
 
     def caps(self, cfg) -> tuple[int, int, int]:
         """`(searches, pages, steps)`, the file clamped to the house ceilings."""
-        return (_as_int(self._max_searches, 10,
+        return (_as_int(self._max_searches, 8,
                         ceiling=int(getattr(cfg, "mind_dream_research_searches", 10))),
-                _as_int(self._max_pages, 10,
+                _as_int(self._max_pages, 6,
                         ceiling=int(getattr(cfg, "mind_dream_research_pages", 10))),
-                _as_int(self._max_steps, 12,
+                _as_int(self._max_steps, 16,
                         ceiling=int(getattr(cfg, "mind_dream_research_steps", 12))))
 
     def enabled(self, cfg) -> bool:
@@ -1463,7 +1465,7 @@ class ResearchJob(FileJob):
         must never be *cheaper* than the run, so the unclamped number is the
         safe one here: the ceiling can only lower it.
         """
-        return _as_int(self._max_steps, 12, ceiling=64)
+        return _as_int(self._max_steps, 16, ceiling=64)
 
     # ------------------------------------------------------------------ work
 
@@ -1538,10 +1540,18 @@ class ResearchJob(FileJob):
                     already = (_already_asked(_query_key(query), seen_queries)
                                if query else "")
                     if not query or already:
+                        # Naming the earlier query is not enough on its own:
+                        # asked to try something else, she asked the identical
+                        # thing again the very next round. The refusal has to
+                        # point somewhere — the results are already above, and
+                        # the plan says what has not been looked at yet.
+                        plan = ("; ".join(self.topics) if self.topics
+                                else "something you have not covered yet")
                         gathered.add("note", f'(you already searched "{already}"'
-                                             " and this is the same question in "
-                                             "other words — open one of those "
-                                             "results, or ask a different one)")
+                                             " — its results are above. Do not "
+                                             "ask it again in other words. Open "
+                                             "one of those results, or search "
+                                             f"for one of these instead: {plan})")
                         continue
                     if searched >= searches:
                         broke = "out of searches"

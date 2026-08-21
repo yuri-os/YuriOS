@@ -1443,6 +1443,12 @@ written from a vault alone.
   thoughts that gathered nothing, and ended mid-gather because the cap arrived rather than because
   she was done. The numbers **MUST** be the real remaining ones — a budget line that lies is worse
   than none — and this is a nudge, never a mechanism: the caps are still what stop the night.
+- **The caps have to be spendable together.** Moves **MUST** cover the searches and the pages and
+  the thinking between them, or the reach ceilings are decoration: at ten searches, ten pages and
+  twelve moves both live nights ended "out of rounds" mid-gather rather than on her saying she had
+  enough, having spent about a third of what they were allowed. Pages is bounded by what the
+  corpus can hold (`context_chars` over `step_chars`) — a page gathered and then trimmed away cost
+  a move for nothing.
 - **Quiet means she stopped reaching, and only that.** The two-quiet-rounds stop **MUST** count
   rounds where she reached for nothing — never rounds where the web failed her. A search that dies,
   a page behind a paywall, a link that returns an empty body: all of those are her reaching, and
@@ -1453,8 +1459,10 @@ written from a vault alone.
   earlier one quoted back. Exact-match dedupe is not enough and the live nights show why: the
   duplicate that costs a move is never a duplicate, it is one word moved — a model that has just
   been let down by a dead link reaches for the rephrase every time. The refusal **MUST** name the
-  earlier query, because "you already asked that" without saying what is a round she spends
-  guessing.
+  earlier query and point somewhere she has not been — asked to try something else, a live night
+  asked the identical thing again the very next round. And the threshold **MUST** be set where a
+  follow-up survives: two thirds refused "sentiment momentum leaders" after "sector rotation
+  momentum leaders", which are two different things to go and find out.
 - **The writing call is told the corpus is the whole of it.** Around what she gathered, and
   separate from the job file's brief, because the file says what to write and this says what it is
   made of: every figure comes from the material, a gap is said plainly rather than filled, and the

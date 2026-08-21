@@ -1017,6 +1017,25 @@ async def test_a_research_round_asks_for_no_reasoning_pass(research_rig_with):
     assert write["max_tokens"] > ROUND_MAX_TOKENS
 
 
+def test_the_house_caps_can_actually_be_spent(rig):
+    """A night has to be able to finish on purpose. Moves have to cover the
+    searches *and* the pages *and* the thinking in between, or the reach caps
+    are decoration and every night ends "out of rounds" mid-gather — which is
+    what both live nights did at 10 searches, 10 pages and 12 moves."""
+    runner, _clock, vault = rig
+    # a file that asks for nothing in particular, so the defaults are what
+    # answer — the fixture's own job deliberately asks for a short night
+    _write_job(vault, "market-brief", "---\nname: market-brief\n"
+               "kind: research\n---\n\nWrite them the brief.\n")
+    runner.reload()
+    job = runner.get("market-brief")
+    searches, pages, steps = job.caps(runner.cfg)
+    assert steps > searches + pages
+    # …and pages stays inside what the corpus can hold, since a page gathered
+    # and then trimmed away cost a move for nothing
+    assert pages <= job.context_chars // job.step_chars
+
+
 async def test_a_page_that_gave_nothing_is_still_her_reaching(research_rig_with):
     """Two quiet rounds mean she has stopped reaching, and a dead link is not
     that. A live night ended on "two quiet rounds" with one thought either side
@@ -1052,8 +1071,13 @@ async def test_the_same_question_in_other_words_is_the_same_question(research_ri
     searches = [s for s in report.steps if s.tool == "web_search"]
     assert len(searches) == 2                  # the rephrase never went out
     assert "gold silver price outlook" in str(searches[-1].args)
-    # …and she is told which earlier question it was, not just refused
-    assert "sector rotation leaders" in model.seen[2][-1]["content"]
+    # …and she is told which earlier question it was, not just refused — and
+    # pointed somewhere, because a live night answered "ask something else" by
+    # asking the identical thing again the very next round
+    refused = model.seen[2][-1]["content"]
+    assert "sector rotation leaders" in refused
+    assert "its results are above" in refused
+    assert "semis" in refused                  # …the plan, as somewhere to go
 
 
 def test_a_genuine_follow_up_is_not_mistaken_for_a_rephrase():
@@ -1066,6 +1090,14 @@ def test_a_genuine_follow_up_is_not_mistaken_for_a_rephrase():
     assert _already_asked(apart, {"a": _query_key("gold silver price outlook")}) == ""
     # …and the noise words are not what makes two questions alike
     assert _query_key("what is the price of gold") == _query_key("price gold")
+    # The one a live night got wrong at a lower threshold. Eight words in
+    # common, but sentiment and sector rotation are two different things to go
+    # and find out, and refusing the second cost her two moves and a repeat.
+    sentiment = _query_key("US stock market today August 20 2026 sentiment "
+                           "momentum leaders")
+    rotation = _query_key("US stock market sector rotation momentum leaders "
+                          "August 20 2026")
+    assert _already_asked(rotation, {"a": sentiment}) == ""
 
 
 async def test_the_write_call_is_told_the_corpus_is_all_she_has(research_rig_with):
@@ -1108,13 +1140,13 @@ async def test_every_round_is_told_what_is_left_of_the_night(research_rig_with):
         ['use web_search {"query": "the tape"}',
          'use read_page {"url": "https://example.invalid/overview"}',
          "think nothing further", REPORT],
-        front={"max_steps": 12, "max_searches": 10, "max_pages": 10})
+        front={"max_steps": 12, "max_searches": 8, "max_pages": 6})
     runner.utility = _recording(model)
     await runner.run(only="market-brief")
     first, second, third = (m[-1]["content"] for m in model.seen[:3])
-    assert "12 move(s) left, 10 search(es) and 10 page(s)" in first
-    assert "11 move(s) left, 9 search(es) and 10 page(s)" in second
-    assert "10 move(s) left, 9 search(es) and 9 page(s)" in third
+    assert "12 move(s) left, 8 search(es) and 6 page(s)" in first
+    assert "11 move(s) left, 7 search(es) and 6 page(s)" in second
+    assert "10 move(s) left, 7 search(es) and 5 page(s)" in third
 
 
 async def test_the_writing_call_is_given_a_nights_worth_of_wall_clock(research_rig_with):

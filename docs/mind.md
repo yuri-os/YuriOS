@@ -294,7 +294,9 @@ answer to her desk at `output:`.
 worth reading, and writes the report your body asks for — so for this kind the body is the brief
 for the *report*, not for the search. It needs `SEARCH_BACKEND` on, everything she reads is
 shelved in her knowledge store, and the night is bounded on every axis: `max_searches`,
-`max_pages`, `max_steps`, each capped in turn by the house `MIND_DREAM_RESEARCH_*` settings. It
+`max_pages`, `max_steps`, each capped in turn by the house `MIND_DREAM_RESEARCH_*` settings. Those
+three have to be spendable together — moves cover the searches, the pages and the thinking in
+between — or the night always ends mid-gather instead of when she decides she has enough. It
 also carries its own token budget, because a night of reading the web on one shared ceiling either
 never fits or eats consolidation on the night it does.
 

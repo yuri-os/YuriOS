@@ -228,9 +228,17 @@ class Config(VoiceConfig):
     mind_dream_research_tokens: int = 120_000
     # House ceilings on what one research job may do in a night. A job file may
     # ask for less and never for more (§26.1's two-switch rule, one layer down).
-    mind_dream_research_searches: int = 10
-    mind_dream_research_pages: int = 10
-    mind_dream_research_steps: int = 12
+    #
+    # The three have to be spendable together or the night never finishes on
+    # purpose. At 10/10/12 they were not: twelve moves cannot cover ten searches
+    # *and* ten pages, so both live nights ended on "out of rounds" mid-gather
+    # rather than on her saying she had enough. Pages is what the corpus can
+    # actually hold — `context_chars` over `step_chars` is six — searches is
+    # what it takes to find six worth opening, and steps leaves room for both
+    # plus the thinking in between.
+    mind_dream_research_searches: int = 8
+    mind_dream_research_pages: int = 6
+    mind_dream_research_steps: int = 16
     mind_trace_max_bytes: int = 2_000_000       # ticks.jsonl rotates to .1 past this size
     # The rest of the observability sinks, all rotating the same way (to `.1`,
     # one generation, then gone). An always-on mind writes to these forever, so

@@ -181,11 +181,23 @@ class SoulSnapshot:
     head: str | None
     forbidden: frozenset[str]
     soul_dir: Path = Path(".")   # for the few reads that are ours, not the manifest's
+    #: The cold open she has already used. Deliberately not in `files`: the
+    #: card's verbatim soul payload must not carry a bootstrap back, or a
+    #: re-import hands her a first meeting she has already had (§5.4). It is
+    #: still card prose — see `text`.
+    retired_open: str = ""
 
     @property
     def text(self) -> str:
-        """Everything exportable, concatenated — the soul-overlap haystack."""
-        return "\n".join(self.files.values())
+        """Everything exportable, concatenated — the soul-overlap haystack.
+
+        The retired cold open belongs here even though it is not in `files`,
+        because `_first_message` still ships it as the card's `first_mes`. Left
+        out, the scrub saw her own greeting come back off the transcript she
+        said it into and had nowhere to match it — a hard, unappealable block on
+        every character who had ever said hello.
+        """
+        return "\n".join([*self.files.values(), self.retired_open])
 
 
 def read_soul(record: CharacterRecord) -> SoulSnapshot:
@@ -218,7 +230,9 @@ def read_soul(record: CharacterRecord) -> SoulSnapshot:
             continue
     return SoulSnapshot(manifest=manifest, reader=reader, files=files,
                         head=vcs.head(record.paths.vault),
-                        forbidden=frozenset(forbidden), soul_dir=soul_dir)
+                        forbidden=frozenset(forbidden), soul_dir=soul_dir,
+                        retired_open=retired_cold_open(
+                            soul_dir, _cold_open_heading(manifest.get("fields"))))
 
 
 def _resolve(snapshot: SoulSnapshot, ref: Any, *, field_name: str) -> str:
@@ -306,6 +320,12 @@ def _character_book(snapshot: SoulSnapshot, fname: Any, name: str) -> dict[str, 
     }
 
 
+def _cold_open_heading(fields: Any) -> str:
+    """Which heading of the bootstrap holds the cold open, per the manifest."""
+    ref = str((fields or {}).get("first_mes") or "") if isinstance(fields, Mapping) else ""
+    return ref.split("#", 1)[1].strip() if "#" in ref else "Cold open"
+
+
 def _first_message(snapshot: SoulSnapshot, fields: Mapping[str, Any],
                    greetings: list[str], warnings: list[ExportWarning]) -> str:
     """The cold open, or the honest fallback when it has already been consumed.
@@ -321,8 +341,7 @@ def _first_message(snapshot: SoulSnapshot, fields: Mapping[str, Any],
     name = re.split(r"[#@]", str(ref), maxsplit=1)[0].strip() if ref else ""
     if name and snapshot.reader.exists(name):
         return _resolve(snapshot, ref, field_name="first_mes")
-    heading = str(ref).split("#", 1)[1].strip() if "#" in str(ref) else "Cold open"
-    retired = retired_cold_open(snapshot.soul_dir, heading)
+    retired = retired_cold_open(snapshot.soul_dir, _cold_open_heading(fields))
     if retired:
         return retired
     if greetings:

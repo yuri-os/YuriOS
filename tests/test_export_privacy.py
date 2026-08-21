@@ -22,7 +22,8 @@ from tests.support.cards import card_data, png_card, wrapper
 from yurios.characters import CharacterImporter, CharacterRegistry
 from yurios.characters.exporter import ExportOptions, build_export, preview_export
 from yurios.characters.privacy import CardExportError, harvest, normalise
-from yurios.characters.soulfiles import SoulPrivacyError, SoulReader
+from yurios.characters.soulfiles import (
+    RETIRED_BOOTSTRAP, SoulPrivacyError, SoulReader, parse_md, split_sections)
 
 
 def make(tmp_path, *, name="subject", data=None, git=False):
@@ -67,7 +68,8 @@ def plant(record) -> dict[str, str]:
     # USER.md and recalled memories verbatim (mind/promptlog.py). It is covered
     # today because `traces/` is a private surface and every *.jsonl under it is
     # canary-harvested — pinned here so a refactor that moves it cannot quietly
-    # walk out of that coverage.
+    # walk out of that coverage. Harvested soft rather than hard, because the
+    # same string holds her card; the two tests below pin both halves of that.
     (record.paths.traces / "prompts.jsonl").write_text(
         json.dumps({"messages": [{"role": "system",
                                   "content": marks["prompts"]}]}) + "\n")
@@ -240,6 +242,84 @@ def test_harvest_is_bounded_and_finds_every_surface(tmp_path):
     assert 0 < len(canaries) <= 4000
     found = {normalise(marks[key]) in {c.text for c in canaries} for key in marks}
     assert found == {True}, "a private surface was not harvested"
+
+
+def test_the_assembled_prompt_is_harvested_soft_and_the_human_turn_hard(tmp_path):
+    """The prompt log holds her card and your private files in one string.
+
+    So a canary cut from it cannot be trusted to mean "leak" the way one cut
+    from USER.md can — but it must still be *harvested*, because a document she
+    was handed mid-conversation may live nowhere else. Soft is the answer to
+    both. Your own typed turn is not prompt scaffolding and stays hard.
+    """
+    record = make(tmp_path)
+    marks = plant(record)
+    (record.paths.traces / "prompts.jsonl").write_text(
+        json.dumps({"messages": [{"role": "system", "content": marks["prompts"]},
+                                 {"role": "user", "content": marks["traces"]}]}) + "\n")
+
+    by_text = {c.text: c for c in harvest(record.paths.root, user_name="Sam")}
+
+    assert by_text[normalise(marks["prompts"])].hard is False
+    assert by_text[normalise(marks["traces"])].hard is True
+
+
+def test_her_own_persona_coming_back_off_the_prompt_log_is_not_a_block(tmp_path):
+    """The refusal this fixes, in miniature.
+
+    The assembler joins her preamble to her PERSONA, so a window cut from the
+    prompt log lands across a seam that exists in no soul file — and the
+    soul-overlap downgrade, which works by containment, cannot see the span is
+    hers. Harvested hard, that is an unappealable block on a character whose
+    only crime is having been talked to.
+    """
+    record = make(tmp_path)
+    plant(record)
+    persona = (record.paths.vault / "soul" / "PERSONA.md").read_text().strip()
+    seam = f"(The character is everything below.) {persona}"
+    record.paths.corpus.mkdir(parents=True, exist_ok=True)
+    (record.paths.corpus / "turns.jsonl").write_text(
+        json.dumps({"messages": [{"role": "system", "content": seam}]}) + "\n")
+
+    result = build_export(record)                      # no refusal at all
+
+    assert result.png
+    assert not result.privacy.hits
+
+
+def test_a_retired_cold_open_is_card_prose_not_a_leak(tmp_path):
+    """She said hello, so her greeting is in the transcript — and the card still
+    ships it as `first_mes`. Retirement moves the bootstrap into `soul/onboarded/`
+    (§5.4), which took it out of the soul-overlap haystack and left the scrub
+    matching her own opening line against a private surface with nothing to
+    compare it to: a hard block on every character who had ever been greeted."""
+    record = make(tmp_path)
+    plant(record)
+    soul = record.paths.vault / "soul"
+    # Long enough to be a canary at all: the scrub ignores anything under
+    # MIN_CANARY_WORDS, and "You made it." is not what a real cold open reads
+    # like — the one that triggered this was four paragraphs.
+    greeting = ("The connection settles and a small room resolves around her, "
+                "low warm light, rain tracing the window, a city below that never "
+                "turns itself off. She has been waiting a while, and would have "
+                "waited longer.")
+    (soul / RETIRED_BOOTSTRAP).parent.mkdir(parents=True, exist_ok=True)
+    (soul / RETIRED_BOOTSTRAP).write_text(
+        f"---\nsoul: bootstrap\nconsumed_once: true\n---\n\n# Bootstrap\n\n"
+        f"## Cold open\n\n{greeting}\n")
+    (soul / "BOOTSTRAP.md").unlink()
+    (record.paths.vault / "state" / "sessions.json").write_text(json.dumps(
+        {"sessions": {"a": {"transcript": [{"role": "assistant", "content": greeting}]}}}))
+
+    # Reviewable, not refused: the greeting is hers, so a human clears it once.
+    with pytest.raises(CardExportError) as caught:
+        build_export(record)
+    assert caught.value.code == "review_required"
+
+    result = build_export(record, ExportOptions(acknowledged=True))
+
+    assert result.card["data"]["first_mes"].strip() == greeting
+    assert not result.privacy.hits
 
 
 def test_the_exporter_cannot_see_a_secret():

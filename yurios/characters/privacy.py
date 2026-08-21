@@ -207,18 +207,49 @@ def _json_strings(value: Any, out: list[str], depth: int = 0) -> None:
             _json_strings(item, out, depth + 1)
 
 
-def _jsonl_strings(path: Path) -> list[str]:
+#: The field a log row keeps the assembled model input in — `corpus/turns.jsonl`
+#: and `traces/prompts.jsonl` both call it this.
+_PROMPT_FIELD = "messages"
+
+
+def _jsonl_strings(path: Path) -> tuple[list[str], list[str]]:
+    """`(private strings, assembled-prompt strings)` from a JSONL log.
+
+    The split exists because the prompt is not a surface in its own right. It is
+    her card and her private files *re-rendered* into one string, so a canary cut
+    from it is as likely to be her own persona as it is to be a leak — and the
+    soul-overlap downgrade cannot tell, because the assembler joins her preamble
+    to her PERSONA and one example to the next, and a sliding window lands across
+    a join ("…everything below.)* Warm first, always —") that exists in no soul
+    file. Harvested hard, that refuses every grown character's export with no
+    override. Harvested soft, it is still caught and still shown — a human reads
+    it and clears it (see `_require_review`).
+
+    Nothing stops being detected. Everything private that reaches the prompt
+    arrives from a file that is harvested above under its own name, so a real
+    lift out of USER.md is still a hard block via USER.md's own canary; only the
+    prompt log's second, blurrier copy is reviewable. The human's own turns are
+    not prompt scaffolding and stay hard.
+    """
     try:
         lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
     except OSError:
-        return []
-    out: list[str] = []
+        return [], []
+    private: list[str] = []
+    prompt: list[str] = []
     for line in lines[-_MAX_JSONL_ROWS:]:
         try:
-            _json_strings(json.loads(line), out)
+            row = json.loads(line)
         except (ValueError, TypeError):
             continue
-    return out
+        assembled = row.pop(_PROMPT_FIELD, None) if isinstance(row, dict) else None
+        _json_strings(row, private)
+        for message in assembled if isinstance(assembled, list) else []:
+            if not isinstance(message, Mapping):
+                continue
+            _json_strings(message,
+                          private if message.get("role") == "user" else prompt)
+    return private, prompt
 
 
 def _json_file_strings(path: Path) -> list[str]:
@@ -288,7 +319,8 @@ def harvest(root: Path, *, user_name: str = "") -> list[Canary]:
     setting = normalise(place_of(_read_text(vault / "world" / "setting.md")))
     add(_text_lines(vault / "world" / "situation.md"), "vault/world/situation.md",
         within=setting)
-    add(_jsonl_strings(vault / "world" / "beliefs.jsonl"), "vault/world/beliefs.jsonl")
+    add(_jsonl_strings(vault / "world" / "beliefs.jsonl")[0],
+        "vault/world/beliefs.jsonl")
 
     knowledge = vault / "knowledge"
     if knowledge.is_dir():
@@ -300,11 +332,16 @@ def harvest(root: Path, *, user_name: str = "") -> list[Canary]:
         for path in sorted(state.glob("*.json")):
             add(_json_file_strings(path), f"vault/state/{path.name}")
 
-    add(_jsonl_strings(root / "corpus" / "turns.jsonl"), "corpus/turns.jsonl")
+    def add_log(path: Path, surface: str) -> None:
+        private, prompt = _jsonl_strings(path)
+        add(private, surface)
+        add(prompt, surface, hard=False)
+
+    add_log(root / "corpus" / "turns.jsonl", "corpus/turns.jsonl")
     traces = root / "traces"
     if traces.is_dir():
         for path in sorted(traces.glob("*.jsonl")):
-            add(_jsonl_strings(path), f"traces/{path.name}")
+            add_log(path, f"traces/{path.name}")
 
     canaries.extend(_credential_canaries())
 
@@ -400,8 +437,10 @@ def assay(payload: Any, canaries: Iterable[Canary], *, soul_text: str = "",
     `soul_text` is everything the exportable soul files contain. A canary that
     also appears there is prose the user authored or approved into the persona,
     not a leak of the private surface it happens to echo — it is downgraded to a
-    reviewable overlap for a human to clear. Credentials and names are never
-    downgraded.
+    reviewable overlap for a human to clear. A canary harvested `hard=False` is
+    downgraded the same way for the same reason: it came off a copy of the
+    prompt, where her own card and her private files are already mixed together
+    (`_jsonl_strings`). Credentials and names are never downgraded.
     """
     if isinstance(payload, (dict, list, tuple)):
         text = "\n".join(string_leaves(payload))
@@ -417,9 +456,16 @@ def assay(payload: Any, canaries: Iterable[Canary], *, soul_text: str = "",
     for canary in canaries:
         if not _matches(canary, haystack, raw_text or text):
             continue
-        overlap = Overlap(surface=canary.surface, excerpt=canary.text, hard=canary.hard)
         downgradable = not canary.exact and not canary.word_bounded
-        if downgradable and canary.text in soul:
+        in_soul = downgradable and canary.text in soul
+        if in_soul and not canary.hard:
+            # Her card, matching her card. The prompt log is a mirror of the
+            # soul files, not a source beside them, so a span that is in both
+            # carries no information for a human to weigh — and 450 of them
+            # would bury the handful that do.
+            continue
+        overlap = Overlap(surface=canary.surface, excerpt=canary.text, hard=canary.hard)
+        if in_soul or not canary.hard:
             soft.append(overlap)
         else:
             hard.append(overlap)

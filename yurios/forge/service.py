@@ -114,7 +114,10 @@ class ImageForge:
         framing: Optional[str] = None,
         lighting: Optional[str] = None,
         mood: Optional[str] = None,
-        wardrobe: str = "everyday",
+        # Optional like every other slot: None is "she did not ask", which
+        # `compose()` reads as leave-it-alone. The everyday default belongs to
+        # a shot with nothing to go on, and the caller decides which that is.
+        wardrobe: Optional[str] = "everyday",
         avoid: str = "",
         situation: str = "",
         seed: Optional[int] = None,

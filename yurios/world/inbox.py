@@ -57,6 +57,19 @@ GITIGNORE = (
     "inbox.json\n")
 
 
+def _kind(entry: dict) -> str:
+    """What this row is, for the badge and for the view that renders it.
+
+    Three kinds now: a `selfie` she sent, a `report` a night wrote and was told
+    to deliver (§18.2a), and a plain `message` — everything else she said first.
+    """
+    if entry.get("image_url"):
+        return "selfie"
+    if entry.get("report_path"):
+        return "report"
+    return "message"
+
+
 class Inbox:
     """One character's pending proactive messages, on disk.
 
@@ -168,19 +181,43 @@ class Inbox:
             return None
         row = {"id": entry.get("id"),
                "ts": entry.get("ts"),
-               "kind": "selfie" if entry.get("image_url") else "message",
+               "kind": _kind(entry),
                "text": entry.get("text", ""),
                "read": False}
-        for key in ("image_url", "selfie_id"):
+        for key in ("image_url", "selfie_id", "report_path", "report_title",
+                    "report_job"):
             if entry.get(key):
                 row[key] = entry[key]
         with self._lock:
             entries = self._load()
             if any(e.get("id") == row["id"] for e in entries):
                 return None               # a re-publish is not a second message
+            self._supersede(entries, row)
             entries.append(row)
             self._save(entries)
         return row
+
+    @staticmethod
+    def _supersede(entries: list[dict], row: dict) -> None:
+        """A new report from a job retires that job's older pending one.
+
+        Only reports, and only within one job. A nightly brief is a standing
+        answer to a standing question, so what is owed to you is *this
+        morning's*, not one per night you were away — come back after a week to
+        five stale market reads and the useful one is the hardest to find. The
+        files are all still on her desk; this is delivery state, not the archive
+        (see this module's header).
+
+        Deliberately not applied to a selfie or a reach-out: those are each a
+        separate thing she did, and none of them replaces another.
+        """
+        job = row.get("report_job")
+        if row.get("kind") != "report" or not job:
+            return
+        for entry in entries:
+            if (entry.get("kind") == "report" and not entry.get("read")
+                    and entry.get("report_job") == job):
+                entry["read"] = True
 
     def mark_read(self) -> int:
         """Everything pending has now been seen. Returns how many that was.

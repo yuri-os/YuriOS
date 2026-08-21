@@ -62,6 +62,7 @@ from yurios.world.clock import Clock
 from yurios.app.providers.admission import InferenceBusy
 
 from .dream import DreamConsolidator
+from .hands import parse_intent
 from .journal import canonical_day, is_canonical_day
 from .util import day_of, iso_of, read_json, write_json
 from .vaultio import MindVault
@@ -69,7 +70,10 @@ from .workspace import FRONTMATTER_RE, SkillStore, Workspace
 
 log = logging.getLogger("mind.dreamjobs")
 
-UtilityCall = Callable[[list[dict]], Awaitable[str]]
+#: `...` rather than `[list[dict]]`: a job may pass per-call model parameters
+#: (see `DreamContext.ask`), which every provider's `complete` already accepts
+#: as `**params` and the narrower signature quietly forbade.
+UtilityCall = Callable[..., Awaitable[str]]
 
 #: How much of one day's journal reaches a prompt. `dream.py`'s number, kept:
 #: an oversized day must cost a bounded call, not a proportional one.
@@ -80,6 +84,17 @@ JOURNAL_CHARS = 6000
 #: allowance beats a per-job estimate here: the budget only has to be right
 #: enough to stop a runaway night, and being wrong high costs a job its turn.
 PROMPT_OVERHEAD_CHARS = 4000
+
+#: A research round's answer is one line of intent, so it is capped hard —
+#: belt and braces beside `thinking=False`, for a model that ignores the
+#: soft-switch and would otherwise think until `UTILITY_MAX_TOKENS` runs out.
+ROUND_MAX_TOKENS = 600
+
+#: A search result line as it reaches her, and how many of them she sees at
+#: once. Deliberately smaller than `SEARCH_RESULTS` feeds a daytime turn: a
+#: research loop makes ten of these calls and every row it keeps is a row the
+#: next round re-sends.
+SEARCH_SNIPPET_CHARS = 200
 
 
 # --------------------------------------------------------------------- ledger
@@ -143,6 +158,27 @@ class Exchange:
 
 
 @dataclass
+class Step:
+    """One reach for a hand a job made, kept for the debug page.
+
+    Deliberately not an `Exchange`. §21.3's contract is about *model calls* —
+    the exact system message, the exact input, the raw completion — and folding
+    a search into that list would make the transcript a description of calls
+    that were never made. A research night is two kinds of event interleaved
+    and the page has to be able to tell them apart.
+    """
+    job: str
+    tool: str
+    args: dict
+    result: str
+    failed: str = ""
+
+    def as_dict(self) -> dict:
+        return {"job": self.job, "tool": self.tool, "args": self.args,
+                "result": self.result, "failed": self.failed}
+
+
+@dataclass
 class DreamContext:
     """Everything a job is handed, and the only way it reaches anything.
 
@@ -159,6 +195,17 @@ class DreamContext:
     skills: SkillStore | None = None
     utility: UtilityCall | None = None
     selfie: Callable[[dict], None] | None = None   # SelfieLab.start, or None
+    #: `world/research.py`'s `Researcher`, or None. Held whole rather than as
+    #: two loose callables because that object already owns the three things a
+    #: night needs and keeps them consistent: the `SearchProvider`, the
+    #: `PageFetcher`, and `shelve()` — the ingestion path that makes §7.7's
+    #: "what she reads she keeps" true of the unattended hours too.
+    research: object | None = None
+    #: `MindLoop._deliver_report`, or None. The one way a job reaches the user
+    #: (§18.2a): it files a named artifact in the inbox, waiting for the next
+    #: time they look. Nullable like every other seam here — a runtime with no
+    #: inbox still dreams, and still writes the report to the desk.
+    deliver_report: Callable[..., None] | None = None
     audit: Callable[..., None] | None = None       # Guard.audit, or None
     # Who the prompts are about. Not decoration: the episodic journal is a
     # transcript of two people, so a prompt that does not say which one is
@@ -175,21 +222,38 @@ class DreamContext:
     #: the stock-take are hers and must sound like it, while consolidation is
     #: extraction and `facts.md` should read the same whoever distilled it.
     soul: str = "off"                  # full | off
+    #: The house config, for the jobs whose limits are clamped by it. On the
+    #: context rather than passed to `work()` because every other thing a job
+    #: reaches arrives this way, and a second channel would be a second place to
+    #: look when a job behaves differently than its file says.
+    cfg: object | None = None
     day: str = ""                      # the day this run is working on
     dry_run: bool = False
     job: str = ""                      # set by the runner before each job
     exchanges: list[Exchange] = field(default_factory=list)
+    steps: list[Step] = field(default_factory=list)
     writes: list[str] = field(default_factory=list)
+    #: What this context handed to the inbox. Recorded rather than counted so a
+    #: dry run can claim, specifically, that it delivered nothing.
+    delivered: list[str] = field(default_factory=list)
 
     # ------------------------------------------------------------------ model
 
-    async def ask(self, system: str, user: str) -> str:
+    async def ask(self, system: str, user: str, **params) -> str:
         """One utility-model call, recorded. Returns "" when there is no model.
 
         Every job goes through here rather than holding `utility` itself, so
         the transcript is complete by construction — a job cannot make a call
         the debug page doesn't see, and there is one place that decides what
         happens when the small model isn't there.
+
+        `params` reach the provider untouched (`thinking`, `max_tokens`,
+        `temperature`, `reasoning_effort`). Worth having for one reason:
+        research asks a reasoning model for a single line naming its next
+        search, and measured against a local 27B that question cost 1200
+        reasoning tokens and 200 seconds — twelve of which is a night that never
+        finishes. Thinking is right for the report and wrong for the plumbing,
+        and only the job knows which call is which.
         """
         if self.utility is None:
             self.exchanges.append(Exchange(self.job, system, user,
@@ -212,7 +276,8 @@ class DreamContext:
                 system = f"{preamble}\n\n{system}".strip()
         try:
             out = await self.utility([{"role": "system", "content": system},
-                                      {"role": "user", "content": user}])
+                                      {"role": "user", "content": user}],
+                                     **params)
         except Exception:  # noqa: BLE001 — a failed job retries tomorrow
             log.exception("DREAM job %s: the utility call failed", self.job)
             self.exchanges.append(Exchange(self.job, system, user, "(call failed)"))
@@ -282,6 +347,91 @@ class DreamContext:
         self.note_call("write_note", {"path": rel, "bytes": len(text)},
                        result=f"wrote {rel}",
                        duration_ms=(self.clock.now() - started) * 1000.0)
+
+    def deliver(self, *, title: str, path: str, summary: str) -> None:
+        """Hand one named artifact to the inbox, to be waiting when they look.
+
+        Not a message she decided to send (§18.2a): a job file said
+        `deliver: chat`, which is a standing instruction its owner wrote, and
+        the inbox is where a thing owed to somebody waits. The report is on the
+        desk either way — this only decides whether they are told about it.
+
+        A dry run records the delivery and performs none of it, for the same
+        reason `put` does: the debug page's test button has to be safe to press
+        on a live vault.
+        """
+        self.delivered.append(path)
+        if self.dry_run or self.deliver_report is None:
+            return
+        self.deliver_report(title=title, path=path, summary=summary,
+                            job=self.job)
+
+    # ------------------------------------------------------------------ hands
+
+    def _hand(self, tool: str, args: dict, result: str, failed: str = "") -> None:
+        """Record one reach, for the debug page and for `tool-logs/calls.jsonl`.
+
+        Both audiences, one call. A night's hands are audited like her daytime
+        hands (§21.2) so the Tools surface can answer "what touched this vault"
+        for the unattended hours; the `Step` is the other half, and is what
+        makes a research night readable rather than a report from nowhere.
+        """
+        self.steps.append(Step(self.job, tool, args, result, failed))
+        if not failed:
+            self.note_call(tool, args, result=result)
+
+    async def search(self, query: str, k: int = 5) -> list[dict]:
+        """One web search, or [] when the house has no search backend.
+
+        Returns the provider's rows untouched (`{"title", "url", "snippet"}`);
+        trimming them for a prompt is the job's business, not this seam's.
+        """
+        provider = getattr(self.research, "search", None)
+        if provider is None:
+            self._hand("web_search", {"query": query}, "", failed="no search backend")
+            return []
+        try:
+            rows = await provider.search(query, k)
+        except Exception as e:  # noqa: BLE001 — one dead search is not a dead night
+            log.warning("DREAM job %s: search %r failed", self.job, query,
+                        exc_info=True)
+            self._hand("web_search", {"query": query}, "", failed=str(e)[:200])
+            raise
+        self._hand("web_search", {"query": query, "k": k},
+                   f"{len(rows)} results")
+        return list(rows)
+
+    async def read_page(self, url: str, *, shelve: bool = True) -> dict:
+        """Open one page. `{"url", "title", "text"}`, or {} with no backend.
+
+        `shelve` is §7.7's rule applied to the night: a page she read is
+        knowledge, not a tool result, so unless the job says otherwise it goes
+        to the shelf with its source URL and is hers to cite tomorrow. The
+        ingestion is fire-and-forget by construction (`Researcher.shelve`), so
+        this does not make the night wait on an embedder.
+        """
+        fetcher = getattr(self.research, "fetcher", None)
+        if fetcher is None:
+            self._hand("read_page", {"url": url}, "", failed="no fetch backend")
+            return {}
+        try:
+            page = await fetcher.fetch(url)
+        except Exception as e:  # noqa: BLE001 — §7.7: a page that won't open is skipped
+            log.info("DREAM job %s: %s wouldn't open", self.job, url)
+            self._hand("read_page", {"url": url}, "", failed=str(e)[:200])
+            return {}
+        text = str(page.get("text") or "")
+        self._hand("read_page", {"url": url}, f"read {len(text)} chars")
+        # A dry run reads (the model calls behind it have to be real, §21.3)
+        # but files nothing: shelving writes documents and rewrites an index,
+        # which is exactly the class of thing a rehearsal must not do.
+        if shelve and not self.dry_run:
+            try:
+                self.research.shelve(page)  # type: ignore[attr-defined]
+            except Exception:  # noqa: BLE001 — the shelf is not the report
+                log.warning("DREAM job %s: couldn't shelve %s", self.job, url,
+                            exc_info=True)
+        return dict(page)
 
     def soul_chars(self) -> int:
         """How many characters of persona this job's prompt will carry (§22.4).
@@ -371,6 +521,20 @@ class DreamJob:
     #: True  → the backlog is every finished day this job hasn't seen.
     #: False → it runs once a night, on the most recent finished day.
     per_day = True
+    #: True → the day comes from the calendar, not from the journal.
+    #:
+    #: `finished_days()` reads `memory/episodic/*.md`, so a day nobody spoke to
+    #: her is not a day at all — which is right for a diary and wrong for every
+    #: job whose subject is the world rather than the conversation. A standing
+    #: job owes yesterday whether or not anything happened, and consequently
+    #: keeps the ladder entering DREAM on quiet nights. That is the point of it.
+    standing = False
+    #: True → billed against `MIND_DREAM_RESEARCH_TOKENS` rather than the
+    #: night's shared tick budget (§21.2). For work an order of magnitude past a
+    #: diary entry: shared, it would either never run or eat consolidation.
+    own_budget = False
+    #: What kind of thing this is, for the debug page and the job-file loader.
+    kind = "builtin"
     #: True  → the job keeps its own progress and the runner's ledger must not
     #: also record it. Only `consolidate` does, because `dream_progress.json`
     #: predates this file and is the ledger every shipped vault already has.
@@ -406,8 +570,16 @@ class DreamJob:
         return self.prompt_override or default
 
     def backlog(self, ctx: DreamContext, ledger: JobLedger) -> list[str]:
-        days = ctx.finished_days()
         done = ledger.done(self.name)
+        if self.standing:
+            # Yesterday, off the clock. Never a catch-up run: a job that reads
+            # the world is answering "what is true now", and nine nights of
+            # market briefs written nine nights late are nine wrong answers, not
+            # a backlog worth eating. Same judgement `per_day = False` makes
+            # below, for a different reason.
+            day = day_of(ctx.clock.now() - 86400.0)
+            return [day] if day not in done else []
+        days = ctx.finished_days()
         if self.per_day:
             return [d for d in days if d not in done]
         # A once-a-night job asks one question: has the most recent finished day
@@ -444,6 +616,7 @@ class DreamJob:
         return {"name": self.name, "title": self.title,
                 "description": self.description, "priority": self.priority,
                 "per_day": self.per_day, "soul": self.soul,
+                "standing": self.standing, "kind": self.kind,
                 # Where this job's prompt came from. Named `from_file` and not
                 # `custom`, which is what it said first and was wrong the moment
                 # a seeded vault reported every job as customised: the seeders
@@ -769,7 +942,31 @@ class SelfieJob(DreamJob):
 #: may retune a job, never re-implement one. `DiaryJob` keeps `relabel()` and its
 #: day bookkeeping no matter what its file says, because those are correctness
 #: and the prompt is taste.
-JOB_FILE_KEYS = ("title", "description", "priority", "per_day", "enabled", "soul")
+#: `kind` is absent on purpose alongside `name`: it selects the `work` a new
+#: job gets, and a file may retune a builtin, never re-implement one.
+JOB_FILE_KEYS = ("title", "description", "priority", "per_day", "enabled",
+                 "soul", "standing")
+
+
+def _as_float(value, fallback: float) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return fallback
+
+
+def _as_int(value, fallback: int, *, ceiling: int) -> int:
+    """A frontmatter number, floored at 1 and clamped to the house ceiling.
+
+    A job file may ask for less than the house allows and never for more: the
+    file is the character's, the ceiling is the machine's, and §26.1's
+    two-switch rule is the same rule one layer down.
+    """
+    try:
+        wanted = int(value)
+    except (TypeError, ValueError):
+        wanted = fallback
+    return max(1, min(wanted, ceiling))
 
 
 @dataclass
@@ -790,7 +987,7 @@ class JobFile:
                     value = float(value)
                 except (TypeError, ValueError):
                     continue
-            elif key in ("per_day", "enabled"):
+            elif key in ("per_day", "enabled", "standing"):
                 value = value is not False
             elif key == "soul":
                 value = "off" if str(value).lower() in ("off", "none", "false") else "full"
@@ -846,27 +1043,27 @@ def load_job_files(root: Path) -> list[JobFile]:
     return out
 
 
-class PromptJob(DreamJob):
-    """A job that is nothing but a prompt — the shape a new one takes.
+class FileJob(DreamJob):
+    """The half of a job-file job that is just reading the frontmatter.
 
-    Read the day's journal, ask the question the file asks, write the answer to
-    the desk. That covers most of what the built-in jobs do; what it cannot do
-    is the reason the other three stay in Python (consolidation writes to
-    `memory/`, the selfie dispatches a camera, the stock-take reads the goal
-    store). Adding a fifth kind of night no longer means adding a fifth class.
+    Shared by every `kind:`, so a key means the same thing whichever kind of
+    night declares it and a new kind gets the common ones for free.
     """
 
     owns_ledger = False
+    #: `standing` unless the kind says otherwise — see `DreamJob.standing`.
+    default_standing = False
+    default_priority = 0.3
 
     def __init__(self, spec: JobFile):
         self.name = spec.name
         self.title = str(spec.front.get("title") or spec.name.title())
         self.description = str(spec.front.get("description") or "")
-        try:
-            self.priority = float(spec.front.get("priority", 0.3))
-        except (TypeError, ValueError):
-            self.priority = 0.3
+        self.priority = _as_float(spec.front.get("priority"),
+                                  self.default_priority)
         self.per_day = spec.front.get("per_day", True) is not False
+        self.standing = spec.front.get("standing",
+                                       self.default_standing) is not False
         self._enabled = spec.front.get("enabled", True) is not False
         self.soul = ("off" if str(spec.front.get("soul", "full")).lower()
                      in ("off", "none", "false") else "full")
@@ -876,10 +1073,34 @@ class PromptJob(DreamJob):
     def enabled(self, cfg) -> bool:
         return self._enabled
 
+    def _write(self, ctx: DreamContext, day: str, text: str) -> str:
+        """Put one answer on the desk at this job's `output:`, and say where.
+
+        `{day}` is the only substitution, and `Workspace.resolve` refuses the
+        rest: a path out of the desk, a dotfile, a `..`. A job file is written
+        by the person who owns the vault, but it is still a path from a file.
+        """
+        rel = self.output.format(day=day)
+        ctx.put(rel, text)
+        return rel
+
+
+class PromptJob(FileJob):
+    """A job that is nothing but a prompt — the shape a new one takes.
+
+    Read the day's journal, ask the question the file asks, write the answer to
+    the desk. That covers most of what the built-in jobs do; what it cannot do
+    is the reason the other three stay in Python (consolidation writes to
+    `memory/`, the selfie dispatches a camera, the stock-take reads the goal
+    store). Adding a fifth kind of night no longer means adding a fifth class.
+    """
+
+    kind = "prompt"
+
     async def work(self, ctx: DreamContext, day: str) -> JobReport:
         out = JobReport(name=self.name, days=[day])
         journal = ctx.journal(day)
-        if not journal.strip():
+        if not journal.strip() and not self.standing:
             out.result = "nothing in the journal for that day"
             return out
         system = self.system("").format(char=ctx.char_name,
@@ -888,18 +1109,456 @@ class PromptJob(DreamJob):
         if not answer:
             out.result = "nothing came of it"
             return out
-        # `{day}` is the only substitution, and `Workspace.resolve` refuses the
-        # rest: a path out of the desk, a dotfile, a `..`. A job file is written
-        # by the person who owns the vault, but it is still a path from a file.
-        ctx.put(self.output.format(day=day), f"{answer}\n")
+        self._write(ctx, day, f"{answer}\n")
         out.changed = True
         out.result = f"wrote {len(answer)} chars"
         out.note = f"{self.title.lower()}: wrote something for {day}"
         return out
 
 
+#: The framing a research loop runs under. Not the job file's body: that is the
+#: brief for the *report*, and is handed to the writing call at the end. This is
+#: the machinery in between — the part that is the same whether she is reading
+#: the tape or reading the literature, and therefore the part that belongs in
+#: Python rather than in every research job's file.
+RESEARCH_LOOP_SYSTEM = """You are {char}, awake at night with nobody waiting, finding out what is true today. This is what you are working on:
+
+{brief}
+
+You are GATHERING, not writing. The writing comes afterwards and you will be asked for it separately — do not write the report now. Right now you are deciding what to look at next.
+
+Below is everything you have gathered so far this session."""
+
+#: How she answers each round. Same one-line-of-intent shape `Hands.catalog`
+#: uses, and parsed by the same `parse_intent`, for the same reason: a reply is
+#: a stream she is talking through and a research round is not, and one
+#: structured line is what a small local model gets right at four in the morning.
+RESEARCH_CATALOG = """You may take ONE action now, and only one. Answer with one line, in one of these three forms:
+
+  think <what you make of what you have so far>
+  use web_search {"query": "..."}
+  use read_page {"url": "https://..."}
+
+Put a `think` line above a hand saying why you reached for it — the result alone won't tell you next time. Search to find what is out there; open the pages actually worth reading. Never search for something you have already searched, and never open a page you have already opened. When you have enough to write from, answer with exactly:
+
+  think nothing further"""
+
+#: Added to the catalog only while she has reached for nothing. Appending it to
+#: every round told her she had nothing on the round after she had just read
+#: something, which is both false and the kind of contradiction a small model
+#: resolves by searching again for what it already has.
+RESEARCH_FIRST_MOVE = ("\n\nYou have gathered nothing yet, so your first action "
+                       "is a search. Thinking alone gathers nothing, and there "
+                       "is no report to write from an empty session.")
+
+#: What she says to stop early. Matched as a substring rather than parsed, and
+#: the loop stops on two quiet rounds anyway — this only saves a round.
+RESEARCH_DONE = "nothing further"
+
+
+@dataclass
+class _Gathering:
+    """The corpus a research loop builds, and what it forgets first.
+
+    Trimming drops the oldest **page** first and never a search-result row or
+    one of her own notes. What she looked at and what she made of it is the
+    thread of the session — lose that and the next round re-searches ground it
+    already covered — while a page body has already done most of its work by
+    being read once.
+    """
+    rows: list[dict] = field(default_factory=list)
+
+    def add(self, kind: str, text: str) -> None:
+        self.rows.append({"kind": kind, "text": text})
+
+    def pages(self) -> int:
+        return sum(1 for r in self.rows if r["kind"] == "page")
+
+    def render(self, limit: int) -> str:
+        total = sum(len(r["text"]) for r in self.rows)
+        dropped: set[int] = set()
+        for index, row in enumerate(self.rows):
+            if total <= limit:
+                break
+            if row["kind"] != "page":
+                continue
+            total -= len(row["text"]) - len(_DROPPED)
+            dropped.add(index)
+        return "\n\n".join(_DROPPED if i in dropped else r["text"]
+                            for i, r in enumerate(self.rows)) or "(nothing yet)"
+
+
+_DROPPED = "[a page read earlier this session, set aside to make room]"
+
+
+class ResearchJob(FileJob):
+    """A night spent reading the web, ending in one report.
+
+    The other kinds of night look inward — at the journal, at the goals, at the
+    day. This one looks out, and is the reason `DreamContext` grew hands: a
+    market read, a literature scan, a what-changed-in-my-field digest are the
+    same job with a different brief, and none of them can be written from a
+    vault alone.
+
+    Agentic on purpose. A fixed query list cannot follow the one thing that
+    turned out to matter, and following it is most of what makes research worth
+    reading. The cost of that is every way an unattended loop can go wrong at
+    4am, so the bounds are hard and the failure is always a shorter report
+    rather than no report: `max_steps` rounds, `max_searches`, `max_pages`, a
+    stop on two quiet rounds, a context ceiling that forgets pages first, and a
+    write step in `finally` that runs on whatever was gathered.
+    """
+
+    kind = "research"
+    default_standing = True          # the market does not wait for a journal
+    default_priority = 0.2           # after consolidation, the diary, the goals
+    own_budget = True                # §21.2: its own lane, not the tick budget
+
+    def __init__(self, spec: JobFile):
+        super().__init__(spec)
+        self.per_day = spec.front.get("per_day", False) is not False
+        front = spec.front
+        self.topics = [str(t).strip() for t in _as_list(front.get("topics"))
+                       if str(t).strip()]
+        self._max_searches = front.get("max_searches")
+        self._max_pages = front.get("max_pages")
+        self._max_steps = front.get("max_steps")
+        self.step_chars = max(500, _as_int(front.get("step_chars"), 4000,
+                                           ceiling=20000))
+        self.context_chars = max(2000, _as_int(front.get("context_chars"),
+                                               24000, ceiling=200000))
+        self.results = _as_int(front.get("results"), 5, ceiling=20)
+        # What the *writing* call may spend. Not `UTILITY_MAX_TOKENS`, which is
+        # sized for extraction and summarisation: measured against a local 27B,
+        # a report call given the house default ran past nineteen minutes and
+        # never returned, because a reasoning model handed 15,000 tokens will
+        # use them. One page is about 800; this leaves room for that and a
+        # think, and is the number to raise if reports come back cut off.
+        self.report_max_tokens = _as_int(front.get("report_max_tokens"), 2500,
+                                         ceiling=32000)
+        # …and whether it gets a reasoning pass at all. On by default — the
+        # report is the one call in the night where thinking earns its keep —
+        # but a slow local model is a good reason to turn it off, and that is
+        # the character's decision to make, not this file's.
+        self.report_thinking = front.get("report_thinking", True) is not False
+        self.shelve = front.get("shelve", True) is not False
+        self.deliver = ("chat" if str(front.get("deliver", "desk")).lower()
+                        == "chat" else "desk")
+        self.output = str(front.get("output")
+                          or f"reports/{self.name}/{{day}}.md")
+
+    # ---------------------------------------------------------------- limits
+
+    def caps(self, cfg) -> tuple[int, int, int]:
+        """`(searches, pages, steps)`, the file clamped to the house ceilings."""
+        return (_as_int(self._max_searches, 10,
+                        ceiling=int(getattr(cfg, "mind_dream_research_searches", 10))),
+                _as_int(self._max_pages, 10,
+                        ceiling=int(getattr(cfg, "mind_dream_research_pages", 10))),
+                _as_int(self._max_steps, 12,
+                        ceiling=int(getattr(cfg, "mind_dream_research_steps", 12))))
+
+    def enabled(self, cfg) -> bool:
+        """The §26.1 two-switch rule, applied to the night (`SelfieJob`'s rule).
+
+        A job file may say "not tonight"; it may not switch on a night of
+        reading in a house whose `SEARCH_BACKEND` is off.
+        """
+        return (self._enabled
+                and getattr(cfg, "search_backend", "off") != "off")
+
+    def cost(self, ctx: DreamContext, day: str) -> int:
+        """The whole loop, priced before any of it runs (§21.2's MUST).
+
+        A per-round estimate would be right and useless: the budget check
+        happens once, before the job starts, so anything this does not price
+        here is spent unbilled. The corpus grows across the session, so the
+        average round carries about half the ceiling and the last one carries
+        all of it.
+        """
+        steps = self._steps_hint()
+        overhead = (PROMPT_OVERHEAD_CHARS + ctx.soul_chars()
+                    + len(self.prompt_override))
+        chars = (steps / 2 + 1) * self.context_chars + (steps + 1) * overhead
+        return max(64, int(chars // 4))
+
+    def _steps_hint(self) -> int:
+        """`max_steps` as the file asks for it, with no config to clamp against.
+
+        `cost()` is called by the runner, which holds the config — but pricing
+        must never be *cheaper* than the run, so the unclamped number is the
+        safe one here: the ceiling can only lower it.
+        """
+        return _as_int(self._max_steps, 12, ceiling=64)
+
+    # ------------------------------------------------------------------ work
+
+    async def work(self, ctx: DreamContext, day: str) -> JobReport:
+        out = JobReport(name=self.name, days=[day])
+        searches, pages, steps = self.caps(ctx.cfg or _CAPS_DEFAULTS)
+        brief = self.system("").format(char=ctx.char_name, user=ctx.user_name)
+        gathered = _Gathering()
+        if self.topics:
+            gathered.add("plan", "What you set out to look at: "
+                         + "; ".join(self.topics))
+        seen_queries: set[str] = set()
+        seen_urls: set[str] = set()
+        quiet = 0
+        searched = 0
+        opened = 0
+        broke = ""
+        try:
+            for _ in range(steps):
+                system = RESEARCH_LOOP_SYSTEM.format(char=ctx.char_name,
+                                                     brief=brief)
+                reply = await ctx.ask(
+                    system,
+                    f"Today is {day}.\n\n{gathered.render(self.context_chars)}"
+                    f"\n\n{RESEARCH_CATALOG}"
+                    + ("" if searched or opened else RESEARCH_FIRST_MOVE),
+                    # No reasoning pass, and a short leash. The answer is one
+                    # line naming a search or a page; there is no version of
+                    # thinking harder that improves it, and on a local
+                    # reasoning model the pass costs minutes per round. The
+                    # report below gets the full one.
+                    thinking=False, max_tokens=ROUND_MAX_TOKENS)
+                intent = parse_intent(reply, allowed=("web_search", "read_page"))
+                if intent.kind == "think":
+                    if intent.text:
+                        gathered.add("note", f"You thought: {intent.text}")
+                    if RESEARCH_DONE in intent.text.lower():
+                        broke = "she had enough"
+                        break
+                    # `quiet` counts rounds where SHE stopped reaching — not
+                    # rounds where the web failed to cooperate. Both of those
+                    # used to increment it, and against the real web that ended
+                    # a night after one dead link and one retry: a search, a
+                    # Morningstar page that returned zero characters, a retry of
+                    # the same URL, done. A paywall is not her having had enough.
+                    # Everything else is bounded by `max_steps` and the caps.
+                    #
+                    # A bare thought before she has reached for anything is also
+                    # not quiet — it is her working out where to start, and a
+                    # reasoning model asked not to think out loud puts that
+                    # first move in the answer instead of in a <think> block.
+                    if searched or opened:
+                        quiet += 1
+                    if quiet >= 2:
+                        broke = "two quiet rounds"
+                        break
+                    continue
+                if intent.text:
+                    gathered.add("note", f"You thought: {intent.text}")
+                if intent.tool == "web_search":
+                    query = str(intent.args.get("query") or "").strip()
+                    if not query or query.lower() in seen_queries:
+                        gathered.add("note", "(that search was already run — "
+                                             "try a different angle, or read "
+                                             "something you found)")
+                        continue
+                    if searched >= searches:
+                        broke = "out of searches"
+                        break
+                    seen_queries.add(query.lower())
+                    searched += 1
+                    rows = await ctx.search(query, self.results)
+                    gathered.add("results", _search_rows(query, rows))
+                    quiet = 0
+                    continue
+                url = str(intent.args.get("url") or "").strip()
+                if not url or url in seen_urls:
+                    gathered.add("note", "(you have already opened that page and "
+                                         "it gave nothing — open a DIFFERENT "
+                                         "one, or search for another source)")
+                    continue
+                if opened >= pages:
+                    broke = "out of pages"
+                    break
+                seen_urls.add(url)
+                opened += 1
+                page = await ctx.read_page(url, shelve=self.shelve)
+                text = str(page.get("text") or "").strip()
+                if not text:
+                    gathered.add("note", f"({url} gave nothing back — a paywall, "
+                                         "or a page that needs a browser. Try a "
+                                         "different source.)")
+                    continue
+                gathered.add("page", f"{page.get('title') or url}\n{url}\n"
+                                     f"{text[:self.step_chars]}")
+                quiet = 0
+            else:
+                broke = "out of rounds"
+        except Exception:
+            # A loop that died with something in hand still owes a report; one
+            # that died with nothing has nothing to say and should retry
+            # tomorrow, which is what re-raising buys (`_run_one`).
+            if not gathered.pages():
+                raise
+            log.exception("DREAM job %s: the loop failed with %d pages in hand",
+                          self.name, gathered.pages())
+            broke = "the loop failed part-way"
+
+        out.result = f"{searched} searches, {opened} pages ({broke})"
+        if not gathered.pages():
+            # Handled, not produced (§21.2): she looked and there was nothing.
+            # Marking the day is what stops her re-deciding this every night.
+            out.result = f"nothing worth a report ({broke})"
+            return out
+        report = await ctx.ask(brief,
+                               f"Today is {day}. This is everything you "
+                               f"gathered:\n\n"
+                               f"{gathered.render(self.context_chars)}",
+                               thinking=self.report_thinking,
+                               max_tokens=self.report_max_tokens)
+        if not report:
+            out.result = f"gathered {opened} pages and wrote nothing of them"
+            return out
+        rel = self._write(ctx, day, f"{report}\n")
+        out.changed = True
+        # Why she stopped belongs in the result even when the night worked.
+        # "out of pages" and "she had enough" are the same length of report and
+        # completely different facts about it, and the second is the only place
+        # they are ever told apart.
+        out.result = (f"read {opened} pages over {searched} searches and wrote "
+                      f"{len(report)} chars ({broke})")
+        out.note = (f"{self.title.lower()}: read {opened} pages and wrote it up "
+                    f"for {day}")
+        if self.deliver == "chat":
+            ctx.deliver(title=self.title, path=rel,
+                        summary=_lede(report))
+            out.note += " — left it where they'll see it"
+        return out
+
+
+def _as_list(value) -> list:
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple)):
+        return list(value)
+    return [value]
+
+
+def _search_rows(query: str, rows: list[dict]) -> str:
+    """Search results as she sees them: enough to choose from, no more.
+
+    The snippet is trimmed hard because these rows are the part of the corpus
+    that never gets forgotten (`_Gathering.render`), so every character here is
+    re-sent on every remaining round of the session.
+    """
+    if not rows:
+        return f'You searched "{query}" and found nothing.'
+    lines = [f'You searched "{query}":']
+    for row in rows:
+        snippet = " ".join(str(row.get("snippet") or "").split())
+        lines.append(f"  · {row.get('title') or '(untitled)'} — "
+                     f"{row.get('url') or ''}\n    "
+                     f"{snippet[:SEARCH_SNIPPET_CHARS]}")
+    return "\n".join(lines)
+
+
+def _lede(report: str) -> str:
+    """The one line that goes in the chat, off the top of the report.
+
+    Her own first sentence rather than a summary of it: asking a model to
+    summarise something it just wrote is a call spent to say the same thing
+    worse, and the report is one click away in any case.
+    """
+    for line in report.splitlines():
+        line = line.strip().lstrip("#").strip()
+        if line and not line.startswith(("---", "===")):
+            return line[:280]
+    return "I wrote you something."
+
+
+class _CapsDefaults:
+    """Stand-in config for a `work()` called without one (tests, replay)."""
+    mind_dream_research_searches = 10
+    mind_dream_research_pages = 10
+    mind_dream_research_steps = 12
+
+
+_CAPS_DEFAULTS = _CapsDefaults()
+
+
+#: Every `kind:` a job file may declare. A new kind is a class above and a name
+#: here — the same one-line extension point `BUILTIN_JOBS` is for the roster.
+JOB_KINDS: dict[str, type[FileJob]] = {
+    "prompt": PromptJob,
+    "research": ResearchJob,
+}
+
+
+#: What a job may be called, and therefore what its file may be called. The
+#: pattern `DreamRunRequest.job` already uses, kept here because this is where a
+#: name turns into a path and the two must not drift.
+JOB_NAME_RE = re.compile(r"^[a-z0-9_-]{1,64}$")
+
+
+def validate_job_file(name: str, text: str) -> str:
+    """Why this file would not work as a job, or "" when it would.
+
+    Written as a sentence rather than a code, and phrased as what a working file
+    looks like: §34.2's rule that a refusal has to teach, applied to the one
+    surface where somebody is typing YAML into a textarea at midnight.
+
+    Deliberately not a schema. The loader already tolerates a file that is
+    mostly right — an unknown `kind:` runs as a prompt job, an unreadable number
+    falls back to its default — and a stricter door than the runner would refuse
+    files that in fact work.
+    """
+    if not JOB_NAME_RE.match(name or ""):
+        return ("a job name is lowercase letters, digits, - and _ "
+                "(it becomes vault/dreams/<name>.md)")
+    match = FRONTMATTER_RE.match(text)
+    if not match:
+        return ("a job starts with YAML frontmatter between two --- lines, "
+                "then the prompt body:\n\n---\nname: " + name +
+                "\ntitle: …\nenabled: true\n---\n\nYou are {char}, …")
+    try:
+        front = yaml.safe_load(match.group(1)) or {}
+    except yaml.YAMLError as e:
+        return f"the frontmatter isn't valid YAML: {e}"
+    if not isinstance(front, dict):
+        return "the frontmatter has to be a mapping of key: value lines"
+    declared = str(front.get("name") or name)
+    if declared != name:
+        return (f"this file is {name}.md but its frontmatter says "
+                f"name: {declared} — they have to agree")
+    if not text[match.end():].strip():
+        return ("the body below the frontmatter is the system prompt she is "
+                "given, and it can't be empty")
+    kind = str(front.get("kind") or "prompt").strip().lower()
+    if kind not in JOB_KINDS and name not in BUILTIN_NAMES:
+        return (f"kind: {kind} isn't one this build knows — "
+                f"it's one of {', '.join(sorted(JOB_KINDS))}")
+    return ""
+
+
+def _build_job(spec: JobFile) -> FileJob:
+    """One job file → the job it declares.
+
+    An unknown `kind:` falls back to `prompt` rather than refusing the file.
+    The alternative is that a typo — or a file written against a newer build —
+    silently removes a job from the night, which is the failure §21.2 spends a
+    paragraph avoiding for mangled frontmatter and is no better here.
+    """
+    wanted = str(spec.front.get("kind") or "prompt").strip().lower()
+    cls = JOB_KINDS.get(wanted)
+    if cls is None:
+        log.warning("dream job %s asks for kind %r, which this build has no "
+                    "idea about; running it as a plain prompt job",
+                    spec.name, wanted)
+        cls = PromptJob
+    return cls(spec)
+
+
 #: class above and a name here.
 BUILTIN_JOBS: tuple[type[DreamJob], ...] = (DiaryJob, StrategyJob, SelfieJob)
+
+#: Every name a file may *retune* rather than define. `consolidate` is in it and
+#: is not in `BUILTIN_JOBS`, because the runner constructs that one itself.
+BUILTIN_NAMES: frozenset[str] = frozenset(
+    {ConsolidateJob.name} | {cls.name for cls in BUILTIN_JOBS})
 
 
 # --------------------------------------------------------------------- runner
@@ -919,7 +1578,9 @@ class NightReport:
     exhausted_budget: bool = False
     nothing_to_do: bool = False
     exchanges: list[Exchange] = field(default_factory=list)
+    steps: list[Step] = field(default_factory=list)
     writes: list[str] = field(default_factory=list)
+    delivered: list[str] = field(default_factory=list)
     dry_run: bool = False
 
     @property
@@ -961,7 +1622,12 @@ class NightReport:
                 "dry_run": self.dry_run,
                 "writes": self.writes,
                 "summary": self.summary,
-                "exchanges": [e.as_dict() for e in self.exchanges]}
+                "exchanges": [e.as_dict() for e in self.exchanges],
+                # The night's hands, beside the night's model calls. §21.3
+                # promises the prompts; a research job is only readable if the
+                # page also says which searches produced the corpus behind them.
+                "steps": [t.as_dict() for t in self.steps],
+                "delivered": list(self.delivered)}
 
 
 class DreamRunner:
@@ -973,6 +1639,8 @@ class DreamRunner:
                  skills: SkillStore | None = None,
                  utility: UtilityCall | None = None,
                  selfie: Callable[[dict], None] | None = None,
+                 research: object | None = None,
+                 deliver_report: Callable[..., None] | None = None,
                  audit: Callable[..., None] | None = None,
                  soul_text: Callable[[], str] | None = None):
         self.vault = vault
@@ -984,13 +1652,16 @@ class DreamRunner:
         self.skills = skills
         self.utility = utility
         self.selfie = selfie
+        self.research = research
+        self.deliver_report = deliver_report
         self.audit = audit
         self.soul_text = soul_text
         self.ledger = JobLedger(vault.vault / "state" / "dream_jobs.json")
-        self.jobs: list[DreamJob] = [ConsolidateJob(consolidator)]
-        self.jobs += [cls() for cls in BUILTIN_JOBS]
-        self._apply_job_files()
-        self.jobs.sort(key=lambda j: j.priority, reverse=True)
+        #: Kept because `reload()` has to build a fresh `ConsolidateJob`, and a
+        #: consolidator is the one thing here the runner cannot construct.
+        self._consolidator = consolidator
+        self.jobs: list[DreamJob] = []
+        self.reload()
 
     #: Where a character keeps the jobs that are hers (§21.2, §34.1). Versioned
     #: like `skills/` and unlike `workspace/`: a night's job is a durable
@@ -1023,6 +1694,24 @@ class DreamRunner:
             (root / fname).write_text(body, encoding="utf-8")
         log.info("seeded the dream roster into %s", root)
 
+    def reload(self) -> None:
+        """Rebuild the roster from the builtins and `vault/dreams/`.
+
+        Called at construction and again whenever a job file is written, so an
+        edit takes effect without a restart.
+
+        It rebuilds rather than re-overlays, and that is the whole subtlety:
+        `_apply_job_files` mutates builtin **instances** in place, so re-running
+        it over the same objects would leave a key that has since been deleted
+        from a file still applied — the edit that removes `enabled: false` would
+        not switch the job back on, which is precisely the edit somebody makes
+        first. Fresh instances have the compiled defaults and nothing else.
+        """
+        self.jobs = [ConsolidateJob(self._consolidator)]
+        self.jobs += [cls() for cls in BUILTIN_JOBS]
+        self._apply_job_files()
+        self.jobs.sort(key=lambda j: j.priority, reverse=True)
+
     def _apply_job_files(self) -> None:
         """Overlay `vault/dreams/` onto the built-in roster.
 
@@ -1048,7 +1737,7 @@ class DreamRunner:
                 if existing is not None:
                     spec.applies_to(existing)
                 else:
-                    job = PromptJob(spec)
+                    job = _build_job(spec)
                     self.jobs.append(job)
                     by_name[job.name] = job
             except Exception:  # noqa: BLE001 — one bad file, one lost job
@@ -1067,7 +1756,8 @@ class DreamRunner:
             vault=self.vault, store=self.store, clock=self.clock,
             goals=self.goals, workspace=self.workspace, skills=self.skills,
             utility=self.utility, selfie=self.selfie, audit=self.audit,
-            soul_text=self.soul_text,
+            research=self.research, deliver_report=self.deliver_report,
+            soul_text=self.soul_text, cfg=self.cfg,
             char_name=str(getattr(self.cfg, "companion_name", "") or "she"),
             user_name=str(getattr(self.cfg, "user_name", "") or "the user"),
             **kw)
@@ -1107,6 +1797,7 @@ class DreamRunner:
     # -------------------------------------------------------------------- run
 
     async def run(self, *, token_budget: int = 40000,
+                  research_budget: int | None = None,
                   only: str | None = None, day: str | None = None,
                   dry_run: bool = False) -> NightReport:
         """One DREAM tick's worth of work.
@@ -1124,18 +1815,33 @@ class DreamRunner:
         if _NIGHT_LOCK.locked():
             log.info("DREAM for %s queued: another night is running",
                      getattr(self.cfg, "companion_name", "?") or "?")
+        if research_budget is None:
+            research_budget = int(getattr(self.cfg,
+                                          "mind_dream_research_tokens", 0)
+                                  or token_budget)
         async with _NIGHT_LOCK:
-            return await self._run(token_budget=token_budget, only=only,
-                                   day=day, dry_run=dry_run)
+            return await self._run(token_budget=token_budget,
+                                   research_budget=research_budget,
+                                   only=only, day=day, dry_run=dry_run)
 
-    async def _run(self, *, token_budget: int, only: str | None,
-                   day: str | None, dry_run: bool) -> NightReport:
-        """The night itself, run under the lock — see `run` for the contract."""
+    async def _run(self, *, token_budget: int, research_budget: int,
+                   only: str | None, day: str | None,
+                   dry_run: bool) -> NightReport:
+        """The night itself, run under the lock — see `run` for the contract.
+
+        Two budgets, not one (§21.2). A job that declares `own_budget` is billed
+        against its own ceiling: a night of reading the web is an order of
+        magnitude past a diary entry, and sharing one allowance means either the
+        reading never runs or it eats consolidation on the night it does. The
+        rules inside each lane are unchanged — priority order, and the first
+        item runs however big it is.
+        """
         report = NightReport(dry_run=dry_run)
         jobs = [j for j in self.enabled_jobs() if only is None or j.name == only]
         if only is not None and not jobs:
             raise KeyError(f"no dream job called {only!r}")
-        spent = 0
+        spent = {False: 0, True: 0}
+        ceiling = {False: token_budget, True: research_budget}
         touched = False
 
         for job in jobs:
@@ -1146,20 +1852,21 @@ class DreamRunner:
             except Exception:  # noqa: BLE001
                 log.exception("DREAM job %s: backlog failed", job.name)
                 continue
+            lane = job.own_budget
             for target in pending:
                 cost = job.cost(ctx, target)
-                # `spent` is 0 only for the very first item of the night, which
+                # `spent` is 0 only for the very first item of this lane, which
                 # always runs however big it is — `dream.py` explains why at
                 # length, and the rule matters more here: with several jobs
                 # queued, a veto on the first one would starve every job behind
                 # it too.
-                if spent and spent + cost > token_budget:
+                if spent[lane] and spent[lane] + cost > ceiling[lane]:
                     report.exhausted_budget = True
                     break
                 ctx.day = target
                 out = await self._run_one(job, ctx, target)
                 report.jobs.append(out)
-                spent += cost
+                spent[lane] += cost
                 # `days` is handled, not produced — see JobReport. A job that
                 # decided there was nothing to write still finished with that
                 # day, and must not be asked about it again tomorrow.
@@ -1171,7 +1878,9 @@ class DreamRunner:
                     self.ledger.note_run(job.name, at=iso_of(self.clock.now()),
                                          result=out.result)
             report.exchanges.extend(ctx.exchanges)
+            report.steps.extend(ctx.steps)
             report.writes.extend(ctx.writes)
+            report.delivered.extend(ctx.delivered)
             # No `break` on an exhausted budget: one expensive job hitting the
             # ceiling on its next day says nothing about whether the cheap jobs
             # behind it fit. They are each gated by the same check above, so

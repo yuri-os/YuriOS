@@ -231,6 +231,17 @@ set a timer?" gets answered without reading logs.
 | `POST /api/mind/reading/stop` | `{"run": "<id>"}` to stop a research run, `{}` to stop just the read in flight |
 | `POST /api/mind/reading/resume` | `{"doc": "<name>"}` — let a held document be read again, from where it stopped |
 | `POST /api/mind/dream/run` | manually run DREAM; `day` must be canonical `YYYY-MM-DD`, and `budget` is typed then clamped to `1..MIND_DREAM_TICK_TOKENS` |
+| `GET /api/mind/dream/jobs` | every job file on disk, parsed, plus the kinds and builtin names this build knows |
+| `GET /api/mind/dream/jobs/{name}` | one job file, raw |
+| `PUT /api/mind/dream/jobs/{name}` | `{"text": "<the whole file>"}` — validated, committed, and the running roster rebuilt |
+| `DELETE /api/mind/dream/jobs/{name}` | remove it; a builtin reverts to its shipped prompt |
+
+`/api/mind/dream` and `/api/mind/dream/jobs` answer different questions and are not
+interchangeable: the first is the roster that will run tonight, builtins and files folded
+together; the second is what is on disk, which is the only thing an editor can edit. A name is
+matched against `^[a-z0-9_-]{1,64}$` and the path is built from it, so `vault/dreams/` is the only
+directory these four can reach. A file that would not work is refused `422` with the shape of one
+that would.
 
 All of it reads *through* the mind's own stores, so the dashboard can never disagree with the
 files. With the mind off, these answer `503` and `/api/health` says so — except

@@ -174,10 +174,18 @@ class LiteLLMUtilityModel:
         never sees it. Unlike `thinking=False` this *keeps* the reasoning pass —
         it only asks for a shorter one, which is what a long structured answer
         on a small window needs.
+
+        `thinking` may also be given **per call**, overriding the constructor.
+        One caller can want both: DREAM's research loop asks a reasoning model
+        for one line naming its next search — a question no amount of thinking
+        improves, and one this model spent 1200 reasoning tokens and 200 seconds
+        on — and then asks the same model to write the report, which is exactly
+        what the reasoning pass is for. Setting it at construction would force
+        that caller to hold two models.
         """
         extra: dict = {}
         body: dict = {}
-        if not self.thinking:
+        if not params.get("thinking", self.thinking):
             messages = _no_think_messages(messages)
             body.update(_NO_THINK_BODY)
         if params.get("reasoning_effort"):

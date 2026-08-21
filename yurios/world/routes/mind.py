@@ -15,6 +15,9 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field, StrictInt, field_validator
 
+from yurios.mind.dreamjobs import (BUILTIN_NAMES, JOB_KINDS, JOB_NAME_RE,
+                                  DreamRunner, load_job_files,
+                                  validate_job_file)
 from yurios.mind.journal import canonical_day
 from yurios.mind.workspace import DeskFull, OutsideTheDesk, Workspace
 
@@ -266,6 +269,126 @@ async def dream_run(request: Request, body: DreamRunRequest | None = None) -> di
     except KeyError as e:
         raise HTTPException(404, str(e)) from None
     return report.as_dict()
+
+
+# --- the roster a character owns: `vault/dreams/<name>.md` (SPEC §21.2) -------
+#
+# The Dreams section could always run a job and never write one, which made the
+# night editable in principle (drop a file in the Vault) and not in practice.
+# These four routes are the file operations, and nothing more: the format, the
+# validation rules and the reload are all `dreamjobs.py`'s.
+
+
+def _jobs_dir(request: Request) -> Path:
+    root = request.app.state.rt.cfg.vault_dir / DreamRunner.JOBS_DIR
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+def _job_file(request: Request, name: str) -> Path:
+    """One job file by name, and the only place a name becomes a path.
+
+    The name is matched against `JOB_NAME_RE` and the path is *built* from it,
+    never taken from the request — `../../soul/PERSONA` is not a job that
+    doesn't exist, it is a name that is not a name.
+    """
+    if not JOB_NAME_RE.match(name or ""):
+        raise HTTPException(
+            400, "a job name is lowercase letters, digits, - and _ "
+                 "(it becomes vault/dreams/<name>.md)")
+    return _jobs_dir(request) / f"{name}.md"
+
+
+def _reload(request: Request) -> None:
+    """Rebuild the running roster, when there is one to rebuild.
+
+    A file edited with no mind running is still an edit; it lands the next time
+    a runner is constructed. So this is best-effort by design and never the
+    reason a write is refused.
+    """
+    mind = getattr(request.app.state.rt, "mind", None)
+    if mind is not None and getattr(mind, "dreams", None) is not None:
+        mind.dreams.reload()
+
+
+@router.get("/api/mind/dream/jobs")
+async def dream_jobs(request: Request) -> dict:
+    """Every job file this character has, parsed, newest-first by name.
+
+    Separate from `/api/mind/dream` on purpose: that one answers "what will run
+    tonight and what does it owe", which is the roster *after* the builtins and
+    the files have been folded together. This one answers "what is on disk",
+    which is the only thing an editor can actually edit.
+    """
+    jobs = []
+    for spec in load_job_files(_jobs_dir(request)):
+        jobs.append({"name": spec.name, "front": spec.front,
+                     "prompt": spec.prompt.strip(),
+                     "builtin": spec.name in BUILTIN_NAMES})
+    return {"jobs": jobs, "kinds": sorted(JOB_KINDS),
+            "builtins": sorted(BUILTIN_NAMES)}
+
+
+@router.get("/api/mind/dream/jobs/{name}")
+async def dream_job(name: str, request: Request) -> dict:
+    """One job file, raw — frontmatter and body exactly as they are on disk."""
+    path = _job_file(request, name)
+    if not path.is_file():
+        raise HTTPException(404, f"no job file called {name}")
+    return {"name": name, "text": path.read_text(encoding="utf-8"),
+            "builtin": name in BUILTIN_NAMES}
+
+
+@router.put("/api/mind/dream/jobs/{name}")
+async def dream_job_write(name: str, request: Request) -> dict:
+    """Write one job file, then rebuild the roster so it takes effect now.
+
+    `vault/dreams/` is versioned, unlike her desk (§34.1): a job is a durable
+    statement about how she spends the hours nobody sees, and changing one is
+    exactly the kind of change worth reading back. So this commits, and the
+    first edit to a seeded job reads as a diff.
+    """
+    body = await request.json()
+    text = body.get("text")
+    if not isinstance(text, str) or not text.strip():
+        raise HTTPException(422, "text must be the whole file: YAML "
+                                 "frontmatter between --- lines, then the "
+                                 "prompt body")
+    problem = validate_job_file(name, text)
+    if problem:
+        raise HTTPException(422, problem)
+    path = _job_file(request, name)
+    _jobs_dir(request)
+    rt = request.app.state.rt
+    mind = getattr(rt, "mind", None)
+    if mind is not None:
+        mind.vault.write(f"{DreamRunner.JOBS_DIR}/{name}.md", text)
+        mind.vault.commit_if_dirty(f"dreams: edited {name}")
+    else:
+        path.write_text(text, encoding="utf-8")
+    _reload(request)
+    return {"name": name, "text": text}
+
+
+@router.delete("/api/mind/dream/jobs/{name}")
+async def dream_job_delete(name: str, request: Request) -> dict:
+    """Remove one job file.
+
+    A builtin reverts to the prompt compiled into `dreamjobs.py`; anything else
+    stops being a job at all. Deliberately not undone by the seeder, which only
+    ever fires on an absent *folder* — a job you deleted stays deleted (§21.2).
+    """
+    path = _job_file(request, name)
+    if not path.is_file():
+        raise HTTPException(404, f"no job file called {name}")
+    path.unlink()
+    mind = getattr(request.app.state.rt, "mind", None)
+    if mind is not None:
+        mind.vault.mark_dirty()
+        mind.vault.commit_if_dirty(f"dreams: removed {name}")
+    _reload(request)
+    return {"name": name, "deleted": True,
+            "reverted": name in BUILTIN_NAMES}
 
 
 @router.post("/api/mind/edits/{edit_id}")

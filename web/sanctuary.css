@@ -292,6 +292,24 @@ svg{ width:1.1em; height:1.1em; fill:none; stroke:currentColor; stroke-width:1.7
   display:block; max-width:100%; border-radius:2px; margin:2px 0 6px;
   border:1px solid var(--rule);
 }
+/* A night's report, delivered (SPEC §18.2a). A card and not a wall of text:
+   the line above it is what she said, this is the thing she is pointing at. */
+.msg-report{
+  display:block; margin:4px 0 6px; padding:8px 10px;
+  border:1px solid var(--rule); border-radius:2px; background:var(--void);
+}
+.msg-report .report-title{ display:block; color:var(--ink); font-weight:600; }
+.msg-report .report-meta{ display:block; margin-top:2px; color:var(--dim); }
+.msg-report .report-open{
+  margin-top:6px; padding:3px 8px; cursor:pointer;
+  border:1px solid var(--rule); border-radius:2px;
+  background:transparent; color:var(--ink); font:inherit;
+}
+.msg-report .report-open:hover{ border-color:var(--ink); }
+.msg-report .report-body{
+  margin-top:8px; padding-top:8px; border-top:1px solid var(--rule);
+  white-space:pre-wrap; color:var(--ink);
+}
 
 .composer{ flex:none; display:flex; gap:8px; padding:12px; border-top:1px solid var(--rule); }
 .composer .icon-button{ width:40px; height:40px; }

@@ -1100,6 +1100,22 @@ them is precisely the always-interrupting-assistant failure.
   4am is exactly the failure the two gates exist to prevent. The one grandfathered exception is the
   DREAM selfie (§21.2), which keeps posting its picture into the chat: that is shipped behaviour,
   one object, and a gift. It **MUST NOT** be generalised — a research digest is not a gift.
+
+  There is a third lane, and it is neither of those: a **standing instruction**. A DREAM job file
+  whose owner wrote `deliver: chat` in it (§21.2a) files its report in the inbox, and that is not
+  Gate 2 bypassed, because Gate 2's question is whether *she* should interrupt. Here nobody
+  decided anything at 4am; the user asked, in writing, for a thing to be ready in the morning, and
+  the answer to "should this reach them" was given when they wrote the file. So it costs no
+  interrupt and argues with no threshold. The bounds that keep it from becoming the wall of
+  research this rule exists to prevent are structural, and are **MUST**s:
+
+  - it delivers a **pointer**, never the document — one line she wrote, plus a path the chat view
+    turns into a card, exactly as `image_url` becomes a picture;
+  - the report is on the desk **either way**; delivery decides only whether they are told;
+  - a job's newer report **retires its own older pending one**, so a week away is this morning's
+    brief and not seven of them (the retired ones stay on the desk, which is the archive);
+  - and it is **only** available to a job file that asked for it. A tool product the mind started
+    still stamps `_deliver: "vault"` and still posts nothing, unchanged.
 - §18.3 **Outcomes, ascending imposition:** **SILENT** — the default: do it quietly and journal it
   (a stale non-blind goal is let go with a journal line; the journal, not notifications, carries the
   value); **SUGGEST** — one composed line posted to the chat, waiting for the user's next glance,
@@ -1261,6 +1277,20 @@ that set and a poor place to stop.
   (§21, wrapping `DreamConsolidator`), `diary`, `strategy`, `selfie` — and adding a fifth **MUST**
   require only a class and a name in `BUILTIN_JOBS`: the ladder, the trace, the budget, the debug
   page and the manual trigger all derive from the roster.
+- **A job file declares its `kind:`, and a kind is the second extension point.** `prompt` is the
+  default and is the one above: the day's journal, her question, an answer on the desk. `research`
+  (below) is the night that looks *outward*. A new kind **MUST** be a class and a name in
+  `JOB_KINDS`, exactly as a new builtin is a class and a name in `BUILTIN_JOBS` — and an unknown
+  `kind:` **MUST** fall back to `prompt` with a warning rather than dropping the job, because a
+  file written against a newer build silently losing a night is the §21.2 failure this section
+  already refuses for mangled frontmatter. `kind` is **not** in `JOB_FILE_KEYS`: a file may retune
+  a builtin and never re-implement one, and `kind` selects the `work`.
+- **`standing: true` takes the day from the calendar, not from the journal.** `finished_days()`
+  reads `memory/episodic/`, so a day nobody spoke to her is not a day — right for a diary, wrong
+  for every job whose subject is the world. A standing job owes **yesterday**, once, and **MUST
+  NOT** walk backwards through the archive: nine market briefs written nine nights late are nine
+  wrong answers, not a backlog worth eating. It follows that a standing job keeps the ladder
+  entering DREAM on quiet nights, which is the point of it and not a leak.
 - **The roster is hers, not this file's.** `vault/dreams/<name>.md` — YAML frontmatter (`title`,
   `description`, `priority`, `per_day`, `enabled`, `soul`, `output`) over a body that **is** the
   system prompt — is loaded after the builtins and overlaid on them. A file named after a builtin
@@ -1284,8 +1314,14 @@ that set and a poor place to stop.
   down is a fact the next reader inherits wrong. Overridable per character like any other flag.
   `DreamJob.cost()` **MUST** price the preamble it will send, or the night's first item is
   underbilled and §21.2's anti-wedge rule starves everything queued behind it.
-- **Priority order over one shared budget.** Jobs run highest-priority first and share
-  `MIND_DREAM_TICK_TOKENS`; `consolidate` runs first because the others read `facts.md`. The first
+- **Priority order over one shared budget — and one job may declare its own lane.** Jobs run
+  highest-priority first and share `MIND_DREAM_TICK_TOKENS`; `consolidate` runs first because the
+  others read `facts.md`. A job with `own_budget` is billed instead against
+  `MIND_DREAM_RESEARCH_TOKENS`, and `research` is the only kind that sets it: a night of reading
+  the web is an order of magnitude past a diary entry, so on one shared ceiling either the reading
+  never fits or it eats consolidation on the night it does. Every other rule in this bullet —
+  priority order, the first item running however big it is, a job that hits the ceiling stopping
+  that job and not the night — applies **unchanged within each lane**. The first
   item of a night **MUST** run however big it is (§21's anti-wedge rule, which matters more here:
   a veto on the first item starves every job behind it too). A job's estimate **MUST** price the
   prompt it will actually send — a day's journal is capped at `JOURNAL_CHARS` before it reaches a
@@ -1316,10 +1352,81 @@ that set and a poor place to stop.
 - Every model call goes through `DreamContext.ask`, which records it verbatim — the transcript is
   complete by construction, and is what §21.3 serves.
 
+### §21.2a — `kind: research`, the night that looks outward
+
+`ResearchJob` in `yurios/mind/dreamjobs.py`. Every other job reads the vault; this one reads the
+web and writes one document from what it found. A market brief, a literature scan, a
+what-changed-in-my-field digest are the same job with a different brief, and none of them can be
+written from a vault alone.
+
+- **The hands are `DreamContext`'s, not the tool server's.** `search()` and `read_page()` sit
+  beside `ask()` and `put()`, backed by the `Researcher` the runtime already built (§7.7) — so a
+  night reaches the web through the same `SearchProvider` and `PageFetcher` seams a turn does,
+  with the same SSRF validation, and both have offline fakes. A page she reads at night **MUST**
+  be shelved like one she reads at noon (§7.7's *what she reads she keeps*), unless the job file
+  says `shelve: false`.
+- **Agentic, and hard-bounded.** She chooses each next search from what the last one returned,
+  because following the one thing that turned out to matter is most of what makes research worth
+  reading — and a fixed query list cannot. The cost of that is every way an unattended loop goes
+  wrong at 4am, so the failure mode **MUST** always be a *shorter report*, never no report:
+  `max_steps` rounds, `max_searches`, `max_pages`, a context ceiling, and a write step that runs on
+  whatever was gathered even when the loop raised. A loop that raised with **nothing** gathered
+  re-raises, so the day stays unmarked and it retries.
+- **Stopping early means *she* stopped reaching — never that the web failed to cooperate.** Two
+  consecutive rounds in which she reached for nothing end the night, and a dead page, a paywall, a
+  page that needs a browser and a repeated URL **MUST NOT** count among them. This is not a
+  refinement: against the real web the first version ended a night two steps into a twelve-step
+  budget — one search, one Morningstar page that returned zero characters, one retry — and wrote
+  nothing. Those failures are bounded by `max_steps` and the caps, which is enough. A bare thought
+  *before she has reached for anything* is likewise not a quiet round: it is her working out where
+  to start, and a reasoning model asked not to think out loud puts that first move in the answer.
+- **A round asks for no reasoning pass; the report keeps one. Both are bounded.**
+  `DreamContext.ask` **MUST** forward per-call model parameters, and the loop **MUST** use
+  `thinking=False` with a hard `max_tokens` for its rounds. The measurement this is from: one
+  round against a local 27B cost 1,227 reasoning tokens and **200 seconds** to emit a single line
+  naming a search — twelve of those is a night that never finishes, and the same round with the
+  reasoning pass off took **13 seconds**. The line naming her next search is not a question
+  thinking improves. The report is, and keeps the full pass — but it **MUST NOT** inherit
+  `UTILITY_MAX_TOKENS`, which is sized for extraction: given that budget the same model spent
+  **nineteen minutes** on one report and had not finished. A reasoning model handed fifteen
+  thousand tokens will use them. Both the ceiling and the pass are per-job settings
+  (`report_max_tokens`, `report_thinking`), because how slow a model is too slow is a property of
+  the house and not of this file.
+- **The corpus forgets pages first.** Past `context_chars`, the oldest page body is dropped and
+  its search row and her own notes are kept. What she looked at and what she made of it is the
+  thread of the session; losing that makes the next round re-search ground already covered, while
+  a page body has done most of its work by being read once.
+- **One catalog, one parser, shared with §26.** The rounds use `hands.py`'s `parse_intent` and its
+  one-line-of-intent format rather than the conversational marker grammar, for the reason that
+  file gives: a reply is a stream she is talking through and a tick is not, and anything
+  unparseable **MUST** fail safe towards thinking rather than towards an error.
+- **The file's body is the brief for the *report*, not for the search.** The loop's own framing is
+  compiled in, because it is the same whether she is reading the tape or reading the literature.
+  This is the one place §21.2's "the body **is** the system prompt" is scoped rather than literal,
+  and the folder README **MUST** say so.
+- **Every search and every fetch is a `Step`**, recorded beside — never inside — the model
+  transcript §21.3 promises. They are different events and a page that conflates them describes
+  calls that were never made.
+
 ### §21.3 — Running a night by hand
 
 `GET /api/mind/dream` serves the roster (per job: enabled, backlog, last run, last result).
 `POST /api/mind/dream/run` runs it, taking optional `job`, `day`, `dry_run` and `budget`.
+`GET/PUT/DELETE /api/mind/dream/jobs[/{name}]` are the roster's *files* — the editor behind the
+Dreams section.
+
+- The two are different questions and **MUST** stay different routes: `/dream` is what will run
+  tonight, which is the builtins and the files folded together; `/dream/jobs` is what is on disk,
+  which is the only thing an editor can edit.
+- A write **MUST** validate before it lands, and **MUST** answer with the shape a working file has
+  rather than with "invalid" (§34.2's rule that a refusal teaches). It **MUST** then rebuild the
+  running roster, and the rebuild **MUST** construct fresh job objects: `_apply_job_files` mutates
+  builtin *instances*, so re-overlaying leaves a key a file no longer sets still applied — and the
+  first edit anybody makes is the one that switches a job back on.
+- A name **MUST** be matched against `JOB_NAME_RE` and the path **MUST** be built from it, never
+  taken from the request. This is the only place in the night where a name becomes a path.
+- `vault/dreams/` is versioned (§34.1), so a write commits. The first edit to a seeded job reads
+  as a diff, which is the property the seeding exists for.
 
 - The response **MUST** include, for every model call the run made, the exact system message, the
   exact input and the raw completion. A dream job is a prompt whose output is otherwise invisible

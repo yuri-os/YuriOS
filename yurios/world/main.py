@@ -479,6 +479,9 @@ class Runtime:
                      proactive: bool = False, channel: str | None = None,
                      client_id: str | None = None,
                      selfie_id: str | None = None,
+                     report_path: str | None = None,
+                     report_title: str | None = None,
+                     report_job: str | None = None,
                      unheard: bool = False) -> dict:
         """Commit one chat entry: append the ring, publish the `message` event.
         `proactive` marks lines she spoke unprompted (greeting, ambient, a
@@ -494,7 +497,13 @@ class Runtime:
         meaning "nobody is home" the moment Telegram is configured. The mind's
         SUGGEST line and its undeliverable SPEAK say so explicitly (§18.3); a
         greeting never does, because a greeting is answered *to* somebody who
-        just arrived."""
+        just arrived.
+
+        `report_path`/`report_title`/`report_job` name a document on her desk
+        that this line is *about* — a night's report a DREAM job was told to
+        deliver (§18.2a). The line is the whole message; the path is what the
+        chat view turns into a card you can open, the same way `image_url` is
+        what it turns into a picture."""
         entry: dict = {"id": uuid.uuid4().hex[:8],   # dedup key: a page may see a
                        # message live AND in its /api/history backfill (a race
                        # the client resolves by id, not by guessing)
@@ -511,6 +520,10 @@ class Runtime:
             entry["client_id"] = client_id
         if selfie_id:
             entry["selfie_id"] = selfie_id
+        if report_path:
+            entry["report_path"] = report_path
+            entry["report_title"] = report_title or report_path
+            entry["report_job"] = report_job or ""
         if unheard:
             # on the wire as well as on disk: the notification channel filters on
             # it, and an open chat view uses it to clear the badge for a line it

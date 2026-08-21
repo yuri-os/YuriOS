@@ -147,6 +147,21 @@ Ollama settings.
 Under the 0.2 host these per-character paths are set from the registry; the values above are the
 defaults a single-companion install and the migration start from.
 
+### The night's budgets
+
+| Key | Default | |
+|---|---|---|
+| `MIND_DREAM_TICK_TOKENS` | `40000` | one DREAM tick's allowance, shared by the roster in priority order |
+| `MIND_DREAM_RESEARCH_TOKENS` | `120000` | the research lane's own allowance — a night of reading the web is an order of magnitude past a diary entry, so it is billed apart or it eats consolidation |
+| `MIND_DREAM_RESEARCH_SEARCHES` | `10` | house ceiling on one research job's searches in a night |
+| `MIND_DREAM_RESEARCH_PAGES` | `10` | …and on the pages it opens |
+| `MIND_DREAM_RESEARCH_STEPS` | `12` | …and on the rounds it gets before it must write |
+
+The three ceilings are the house's. A job file in `vault/dreams/` may ask for less and never for
+more — the same two-switch rule that stops a file switching on a camera the house doesn't have.
+A `kind: research` job also needs `SEARCH_BACKEND` to be something other than `off`, or it is not
+in the night's list at all.
+
 ## Server
 
 | Key | Default | |

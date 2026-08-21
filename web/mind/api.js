@@ -59,6 +59,12 @@ export const debugApi = Object.freeze({
  * own surface, which answers 503 when the loop is off. Everything else on this
  * page works with her stopped; this section is the one that needs her awake,
  * and says so.
+ *
+ * The job *files* are the exception inside the exception: `vault/dreams/` is on
+ * disk and readable, and a file edited with her stopped simply lands the next
+ * time a runner is built. They ride here anyway rather than on the vault debug
+ * surface, because the thing you do after editing a job is run it, and a roster
+ * split across two clients is a roster that disagrees with itself.
  */
 const mind = (path, options) => request(apiPath(`/api/mind${path}`), options);
 
@@ -66,4 +72,12 @@ export const dreamApi = Object.freeze({
   status: ({ signal } = {}) => mind("/dream", { signal }),
   run: (body, { signal } = {}) =>
     mind("/dream/run", { method: "POST", body: JSON.stringify(body || {}), signal }),
+  jobs: ({ signal } = {}) => mind("/dream/jobs", { signal }),
+  job: (name, { signal } = {}) =>
+    mind(`/dream/jobs/${encodeURIComponent(name)}`, { signal }),
+  saveJob: (name, text, { signal } = {}) =>
+    mind(`/dream/jobs/${encodeURIComponent(name)}`,
+         { method: "PUT", body: JSON.stringify({ text }), signal }),
+  deleteJob: (name, { signal } = {}) =>
+    mind(`/dream/jobs/${encodeURIComponent(name)}`, { method: "DELETE", signal }),
 });

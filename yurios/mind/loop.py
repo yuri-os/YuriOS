@@ -189,6 +189,13 @@ class MindLoop:
             utility=self._utility if state.utility else None,
             selfie=(brain.selfies.start
                     if getattr(brain, "selfies", None) is not None else None),
+            # The night's web hands (§7.7 applied to §21.2). The `Researcher` is
+            # handed over whole rather than as two loose callables: it already
+            # owns the search provider, the fetcher and `shelve()`, and keeping
+            # them together is what makes "what she reads she keeps" true of the
+            # unattended hours too.
+            research=getattr(brain, "research", None),
+            deliver_report=self._deliver_report,
             # A night's desk writes and its camera dispatch land in the same
             # audit as her daytime hands (§7.3), so the Tools page answers
             # "what did this actually do to the vault" for DREAM too.
@@ -739,15 +746,42 @@ class MindLoop:
         The night is chunked exactly as consolidation alone used to be — this
         tick spends what it may and yields, the ladder stays in DREAM while any
         job still has a backlog, and the next tick picks up where this one
-        stopped. What changed is only how many kinds of work that covers.
+        stopped. What changed is only how many kinds of work that covers — and
+        that research carries its own budget, so a night of reading neither
+        starves the roster nor is starved by it (§21.2).
         """
         if not self.cfg.dream_enabled or not self.cfg.utility_enabled:
             return ({"what": "dream", "result": "DREAM disabled"}, {}, [])
         with correlate.scope(kind=correlate.DREAM):
             report = await self.dreams.run(
-                token_budget=self.cfg.mind_dream_tick_tokens)
+                token_budget=self.cfg.mind_dream_tick_tokens,
+                research_budget=self.cfg.mind_dream_research_tokens)
         return ({"what": "dream", "result": report.summary,
                  "jobs": [j.as_dict() for j in report.jobs]}, {}, report.notes)
+
+    def _deliver_report(self, *, title: str, path: str, summary: str,
+                        job: str) -> None:
+        """File one night's report where they will find it (§18.2a).
+
+        Not Gate 2. Gate 2 asks whether *she* should interrupt, and spends one
+        of a handful of daily interrupts when the answer is yes; this is a
+        standing instruction its owner wrote into a job file, which is the
+        difference between her deciding to reach for you and you having asked
+        for a thing to be ready in the morning. So it costs no interrupt and
+        argues with no threshold — it only puts a named artifact in the inbox
+        and lets them find it when they next look.
+
+        `unheard=True` for the same reason `_act_reach_out`'s SUGGEST does it: a
+        briefing is by definition waiting for the next time they look, so it
+        belongs in the inbox whether or not a page is open at four in the
+        morning (`world/inbox.py`).
+        """
+        try:
+            self.post_message("assistant", summary, proactive=True,
+                              unheard=True, report_path=path,
+                              report_title=title, report_job=job)
+        except Exception:  # noqa: BLE001 — a night's work is not lost to delivery
+            log.exception("DREAM: couldn't deliver %s", path)
 
     async def dream_now(self, **kw):
         """Run the pipeline off-cadence — the debug page's trigger (§21.3).

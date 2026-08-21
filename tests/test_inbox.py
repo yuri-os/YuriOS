@@ -33,6 +33,56 @@ def test_the_file_survives_the_process(tmp_path):
     assert Inbox(tmp_path).unread()["count"] == 1        # a fresh process, same vault
 
 
+def test_a_report_carries_the_path_to_the_thing_it_is_about(tmp_path):
+    """A briefing line is a pointer, not the document (SPEC §18.2a). The chat
+    view turns `report_path` into a card the same way it turns `image_url` into
+    a picture, and neither one is the message text."""
+    box = Inbox(tmp_path)
+    box.add({"id": "r1", "ts": "2026-08-21T04:10:00",
+             "text": "I read the tape while you were out.",
+             "report_path": "reports/market-brief/2026-08-20.md",
+             "report_title": "Overnight market brief",
+             "report_job": "market-brief"})
+    row = box.pending()[0]
+    assert row["kind"] == "report"
+    assert row["report_path"] == "reports/market-brief/2026-08-20.md"
+    assert row["report_title"] == "Overnight market brief"
+
+
+def test_the_newest_brief_retires_the_one_you_never_read(tmp_path):
+    """A nightly job is a standing answer to a standing question, so what is
+    owed to you is *this* morning's. A week away should be one report waiting,
+    not seven — the other six are still on her desk, which is the archive."""
+    box = Inbox(tmp_path)
+    for day in ("18", "19", "20"):
+        box.add({"id": f"r{day}", "ts": f"2026-08-{day}T04:00:00",
+                 "text": f"brief for the {day}th",
+                 "report_path": f"reports/market-brief/2026-08-{day}.md",
+                 "report_job": "market-brief"})
+    pending = box.pending()
+    assert [row["id"] for row in pending] == ["r20"]
+    assert len(box.entries()) == 3            # retired, not deleted
+
+
+def test_one_job_does_not_retire_another_or_anything_else(tmp_path):
+    """Scoped to the job, and to reports. A selfie and a reach-out are each a
+    separate thing she did and none of them replaces another."""
+    box = Inbox(tmp_path)
+    box.add({"id": "s1", "ts": "2026-08-20T09:00:00", "text": "",
+             "image_url": "/selfies/x.png"})
+    box.add({"id": "n1", "ts": "2026-08-20T10:00:00", "text": "thinking of you"})
+    box.add({"id": "a1", "ts": "2026-08-20T04:00:00", "text": "papers",
+             "report_path": "reports/papers/2026-08-19.md",
+             "report_job": "papers"})
+    box.add({"id": "b1", "ts": "2026-08-21T04:00:00", "text": "market",
+             "report_path": "reports/market-brief/2026-08-20.md",
+             "report_job": "market-brief"})
+    box.add({"id": "b2", "ts": "2026-08-22T04:00:00", "text": "market again",
+             "report_path": "reports/market-brief/2026-08-21.md",
+             "report_job": "market-brief"})
+    assert {row["id"] for row in box.pending()} == {"s1", "n1", "a1", "b2"}
+
+
 def test_a_selfie_reads_differently_from_a_line(tmp_path):
     box = Inbox(tmp_path)
     box.add({"id": "a1", "ts": "t1", "text": "hey"})

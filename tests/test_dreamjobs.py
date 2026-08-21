@@ -9,14 +9,20 @@ that a job which raises doesn't take the night with it.
 from __future__ import annotations
 
 import pytest
+import yaml
 
 from yurios.app.memory.store import FileMemoryStore
 from yurios.mind.dream import DreamConsolidator
-from yurios.mind.dreamjobs import DreamJob, DreamRunner, JobReport
+from yurios.mind.dreamjobs import (JOB_NAME_RE, PROMPT_OVERHEAD_CHARS,
+                                   ROUND_MAX_TOKENS,
+                                   DreamJob, DreamRunner, JobReport, PromptJob,
+                                   ResearchJob, validate_job_file)
 from yurios.mind.vaultio import MindVault
 from yurios.mind.workspace import SkillStore, Workspace
 from yurios.world import correlate
 from yurios.world.clock import VirtualClock
+from yurios.world.tools.fetch import FakeFetcher
+from yurios.world.tools.search import FakeSearch
 
 from .conftest import SIM_START, FakeEmbedder, FakeUtility
 
@@ -654,3 +660,526 @@ def test_a_deleted_job_file_stays_deleted(tmp_path, cfg):
     (v / "dreams" / "diary.md").unlink()
     _runner(tmp_path, cfg, v)                          # boots again
     assert not (v / "dreams" / "diary.md").exists()
+
+
+# =============================================================== research jobs
+#
+# `kind: research` (SPEC §21.2) — the night that looks outward. Everything below
+# runs against `FakeSearch` and `FakeFetcher`, so the loop is pinned and the web
+# is never touched (AGENTS.md: no test may need a live service).
+
+KIND_RESEARCH = """---
+name: market-brief
+title: Overnight market brief
+description: Read the tape overnight and write one page on it.
+kind: research
+priority: 0.2
+enabled: true
+soul: full
+topics: ["semis", "macro"]
+max_searches: 4
+max_pages: 4
+max_steps: 8
+deliver: chat
+output: reports/market-brief/{day}.md
+---
+
+You are {char}. Write {user} their morning brief.
+
+## The tape
+Where things stand.
+"""
+
+#: What the fake model answers when asked for the report itself.
+REPORT = "## The tape\nSemis led, everything else drifted."
+
+
+class Boom(Exception):
+    """A scripted reply that raises instead of answering."""
+
+
+def _with_front(text, front: dict) -> str:
+    """The template with these frontmatter keys set, added or replaced.
+
+    Real YAML rather than a string substitution, which is what this was first
+    and which silently did nothing for any key the template did not already
+    carry — so a test asking for `report_thinking: false` asserted against the
+    default and passed for the wrong reason.
+    """
+    if not front:
+        return text
+    head, _, body = text.partition("---\n")[2].partition("---\n")
+    loaded = yaml.safe_load(head) or {}
+    loaded.update(front)
+    return "---\n" + yaml.safe_dump(loaded, sort_keys=False) + "---\n" + body
+
+
+def _write_job(vault, name, text):
+    root = vault / "dreams"
+    root.mkdir(parents=True, exist_ok=True)
+    (root / f"{name}.md").write_text(text, encoding="utf-8")
+    return root / f"{name}.md"
+
+
+class ScriptedModel:
+    """One reply per call, in order, and a record of what was asked.
+
+    A research loop is N calls whose *inputs* depend on the answers to the ones
+    before, so a fake that keys on the prompt cannot script it: the point of
+    these tests is what she does after being told something specific.
+    """
+
+    def __init__(self, replies):
+        self.replies = list(replies)
+        self.calls: list[tuple[str, str]] = []
+
+    async def complete(self, messages, **params):
+        system = messages[0].get("content", "") if messages else ""
+        user = messages[1].get("content", "") if len(messages) > 1 else ""
+        self.calls.append((system, user))
+        reply = self.replies.pop(0) if self.replies else "think nothing further"
+        if isinstance(reply, Boom) or (isinstance(reply, type)
+                                       and issubclass(reply, Boom)):
+            raise Boom("the model fell over")
+        return reply
+
+
+class ScriptedFetcher(FakeFetcher):
+    """`FakeFetcher` with a set of URLs that refuse to open."""
+
+    def __init__(self):
+        super().__init__()
+        self.fail: set[str] = set()
+
+    async def fetch(self, url):
+        if url in self.fail:
+            self.fetched.append(url)
+            raise ValueError(f"{url} is gone")
+        return await super().fetch(url)
+
+
+class _Shelf:
+    """Stands in for `Researcher`: the two seams and the ingestion path."""
+
+    def __init__(self, fetcher):
+        self.search = FakeSearch()
+        self.fetcher = fetcher
+        self.shelved: list[dict] = []
+
+    def shelve(self, page):
+        self.shelved.append(page)
+
+
+@pytest.fixture
+def research_rig_with(tmp_path, cfg):
+    """A runner with one research job, driven by a scripted model."""
+    def build(replies, front=None):
+        clock = VirtualClock(start=SIM_START.timestamp())
+        vault = MindVault(tmp_path / "vault")
+        store = FileMemoryStore(tmp_path / "vault", FakeEmbedder(),
+                                embed_dim=FakeEmbedder.dim)
+        text = _with_front(KIND_RESEARCH, front or {})
+        _write_job(tmp_path / "vault", "market-brief", text)
+        model = ScriptedModel(replies)
+        fetcher = ScriptedFetcher()
+        runner = DreamRunner(
+            vault, store, clock,
+            cfg.model_copy(update={"selfie_backend": "off",
+                                   "search_backend": "fake"}),
+            consolidator=DreamConsolidator(vault, store, clock, utility=None),
+            workspace=Workspace(tmp_path / "vault" / "workspace"),
+            skills=SkillStore(tmp_path / "vault" / "skills"),
+            research=_Shelf(fetcher),
+            utility=model.complete)
+        return runner, tmp_path / "vault", model, fetcher
+    return build
+
+
+@pytest.fixture
+def research_rig(research_rig_with):
+    return research_rig_with([
+        'use web_search {"query": "semis"}',
+        'use read_page {"url": "https://example.invalid/overview"}',
+        "think nothing further",
+        REPORT])
+
+
+# ------------------------------------------------------- a roster she can edit
+
+def test_a_file_with_a_new_name_and_a_kind_becomes_that_kind(rig):
+    """`kind:` is the extension seam. Without it every new job is a PromptJob,
+    which is the shape that reads her journal — and a job about the world has
+    no business reading her journal."""
+    runner, _clock, vault = rig
+    _write_job(vault, "market-brief", KIND_RESEARCH)
+    runner.reload()
+    job = runner.get("market-brief")
+    assert isinstance(job, ResearchJob)
+    assert job.kind == "research"
+    assert job.topics == ["semis", "macro"]
+
+
+def test_an_unknown_kind_costs_that_job_its_kind_and_never_the_night(rig):
+    """§21.2's rule for a mangled file, applied to a `kind:` this build has
+    never heard of — a file written against a newer YuriOS, or a typo. Running
+    it as a prompt job is a worse night than intended; dropping it silently is
+    a job that vanished."""
+    runner, _clock, vault = rig
+    _write_job(vault, "odd", KIND_RESEARCH
+               .replace("kind: research", "kind: telepathy")
+               .replace("name: market-brief", "name: odd"))
+    runner.reload()
+    assert isinstance(runner.get("odd"), PromptJob)
+    assert "consolidate" in [j.name for j in runner.jobs]
+
+
+def test_reload_forgets_a_key_the_file_no_longer_sets(rig):
+    """The subtlety `reload()` exists for. `_apply_job_files` mutates builtin
+    *instances*, so re-overlaying onto the same objects would leave a deleted
+    key still applied — and the first edit anybody makes is to switch a job
+    back on."""
+    runner, _clock, vault = rig
+    _write_job(vault, "diary", "---\nname: diary\nenabled: false\n---\n\nWrite.\n")
+    runner.reload()
+    assert runner.get("diary").enabled(runner.cfg) is False
+    (vault / "dreams" / "diary.md").write_text(
+        "---\nname: diary\n---\n\nWrite.\n", encoding="utf-8")
+    runner.reload()
+    assert runner.get("diary").enabled(runner.cfg) is True
+
+
+def test_a_job_name_that_is_a_path_is_not_a_name():
+    """The one place a name becomes a path. `../../soul/PERSONA` is not a job
+    that doesn't exist — it is a name that is not a name."""
+    assert JOB_NAME_RE.match("market-brief")
+    for bad in ("../../soul/PERSONA", "Market Brief", ".hidden", "a" * 65, ""):
+        assert not JOB_NAME_RE.match(bad), bad
+
+
+def test_validate_says_what_a_working_file_looks_like():
+    """§34.2: a refusal that teaches. 'invalid' sends you nowhere; the shape of
+    the thing you failed to write is the whole answer."""
+    assert "frontmatter" in validate_job_file("x", "just some prose")
+    assert "have to agree" in validate_job_file(
+        "x", "---\nname: y\n---\n\nbody\n")
+    assert "can't be empty" in validate_job_file("x", "---\nname: x\n---\n\n  \n")
+    assert validate_job_file("x", "---\nname: x\n---\n\nYou are {char}.\n") == ""
+
+
+# ------------------------------------------------------------ standing nights
+
+def test_a_standing_job_owes_yesterday_with_no_journal_at_all(rig):
+    """A day nobody spoke to her is not a day the episodic folder has, so a job
+    whose subject is the world would never get a turn. The market does not wait
+    for a conversation."""
+    runner, _clock, vault = rig
+    _write_job(vault, "market-brief", KIND_RESEARCH)
+    runner.reload()
+    job = runner.get("market-brief")
+    ctx = runner._context()
+    assert ctx.finished_days() == []          # nothing was ever said
+    assert job.backlog(ctx, runner.ledger) == ["2026-07-05"]   # yesterday
+
+
+def test_a_standing_job_never_walks_backwards_through_the_archive(rig):
+    """Nine nights of market briefs written nine nights late are nine wrong
+    answers, not a backlog worth eating."""
+    runner, _clock, vault = rig
+    _write_job(vault, "market-brief", KIND_RESEARCH)
+    runner.reload()
+    job = runner.get("market-brief")
+    runner.ledger.mark("market-brief", "2026-07-05")
+    assert job.backlog(runner._context(), runner.ledger) == []
+
+
+# ------------------------------------------------------------ the search loop
+
+async def test_she_searches_reads_and_writes_a_report(research_rig):
+    """The whole shape in one pass: she plans a search, opens what she found,
+    and the report is written from the pages rather than from the journal."""
+    runner, vault, model, fetcher = research_rig
+    report = await runner.run(only="market-brief")
+    job = report.jobs[0]
+    assert job.changed and not job.failed
+    assert fetcher.fetched, "she never opened anything"
+    written = (vault / "workspace" / "reports" / "market-brief"
+               / "2026-07-05.md")
+    assert written.is_file()
+    assert "THE TAPE" in written.read_text().upper()
+    # the corpus reached the writing call, not just the loop
+    assert "example.invalid" in model.calls[-1][1]
+
+
+async def test_the_loop_stops_after_two_quiet_rounds(research_rig_with):
+    """A local 27B that has nothing left to fetch says so in prose, or says
+    nothing parseable at all. Either way the loop must stop rather than spend
+    its remaining rounds asking again."""
+    runner, vault, model, fetcher = research_rig_with(
+        ["use web_search {\"query\": \"semis\"}",
+         "use read_page {\"url\": \"https://example.invalid/overview\"}",
+         "I think that's the picture, really.",
+         "Yes, that about covers it.",
+         "use web_search {\"query\": \"this should never run\"}",
+         REPORT])
+    report = await runner.run(only="market-brief")
+    assert report.jobs[0].changed
+    assert "two quiet rounds" in report.jobs[0].result
+    # the round after the second quiet one was never asked for
+    assert not any("this should never run" in call[1] for call in model.calls)
+
+
+async def test_thinking_before_the_first_search_is_not_a_quiet_round(research_rig_with):
+    """The bug this defends against, found by running one against a real local
+    model: a reasoning model told not to think out loud puts its first move in
+    the answer instead — a bare `think` about where to start. Counting that as
+    quiet ended the night on round two with an empty corpus, every night."""
+    runner, _vault, _model, fetcher = research_rig_with(
+        ["Starting fresh on US equities; I need the snapshot first.",
+         "Actually the macro calendar matters more this week.",
+         'use web_search {"query": "semis"}',
+         'use read_page {"url": "https://example.invalid/overview"}',
+         "think nothing further",
+         REPORT])
+    report = await runner.run(only="market-brief")
+    assert report.jobs[0].changed
+    assert fetcher.fetched
+
+
+async def test_a_paywall_is_not_her_having_had_enough(research_rig_with):
+    """The exact trace a real night produced, and the bug it found.
+
+    She searched, picked a Morningstar page, and it returned zero characters —
+    a paywall or a page that needs a browser. She retried the same URL. Both
+    rounds counted as quiet, so the night ended after two steps of a twelve-step
+    budget with an empty corpus. `quiet` now counts rounds where *she* stopped
+    reaching; the web failing to cooperate is bounded by `max_steps` instead.
+    """
+    runner, vault, _model, fetcher = research_rig_with(
+        ['use web_search {"query": "sector rotation"}',
+         'use read_page {"url": "https://example.invalid/paywalled"}',
+         'use read_page {"url": "https://example.invalid/paywalled"}',   # retry
+         'use read_page {"url": "https://example.invalid/overview"}',    # good
+         "think nothing further",
+         REPORT])
+    fetcher.pages["https://example.invalid/paywalled"] = ""      # zero chars back
+    report = await runner.run(only="market-brief")
+    assert report.jobs[0].changed, report.jobs[0].result
+    assert (vault / "workspace" / "reports" / "market-brief"
+            / "2026-07-05.md").is_file()
+
+
+async def test_two_quiet_rounds_still_stop_it_once_she_has_gathered(research_rig_with):
+    """…and the forgiveness is only for the empty session. Once she has reached
+    for something, two rounds that gather nothing mean she is done."""
+    runner, _vault, _model, _fetcher = research_rig_with(
+        ['use read_page {"url": "https://example.invalid/overview"}',
+         "Hmm.", "Yes, quite.",
+         'use web_search {"query": "never runs"}',
+         REPORT])
+    report = await runner.run(only="market-brief")
+    assert "two quiet rounds" in report.jobs[0].result
+
+
+async def test_a_research_round_asks_for_no_reasoning_pass(research_rig_with):
+    """Measured, not guessed: one round of this loop on a local 27B cost 1200
+    reasoning tokens and 200 seconds, and twelve of those is a night that never
+    finishes. The line naming her next search is not a question thinking
+    improves — the report at the end is, and keeps its full pass.
+
+    Both calls are bounded, and separately. The write inherited
+    `UTILITY_MAX_TOKENS` at first, which is sized for extraction: against the
+    same model that call ran past nineteen minutes and never returned, because
+    a reasoning model handed 15,000 tokens will use them.
+    """
+    runner, _vault, model, _fetcher = research_rig_with(
+        ['use read_page {"url": "https://example.invalid/overview"}',
+         "think nothing further", REPORT])
+    runner.utility = _recording(model)
+    await runner.run(only="market-brief")
+    rounds, write = model.params[:-1], model.params[-1]
+    assert rounds and all(p.get("thinking") is False for p in rounds)
+    assert all(p.get("max_tokens") == ROUND_MAX_TOKENS for p in rounds)
+    # the report thinks, and is still not allowed to think forever
+    assert write["thinking"] is True
+    assert write["max_tokens"] == 2500
+    assert write["max_tokens"] > ROUND_MAX_TOKENS
+
+
+async def test_the_report_call_is_tunable_from_the_file(research_rig_with):
+    """A slow local model is a good reason to take the reasoning pass off the
+    report too, and that is the character's decision, not this file's."""
+    runner, _vault, model, _fetcher = research_rig_with(
+        ['use read_page {"url": "https://example.invalid/overview"}',
+         "think nothing further", REPORT],
+        front={"report_thinking": False, "report_max_tokens": 900})
+    runner.utility = _recording(model)
+    await runner.run(only="market-brief")
+    write = model.params[-1]
+    assert write["thinking"] is False and write["max_tokens"] == 900
+
+
+def _recording(model):
+    """Wrap the scripted model so the per-call params are visible."""
+    model.params = []
+
+    async def call(messages, **params):
+        model.params.append(params)
+        return await model.complete(messages, **params)
+    return call
+
+
+async def test_nothing_further_ends_it_at_once(research_rig_with):
+    runner, _vault, _model, _fetcher = research_rig_with(
+        ["use read_page {\"url\": \"https://example.invalid/overview\"}",
+         "think nothing further",
+         REPORT])
+    report = await runner.run(only="market-brief")
+    assert "she had enough" in report.jobs[0].result
+
+
+async def test_a_page_that_will_not_open_is_skipped_not_fatal(research_rig_with):
+    """§7.7's rule for `research`, which matters more unattended: one dead link
+    at 4am must not be why there is no brief in the morning."""
+    runner, vault, _model, fetcher = research_rig_with(
+        ["use read_page {\"url\": \"https://example.invalid/gone\"}",
+         "use read_page {\"url\": \"https://example.invalid/overview\"}",
+         "think nothing further",
+         REPORT])
+    fetcher.fail = {"https://example.invalid/gone"}
+    report = await runner.run(only="market-brief")
+    assert report.jobs[0].changed
+    assert [s for s in report.steps if s.failed]        # the audit says so
+    assert (vault / "workspace" / "reports" / "market-brief"
+            / "2026-07-05.md").is_file()
+
+
+async def test_a_night_that_opened_nothing_is_handled_not_produced(research_rig_with):
+    """§21.2: handled is not produced. She looked, there was nothing, and the
+    day is marked — or she re-decides this every night forever."""
+    runner, vault, _model, _fetcher = research_rig_with(
+        ["use web_search {\"query\": \"semis\"}", "think nothing further"])
+    report = await runner.run(only="market-brief")
+    job = report.jobs[0]
+    assert job.days == ["2026-07-05"] and not job.changed
+    assert "nothing worth a report" in job.result
+    assert not (vault / "workspace" / "reports").exists()
+    assert runner.get("market-brief").backlog(
+        runner._context(), runner.ledger) == []
+
+
+async def test_the_caps_are_the_houses_and_the_file_may_only_lower_them(research_rig_with):
+    """§26.1's two-switch rule, one layer down: a job file is the character's
+    and the ceiling is the machine's."""
+    runner, _vault, _model, fetcher = research_rig_with(
+        ["use read_page {\"url\": \"https://example.invalid/%d\"}" % i
+         for i in range(8)] + [REPORT],
+        front={"max_pages": 99})            # asks for far more than the house
+    runner.cfg = runner.cfg.model_copy(update={"mind_dream_research_pages": 2})
+    report = await runner.run(only="market-brief")
+    assert len(fetcher.fetched) == 2
+    assert "out of pages" in report.jobs[0].result
+
+
+async def test_a_loop_that_dies_with_pages_in_hand_still_writes(research_rig_with):
+    """The partial-report rule. A brief from four pages beats no brief, and a
+    job that raises does not mark its day — so the alternative is retrying
+    tomorrow with nothing to show for tonight."""
+    runner, vault, model, _fetcher = research_rig_with(
+        ["use read_page {\"url\": \"https://example.invalid/overview\"}",
+         Boom(), REPORT])
+    report = await runner.run(only="market-brief")
+    assert report.jobs[0].changed
+    assert "failed part-way" in report.jobs[0].result
+    assert (vault / "workspace" / "reports" / "market-brief"
+            / "2026-07-05.md").is_file()
+
+
+async def test_a_loop_that_dies_with_nothing_retries_tomorrow(research_rig_with):
+    runner, _vault, _model, _fetcher = research_rig_with([Boom()])
+    report = await runner.run(only="market-brief")
+    assert report.jobs[0].failed
+    assert report.jobs[0].days == []          # unmarked: it comes back
+
+
+# ---------------------------------------------------------------- the budget
+
+def test_research_is_priced_for_the_whole_loop_not_one_call(rig):
+    """§21.2's MUST. The budget check happens once, before the job starts, so
+    anything `cost()` does not price is spent unbilled — and a job priced at
+    one call would run a twelve-call loop on a night that looked affordable."""
+    runner, _clock, vault = rig
+    _write_job(vault, "market-brief", KIND_RESEARCH)
+    runner.reload()
+    job, ctx = runner.get("market-brief"), runner._context()
+    one_call = (PROMPT_OVERHEAD_CHARS + job.context_chars) // 4
+    assert job.cost(ctx, "2026-07-05") > one_call * 4
+
+
+async def test_the_two_lanes_are_spent_separately(research_rig_with):
+    """The change to §21.2, and the whole reason for it.
+
+    A research job prices at ~60k against a 40k tick budget, so on one shared
+    ceiling it either never runs or it runs and starves everything behind it.
+    Here the shared lane is exhausted — the diary and the stock-take are vetoed
+    — and the reading still happens, because it is not billed out of that
+    allowance at all.
+    """
+    runner, vault, _model, _fetcher = research_rig_with(
+        ['use read_page {"url": "https://example.invalid/overview"}',
+         "think nothing further", REPORT])
+    _day_file(vault, "2026-07-04", ["user: hello  ⇄  yuri: hi"])
+    _day_file(vault, "2026-07-05", ["user: morning  ⇄  yuri: mm"])
+    report = await runner.run(token_budget=1)        # the shared lane, spent
+    ran = {j.name for j in report.jobs}
+    assert report.exhausted_budget                   # …and it says so
+    assert "diary" not in ran and "strategy" not in ran
+    assert "market-brief" in ran
+    assert next(j for j in report.jobs if j.name == "market-brief").changed
+
+
+# -------------------------------------------------------------- the delivery
+
+async def test_deliver_chat_hands_the_report_to_the_inbox(research_rig_with):
+    """§18.2a's third lane. Not Gate 2 deciding to interrupt — a standing
+    instruction its owner wrote into a job file."""
+    runner, _vault, _model, _fetcher = research_rig_with(
+        ["use read_page {\"url\": \"https://example.invalid/overview\"}",
+         "think nothing further", REPORT])
+    delivered: list[dict] = []
+    runner.deliver_report = lambda **kw: delivered.append(kw)
+    report = await runner.run(only="market-brief")
+    assert len(delivered) == 1
+    assert delivered[0]["path"] == "reports/market-brief/2026-07-05.md"
+    assert delivered[0]["job"] == "market-brief"
+    assert delivered[0]["title"] == "Overnight market brief"
+    assert report.delivered == [delivered[0]["path"]]
+
+
+async def test_a_dry_run_reads_but_writes_nothing_and_delivers_nothing(research_rig_with):
+    """§21.3: the same model calls, no writes, no ledger, no commit — and now
+    no shelving and no delivery either. The button has to be safe to press on
+    a live vault."""
+    runner, vault, model, fetcher = research_rig_with(
+        ["use read_page {\"url\": \"https://example.invalid/overview\"}",
+         "think nothing further", REPORT])
+    delivered: list[dict] = []
+    runner.deliver_report = lambda **kw: delivered.append(kw)
+    report = await runner.run(only="market-brief", dry_run=True)
+    assert model.calls and fetcher.fetched      # she really did the work
+    assert not delivered                        # …and told nobody
+    assert report.writes == ["reports/market-brief/2026-07-05.md"]
+    assert not (vault / "workspace" / "reports").exists()
+    assert runner.ledger.done("market-brief") == set()
+
+
+async def test_the_page_shows_the_searches_beside_the_prompts(research_rig_with):
+    """§21.3 promises the prompts. A research night is only readable if the
+    page also says which searches produced the corpus behind them."""
+    runner, _vault, _model, _fetcher = research_rig_with(
+        ["use web_search {\"query\": \"semis\"}",
+         "use read_page {\"url\": \"https://example.invalid/overview\"}",
+         "think nothing further", REPORT])
+    data = (await runner.run(only="market-brief")).as_dict()
+    tools = [s["tool"] for s in data["steps"]]
+    assert "web_search" in tools and "read_page" in tools
+    assert data["exchanges"], "the model calls are still there too"

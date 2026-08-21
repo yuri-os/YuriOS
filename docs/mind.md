@@ -278,8 +278,51 @@ does not take the rest of the night with it. Jobs write to `workspace/` — neve
 `soul/`; a nightly job that could append to semantic memory would be a second, unaudited
 consolidator.
 
-Adding a job is one class in `mind/dreamjobs.py` and one name in `BUILTIN_JOBS`. Everything else —
-the ladder, the trace, the budget, the debug page, the manual trigger — picks it up untold.
+### The roster is hers
+
+The night is not fixed. One file per job lives in `vault/dreams/`, versioned like `skills/` and
+unlike her desk, and each is YAML frontmatter over a body that **is** the system prompt she is
+given. A file named after a built-in job (`consolidate`, `diary`, `strategy`, `selfie`) *retunes*
+it — the prompt, the priority, whether it runs at all — and leaves its behaviour alone, so the
+diary still knows which half of the journal is hers however you rewrite the question. A file with
+any other name is a new job, and `kind:` says what sort it is.
+
+**`kind: prompt`** (the default) reads the day's journal, asks what you asked, and writes the
+answer to her desk at `output:`.
+
+**`kind: research`** sends her to the web instead. She plans her own searches, opens what looks
+worth reading, and writes the report your body asks for — so for this kind the body is the brief
+for the *report*, not for the search. It needs `SEARCH_BACKEND` on, everything she reads is
+shelved in her knowledge store, and the night is bounded on every axis: `max_searches`,
+`max_pages`, `max_steps`, each capped in turn by the house `MIND_DREAM_RESEARCH_*` settings. It
+also carries its own token budget, because a night of reading the web on one shared ceiling either
+never fits or eats consolidation on the night it does.
+
+Two frontmatter keys are worth knowing whichever kind you pick. **`standing: true`** runs a job
+every night whether or not you spoke to her — anything looking at the world rather than at the
+conversation needs it, because a day nobody talked is not a day her journal has. And
+**`deliver: chat`** puts the finished document where you will find it the next time you open her
+chat, the way a dream selfie arrives; only the newest waits, so a week away is one report and not
+seven.
+
+```yaml
+---
+name: market-brief
+title: Overnight market brief
+kind: research
+standing: true
+deliver: chat
+topics: ["US equities momentum", "macro calendar"]
+max_searches: 10
+output: reports/market-brief/{day}.md
+---
+
+You are {char}. Write {user} their morning brief...
+```
+
+Adding a whole new *kind* of night is one class in `mind/dreamjobs.py` and one name in
+`JOB_KINDS`; adding a built-in job is one class and one name in `BUILTIN_JOBS`. Everything else —
+the ladder, the trace, the budget, the debug page, the manual trigger — picks either up untold.
 
 ### Trying one without waiting for 3am
 
@@ -295,6 +338,17 @@ commit.
 
 Turning dry run off lets a run count. Either way the ladder does not move: a night you asked for is
 not evidence she drifted into one.
+
+The same section edits the files. Every job carries an **Edit** button over its own
+`vault/dreams/<name>.md`, and **New prompt job** / **New research job** scaffold a working one to
+start from. A save rebuilds the roster immediately — no restart — and commits, so your first edit
+to a seeded job reads as a diff. Deleting a built-in's file reverts it to the prompt that ships
+with YuriOS; deleting anything else stops it being a job at all, and the seeder will not bring it
+back (it only ever fires on an absent *folder*).
+
+For a research job the run report also lists **every search she ran and every page she opened**,
+beside the model calls rather than mixed into them — a report is only readable if you can see the
+corpus behind it.
 
 ## Her desk and her skills
 

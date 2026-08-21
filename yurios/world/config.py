@@ -221,6 +221,16 @@ class Config(VoiceConfig):
     mind_soul_cache_s: float = 300.0
     mind_daily_tokens: int = 200_000            # the budget governor's cap (§17.3)
     mind_dream_tick_tokens: int = 40000         # per-DREAM-tick consolidation budget (§21)
+    # A research job's own budget lane (§21.2). Separate from the tick budget
+    # above because a night of reading the web is an order of magnitude past a
+    # diary entry: shared, either the reading never fits or it eats
+    # consolidation on the night it does.
+    mind_dream_research_tokens: int = 120_000
+    # House ceilings on what one research job may do in a night. A job file may
+    # ask for less and never for more (§26.1's two-switch rule, one layer down).
+    mind_dream_research_searches: int = 10
+    mind_dream_research_pages: int = 10
+    mind_dream_research_steps: int = 12
     mind_trace_max_bytes: int = 2_000_000       # ticks.jsonl rotates to .1 past this size
     # The rest of the observability sinks, all rotating the same way (to `.1`,
     # one generation, then gone). An always-on mind writes to these forever, so

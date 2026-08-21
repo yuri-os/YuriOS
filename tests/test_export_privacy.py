@@ -22,8 +22,7 @@ from tests.support.cards import card_data, png_card, wrapper
 from yurios.characters import CharacterImporter, CharacterRegistry
 from yurios.characters.exporter import ExportOptions, build_export, preview_export
 from yurios.characters.privacy import CardExportError, harvest, normalise
-from yurios.characters.soulfiles import (
-    RETIRED_BOOTSTRAP, SoulPrivacyError, SoulReader, parse_md, split_sections)
+from yurios.characters.soulfiles import RETIRED_BOOTSTRAP, SoulPrivacyError, SoulReader
 
 
 def make(tmp_path, *, name="subject", data=None, git=False):

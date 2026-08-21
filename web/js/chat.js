@@ -114,8 +114,58 @@
               `<img class="msg-img" src="${esc(imageUrl)}" alt="${esc(alt)}"></a>`;
     }
     if (m.text) html += esc(m.text);
+    // A report a night wrote and was told to deliver (SPEC §18.2a). The line
+    // above is what she said about it; this is the thing itself, folded away
+    // until asked for — a page of research pasted into the transcript would
+    // bury the conversation it arrived in.
+    if (m.report_path) {
+      html += `<span class="msg-report" data-path="${esc(m.report_path)}">` +
+              `<span class="report-title">${esc(m.report_title || m.report_path)}</span>` +
+              `<span class="report-meta">${esc(m.report_path)}</span>` +
+              '<button type="button" class="report-open">read it</button>' +
+              '<span class="report-body" hidden></span></span>';
+    }
     return html;
   }
+
+  // One delegated listener rather than one per card: history backfill, the
+  // inbox drain and a live delivery all produce the same markup, and only this
+  // survives all three without remembering to re-bind.
+  messages?.addEventListener('click', async (ev) => {
+    const button = ev.target.closest?.('.report-open');
+    if (!button) return;
+    const card = button.closest('.msg-report');
+    const target = card?.querySelector('.report-body');
+    if (!card || !target) return;
+    if (!target.hidden) {                       // a second press folds it away
+      target.hidden = true;
+      button.textContent = 'read it';
+      return;
+    }
+    if (!target.dataset.loaded) {
+      button.disabled = true;
+      button.textContent = 'opening…';
+      try {
+        const url = apiPath('/api/mind/workspace/file?path=' +
+                            encodeURIComponent(card.dataset.path || ''));
+        const resp = await fetch(url, { credentials: 'same-origin' });
+        if (!resp.ok) throw new Error(String(resp.status));
+        target.textContent = (await resp.json()).text || '(it is empty)';
+        target.dataset.loaded = '1';
+      } catch {
+        // Say which of the two things went wrong. The desk is the source of
+        // truth and the inbox row is only a pointer at it, so a report whose
+        // file is gone is a real state and not a bug to hide.
+        target.textContent = "that report isn't on her desk any more.";
+        target.dataset.loaded = '1';
+      } finally {
+        button.disabled = false;
+      }
+    }
+    target.hidden = false;
+    button.textContent = 'fold it away';
+    scroll();
+  });
 
   function addMsg(m) {
     if (!messages) return;

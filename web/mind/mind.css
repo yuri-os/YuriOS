@@ -149,6 +149,14 @@ svg { width: 1.1em; height: 1.1em; fill: none; stroke: currentColor; stroke-widt
   padding: 6px 10px; border: 1px solid var(--rule); border-radius: 8px;
   background: var(--panel-2); color: var(--ink); font-size: 12.5px; min-width: 200px;
 }
+/* A job file is the one thing on this page you type more than a date into, so
+   it gets the full width and a monospace face: it is YAML over a prompt, and
+   both read wrong in a proportional font. */
+textarea.input {
+  display: block; width: 100%; min-width: 0; margin-top: 8px;
+  font: 12px/1.6 var(--font-mono); resize: vertical; white-space: pre;
+  overflow-wrap: normal; overflow-x: auto;
+}
 .plain { margin: 0; padding-left: 18px; color: var(--soft); font-size: 12.5px; line-height: 1.7; }
 /* A disabled control must read as "not now", not as "broken" — this section
  * greys every button while a run is in flight, which is most of them. */

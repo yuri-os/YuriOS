@@ -278,9 +278,55 @@ that **is** the system prompt she is given:
 A file named after a built-in job (`consolidate`, `diary`, `strategy`, `selfie`)
 **retunes** it — the prompt, the priority, whether it runs at all — and leaves
 its behaviour alone, so the diary still knows which half of the journal is hers
-however you rewrite the question. A file with any other name becomes a new job:
-it reads the day's journal, asks what you asked, and writes the answer to the
-desk at `output:` (default `<name>/{day}.md`).
+however you rewrite the question. A file with any other name is a **new job**,
+and `kind:` says what sort:
+
+`kind: prompt` (the default) reads the day's journal, asks what you asked, and
+writes the answer to her desk at `output:` (default `<name>/{day}.md`).
+
+`kind: research` sends her to the web instead. She plans her own searches,
+reads what looks worth reading, and writes the report your body asks for — so
+for this kind the body is the brief for the *report*, not for the search. It
+needs `SEARCH_BACKEND` to be on, and it is bounded: `max_searches`, `max_pages`
+and `max_steps` (each capped by the house `MIND_DREAM_RESEARCH_*` settings),
+`topics:` for where to start, and `shelve: false` if you would rather what she
+read did not go into her knowledge store.
+
+    ---
+    name: market-brief
+    title: Overnight market brief
+    kind: research
+    standing: true
+    deliver: chat
+    topics: ["US equities momentum", "macro calendar"]
+    max_searches: 10
+    output: reports/market-brief/{day}.md
+    ---
+
+    You are {char}. Write {user} their morning brief...
+
+`deliver: chat` puts the finished report where you will find it the next time
+you open her chat, the way a dream selfie arrives. Only the newest one waits —
+come back after a week and you get this morning's, not seven of them; the rest
+are still on her desk.
+
+Two numbers to keep an eye on, both about the call that writes the report.
+`context_chars` (default 24000) is how much of what she gathered is handed to
+it, and it has to fit her utility model's context window *alongside* the answer
+it is about to write — nothing checks that for you, so if reports come back
+empty or cut off, halve it first. `report_max_tokens` (default 2500) is what
+that call may spend; one page is about 800, and the rest is room to think.
+
+Speaking of which: `report_thinking: true` by default, because the report is
+the one call in the night where a reasoning pass earns its keep. The rounds in
+between never get one — asking a reasoning model which page to open next cost
+1200 reasoning tokens and 200 seconds a round on a local 27B, and twelve of
+those is a night that never ends. If your model is slow enough that even the
+report is painful, set `report_thinking: false`.
+
+`standing: true` runs a job every night whether or not you spoke to her.
+Anything that looks at the world rather than at the conversation needs it,
+because a day nobody talked is not a day the journal has.
 
 `soul:` decides whether her character card leads the prompt. `full` for anything
 written in her voice — that is what stops every character's diary reading the
@@ -288,7 +334,10 @@ same. `off` for mechanical work; `consolidate` ships that way, because the facts
 it distils are read by everyone afterwards.
 
 `enabled: false` switches a job off. It cannot switch one *on* that the house has
-no backend for — `selfie` still needs a camera.
+no backend for — `selfie` still needs a camera, `research` still needs search.
+
+The mind debug page's **Dreams** section edits all of this, and will run any one
+job against any day you like, dry, and show you the prompt it sent.
 
 This folder is versioned, like `skills/` and unlike `workspace/`: how she spends
 the hours nobody sees is worth being able to read back.

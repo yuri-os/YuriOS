@@ -337,15 +337,72 @@ async function renderTimeline(ctx) {
  *   - The dry-run toggle defaults to ON. The wet run is the one that costs
  *     tokens and writes to her vault, and it should take a deliberate click.
  */
-const dreamState = { day: "", dryRun: true, running: false, report: null };
+const dreamState = {
+  day: "", dryRun: true, running: false, report: null,
+  editing: null,      // the job name whose file is open in the editor
+  draft: "",          // …and its text, kept across a re-render of the panel
+};
 
-function dreamJobCard(job, onRun) {
+/* The scaffolds behind "New job". Deliberately complete rather than minimal:
+ * the first thing anybody does with a new job is run it, and a template with
+ * three TODOs in it fails in a way that teaches nothing. These run. */
+const DREAM_TEMPLATES = Object.freeze({
+  prompt: (name) => `---
+name: ${name}
+title: ${name}
+description: One line saying what this asks of the day.
+priority: 0.3
+per_day: true
+enabled: true
+soul: full
+output: ${name}/{day}.md
+---
+
+You are {char}. Below is your own journal for the day just past — the half labelled 'THEM:' is {user} speaking to you, the half labelled 'ME:' is you. Write in the first person, present tense, in your own voice. No preamble, no headings.
+
+<what you want her to make of the day>
+
+If the day held nothing worth writing about, output NOTHING.
+`,
+  research: (name) => `---
+name: ${name}
+title: ${name}
+description: One line saying what she goes and finds out, and what she writes.
+kind: research
+priority: 0.2
+standing: true
+per_day: false
+enabled: true
+soul: full
+topics:
+  - "a search to start from"
+  - "and another"
+max_searches: 10
+max_pages: 10
+shelve: true
+deliver: chat
+output: reports/${name}/{day}.md
+---
+
+You are {char}, and you have spent the night reading. Write {user} what you found.
+
+Write it in the first person, present tense, as yourself — your judgement of what you read, not a neutral summary of it. One page. No preamble, no disclaimers.
+
+<the shape of the report: the headings, what goes under each, what you want her to actually decide>
+
+Where the reading was thin, say the reading was thin. If the night turned up nothing worth their attention, say so in two sentences and stop.
+`,
+});
+
+function dreamJobCard(job, onRun, onEdit, hasFile) {
   const backlog = job.backlog || [];
   const head = element("div", { className: "row-top" },
     element("span", { className: "row-title", text: job.title || job.name }),
     chip(job.name),
     job.enabled ? chip("on", "ok") : chip("off", "warn"),
-    job.per_day ? chip("per day") : chip("once a night"),
+    job.standing ? chip("every night") :
+      job.per_day ? chip("per day") : chip("once a night"),
+    job.kind && job.kind !== "builtin" ? chip(job.kind) : null,
     element("span", { className: "row-time", text:
       job.last_run ? `last run ${relative(job.last_run)}` : "never run" }));
 
@@ -363,8 +420,17 @@ function dreamJobCard(job, onRun) {
   });
   run.addEventListener("click", () => onRun(job.name));
 
+  // "Edit" on a builtin with no file of its own writes one, seeded with the
+  // prompt compiled into `dreamjobs.py` — which is what `from_file: false`
+  // means and why the button says something different in that case.
+  const edit = element("button", {
+    className: "button", text: hasFile ? "Edit" : "Write a file for it",
+    attrs: { type: "button" },
+  });
+  edit.addEventListener("click", () => onEdit(job.name));
+
   const node = element("div", { className: "row" }, head, body,
-    element("div", { className: "row-actions" }, run));
+    element("div", { className: "row-actions" }, run, edit));
   node.style.setProperty("--event-color",
     job.enabled ? "var(--amber)" : "var(--dim)");
   return node;
@@ -395,6 +461,9 @@ function dreamResults(report) {
     tile("Jobs", String((report.jobs || []).length),
       report.exhausted_budget ? "budget spent — backlog remains" : "budget held"),
     tile("Model calls", String((report.exchanges || []).length)),
+    ...((report.steps || []).length ? [tile("Hands",
+      String(report.steps.length),
+      `${report.steps.filter((s) => s.failed).length} refused or empty`)] : []),
     tile("Files", String((report.writes || []).length),
       report.dry_run ? "would have been written" : "written to her desk")));
 
@@ -414,15 +483,108 @@ function dreamResults(report) {
           (path) => element("li", {}, element("span",
             { className: "mono", text: `workspace/${path}` })))))));
   }
+  // Her hands, beside her prompts and never inside them. A research night is
+  // two kinds of event interleaved, and a report is only readable if you can
+  // see the corpus behind it — which searches she ran, which pages opened, and
+  // which ones gave her nothing.
+  if ((report.steps || []).length) {
+    out.push(panel("What it reached for", element("div", {},
+      rows(report.steps, (step) => element("div", { className: "row" },
+        element("div", { className: "row-top" },
+          element("span", { className: "row-title", text: step.tool }),
+          step.failed ? chip("failed", "bad") : chip("ok", "ok"),
+          element("span", { className: "row-time", text: step.job })),
+        element("div", { className: "row-body" },
+          element("div", { className: "mono",
+                           text: JSON.stringify(step.args || {}) }),
+          element("div", { className: "muted",
+                           text: step.failed || step.result })))))));
+  }
+  if ((report.delivered || []).length) {
+    out.push(panel(report.dry_run ? "What it would have delivered"
+                                  : "What it delivered to the chat",
+      element("div", { className: "panel-body" },
+        element("ul", { className: "plain" }, ...report.delivered.map(
+          (path) => element("li", {}, element("span",
+            { className: "mono", text: `workspace/${path}` })))))));
+  }
   out.push(panel("The prompts", element("div", {},
     rows(report.exchanges || [], dreamExchange))));
   return element("div", {}, ...out);
 }
 
+/* The editor, in its own panel and replaced in place.
+ *
+ * Same rule the results panel follows and for the same reason: re-rendering the
+ * section would rebuild the textarea under the cursor typing into it. So the
+ * roster above can be stale for a moment after a save — the reload happens
+ * server-side either way — and the panel below is always what is on disk.
+ */
+function dreamEditor(open, actions) {
+  if (!open) {
+    return element("div", { className: "panel-body" },
+      element("p", { className: "muted", text:
+        "Pick a job above to edit its file, or start a new one. A job is YAML "
+        + "frontmatter over a body that IS the system prompt she is given." }),
+      element("div", { className: "row-actions" },
+        ...["prompt", "research"].map((kind) => {
+          const button = element("button", {
+            className: "button", text: `New ${kind} job`,
+            attrs: { type: "button" },
+          });
+          button.addEventListener("click", () => actions.create(kind));
+          return button;
+        })));
+  }
+
+  const area = element("textarea", {
+    className: "input", text: dreamState.draft,
+    attrs: { rows: "24", spellcheck: "false",
+             "aria-label": `The file for ${open.name}` },
+  });
+  area.addEventListener("input", () => { dreamState.draft = area.value; });
+
+  const save = element("button", { className: "button", text: "Save",
+                                   attrs: { type: "button" } });
+  save.addEventListener("click", () => actions.save(open.name, area.value));
+
+  const cancel = element("button", { className: "button", text: "Cancel",
+                                     attrs: { type: "button" } });
+  cancel.addEventListener("click", () => actions.close());
+
+  const actionRow = [save, cancel];
+  if (open.onDisk) {
+    const remove = element("button", {
+      className: "button", text: open.builtin ? "Revert to built-in" : "Delete",
+      attrs: { type: "button" },
+    });
+    remove.addEventListener("click", () => actions.remove(open.name, open.builtin));
+    actionRow.push(remove);
+  }
+
+  return element("div", { className: "panel-body" },
+    element("div", { className: "muted", text:
+      `vault/dreams/${open.name}.md`
+      + (open.builtin
+         ? " — a built-in job. The file retunes it (the prompt, the priority, "
+           + "whether it runs); it cannot change what the job does."
+         : "") }),
+    area,
+    element("div", { className: "row-actions" }, ...actionRow));
+}
+
 async function renderDreams() {
-  const data = await dreamApi.status();
+  const [data, files] = await Promise.all([
+    dreamApi.status(),
+    // A node too old for the editor still renders the roster. The section's
+    // whole value is the run button, and losing it because one route 404s
+    // would be the tail wagging the dog.
+    dreamApi.jobs().catch(() => ({ jobs: [] })),
+  ]);
+  const onDisk = new Set((files.jobs || []).map((job) => job.name));
   const out = [];
   const results = element("div", {}, dreamResults(dreamState.report));
+  const editor = element("div", {});
 
   /* Every button on the section, disabled together while one run is in flight.
    * A dream job is one or more model calls against a local 12B — seconds, not
@@ -500,8 +662,88 @@ async function renderDreams() {
       + "writes no files, marks no days done and leaves no commit. Turn it off "
       + "to let a run count." }))));
 
+  // --- the editor
+  const paintEditor = () => editor.replaceChildren(
+    dreamEditor(dreamState.editing, editorActions));
+
+  const editorActions = {
+    close: () => {
+      dreamState.editing = null;
+      dreamState.draft = "";
+      paintEditor();
+    },
+    create: (kind) => {
+      const name = (window.prompt(
+        "A name for the new job — lowercase letters, digits, - and _. "
+        + "It becomes vault/dreams/<name>.md.") || "").trim().toLowerCase();
+      if (!name) return;
+      if (!/^[a-z0-9_-]{1,64}$/.test(name)) {
+        toast("a job name is lowercase letters, digits, - and _");
+        return;
+      }
+      if (onDisk.has(name)) {
+        toast(`${name} already exists — edit it instead`);
+        return;
+      }
+      dreamState.editing = { name, builtin: false, onDisk: false };
+      dreamState.draft = DREAM_TEMPLATES[kind](name);
+      paintEditor();
+    },
+    open: async (name) => {
+      const known = data.jobs?.find((job) => job.name === name);
+      const builtin = (files.builtins || []).includes(name);
+      try {
+        const file = await dreamApi.job(name);
+        dreamState.draft = file.text;
+        dreamState.editing = { name, builtin: file.builtin, onDisk: true };
+      } catch (error) {
+        if (error?.status !== 404) { toast(errorMessage(error)); return; }
+        // A builtin the seeders never wrote a file for. Start from the shape,
+        // not from an empty box — the prompt it is running is in the Python
+        // and the point of the button is to put it under your hand.
+        dreamState.draft = DREAM_TEMPLATES.prompt(name).replace(
+          `title: ${name}`, `title: ${known?.title || name}`);
+        dreamState.editing = { name, builtin, onDisk: false };
+      }
+      paintEditor();
+    },
+    save: async (name, text) => {
+      try {
+        await dreamApi.saveJob(name, text);
+        toast(`saved ${name} — the roster has been rebuilt`, "ok");
+        dreamState.editing = null;
+        dreamState.draft = "";
+        // The roster above is now wrong (a name, a priority, an on/off), and
+        // unlike a save this is a change to the list itself. Re-render.
+        render();
+      } catch (error) {
+        toast(errorMessage(error));
+      }
+    },
+    remove: async (name, builtin) => {
+      const question = builtin
+        ? `Delete vault/dreams/${name}.md? ${name} is built in, so it goes back `
+          + "to the prompt that ships with YuriOS."
+        : `Delete vault/dreams/${name}.md? ${name} stops being a job at all.`;
+      if (!window.confirm(question)) return;
+      try {
+        await dreamApi.deleteJob(name);
+        toast(builtin ? `${name} is back to its built-in prompt`
+                      : `${name} is gone`, "ok");
+        dreamState.editing = null;
+        dreamState.draft = "";
+        render();
+      } catch (error) {
+        toast(errorMessage(error));
+      }
+    },
+  };
+  paintEditor();
+
   out.push(panel("Jobs", element("div", {},
-    rows(data.jobs || [], (job) => dreamJobCard(job, runDream)))));
+    rows(data.jobs || [], (job) => dreamJobCard(
+      job, runDream, editorActions.open, onDisk.has(job.name))))));
+  out.push(panel("The file", editor));
   out.push(panel("Last run", results));
   return element("div", { className: "stage-body" }, ...out);
 }

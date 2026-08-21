@@ -168,6 +168,89 @@ def test_running_the_night_does_not_move_the_activity_ladder(client_with_mind):
     assert rig.mind.activity.state == before
 
 
+# ---- the roster a character owns (SPEC §21.2) ------------------------------
+
+def test_the_job_files_are_listed_apart_from_the_roster(client_with_mind):
+    """Two different questions. `/dream` is what will run tonight — builtins
+    and files folded together. `/dream/jobs` is what is on disk, which is the
+    only thing an editor can edit."""
+    c, _rig = client_with_mind
+    data = c.get("/api/mind/dream/jobs").json()
+    names = {job["name"] for job in data["jobs"]}
+    assert {"diary", "strategy", "selfie"} <= names
+    assert all(job["builtin"] for job in data["jobs"])
+    assert set(data["kinds"]) == {"prompt", "research"}
+    assert "consolidate" in data["builtins"]
+
+
+def test_writing_a_job_file_rebuilds_the_running_roster(client_with_mind):
+    """The point of the route. An edit that needed a restart to take effect is
+    an edit you cannot iterate on, which is the whole complaint the Dreams
+    section was built to answer."""
+    c, rig = client_with_mind
+    before = rig.mind.dreams.get("diary").priority
+    body = ("---\nname: diary\ntitle: Diary\npriority: 0.91\n---\n\n"
+            "You are {char}. Write one line about the day.\n")
+    assert c.put("/api/mind/dream/jobs/diary", json={"text": body}).status_code == 200
+    assert before != 0.91
+    assert rig.mind.dreams.get("diary").priority == 0.91
+    assert rig.mind.dreams.get("diary").prompt_override.endswith("about the day.")
+    # …and the roster is still sorted, so the new priority actually reorders it
+    priorities = [job.priority for job in rig.mind.dreams.jobs]
+    assert priorities == sorted(priorities, reverse=True)
+
+
+def test_a_new_research_job_arrives_as_one(client_with_mind):
+    c, rig = client_with_mind
+    body = ("---\nname: market-brief\ntitle: Brief\nkind: research\n"
+            "topics: [\"semis\"]\n---\n\nYou are {char}. Write it up.\n")
+    assert c.put("/api/mind/dream/jobs/market-brief",
+                 json={"text": body}).status_code == 200
+    job = rig.mind.dreams.get("market-brief")
+    assert job is not None and job.kind == "research"
+    assert job.standing is True          # the default for the kind
+
+
+def test_deleting_a_builtins_file_reverts_it_to_the_shipped_prompt(client_with_mind):
+    c, rig = client_with_mind
+    c.put("/api/mind/dream/jobs/diary",
+          json={"text": "---\nname: diary\n---\n\nSomething else entirely.\n"})
+    assert rig.mind.dreams.get("diary").prompt_override == "Something else entirely."
+    out = c.delete("/api/mind/dream/jobs/diary")
+    assert out.status_code == 200 and out.json()["reverted"] is True
+    assert rig.mind.dreams.get("diary").prompt_override == ""
+
+
+def test_a_job_name_that_is_a_path_never_becomes_one(client_with_mind, seeded_vault):
+    """The one place a name turns into a path.
+
+    Two layers refuse these and the test does not care which: a `%2F` never
+    reaches the handler at all, because the router resolves the escaped path
+    first and finds no route; the rest are refused by `JOB_NAME_RE` with a
+    sentence saying what a name looks like. What matters is that no spelling of
+    a name reaches outside `vault/dreams/`.
+    """
+    c, _rig = client_with_mind
+    for bad in ("..%2F..%2Fsoul%2FPERSONA", "Diary", ".hidden", "a b"):
+        r = c.put(f"/api/mind/dream/jobs/{bad}",
+                  json={"text": "---\nname: x\n---\n\nbody\n"})
+        assert r.status_code >= 400, bad
+    assert (seeded_vault / "soul" / "PERSONA.md").read_text()   # untouched
+    assert sorted(p.name for p in (seeded_vault / "dreams").iterdir()) == [
+        "README.md", "diary.md", "selfie.md", "strategy.md"]
+
+
+def test_a_file_that_would_not_work_is_refused_with_the_shape_that_would(client_with_mind):
+    """§34.2: a refusal has to teach. 'invalid' sends you nowhere."""
+    c, _rig = client_with_mind
+    r = c.put("/api/mind/dream/jobs/notes", json={"text": "just some prose"})
+    assert r.status_code == 422
+    assert "frontmatter" in r.json()["detail"]
+    r = c.put("/api/mind/dream/jobs/notes",
+              json={"text": "---\nname: other\n---\n\nbody\n"})
+    assert r.status_code == 422 and "have to agree" in r.json()["detail"]
+
+
 def test_an_unknown_dream_job_is_404(client_with_mind):
     c, _rig = client_with_mind
     r = c.post("/api/mind/dream/run", json={"job": "nonesuch"})

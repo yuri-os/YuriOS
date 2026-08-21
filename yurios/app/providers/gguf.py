@@ -699,7 +699,10 @@ class GGUFUtilityModel:
 
     async def complete_detailed(self, messages: list[dict], **params) -> tuple[str, dict]:
         async with inference_admission():
-            if not self.thinking:
+            # Per-call override, like the LiteLLM route's: DREAM's research
+            # loop wants no reasoning pass for the line naming its next search
+            # and the full one for the report it writes at the end.
+            if not params.get("thinking", self.thinking):
                 messages = _without_thinking(messages)
             loaded = await _acquire_current(self)
 

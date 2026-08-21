@@ -33,6 +33,11 @@ const state = {
   unlocked: new Set(),
   saving: false,
   previewing: false,
+  // Bumped whenever `portrait.png` is rewritten — an upload or an adopted
+  // selfie. `/portrait` is one fixed URL, so this is the only thing that tells
+  // the browser the bytes behind it changed.
+  portraitVersion: 0,
+  adopting: false,
 };
 
 const elements = {
@@ -261,26 +266,29 @@ function imageControl() {
     return wrap;
   }
   const strip = element("div", { className: "selfie-strip" });
-  const choose = (value, label, url) => {
+  const choose = (selfieName, label, url) => {
     const button = element("button", {
-      className: `selfie${state.options.image === value ? " chosen" : ""}`,
-      attrs: { type: "button", title: label },
+      className: `selfie${selfieName === null ? " chosen" : ""}`,
+      attrs: { type: "button",
+               title: selfieName === null ? label : `Make ${label} her face` },
     }, url ? element("img", { attrs: { src: url, alt: label, loading: "lazy" } })
            : element("span", { className: "selfie-empty", text: "no face yet" }));
-    button.addEventListener("click", () => {
-      state.options.image = value;
-      renderForm();
-      renderPortrait();
-      schedulePreview();
-    });
+    if (selfieName !== null) {
+      button.addEventListener("click", () => adoptSelfie(selfieName));
+    }
     return button;
   };
-  strip.append(choose("portrait", "Her portrait",
-    state.images.portrait ? `/api/characters/${state.id}/portrait?v=${Date.now()}` : null));
+  strip.append(choose(null, "Her portrait",
+    state.images.portrait ? `/api/characters/${state.id}/portrait?v=${state.portraitVersion || 0}` : null));
   for (const selfie of state.images.selfies) {
-    strip.append(choose(`selfie:${selfie.name}`, selfie.name, selfie.url));
+    strip.append(choose(selfie.name, selfie.name, selfie.url));
   }
   wrap.append(strip);
+  if (state.images.selfies.length) {
+    wrap.append(element("p", { className: "form-note",
+      text: "The ringed one is her face. Click a selfie to make it hers instead — "
+            + "the card, her tile and her settings all follow." }));
+  }
 
   const drop = element("label", { className: "drop-zone" },
     element("span", { className: "drop-symbol" }, icon("upload")),
@@ -686,16 +694,13 @@ function sectionFor(key) {
 
 const BLANK_FACE = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 768'%3E%3Crect width='512' height='768' fill='%23111816'/%3E%3C/svg%3E";
 
-/* The preview shows the face that will actually be embedded, not whichever one
-   happens to be her portrait — picking a selfie has to change the card you are
-   looking at, or the picker is lying about what it does. */
+/* The preview shows the face that will actually be embedded, which — since
+   picking a selfie adopts it (`adoptSelfie`) — is always her portrait. The
+   version stamp is what makes the swap visible: the URL never changes, so
+   without it the browser keeps showing the face it already cached. */
 function renderPortrait() {
-  const chosen = state.options.image;
   let src = BLANK_FACE;
-  if (state.id && chosen.startsWith("selfie:")) {
-    const name = chosen.slice("selfie:".length);
-    src = state.images.selfies.find((s) => s.name === name)?.url || BLANK_FACE;
-  } else if (state.id && state.images.portrait) {
+  if (state.id && state.images.portrait) {
     src = `/api/characters/${state.id}/portrait?v=${state.portraitVersion || 0}`;
   }
   elements.previewImage.src = src;
@@ -818,6 +823,29 @@ const schedulePreview = debounce(async () => {
 }, 500);
 
 // ------------------------------------------------------------------ actions
+
+/* Picking one of her own selfies is the same act as uploading a face, and has
+   to leave the same mark: `POST /portrait` copies it over `portrait.png`, so the
+   card, the dashboard tile and the settings modal all follow. The picker used to
+   only set an export option, which lived in this tab and nowhere else — the card
+   you exported wore the selfie, and everything else still wore the old face. */
+async function adoptSelfie(name) {
+  if (state.adopting) return;
+  state.adopting = true;
+  try {
+    await studioApi.setPortrait(state.id, { selfie: name });
+    state.images.portrait = true;
+    state.portraitVersion = Date.now();
+    renderForm();
+    renderPortrait();
+    schedulePreview();
+    toast("That's her face now.");
+  } catch (error) {
+    toast(error.message || "Could not use that selfie.", "error");
+  } finally {
+    state.adopting = false;
+  }
+}
 
 async function uploadPortrait(file) {
   const reader = new FileReader();

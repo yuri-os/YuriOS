@@ -189,6 +189,25 @@ def test_setting_a_portrait_sanitises_it(node):
     assert Image.open(registry.require("subject").paths.portrait).size == (40, 60)
 
 
+def test_adopting_a_selfie_becomes_her_portrait(node):
+    """The studio's face picker rides this route. It used to only set an export
+    option that lived in the browser tab: the exported card wore the selfie and
+    her portrait, her dashboard tile and the settings modal all still wore the
+    old face."""
+    client, registry = node
+    record = registry.require("subject")
+    record.paths.selfies.mkdir(parents=True, exist_ok=True)
+    Image.new("RGB", (30, 45), (12, 200, 90)).save(record.paths.selfies / "desk.png")
+
+    response = client.post("/api/characters/subject/portrait",
+                           json={"selfie": "desk.png"})
+
+    assert response.status_code == 200
+    adopted = Image.open(record.paths.portrait)
+    assert adopted.size == (30, 45)
+    assert adopted.getpixel((0, 0))[:3] == (12, 200, 90)
+
+
 def test_a_portrait_from_a_selfie_is_path_checked(node):
     client, _ = node
     response = client.post("/api/characters/subject/portrait",

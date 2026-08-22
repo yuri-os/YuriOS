@@ -77,7 +77,14 @@ def _ask_for_usage(model: str, meter) -> dict:
 def _no_think_messages(messages: list[dict]) -> list[dict]:
     """Belt-and-suspenders for models that ignore `reasoning_effort` (e.g. Ollama
     qwen3): append qwen's `/no_think` soft-switch to the system message. Inert on
-    models that don't honour the token."""
+    models that don't honour the token — and that is more of them than the name
+    suggests. Measured against LM Studio 0.4.8 serving a 27B Qwen, `/no_think`
+    alone left the pass entirely intact (97 reasoning tokens over four runs,
+    against 109 for no system message at all). The braces do the work there and
+    the belt does none: `_NO_THINK_BODY` is what actually turns the pass off,
+    and the server implements it by rewriting the chat template, which is
+    visible as a prompt that shrinks — 63 tokens to 23 on one measured call.
+    Keep both anyway; they fail on different stacks."""
     if messages and messages[0].get("role") == "system":
         return [{**messages[0], "content": messages[0]["content"] + "\n/no_think"},
                 *messages[1:]]
@@ -163,7 +170,18 @@ class LiteLLMUtilityModel:
 
         An empty string out of a reasoning model has two very different causes —
         the model had nothing to say, or it thought until the window ran out and
-        never got to speak — and only the usage record tells them apart. The
+        never got to speak — and only the usage record tells them apart.
+
+        Which is one reason this stays on `/v1/chat/completions` and not on LM
+        Studio's newer `/v1/responses`, whose docs are where its reasoning knob
+        is actually documented. Measured against 0.4.8: a call that spent every
+        one of its 6,000 allowed tokens thinking, emitted no message item at
+        all and broke off mid-word came back as `status: "completed"` with
+        `incomplete_details: null` — where OpenAI's own contract for that
+        endpoint is `"incomplete"` with `reason: "max_output_tokens"`. A client
+        trusting the status field records that as a successful empty answer.
+        `finish_reason` here is reported honestly, so the retry that rescues
+        this exact failure can still see it coming. The
         second is the common one on a local model whose loaded context is
         smaller than the model can actually do, and a caller that can see
         `finish_reason="length"` next to `reasoning_tokens` can say so in words

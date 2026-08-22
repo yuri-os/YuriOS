@@ -100,27 +100,44 @@ REPORT_WINDOW_MARGIN = 512
 #: Studio 0.4.8 added `reasoning_effort` to the OpenAI-compatible endpoint, so
 #: it is no longer thrown away in transit — but *reaching* the server and
 #: *changing the answer* are two different claims, and only the first is
-#: reliably true. Measured against 0.4.8 serving a 27B Qwen: on a real
-#: question, `low` spent 236 reasoning tokens where sending nothing spent 220.
-#: On a one-line question the ladder does separate (59 at `minimal`, 73 at
-#: `low`, 124 at `high`) — which is to say it moves the pass a model was
-#: already going to keep short, and does not shorten the long one that
-#: actually costs the night.
+#: reliably true. The blunt version, from LM Studio's own native endpoint,
+#: which unlike the compatible ones refuses what it cannot do:
 #:
-#: `/api/v1/models` says why: each model advertises its own reasoning options,
-#: and the one measured here allows only `off` and `on`. The effort lands on a
-#: model with no rung to move to. A card that advertises `low`/`medium` will do
-#: more with it. So this stays a hint: the two knobs that bite everywhere are
-#: `report_thinking` — off is off, on every stack — and the room the retry
-#: hands over.
+#:     Reasoning setting 'low' is not supported by model '…'.
+#:     Supported settings: 'off', 'on'.
+#:
+#: Two positions, not a ladder. `/api/v1/models` says the same thing ahead of
+#: time in `capabilities.reasoning.allowed_options`, and it is worth reading
+#: before believing any of this: a model that advertises `low`/`medium` will do
+#: more with the hint than the one measured here.
+#:
+#: What the OpenAI-compatible endpoints do with a rung the model hasn't got is
+#: take it and quietly round it off. Four runs of one question at each rung:
+#: `low` spent 61–127 reasoning tokens (mean 94), `medium` 80–125 (mean 102),
+#: `high` 59–105 (mean **82**). The spread inside one rung is twice the gap
+#: between rungs and the means come out backwards — sampling noise with a
+#: parameter name on it. One run per rung says the opposite and says it
+#: convincingly, which is the trap: this needs repeats to measure at all.
+#:
+#: Nor is asking in words a way round it, which is the obvious next thought.
+#: Effort moved out of the parameter and into the system prompt: `Reasoning:
+#: low` and `Reasoning: high` came out four tokens apart (82 and 86, against a
+#: spread of 43–110 inside one of them), and plain English ran backwards —
+#: "think briefly" produced the *longest* pass measured anywhere, mean 168
+#: against 109 for no system message at all. A reasoning model reads an
+#: instruction about how hard to think as more to think about.
+#:
+#: So: a hint, and the only categorical setting is off. Off is 0 reasoning
+#: tokens and ~2 seconds against ~90 tokens and ~15 for every thinking rung
+#: alike, and it is what `thinking=False` already sends. The knobs that bite
+#: everywhere are that one and the room the retry hands over.
 #:
 #: The values are the server's and not ours to invent. LM Studio rejects
 #: anything outside `none, minimal, low, medium, high, xhigh` with a 400, and a
 #: rejected parameter fails the whole call rather than degrading — which is why
-#: `_as_effort` drops what it doesn't recognise instead of passing it through,
-#: and why this ladder is the intersection and not the union. In particular the
-#: model card's own `off`/`on` are *not* values this endpoint takes; `off` is
-#: spelled `none`, and that is what `thinking=False` already sends.
+#: `_as_effort` drops what it doesn't recognise instead of passing it through.
+#: Note the two vocabularies do not match: the model card's `off` is spelled
+#: `none` here, and `on` has no spelling at all.
 REPORT_EFFORTS = ("low", "medium", "high")
 
 #: Room to think, on top of what the report itself is worth. A ceiling bounds

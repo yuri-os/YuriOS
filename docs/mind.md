@@ -351,7 +351,7 @@ the ladder, the trace, the budget, the debug page, the manual trigger — picks 
 
 A dream job is a prompt that runs overnight and whose only output is a file that appears tomorrow,
 which makes a day the natural unit of iteration. The mind debug page's **Dreams** section shortens
-that to a click: pick a job, pick a day, leave *dry run* on, and you get back the exact system
+that to a click: pick a job, pick a day, press **Dry run**, and you get back the exact system
 prompt, the exact input and the raw completion — with nothing written, no day marked done, and no
 commit.
 
@@ -359,8 +359,13 @@ commit.
 /characters/<id>/mind#/dreams
 ```
 
-Turning dry run off lets a run count. Either way the ladder does not move: a night you asked for is
-not evidence she drifted into one.
+Every job carries both buttons — **Dry run** and **Run for real** — and so does the night as a
+whole, because which of the two you are asking for is not something a page can leave to a mode set
+somewhere else. A dry run of a research job is the one that surprises: it spends the whole night
+reading, comes back with a finished report in the transcript, and leaves nothing on her desk,
+nothing in the chat and the job still reading *never run*. **Run for real** does the same work and
+keeps it. Either way the ladder does not move: a night you asked for is not evidence she drifted
+into one.
 
 The same section edits the files. Every job carries an **Edit** button over its own
 `vault/dreams/<name>.md`, and **New prompt job** / **New research job** scaffold a working one to

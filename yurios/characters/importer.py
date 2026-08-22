@@ -363,8 +363,11 @@ it distils are read by everyone afterwards.
 `enabled: false` switches a job off. It cannot switch one *on* that the house has
 no backend for — `selfie` still needs a camera, `research` still needs search.
 
-The mind debug page's **Dreams** section edits all of this, and will run any one
-job against any day you like, dry, and show you the prompt it sent.
+The mind debug page's **Dreams** section edits all of this, and gives every job
+two buttons: **Dry run** makes all the model calls against any day you like and
+shows you the prompt it sent and what came back, writing nothing; **Run for
+real** does the same work and keeps it — the file, the delivery, the day marked
+done.
 
 This folder is versioned, like `skills/` and unlike `workspace/`: how she spends
 the hours nobody sees is worth being able to read back.

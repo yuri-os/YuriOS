@@ -1899,12 +1899,18 @@ class NightReport:
         consolidate: 1 day; consolidate: 1 day", which is four times as long
         and says less.
         """
+        # A rehearsal says so, first thing. This line is the debug page's toast
+        # as well as the commit message, and "market-brief: read 4 pages over 3
+        # searches and wrote 4898 chars" is a sentence about a file on her desk
+        # — which is exactly what a dry run has not got. The wet wording is
+        # unchanged; `dream_now` only ever commits with the wet one.
+        head = "DREAM (dry run)" if self.dry_run else "DREAM"
         by_job: dict[str, list[JobReport]] = {}
         for j in self.jobs:
             if j.changed or j.failed:
                 by_job.setdefault(j.name, []).append(j)
         if not by_job:
-            return "DREAM: nothing to do"
+            return f"{head}: nothing to do"
         parts = []
         for name, runs in by_job.items():
             failed = [r for r in runs if r.failed]
@@ -1914,7 +1920,7 @@ class NightReport:
                 parts.append(f"{name}: {runs[0].result}")
             else:
                 parts.append(f"{name}: {len(runs)} days")
-        return ("DREAM — " + "; ".join(parts)
+        return (f"{head} — " + "; ".join(parts)
                 + (", budget spent — backlog remains" if self.exhausted_budget
                    else ""))
 

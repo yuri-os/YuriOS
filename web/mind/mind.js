@@ -328,17 +328,25 @@ async function renderTimeline(ctx) {
  * whose only visible output is a file that appears tomorrow. Iterating on one
  * that way takes a day per attempt. So this section is built around the
  * shortest loop that answers "what does this prompt actually do": pick a job,
- * pick a day, run it dry, read the raw completion. Nothing is written, the
- * ledger doesn't move, and you can press it again.
+ * pick a day, press Dry run, read the raw completion. Nothing is written, the
+ * ledger doesn't move, and you can press it again. Run for real is the other
+ * button beside it, and does the same work and keeps it.
  *
  * Two other rules, both learned from the sections above:
  *   - The results replace only the results panel, never the page. A run you
  *     just triggered must not scroll the job you triggered it from off-screen.
- *   - The dry-run toggle defaults to ON. The wet run is the one that costs
- *     tokens and writes to her vault, and it should take a deliberate click.
+ *   - Which kind of run you are asking for is on the button, not in a mode.
+ *     This was one checkbox up in the night panel governing a button below it
+ *     that said "Test this job", and the two are far enough apart that the
+ *     button got pressed meaning "do it": twenty minutes of reading, a
+ *     finished report in the transcript, and nothing on her desk, nothing in
+ *     the chat, and the job still reading "never run" — which is
+ *     indistinguishable from YuriOS having thrown the answer away. A button
+ *     that costs tokens and writes to her vault should still take a
+ *     deliberate click; a *separate* button is what makes it deliberate.
  */
 const dreamState = {
-  day: "", dryRun: true, running: false, report: null,
+  day: "", running: false, report: null,
   editing: null,      // the job name whose file is open in the editor
   draft: "",          // …and its text, kept across a re-render of the panel
 };
@@ -394,6 +402,27 @@ Where the reading was thin, say the reading was thin. If the night turned up not
 `,
 });
 
+/** What a dry run is and what a real one is, in the two places they are offered.
+ *  On the buttons as `title=`, so the answer is under the cursor that is about
+ *  to press one rather than in a paragraph above them. */
+const DRY_HELP = "Make every model call for real and show you exactly what came "
+  + "back — then stop. Writes no file, delivers nothing to the chat, marks no "
+  + "day done, leaves no commit. The job will still read as never run.";
+const WET_HELP = "Do the night and keep it: write the file to her desk, deliver "
+  + "it to the chat if the job says to, mark the day done and commit.";
+
+/** One run button. `off` is a job switched off in its file — it stays disabled
+ *  when a run finishes, which `setBusy` has to be told (`data-off`). */
+function dreamRunButton(label, help, onClick, { off = false, wet = false } = {}) {
+  const button = element("button", {
+    className: wet ? "button wet" : "button", text: label,
+    attrs: { type: "button", title: help,
+             ...(off ? { disabled: "disabled", "data-off": "1" } : {}) },
+  });
+  button.addEventListener("click", onClick);
+  return button;
+}
+
 function dreamJobCard(job, onRun, onEdit, hasFile) {
   const backlog = job.backlog || [];
   const head = element("div", { className: "row-top" },
@@ -414,11 +443,11 @@ function dreamJobCard(job, onRun, onEdit, hasFile) {
       + ` · ${number(job.days ?? 0)} done`
       + (job.last_result ? ` · last: ${job.last_result}` : "") }));
 
-  const run = element("button", {
-    className: "button", text: "Test this job",
-    attrs: { type: "button", ...(job.enabled ? {} : { disabled: "disabled" }) },
-  });
-  run.addEventListener("click", () => onRun(job.name));
+  const off = !job.enabled;
+  const dry = dreamRunButton("Dry run", DRY_HELP,
+                             () => onRun(job.name, true), { off });
+  const wet = dreamRunButton("Run for real", WET_HELP,
+                             () => onRun(job.name, false), { off, wet: true });
 
   // "Edit" on a builtin with no file of its own writes one, seeded with the
   // prompt compiled into `dreamjobs.py` — which is what `from_file: false`
@@ -430,7 +459,7 @@ function dreamJobCard(job, onRun, onEdit, hasFile) {
   edit.addEventListener("click", () => onEdit(job.name));
 
   const node = element("div", { className: "row" }, head, body,
-    element("div", { className: "row-actions" }, run, edit));
+    element("div", { className: "row-actions" }, dry, wet, edit));
   node.style.setProperty("--event-color",
     job.enabled ? "var(--amber)" : "var(--dim)");
   return node;
@@ -453,7 +482,8 @@ function dreamExchange(exchange) {
 }
 
 function dreamResults(report) {
-  if (!report) return placeholder("No run yet. Test a job, or run the night.");
+  if (!report) return placeholder(
+    "No run yet. Dry-run a job to see what its prompt does, or run one for real.");
   const out = [];
   out.push(element("div", { className: "tiles" },
     tile("Outcome", report.nothing_to_do ? "nothing to do" : "ran",
@@ -466,6 +496,20 @@ function dreamResults(report) {
       `${report.steps.filter((s) => s.failed).length} refused or empty`)] : []),
     tile("Files", String((report.writes || []).length),
       report.dry_run ? "would have been written" : "written to her desk")));
+
+  // Said in words, not only in tile subtitles. A dry run of a research job
+  // spends twenty minutes and comes back with a finished report in the
+  // transcript and nothing anywhere else, and every part of that except this
+  // sentence looks like the run worked and YuriOS discarded the answer.
+  if (report.dry_run) {
+    out.push(panel("This was a dry run", element("div", { className: "panel-body" },
+      element("p", { className: "muted", text:
+        "The model calls really happened — what came back is under \u201cThe "
+        + "prompts\u201d below. Nothing was written to her desk, nothing was "
+        + "delivered to the chat, and no day was marked done, so the job still "
+        + "reads as never run. Press \u201cRun for real\u201d on the job to "
+        + "do the same work and keep it." }))));
+  }
 
   out.push(panel("What it did", element("div", {},
     rows(report.jobs || [], (job) => element("div", { className: "row" },
@@ -595,19 +639,26 @@ async function renderDreams() {
   const buttons = () => nodes.body.querySelectorAll("button");
   const setBusy = (busy) => {
     dreamState.running = busy;
-    for (const button of buttons()) button.disabled = busy;
+    // `|| data-off`: a job switched off in its file has run buttons that were
+    // disabled before the run started, and a run finishing is not permission
+    // to press them.
+    for (const button of buttons()) {
+      button.disabled = busy || button.dataset.off === "1";
+    }
   };
 
-  const runDream = async (job) => {
+  const runDream = async (job, dry) => {
     if (dreamState.running) return;
     setBusy(true);
-    results.replaceChildren(
-      placeholder(job ? `Running ${job}…` : "Running the night…"));
+    results.replaceChildren(placeholder(
+      (job ? `Running ${job}…` : "Running the night…")
+      + (dry ? " (dry run — nothing will be written)"
+             : " (for real — this writes to her vault)")));
     try {
       dreamState.report = await dreamApi.run({
         job: job || undefined,
         day: dreamState.day || undefined,
-        dry_run: dreamState.dryRun,
+        dry_run: dry,
       });
       toast(dreamState.report.summary || "done", "ok");
     } catch (error) {
@@ -641,26 +692,23 @@ async function renderDreams() {
   });
   dayInput.addEventListener("input", () => { dreamState.day = dayInput.value.trim(); });
 
-  const dryBox = element("input", {
-    attrs: { type: "checkbox", id: "dream-dry", ...(dreamState.dryRun ? { checked: "checked" } : {}) },
-  });
-  dryBox.addEventListener("change", () => { dreamState.dryRun = dryBox.checked; });
+  const nightDry = dreamRunButton("Dry run tonight's dream", DRY_HELP,
+                                  () => runDream(null, true));
+  const nightWet = dreamRunButton("Run tonight's dream for real", WET_HELP,
+                                  () => runDream(null, false), { wet: true });
 
-  const runNight = element("button", { className: "button", text: "Run tonight's dream", attrs: { type: "button" } });
-  runNight.addEventListener("click", () => runDream(null));
-
-  out.push(panel("Try it", element("div", { className: "panel-body" },
+  out.push(panel("The whole night", element("div", { className: "panel-body" },
     element("div", { className: "field-row" },
       element("label", { text: "Day", attrs: { for: "dream-day" } }), dayInput),
-    element("div", { className: "field-row" },
-      dryBox, element("label", {
-        text: "Dry run — do the thinking, write nothing",
-        attrs: { for: "dream-dry" } })),
-    element("div", { className: "row-actions" }, runNight),
+    element("div", { className: "row-actions" }, nightDry, nightWet),
     element("p", { className: "muted", text:
-      "A dry run makes the same model calls and shows you the same output, but "
-      + "writes no files, marks no days done and leaves no commit. Turn it off "
-      + "to let a run count." }))));
+      "Every enabled job, in priority order, over one shared budget — and each "
+      + "job below has the same two buttons for itself alone. A dry run makes "
+      + "every model call and shows you what came back, then writes no file, "
+      + "delivers nothing to the chat, marks no day done and leaves no commit; "
+      + "the job goes on reading as never run. Run for real is the one that "
+      + "keeps the work. The Day box pins which day either kind runs against — "
+      + "leave it blank to take each job's backlog." }))));
 
   // --- the editor
   const paintEditor = () => editor.replaceChildren(

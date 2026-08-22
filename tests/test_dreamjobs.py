@@ -411,6 +411,25 @@ async def test_a_dry_run_thinks_but_writes_nothing(rig):
     assert report.exchanges                                # but the model did run
 
 
+async def test_a_dry_run_says_so_in_the_one_line_the_page_shows(rig):
+    """The summary is the debug page's toast as well as the commit message, and
+    a rehearsal's reads "diary: wrote 1 day" — a sentence about a file that was
+    never written. It has to say which kind of run it was."""
+    runner, _clock, vault = rig
+    _day_file(vault, "2026-07-04", ["user: remember the boat  \u21c4  yuri: noted"])
+    dry = await runner.run(only="diary", day="2026-07-04", dry_run=True)
+    assert dry.summary.startswith("DREAM (dry run)")
+    wet = await runner.run(only="diary", day="2026-07-04")
+    assert wet.summary.startswith("DREAM \u2014")
+
+
+async def test_a_night_with_nothing_to_do_says_which_kind_it_was_too(rig):
+    runner, _clock, _vault = rig
+    assert (await runner.run(only="diary", dry_run=True)).summary \
+        == "DREAM (dry run): nothing to do"
+    assert (await runner.run(only="diary")).summary == "DREAM: nothing to do"
+
+
 async def test_the_report_carries_the_prompt_verbatim(rig):
     """The reason the button exists: a dream job is a prompt whose output you
     otherwise cannot see until tomorrow morning."""

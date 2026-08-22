@@ -77,6 +77,12 @@ svg { width: 1.1em; height: 1.1em; fill: none; stroke: currentColor; stroke-widt
 .button:disabled { opacity: .5; cursor: default; }
 .button-quiet { color: var(--soft); }
 .button.on { border-color: var(--acid); color: var(--acid); }
+/* The run that keeps its work, beside the rehearsal that doesn't. Every dream
+   job carries both, so the difference has to be visible before the click and
+   not only in the label. Amber is DREAM's colour on this page already. */
+.button.wet { border-color: var(--amber); color: var(--amber); }
+.button.wet:hover { border-color: var(--amber); background: var(--panel-2); }
+.button.wet:disabled { border-color: var(--rule); color: inherit; }
 
 /* --- shell ----------------------------------------------------------------- */
 .shell { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 0; min-height: calc(100vh - 68px); }

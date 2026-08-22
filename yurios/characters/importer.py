@@ -339,8 +339,11 @@ waiting at 4am, and a faster model never notices the number. What keeps the
 night finite is `max_steps` and the caps, not the clock on one call.
 
 `report_effort` — `low`, `medium` or `high` — asks for a shorter pass on a
-model that takes the hint. Plenty do not: against LM Studio serving a 27B Qwen
-it changes nothing at all, so treat it as a hint and not a limit.
+model that takes the hint. It reaches LM Studio as of 0.4.8, and reaching it is
+not the same as being obeyed: a 27B Qwen that advertises only `on` and `off`
+spent 236 reasoning tokens at `low` against 220 for saying nothing. Ask for it
+by all means, but if a report has to be quick the knob that always works is
+`report_thinking: false`, and the model's own card decides the rest.
 
 If a report comes back empty it is because the thinking ran out of room, not
 because it thought too much — so it is asked again with whatever the context

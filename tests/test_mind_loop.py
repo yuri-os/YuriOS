@@ -275,6 +275,53 @@ async def test_a_park_starting_now_waits_for_the_call_already_running(
     assert await asyncio.wait_for(quiet, 1) is True
 
 
+# ---- what a job asks for reaches the model (§21.2) --------------------------
+# `_utility` is the one seam between every DREAM job and the provider, and it
+# used to take `soul` and nothing else. A seam that accepts no parameters does
+# not ignore them, it *rejects* them: the research loop asking a round for
+# `thinking=False` raised TypeError inside `ctx.ask` and failed the job every
+# night, and no test saw it because the job tests hand `ScriptedModel.complete`
+# in as the seam and never go through this method at all.
+
+async def test_a_jobs_call_parameters_reach_the_provider(cfg, seeded_vault):
+    """`thinking`, `reasoning_effort`, `max_tokens`, `timeout` — the provider's
+    knobs, passed through untouched. Nothing here reads them, which is the
+    point: what a job turns is the provider's knob, and this seam's job is to
+    not be in the way of it."""
+    rig = make_mind(cfg, seeded_vault)
+    seen: list[dict] = []
+
+    class Recording:
+        async def complete(self, messages, **params):
+            seen.append(params)
+            return "the brief"
+
+    rig.mind.brain.state.utility = Recording()
+    await rig.mind._utility([{"role": "user", "content": "which page next?"}],
+                            thinking=False, max_tokens=600,
+                            reasoning_effort="low", timeout=3600)
+    assert seen == [{"thinking": False, "max_tokens": 600,
+                     "reasoning_effort": "low", "timeout": 3600}]
+
+
+async def test_the_soul_switch_is_this_seams_knob_and_not_the_providers(
+        cfg, seeded_vault):
+    """`soul` decides what goes in the messages here; a provider handed it as a
+    completion parameter would send it to the server, and a server that rejects
+    an unknown parameter fails the whole call."""
+    rig = make_mind(cfg, seeded_vault)
+    seen: list[dict] = []
+
+    class Recording:
+        async def complete(self, messages, **params):
+            seen.append(params)
+            return "as herself"
+
+    rig.mind.brain.state.utility = Recording()
+    await rig.mind._utility([{"role": "system", "content": "think"}], soul=True)
+    assert seen == [{}]
+
+
 async def test_a_restart_does_not_leave_her_deaf_to_the_next_signals(
         cfg, seeded_vault):
     """`bus_offset` is persisted; the queue it indexes is not.

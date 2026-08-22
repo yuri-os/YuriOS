@@ -307,7 +307,8 @@ class MindLoop:
         self._soul_cache = (key, text, self.clock.now())
         return text
 
-    async def _utility(self, messages: list[dict], *, soul: bool = False) -> str:
+    async def _utility(self, messages: list[dict], *, soul: bool = False,
+                       **params) -> str:
         """Local-tier utility call, debited against the governor. The loop's
         only other model use is inside deliberate ACT speech (SPEC §17.3).
 
@@ -322,6 +323,15 @@ class MindLoop:
         consolidator — are the two doing mechanical extraction, and a shelf
         blurb written in character is a shelf that lies about what it read.
         Everything that thinks as *her* passes `soul=True` explicitly.
+
+        `params` are the provider's, not this method's, and they are handed
+        over untouched — `thinking`, `reasoning_effort`, `max_tokens`,
+        `timeout`. This used to take `soul` and nothing else, and a seam that
+        accepts no parameters is a seam that *rejects* them: a DREAM research
+        round asking for `thinking=False` did not get a thoughtless call, it
+        got a `TypeError` and a job that failed every night. Nothing here reads
+        them, and that is the point — the knob a job turns is the provider's
+        knob, and this method's job is to not be in the way of it.
         """
         utility = self.brain.state.utility
         if utility is None:
@@ -341,7 +351,7 @@ class MindLoop:
         # that is waiting for the park.
         await self.park_gate.wait(timeout_s=PATIENT_WAIT_S)
         async with self.park_gate.hold():
-            text = await utility.complete(messages)
+            text = await utility.complete(messages, **params)
         self.budget.debit("".join(m.get("content", "") for m in messages), text)
         origin = correlate.current()
         self.prompt_log.record(

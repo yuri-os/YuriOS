@@ -96,14 +96,31 @@ REPORT_WINDOW_MARGIN = 512
 #: failure, and it is the knob that leaves room for the answer without turning
 #: the model into a different one.
 #:
-#: Unset by default, and that is a measurement rather than caution. Against LM
-#: Studio serving a 27B Qwen, `reasoning_effort` changes nothing: `low` on a
-#: one-sentence question produced *more* reasoning than sending nothing (451
-#: tokens against 335), and `low` on a real report spent all 2,500 of its
-#: tokens thinking and answered with an empty string — the same failure, to the
-#: token, as sending no effort at all. So it is offered as a hint for the
-#: stacks that implement it and never relied on: what has to work everywhere is
-#: the room the retry hands over.
+#: Unset by default, and that is still a measurement rather than caution. LM
+#: Studio 0.4.8 added `reasoning_effort` to the OpenAI-compatible endpoint, so
+#: it is no longer thrown away in transit — but *reaching* the server and
+#: *changing the answer* are two different claims, and only the first is
+#: reliably true. Measured against 0.4.8 serving a 27B Qwen: on a real
+#: question, `low` spent 236 reasoning tokens where sending nothing spent 220.
+#: On a one-line question the ladder does separate (59 at `minimal`, 73 at
+#: `low`, 124 at `high`) — which is to say it moves the pass a model was
+#: already going to keep short, and does not shorten the long one that
+#: actually costs the night.
+#:
+#: `/api/v1/models` says why: each model advertises its own reasoning options,
+#: and the one measured here allows only `off` and `on`. The effort lands on a
+#: model with no rung to move to. A card that advertises `low`/`medium` will do
+#: more with it. So this stays a hint: the two knobs that bite everywhere are
+#: `report_thinking` — off is off, on every stack — and the room the retry
+#: hands over.
+#:
+#: The values are the server's and not ours to invent. LM Studio rejects
+#: anything outside `none, minimal, low, medium, high, xhigh` with a 400, and a
+#: rejected parameter fails the whole call rather than degrading — which is why
+#: `_as_effort` drops what it doesn't recognise instead of passing it through,
+#: and why this ladder is the intersection and not the union. In particular the
+#: model card's own `off`/`on` are *not* values this endpoint takes; `off` is
+#: spelled `none`, and that is what `thinking=False` already sends.
 REPORT_EFFORTS = ("low", "medium", "high")
 
 #: Room to think, on top of what the report itself is worth. A ceiling bounds

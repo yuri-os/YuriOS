@@ -976,6 +976,16 @@ knob added to the config and documented there appears on both surfaces with no s
 this build has no knob for **MUST** be dropped rather than shown dead, and a field's `.env` key
 **MAY** be resolved per runtime (the per-character channel credentials, §10.5).
 
+A knob whose value is a **closed vocabulary MUST NOT** be offered as a text box on either surface.
+An annotation can say `str` where the value is really a list of names that exist nowhere but in the
+source — `MIND_TOOL_ALLOWLIST` (§26.1) is the case that proves it — and a field you cannot fill in
+without reading the code is a capability nobody can turn on. Such a field is enriched in place
+(`envfile.ENRICHED`) with the whole vocabulary, each name carrying what it does and whether this
+installation can offer it at all; the panel renders it as tick-boxes and `yurios settings KEY`
+prints it. A name outside the vocabulary **MUST** be refused when it is submitted rather than
+dropped at load, and a name already in the file that this build does not know **MUST** be kept
+rather than silently removed.
+
 Access is owner-or-loopback: local management, or a request that came through the §32.4 boundary —
 the panel hands the browser the keys it renders, and the whole point of the owner token is that
 the browser may be a phone. Values are read from the live `Config`, writes are surgical (only
@@ -1711,6 +1721,11 @@ needs a sandbox.
   whether she is one of the ones that may. A character **MUST NOT** be able to talk her way past the
   house switch. `MIND_TOOL_ALLOWLIST` names the permitted tools explicitly — no wildcard, no
   inheritance from the conversational allowlist, **empty by default even when the switch is on**.
+  An explicit allowlist is a debt to whoever has to write it: the hands are one table
+  (`hands.HANDS` — cost class, what each one does, its example arguments, the backend it needs),
+  and both settings surfaces **MUST** publish that vocabulary rather than offer a text box (§11).
+  A hand dropped because its backend is off **MUST** say so, once, in the log: "she never
+  researches" and `SEARCH_BACKEND=off` are the same fact, and nothing near this variable said it.
   With no hands available, the tools **MUST NOT** be described to her at all (`SEARCH_BACKEND=off`'s
   rule, generalised). Unlike §18.4.6, the two are multiplied at the point of use rather than folded
   into her config at start: hers is a *live* switch (§26.5), and a config that had absorbed a

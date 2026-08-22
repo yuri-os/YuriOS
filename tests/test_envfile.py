@@ -38,6 +38,43 @@ def test_every_config_knob_is_in_the_table_and_typed_from_its_annotation():
     assert table["TELEGRAM_BOT_TOKEN"]["type"] == "password"
 
 
+def test_the_allowlist_is_a_vocabulary_rather_than_a_text_box():
+    """MIND_TOOL_ALLOWLIST is a `str` in the config, so the derivation would
+    type it as free text — and a text box is the one control you cannot fill in
+    here, because the names it wants exist nowhere but in the source."""
+    from yurios.mind.hands import HANDS
+
+    cfg = Config(_env_file=None, search_backend="off")
+    field = envfile.fields_by_key(cfg)["MIND_TOOL_ALLOWLIST"]
+
+    assert field["type"] == "multi"
+    assert field["options"] == list(HANDS)
+    assert field["help"], "the example file gives this one no trailing comment"
+    assert field["option_detail"]["write_note"] == {
+        "group": "cheap", "help": HANDS["write_note"].does}
+    # the class is a heading over its run of names, not a word on every row
+    assert set(field["option_groups"]) == {"cheap", "expensive"}
+    # the reason a ticked hand might still never fire, said where it is ticked
+    assert field["option_detail"]["research"]["note"] == \
+        "needs SEARCH_BACKEND, which is off"
+    assert "note" not in field["option_detail"]["write_note"]
+
+
+def test_a_name_that_is_not_a_hand_is_refused_at_the_form():
+    cfg = Config(_env_file=None)
+    field = envfile.fields_by_key(cfg)["MIND_TOOL_ALLOWLIST"]
+
+    assert envfile.format_value(field, " read_note ,write_note, read_note") == \
+        "read_note,write_note"
+    assert envfile.format_value(field, ["read_note", "web_search"]) == \
+        "read_note,web_search"
+    assert envfile.format_value(field, "") == ""
+    with pytest.raises(ValueError) as refused:
+        envfile.format_value(field, "write_note,write_notes")
+    assert "write_notes" in str(refused.value)
+    assert "read_skill" in str(refused.value), "and it says what the names are"
+
+
 def test_the_knobs_the_host_writes_are_not_offered():
     cfg = Config(_env_file=None)
     table = envfile.fields_by_key(cfg)
@@ -202,6 +239,39 @@ def test_yurios_settings_never_prints_a_secret_and_never_blanks_one(
     assert cli_main(["settings", "OPENROUTER_API_KEY="]) == 1
     assert "--unset" in capsys.readouterr().err
     assert "OPENROUTER_API_KEY=sk-real-secret" in env.read_text()
+
+
+def test_yurios_settings_shows_a_named_group_whole(tmp_path, monkeypatch, capsys, stay_put):
+    """Naming a group is asking to see it. The listing hides untouched defaults
+    to keep the terminal short — but a section where every knob is still default
+    is exactly the section you have come here to configure."""
+    _installation(tmp_path, monkeypatch)
+
+    assert cli_main(["settings", "--group", "unasked"]) == 0
+    out = capsys.readouterr().out
+    assert "MIND_TOOLS_ENABLED" in out and "MIND_TOOL_ALLOWLIST" in out
+    assert "the house switch" in out, "with its help, since you asked for it"
+
+
+def test_yurios_settings_prints_the_vocabulary_of_a_closed_knob(
+        tmp_path, monkeypatch, capsys, stay_put):
+    """Reading MIND_TOOL_ALLOWLIST and being told only that it is empty is the
+    whole of the problem: the value is a list of names nobody has been shown."""
+    env = _installation(tmp_path, monkeypatch)
+
+    assert cli_main(["settings", "MIND_TOOL_ALLOWLIST"]) == 0
+    out = capsys.readouterr().out
+    assert "write_note" in out and "take_selfie" in out
+    assert "read several pages on a topic" in out, "what a name means, beside it"
+    assert "cheap" in out and "expensive" in out, "and what ticking it commits to"
+
+    assert cli_main(["settings", "MIND_TOOL_ALLOWLIST=write_note,read_note"]) == 0
+    capsys.readouterr()
+    assert "MIND_TOOL_ALLOWLIST=write_note,read_note" in env.read_text()
+
+    assert cli_main(["settings", "MIND_TOOL_ALLOWLIST=write_notes"]) == 1
+    assert "no such name" in capsys.readouterr().err
+    assert "write_notes" not in env.read_text(), "and nothing was written"
 
 
 def test_yurios_settings_refuses_a_knob_this_build_has_never_heard_of(

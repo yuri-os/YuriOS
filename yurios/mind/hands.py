@@ -10,7 +10,9 @@ implicitly and a tick cannot:
 
   1. **Which hands?** The conversational allowlist is every discovered tool.
      This one is named explicitly, in `MIND_TOOL_ALLOWLIST`, and is empty even
-     when the capability is switched on.
+     when the capability is switched on. Which puts a debt on `HANDS` below:
+     names that live only in this file are names nobody can allowlist, so the
+     table carries a phrase per hand and both settings surfaces publish it.
   2. **Where does the product land?** In the Vault. A contract built here is
      stamped `_deliver: "vault"`; `Researcher` and `SelfieLab` honour it by
      shelving the product and posting nothing. Delivery to the user is Gate 2's
@@ -54,35 +56,146 @@ from .util import day_of
 
 log = logging.getLogger("mind.hands")
 
-#: A step *in* goal work, not a whole tick's intention: local, cheap, and with
+
+@dataclass(frozen=True)
+class Hand:
+    """One hand she has, in the four facts every surface needs of it.
+
+    `does` is written for somebody filling in `MIND_TOOL_ALLOWLIST` — the
+    variable is a list of names and nothing else, so the panel and
+    `yurios settings MIND_TOOL_ALLOWLIST` read these phrases out beside the
+    names. `args` is written for her: one example argument object, kept here
+    rather than read off the MCP spec because the tool schema is JSON Schema
+    and this has to fit on one line of a prompt.
+    """
+    #: "cheap" | "expensive" — the whole of the permission model's
+    #: read/write/internet axis in this first cut.
+    klass: str
+    #: One phrase, for whoever is choosing which hands she may have.
+    does: str
+    #: One example argument object, so the line she writes is shaped right.
+    args: str
+    #: The `.env` backend this hand is nothing without, or "". A hand whose
+    #: backend is off is dropped from the allowlist and never advertised.
+    needs: str = ""
+
+
+#: Every hand she has. ONE table rather than the several keyed by the same names
+#: that this used to be: a hand added to the cost class and forgotten in the
+#: argument hints is a malformed line in the prompt she answers, and there was
+#: no column at all for the thing anybody configuring her needs — what a name
+#: means. The classes and the backend requirements are read off it below.
+#:
+#: Cheap is a step *in* goal work, not a whole tick's intention: local, and with
 #: no outside party on the other end. Allowed wherever she isn't mid-conversation.
-CHEAP = ("write_note", "append_note", "edit_note", "delete_note", "read_note",
-         "list_notes", "count_note_lines", "read_skill", "write_skill",
-         "set_timer")
+#: Expensive is one whole tick's intention — money, somebody else's server, or
+#: her GPU — and therefore a pressure ceiling, a stricter state rule, and a
+#: cooldown in days.
+HANDS: dict[str, Hand] = {
+    "write_note": Hand(
+        "cheap", "start a new note in her Vault",
+        '{"path": "notes/x.md", "text": "..."}'),
+    "append_note": Hand(
+        "cheap", "add to the end of a note she already has",
+        '{"path": "notes/x.md", "text": "..."}'),
+    "edit_note": Hand(
+        "cheap", "replace a passage inside one of her notes",
+        '{"path": "notes/x.md", "old_text": "...", "new_text": "..."}'),
+    "delete_note": Hand(
+        "cheap", "throw one of her own notes away",
+        '{"path": "notes/x.md"}'),
+    "read_note": Hand(
+        "cheap", "read one of her notes back",
+        '{"path": "notes/x.md"}'),
+    "list_notes": Hand(
+        "cheap", "see what is on her desk",
+        '{"folder": ""}'),
+    "count_note_lines": Hand(
+        "cheap", "check how long a note has got",
+        '{"path": "notes/x.md"}'),
+    "read_skill": Hand(
+        "cheap", "read back something she wrote down how to do",
+        '{"name": "a-skill"}'),
+    "write_skill": Hand(
+        "cheap", "write down how to do something, for next time",
+        '{"name": "a-skill", "description": "...", "instructions": "..."}'),
+    "set_timer": Hand(
+        "cheap", "leave herself a reminder to come back to this",
+        '{"minutes": 10, "label": "..."}'),
+    "research": Hand(
+        "expensive", "read several pages on a topic and write up what she found",
+        '{"topic": "...", "depth": 3}', needs="SEARCH_BACKEND"),
+    "read_page": Hand(
+        "expensive", "read one web page she has the address of",
+        '{"url": "https://..."}', needs="SEARCH_BACKEND"),
+    "web_search": Hand(
+        "expensive", "search the web and read what comes back",
+        '{"query": "..."}', needs="SEARCH_BACKEND"),
+    "take_selfie": Hand(
+        "expensive", "make a picture of herself, onto her gallery shelf",
+        '{"look": "..."}', needs="SELFIE_BACKEND"),
+    "show_picture": Hand(
+        "expensive", "make a picture of something she is thinking about",
+        '{"subject": "..."}', needs="SELFIE_BACKEND"),
+}
 
-#: One whole tick's intention. Money, somebody else's server, or her GPU — and
-#: therefore a pressure ceiling, a stricter state rule, and a cooldown in days.
-EXPENSIVE = ("research", "read_page", "web_search", "take_selfie", "show_picture")
+CHEAP = tuple(n for n, h in HANDS.items() if h.klass == "cheap")
+EXPENSIVE = tuple(n for n, h in HANDS.items() if h.klass == "expensive")
 
-#: Web hands need `SEARCH_BACKEND != off`; camera hands need a camera. Named
-#: here rather than tested for inline so the "off means unadvertised" rule is
-#: one table instead of three conditionals.
-NEEDS_WEB = ("research", "read_page", "web_search")
-NEEDS_CAMERA = ("take_selfie", "show_picture")
+#: Web hands need `SEARCH_BACKEND != off`; camera hands need a camera. Read off
+#: the table rather than tested for inline so the "off means unadvertised" rule
+#: is one column instead of three conditionals.
+NEEDS_WEB = tuple(n for n, h in HANDS.items() if h.needs == "SEARCH_BACKEND")
+NEEDS_CAMERA = tuple(n for n, h in HANDS.items() if h.needs == "SELFIE_BACKEND")
 
 #: Tools that answer `{"status": "started"}` and finish off-tick (§7.6). A goal
 #: that dispatches one goes to `waiting` and is woken by `task_completion`.
 START_DONT_AWAIT = ("research", "take_selfie", "show_picture")
 
+#: `needs` -> the config attribute that says whether that backend is on.
+_BACKEND_ATTR = {"SEARCH_BACKEND": "search_backend",
+                 "SELFIE_BACKEND": "selfie_backend"}
+
 
 def klass(tool: str) -> str:
     """"cheap" | "expensive" | "" — the cost class, which is the whole of the
     permission model's read/write/internet axis in this first cut."""
-    if tool in CHEAP:
-        return "cheap"
-    if tool in EXPENSIVE:
-        return "expensive"
-    return ""
+    hand = HANDS.get(tool)
+    return hand.klass if hand else ""
+
+
+def available(tool: str, cfg: object) -> bool:
+    """Whether this installation can offer this hand at all — its backend is on.
+
+    Separate from the allowlist because the two answer different questions:
+    the allowlist is what you asked for, this is what the machine can do. The
+    settings surfaces show a hand whose backend is off rather than hiding it,
+    with the reason beside it — "there is no such hand" and "you have not turned
+    its backend on" are different sentences and only one of them is fixable.
+    """
+    hand = HANDS.get(tool)
+    if hand is None:
+        return False
+    if not hand.needs:
+        return True
+    attr = _BACKEND_ATTR[hand.needs]
+    return str(getattr(cfg, attr, "off") or "off") != "off"
+
+
+def describe_hands(cfg: object | None = None) -> list[dict]:
+    """The whole vocabulary `MIND_TOOL_ALLOWLIST` is written in.
+
+    This exists because the variable is a comma-separated list of names and
+    nothing on either surface could say what the names were: a text box with no
+    catalogue behind it asks you to allowlist things you have never been shown.
+    The settings panel renders this as tick-boxes and `yurios settings` prints
+    it; both therefore say what a hand does, what it costs, and — given a
+    `cfg` — whether this machine can offer it at all.
+    """
+    return [{"name": name, "klass": hand.klass, "does": hand.does,
+             "needs": hand.needs,
+             "available": True if cfg is None else available(name, cfg)}
+            for name, hand in HANDS.items()]
 
 
 @dataclass(frozen=True)
@@ -128,6 +241,11 @@ class Hands:
     #: `interrupts` does, and for the same reason: her day is a local day.
     spent: dict = field(default_factory=lambda: {"date": "", "count": 0})
 
+    #: Names already complained about. `allowlist` is read on every tick, and a
+    #: misconfiguration that logged once a minute forever would be the loudest
+    #: line in the file and still tell you nothing the first one didn't.
+    _warned: set = field(default_factory=set, repr=False)
+
     # ------------------------------------------------------------- the switches
 
     @property
@@ -136,27 +254,36 @@ class Hands:
 
         No wildcard and no inheritance from the conversational set: a tool the
         house has never heard of is not a hand, and a tool the *config* has
-        turned off (no camera, no search backend) is not one either. An unknown
-        name is dropped loudly rather than silently, because a typo in this
-        variable is the difference between "she may write notes" and "she may
-        do nothing" and both of those are quiet.
+        turned off (no camera, no search backend) is not one either. Both drops
+        say so in the log, because a typo in this variable is the difference
+        between "she may write notes" and "she may do nothing" and both of
+        those are quiet — and because "I ticked research and she never
+        researches" has an answer (`SEARCH_BACKEND=off`) that is nowhere near
+        this variable.
         """
         names: list[str] = []
         for raw in str(getattr(self.cfg, "mind_tool_allowlist", "") or "").split(","):
             name = raw.strip()
             if not name:
                 continue
-            if not klass(name):
-                log.warning("MIND_TOOL_ALLOWLIST: %r is not a hand she has — "
-                            "known names are %s", name,
-                            ", ".join(CHEAP + EXPENSIVE))
+            hand = HANDS.get(name)
+            if hand is None:
+                self._warn(name, "%r is not a hand she has — known names are %s",
+                           name, ", ".join(HANDS))
                 continue
-            if name in NEEDS_WEB and getattr(self.cfg, "search_backend", "off") == "off":
-                continue
-            if name in NEEDS_CAMERA and getattr(self.cfg, "selfie_backend", "off") == "off":
+            if not available(name, self.cfg):
+                self._warn(name, "%s needs %s, which is off — dropping it",
+                           name, hand.needs)
                 continue
             names.append(name)
         return tuple(dict.fromkeys(names))
+
+    def _warn(self, name: str, message: str, *args) -> None:
+        """One line per bad name, whatever the tick rate."""
+        if name in self._warned:
+            return
+        self._warned.add(name)
+        log.warning("MIND_TOOL_ALLOWLIST: " + message, *args)
 
     @property
     def enabled(self) -> bool:
@@ -382,7 +509,8 @@ class Hands:
         """
         if not tools:
             return ""
-        rows = "\n".join(f"  use {t} {_ARGS_HINT.get(t, '{...}')}" for t in tools)
+        rows = "\n".join(
+            f"  use {t} {HANDS[t].args if t in HANDS else '{...}'}" for t in tools)
         return (
             "You may take ONE action this tick, and only one. Answer with one "
             "line, in one of these two forms:\n\n"
@@ -399,28 +527,6 @@ class Hands:
             "Whatever a hand produces is kept for you, not sent to anyone: "
             "nothing you do here reaches them until you decide, separately, to "
             "say so.")
-
-
-#: One example argument object per hand, so the line she writes is shaped right
-#: the first time. Kept here rather than read off the tool specs because the
-#: MCP schema is a JSON Schema and this has to fit on one line of a prompt.
-_ARGS_HINT = {
-    "write_note": '{"path": "notes/x.md", "text": "..."}',
-    "append_note": '{"path": "notes/x.md", "text": "..."}',
-    "edit_note": '{"path": "notes/x.md", "old_text": "...", "new_text": "..."}',
-    "delete_note": '{"path": "notes/x.md"}',
-    "read_note": '{"path": "notes/x.md"}',
-    "list_notes": '{"folder": ""}',
-    "count_note_lines": '{"path": "notes/x.md"}',
-    "read_skill": '{"name": "a-skill"}',
-    "write_skill": '{"name": "a-skill", "description": "...", "instructions": "..."}',
-    "set_timer": '{"minutes": 10, "label": "..."}',
-    "web_search": '{"query": "..."}',
-    "read_page": '{"url": "https://..."}',
-    "research": '{"topic": "...", "depth": 3}',
-    "take_selfie": '{"look": "..."}',
-    "show_picture": '{"subject": "..."}',
-}
 
 
 @dataclass(frozen=True)

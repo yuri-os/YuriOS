@@ -24,6 +24,11 @@ and documented in the example file appears in the panel and in the CLI with no
 edit here. A field the running build has no knob for is dropped rather than shown
 dead, so the same table serves the world server and the smaller desktop app.
 
+A derived field can be **`ENRICHED`** in place without leaving its section: an
+annotation says `str` where the value is really a list of tool names, and a text
+box over a closed vocabulary is the one field nobody can fill in — the names
+exist only in the source. Those get the whole vocabulary instead.
+
 Writes are surgical. `update_env` upserts one line per key, uncommenting a
 matching `# KEY=` in place, so the prose in `.env` survives being edited by a
 form. And `check` refuses the two combinations that would leave an installation
@@ -277,6 +282,46 @@ def example_index(path: Path | None = None) -> dict[str, tuple[str, str]]:
     return index
 
 
+def _hands_field(field: dict, cfg: Any) -> dict:
+    """`MIND_TOOL_ALLOWLIST` as the hands this build actually has (SPEC §26.1).
+
+    Every name, what it does, and — because a hand whose backend is off is
+    dropped at load and would otherwise just never fire — whether this
+    installation can offer it at all. `.env.example` gives this key no trailing
+    comment to derive help from, deliberately, so the help is here too.
+    """
+    from yurios.mind.hands import describe_hands       # local: mind imports world
+
+    catalogue = describe_hands(cfg)
+    return {**field, "type": "multi",
+            "options": [hand["name"] for hand in catalogue],
+            "option_detail": {hand["name"]: {
+                "group": hand["klass"],
+                "help": hand["does"],
+                **({} if hand["available"]
+                   else {"note": f"needs {hand['needs']}, which is off"}),
+            } for hand in catalogue},
+            "option_groups": dict(CLASS_NOTES),
+            "help": field.get("help") or
+                    "the hands she may reach for unasked — tick them explicitly; "
+                    "empty means none, even with MIND_TOOLS_ENABLED on"}
+
+
+#: What ticking a box in each class actually commits to. One sentence at the head
+#: of each half, rather than the word "cheap" repeated down fifteen rows.
+CLASS_NOTES = {
+    "cheap": "a step in her goal work, any time she is not talking to you",
+    "expensive": "a whole tick's intention: only with the room empty, the budget "
+                 "under the ceiling, and days between repeats",
+}
+
+
+#: key -> a function that replaces the derived field with a better one. Not a
+#: second curated table: the field keeps its `.env.example` section and its
+#: neighbours, and only the control changes.
+ENRICHED = {"MIND_TOOL_ALLOWLIST": _hands_field}
+
+
 def _derived_type(annotation: Any, name: str) -> tuple[str, dict[str, str]]:
     if name.endswith(_SECRET_SUFFIXES):
         return "password", {}
@@ -301,8 +346,10 @@ def _derived_fields(cfg: Any, covered: set[str]) -> list[dict]:
             continue
         kind, extra = _derived_type(model_field.annotation, name)
         section, help_text = index.get(key, (_OTHER_GROUP, ""))
-        out.append({"group": section, "key": key, "attr": name, "type": kind,
-                    "help": help_text, **extra})
+        entry = {"group": section, "key": key, "attr": name, "type": kind,
+                 "help": help_text, **extra}
+        enrich = ENRICHED.get(key)
+        out.append(enrich(entry, cfg) if enrich else entry)
     return out
 
 
@@ -360,9 +407,27 @@ def display(field: Mapping[str, Any], cfg: Any) -> object:
 
 
 def format_value(field: Mapping[str, Any], raw: object) -> str:
-    """A submitted value -> the exact text to write after KEY= in `.env`."""
+    """A submitted value -> the exact text to write after KEY= in `.env`.
+
+    A `multi` is where the validation is, rather than at the far end: an
+    unrecognised name in `MIND_TOOL_ALLOWLIST` is dropped at load with a line in
+    a log nobody is reading, so a typo saved through either surface would look
+    exactly like a hand that quietly never fires. Refused here, it is a sentence
+    on the form.
+    """
     if field["type"] == "bool":
         return "true" if (raw is True or str(raw).lower() in ("true", "1", "yes")) else "false"
+    if field["type"] == "multi":
+        given = raw if isinstance(raw, (list, tuple)) else str(raw).split(",")
+        names = list(dict.fromkeys(str(n).strip() for n in given if str(n).strip()))
+        options = list(field.get("options") or [])
+        unknown = [n for n in names if n not in options]
+        if unknown:
+            raise ValueError(
+                f"{field['key']}: {', '.join(unknown)} — no such "
+                f"{'name' if len(unknown) == 1 else 'names'}. "
+                f"Choose from: {', '.join(options)}")
+        return ",".join(names)
     text = str(raw)
     # quote if a bare value could be mis-parsed (spaces, inline #, =, quotes)
     if text and (text != text.strip() or any(c in text for c in ' #="\'')):

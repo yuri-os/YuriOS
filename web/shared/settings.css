@@ -143,6 +143,41 @@ select.set-input{ cursor:pointer; }
 .set-reveal:hover, .set-browse:hover{ border-color:var(--soft); color:var(--ink); }
 .set-help{ color:var(--dim); font:9px/1.6 var(--font-mono); margin-top:7px; }
 
+/* A closed vocabulary: every name on screen, ticked or not (type "multi").
+ * A list, not a paragraph — one row per name, the name in a column of its own
+ * so fifteen descriptions line up, and a heading per class instead of the same
+ * adjective repeated down every row. */
+.set-multi{
+  flex:1; min-width:0; display:flex; flex-direction:column;
+  background:var(--ground); border:1px solid var(--rule); border-radius:2px;
+  padding:2px 0 6px; max-height:min(44vh, 330px); overflow-y:auto;
+}
+.set-multi-head{
+  display:flex; align-items:baseline; gap:8px; margin:0;
+  padding:12px 12px 6px; border-bottom:1px solid var(--rule);
+}
+.set-multi-head-name{
+  flex:0 0 auto; color:var(--acid); font:9px var(--font-mono);
+  letter-spacing:.14em; text-transform:uppercase;
+}
+.set-multi-head-note{
+  flex:1 1 auto; min-width:0; color:var(--dim); font:9px/1.6 var(--font-mono);
+}
+.set-multi-opt{
+  display:flex; align-items:baseline; gap:10px; padding:6px 12px; cursor:pointer;
+}
+.set-multi-opt:hover{ background:rgb(255 255 255 / .035); }
+.set-multi-opt .set-check{ flex:0 0 auto; align-self:center; margin:0; }
+.set-multi-name{
+  flex:0 0 11.5em; color:var(--ink); font:11px/1.5 var(--font-mono);
+  overflow-wrap:anywhere;
+}
+.set-multi-text{ flex:1 1 auto; min-width:0; display:flex; flex-direction:column; }
+.set-multi-help{ color:var(--soft); font:9px/1.8 var(--font-mono); }
+/* a hand whose backend is off: still listed, still tickable, visibly waiting */
+.set-multi-opt.is-inert .set-multi-name{ color:var(--soft); }
+.set-multi-note{ color:var(--amber, #f4bd62); font:9px/1.6 var(--font-mono); }
+
 /* the model field: provider dropdown + browsable model combobox */
 .set-model{ width:100%; }
 .set-model-row{ display:flex; align-items:center; gap:8px; width:100%; }

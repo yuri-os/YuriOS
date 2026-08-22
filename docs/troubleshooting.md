@@ -141,6 +141,22 @@ about refusal-trained models in [Models → LM Studio](models.md#lm-studio).
 - A Live2D rig shows the default body — that key isn't installed. `GET /api/config` lists which
   ones are.
 
+## A change to the frontend doesn't show up
+
+**A stylesheet edit that seems to do nothing, or JS and CSS that disagree** — the two halves of
+`web/shared/` reach the page by different routes, and only one of them is live. `settings.js` is
+served raw from disk (`/shared/…`, mounted by `world/main.py`), so a reload has it. `settings.css`
+is linked root-absolute, which Vite *resolves and bundles*, so the page loads it out of
+`web/dist/assets/` as it was at build time. Edit both and reload, and you get new behaviour under
+old styling — which looks like broken CSS rather than a stale build:
+
+```bash
+cd web && npm run build
+```
+
+The raw Live2D client at `/live2d/` is not bundled and never has this problem, which is a useful
+way to tell the two apart.
+
 ## The desktop window
 
 - `--window` does nothing / import error — `./install.sh --desktop` (or `pip install -e

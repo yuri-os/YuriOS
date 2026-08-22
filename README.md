@@ -105,7 +105,11 @@ What stands between you and that:
   something first. With this off — the shipped state — her background loop thinks and
   writes to her journal and never reaches for a tool at all. Turning it on is two
   decisions, not one: the switch, and then `MIND_TOOL_ALLOWLIST`, which names the permitted
-  hands explicitly and is empty even once the switch is true.
+  hands explicitly and is empty even once the switch is true. You do not have to know the
+  names — `yurios settings MIND_TOOL_ALLOWLIST` prints every hand this build has, what each
+  one does and whether its backend is on, and the settings panel renders the same list as
+  tick-boxes. A gentle first setting is her desk alone:
+  `write_note,append_note,read_note,list_notes`.
 
 Once you do turn it on, the numbers that actually stop a runaway night are different from
 the ones above, because they are *preconditions* rather than estimates:

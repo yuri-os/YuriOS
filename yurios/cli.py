@@ -574,8 +574,12 @@ def _print_settings(cfg, *, group: str | None, show_all: bool) -> None:
         if wanted and wanted not in entry["group"].lower():
             continue
         curated = any(entry["group"] == g["group"] for g in envfile.CURATED)
+        # Naming a group is asking to see it. Without `wanted` here, asking for
+        # the one section you came to configure prints "nothing to show"
+        # whenever every knob in it is still at its default — which is exactly
+        # when you are configuring it.
         fields = [f for f in entry["fields"]
-                  if show_all or curated or not _is_default(f, cfg)]
+                  if show_all or wanted or curated or not _is_default(f, cfg)]
         if not fields:
             continue
         print(f"\n{entry['group']}")
@@ -592,6 +596,34 @@ def _print_settings(cfg, *, group: str | None, show_all: bool) -> None:
               "`yurios settings --all` lists every one.")
 
 
+def _choices(field: dict) -> None:
+    """The vocabulary a closed field is written in, printed under its value.
+
+    Reading `MIND_TOOL_ALLOWLIST` and being told only that it is empty is the
+    whole of the problem this answers: the value is a list of names, and the
+    names appear nowhere you would think to look. So a field with options names
+    them, with what each one does when the table says.
+    """
+    options = field.get("options") or []
+    if not options:
+        return
+    detail = field.get("option_detail") or {}
+    notes = field.get("option_groups") or {}
+    print("  one of:" if field["type"] == "select" else
+          "  any of these, comma-separated:")
+    width = max(len(str(name)) for name in options)
+    heading = None
+    for name in options:
+        about = detail.get(name, {})
+        if about.get("group") != heading:
+            heading = about.get("group")
+            print(f"\n  {heading} — {notes[heading]}" if notes.get(heading)
+                  else f"\n  {heading}")
+        said = "  ".join(part for part in
+                         (about.get("help", ""), about.get("note", "")) if part)
+        print(f"    {name:<{width}}  {said}".rstrip())
+
+
 def _show_one(cfg, key: str) -> int:
     field = envfile.fields_by_key(cfg).get(key.upper())
     if field is None:
@@ -600,6 +632,7 @@ def _show_one(cfg, key: str) -> int:
     print(f"{field['key']}={_current(field, cfg)}")
     if field.get("help"):
         print(f"  {field['help']}")
+    _choices(field)
     return 0
 
 

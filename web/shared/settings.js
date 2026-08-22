@@ -334,6 +334,54 @@
       const c = el("input", { id, type: "checkbox", className: "set-check", checked: !!f.value });
       return { node: c, read: () => c.checked };
     }
+    // A closed vocabulary the .env stores as a comma-separated list. A text box
+    // over one of these is the field you cannot fill in — MIND_TOOL_ALLOWLIST
+    // names tools that exist nowhere but in the source — so the whole
+    // vocabulary is on screen with what each name does beside it, and the value
+    // is what you ticked. `option_groups` heads each run of options with the
+    // one sentence that is true of all of them, which is what keeps the same
+    // word ("cheap", "expensive") off fifteen consecutive rows.
+    if (f.type === "multi") {
+      const chosen = new Set(String(f.value ?? "").split(",")
+        .map((s) => s.trim()).filter(Boolean));
+      const detail = f.option_detail || {};
+      const box = el("div", { className: "set-multi", id });
+      box.setAttribute("role", "group");
+      box.setAttribute("aria-label", f.key.toLowerCase());
+      const boxes = [];
+      let heading = null;
+      const add = (name, d = {}) => {
+        if (d.group !== heading) {
+          heading = d.group;
+          box.append(el("p", { className: "set-multi-head" },
+            el("span", { className: "set-multi-head-name", textContent: heading || "" }),
+            el("span", { className: "set-multi-head-note",
+              textContent: (f.option_groups || {})[heading] || "" })));
+        }
+        const check = el("input", { type: "checkbox", className: "set-check",
+          checked: chosen.has(name), id: id + "-" + name });
+        boxes.push({ name, check });
+        const said = el("span", { className: "set-multi-text" },
+          el("span", { className: "set-multi-help", textContent: d.help || "" }));
+        // Under the description rather than beside it: three of the expensive
+        // hands share one backend, and a right-hand column of repeated notes
+        // squeezed every description into three ragged lines.
+        if (d.note) said.append(el("span", { className: "set-multi-note", textContent: d.note }));
+        const row = el("label", { className: "set-multi-opt", htmlFor: check.id },
+          check, el("span", { className: "set-multi-name", textContent: name }), said);
+        if (d.note) row.classList.add("is-inert");
+        box.append(row);
+      };
+      for (const name of f.options || []) add(name, detail[name]);
+      // A name in the file that this build has never heard of stays on screen
+      // and stays ticked: silently dropping it would save the removal of a
+      // setting nobody asked to remove.
+      for (const name of chosen)
+        if (!(f.options || []).includes(name))
+          add(name, { group: "unknown", note: "not a name this build knows" });
+      return { node: box,
+        read: () => boxes.filter((b) => b.check.checked).map((b) => b.name).join(",") };
+    }
     const input = el("input", {
       id, className: "set-input",
       type: f.type === "password" ? "password" : (f.type === "number" ? "number" : "text"),
@@ -442,7 +490,12 @@
   }
 
   function fieldRow(f) {
-    const label = el("label", { className: "set-row" });
+    // A row is a <label> for its one control — except a vocabulary field,
+    // which is a group of controls each with a label of its own. Nesting those
+    // inside an outer <label> is invalid HTML, and browsers make it visible: a
+    // label with no `for` binds to its FIRST labelable descendant, so clicking
+    // "research" would tick "research" and toggle "write_note" with it.
+    const label = el(f.type === "multi" ? "div" : "label", { className: "set-row" });
     const head = el("div", { className: "set-key" }, f.key.toLowerCase());
     const wrap = el("div", { className: "set-ctl" });
 
@@ -453,7 +506,7 @@
       wrap.append(ctl.node);
     } else {
       ctl = control(f);
-      label.htmlFor = "set-" + f.key;         // click-label focuses simple inputs
+      if (f.type !== "multi") label.htmlFor = "set-" + f.key;   // click-to-focus
       wrap.append(ctl.node);
       if (ctl.datalist) wrap.append(ctl.datalist);
       if (f.type === "password" && ctl.input) {
@@ -471,7 +524,12 @@
 
     rows.push({ key: f.key, scope: "env", read: ctl.read });
     initial["env:" + f.key] = ctl.read();
-    label.dataset.match = (f.key + " " + (f.help || "")).toLowerCase();
+    // Filter text: the key, the help, and — for a vocabulary field — every
+    // name in it, so "selfie" finds the row that lets her take one.
+    label.dataset.match = [f.key, f.help || "", ...(f.options || []),
+                           ...Object.values(f.option_detail || {})
+                             .map((d) => d.help || "")]
+      .join(" ").toLowerCase();
     if (f.relevant_if) label.dataset.relevantIf = JSON.stringify(f.relevant_if);
     label.append(head, wrap);
     if (f.help) label.append(el("div", { className: "set-help", textContent: f.help }));

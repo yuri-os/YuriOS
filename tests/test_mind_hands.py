@@ -10,7 +10,8 @@ from __future__ import annotations
 
 import json
 
-from yurios.mind.hands import Hands, klass, parse_intent
+from yurios.mind.hands import (CHEAP, EXPENSIVE, HANDS, Hands, describe_hands,
+                               klass, parse_intent)
 from yurios.world.tools.fakes import FakeToolRunner
 
 from .conftest import ScriptedUtility, make_mind
@@ -346,6 +347,49 @@ def test_cost_classes_are_a_table_not_a_guess():
     assert klass("write_note") == "cheap"
     assert klass("research") == "expensive"
     assert klass("rm") == ""
+
+
+def test_every_hand_is_described_and_shaped():
+    """The one table's whole point. A hand with no `does` is a name nobody
+    filling in MIND_TOOL_ALLOWLIST can find the meaning of; one with no `args`
+    is a malformed line in the prompt she answers."""
+    for name, hand in HANDS.items():
+        assert hand.klass in ("cheap", "expensive"), name
+        assert hand.does and not hand.does.endswith("."), name
+        assert hand.args.startswith("{") and hand.args.endswith("}"), name
+        assert hand.needs in ("", "SEARCH_BACKEND", "SELFIE_BACKEND"), name
+    assert set(CHEAP) | set(EXPENSIVE) == set(HANDS), "the classes partition it"
+    assert not set(CHEAP) & set(EXPENSIVE)
+
+
+def test_the_vocabulary_says_what_this_machine_can_actually_offer(cfg):
+    """`describe_hands` is what both settings surfaces read: the answer to "I
+    ticked research and nothing happens" is SEARCH_BACKEND, which is nowhere
+    near MIND_TOOL_ALLOWLIST."""
+    off = cfg.model_copy(update={"search_backend": "off", "selfie_backend": "on"})
+    by_name = {hand["name"]: hand for hand in describe_hands(off)}
+    assert by_name["write_note"] == {"name": "write_note", "klass": "cheap",
+                                     "does": by_name["write_note"]["does"],
+                                     "needs": "", "available": True}
+    assert by_name["research"]["available"] is False
+    assert by_name["research"]["needs"] == "SEARCH_BACKEND"
+    assert by_name["take_selfie"]["available"] is True
+    # with no config at hand the catalogue is still the whole vocabulary
+    assert [h["name"] for h in describe_hands()] == list(HANDS)
+
+
+def test_a_backend_that_is_off_is_a_dropped_hand_with_a_reason(cfg, clock, caplog):
+    """It was dropped silently, which is how "she never researches" became
+    unanswerable. And it is said once, not once per tick."""
+    hands = Hands(cfg=hands_cfg(cfg, allow="write_note,research,rm -rf",
+                                search_backend="off"), clock=clock)
+    with caplog.at_level("WARNING"):
+        assert hands.allowlist == ("write_note",)
+        assert hands.allowlist == ("write_note",)
+    said = [r.getMessage() for r in caplog.records]
+    assert len(said) == 2, "one line per bad name, not one per read"
+    assert any("SEARCH_BACKEND" in line and "research" in line for line in said)
+    assert any("rm -rf" in line and "write_note" in line for line in said),         "an unknown name is told what the known ones are"
 
 
 def test_an_unparseable_line_is_a_thought_not_an_error():

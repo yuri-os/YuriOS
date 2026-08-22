@@ -191,7 +191,7 @@ function characterCard(character) {
     disabled: !character.hands.available,
     title: character.hands.available
       ? `Let ${character.name}'s own goals reach for a tool between conversations. Whatever she makes is kept for her, not sent to you.`
-      : "Autonomous tool use is off for this node — set MIND_TOOLS_ENABLED=true in .env to use this.",
+      : "Autonomous tool use is off for this node — open the gear, turn on MIND_TOOLS_ENABLED and tick the hands she may use in MIND_TOOL_ALLOWLIST.",
   });
   const details = element("button", {
     className: "open-detail",
@@ -666,7 +666,7 @@ function setHandsAvailability(form, available) {
   if (field) {
     field.classList.toggle("is-inert", !available);
     field.title = available ? ""
-      : "Autonomous tool use is off for this node — set MIND_TOOLS_ENABLED=true in .env.";
+      : "Autonomous tool use is off for this node — open the gear, turn on MIND_TOOLS_ENABLED and tick the hands she may use in MIND_TOOL_ALLOWLIST.";
   }
 }
 

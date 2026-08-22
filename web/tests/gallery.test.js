@@ -2,6 +2,8 @@
  * @vitest-environment jsdom
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 /* The gallery panel (js/gallery.js, SPEC §7.6) — the three properties that are
  * the whole reason it is its own file: it fetches nothing until the tab is
@@ -76,7 +78,11 @@ async function open() {
 const tiles = (panel) => [...panel.querySelectorAll('.gl-shot')];
 const pips = (panel, index = 0) => [...tiles(panel)[index].querySelectorAll('.gl-pip')];
 
-beforeEach(() => { delete window.YuriOSRuntime; });
+beforeEach(() => {
+  delete window.YuriOSRuntime;
+  // the fold is remembered in localStorage, and jsdom's survives the module
+  window.localStorage?.clear();
+});
 afterEach(() => {
   for (const [type, handler, options] of listeners.splice(0)) {
     window.removeEventListener(type, handler, options);
@@ -182,6 +188,85 @@ describe('a score out of ten', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(panel.querySelector('.gl-verdict').textContent).toBe('2/10');
     expect(panel.querySelector('.gl-error').textContent).toContain('disk is full');
+  });
+});
+
+describe('the folded console', () => {
+  it('opens with the pips folded away and the score still readable', async () => {
+    const panel = await room(fine(shelf([shot('a.png', { score: 8 })])));
+    await open();
+
+    expect(panel.classList.contains('gl-rating')).toBe(false);
+    expect(panel.querySelector('.gl-mode').getAttribute('aria-expanded')).toBe('false');
+    expect(panel.querySelector('.gl-verdict').textContent).toBe('8/10');
+    // an unrated shot says nothing at all until you ask
+    expect(panel.querySelector('.gl-verdict').classList.contains('gl-none')).toBe(false);
+  });
+
+  it('unfolds the whole grid from one switch, without re-fetching', async () => {
+    const panel = await room(fine(shelf([shot('a.png'), shot('b.png')])));
+    await open();
+    expect(panel.querySelector('.gl-verdict').classList.contains('gl-none')).toBe(true);
+
+    panel.querySelector('.gl-mode').click();
+    expect(panel.classList.contains('gl-rating')).toBe(true);
+    expect(panel.querySelector('.gl-mode').getAttribute('aria-expanded')).toBe('true');
+    expect(tiles(panel)).toHaveLength(2);      // the same tiles, same <img>s
+    expect(calls).toHaveLength(1);             // a fold is not a round trip
+
+    panel.querySelector('.gl-mode').click();
+    expect(panel.classList.contains('gl-rating')).toBe(false);
+  });
+
+  it('remembers the switch the next time the room loads', async () => {
+    let panel = await room(fine(shelf([shot('a.png')])));
+    await open();
+    panel.querySelector('.gl-mode').click();
+
+    panel = await room(fine(shelf([shot('a.png')])));
+    await open();
+    expect(panel.classList.contains('gl-rating')).toBe(true);
+  });
+
+  it('offers no switch over a shelf with nothing on it', async () => {
+    const panel = await room(fine(shelf([])));
+    await open();
+    expect(panel.querySelector('.gl-mode')).toBe(null);
+  });
+
+  it('drops the gl-none hook the moment a score lands', async () => {
+    const panel = await room(fine(shelf([shot('a.png')])));
+    await open();
+    panel.querySelector('.gl-mode').click();
+
+    pips(panel)[4].click();                    // "5"
+    expect(panel.querySelector('.gl-verdict').classList.contains('gl-none')).toBe(false);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    pips(panel)[4].click();                    // and back off again
+    expect(panel.querySelector('.gl-verdict').classList.contains('gl-none')).toBe(true);
+  });
+});
+
+describe('getting out of the way', () => {
+  /* The panel's own stylesheet, in the page, because this is a cascade bug and
+     nothing else can see it: `#gallery{ display:flex }` outranks the UA's
+     `[hidden]{ display:none }`, so for a while the shelf stayed on screen over
+     the transcript once you had opened it — the tab switched, the panel did
+     not. jsdom resolves enough of the cascade to hold the guard in place. */
+  const styled = () => {
+    document.head.innerHTML =
+      `<style>${readFileSync(resolve(process.cwd(), 'gallery.css'), 'utf8')}</style>`;
+  };
+
+  it('takes no room at all while the tab is closed', async () => {
+    const panel = await room(fine(shelf([shot('a.png')])));
+    styled();
+    await open();
+    expect(getComputedStyle(panel).display).toBe('flex');
+
+    panel.hidden = true;                       // js/mind.js, on the chat tab
+    expect(getComputedStyle(panel).display).toBe('none');
   });
 });
 

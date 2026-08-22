@@ -18,6 +18,15 @@
  *      sidecar — the missing feedback loop on a camera with a dozen knobs and
  *      no record of which settings ever took a good photograph. Clicking the
  *      score she already has takes it back off.
+ *
+ * The rating console is folded away by default, and opens for the whole grid
+ * from one switch in the head. Ten buttons bolted under every picture is a
+ * scoring form you have to look past to see the photograph, and most of the
+ * time you are here to see the photograph; scoring is a pass you sit down to
+ * make. Folded, a shot still shows the score it has — that is a fact about the
+ * picture, not a control — and an unrated one shows nothing at all. The switch
+ * is remembered per character, like the voice mute (js/controls.js): a panel
+ * you have to re-open every time is not a mode, it is a chore.
  */
 (() => {
   const runtimeReady = window.YuriOSRuntime
@@ -30,9 +39,27 @@
 
   const SCORES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 
+  // Per character, and `window.localStorage?.` never a bare one, for the same
+  // two reasons js/controls.js gives: two characters on a node do not share a
+  // setting, and pywebview's private WebKitGTK has no storage global at all.
+  const prefKey = () =>
+    window.YuriOSRuntime?.sessionKey?.('yurios.pref.galleryRating') ??
+    'yurios.pref.galleryRating';
+
+  function remembered() {
+    try { return window.localStorage?.getItem(prefKey()) === '1'; }
+    catch (_) { return false; }
+  }
+
+  function remember(on) {
+    try { window.localStorage?.setItem(prefKey(), on ? '1' : '0'); }
+    catch (_) { /* full, or denied: the switch still works this session */ }
+  }
+
   const state = {
     page: 0, limit: 12, items: [], total: 0, rated: 0,
     hasMore: false, loading: false, error: '',
+    rating: false,                  // the console is folded until you open it
   };
   let serial = 0;                   // the page you asked for last is the one
                                     // that gets to paint (fast clicks on next)
@@ -80,14 +107,19 @@
     }).join('');
   }
 
+  // `gl-none` is the hook the folded state hangs on: an unrated shot has
+  // nothing to report, so folded it reports nothing rather than a row of grey
+  // saying so on every tile in the grid.
+  const verdict = (shot) => Number.isInteger(shot.score)
+    ? `<b>${shot.score}</b>/10` : 'not rated';
+
   function tile(shot) {
     const url = httpPath(shot.url);
     const caption = shot.caption || 'untitled';
     const meta = [stamp(shot.created_at), shot.backend,
                   Number.isInteger(shot.seed) ? `seed ${shot.seed}` : '',
                   bytes(shot.bytes)].filter(Boolean).join(' · ');
-    const verdict = Number.isInteger(shot.score)
-      ? `<b>${shot.score}</b>/10` : 'not rated';
+    const none = Number.isInteger(shot.score) ? '' : ' gl-none';
     return `<figure class="gl-shot" data-name="${esc(shot.name)}">` +
       `<a class="gl-frame" href="${esc(url)}" target="_blank" rel="noopener">` +
       `<img loading="lazy" decoding="async" src="${esc(url)}"` +
@@ -95,8 +127,8 @@
       `<figcaption><p class="gl-caption">${esc(caption)}</p>` +
       `<p class="gl-meta">${esc(meta)}</p>` +
       `<div class="gl-rate" role="group" aria-label="rate this picture out of ten">` +
-      `<span class="gl-verdict">${verdict}</span><span class="gl-pips">` +
-      `${pips(shot)}</span></div></figcaption></figure>`;
+      `<span class="gl-verdict${none}">${verdict(shot)}</span>` +
+      `<span class="gl-pips">${pips(shot)}</span></div></figcaption></figure>`;
   }
 
   function counted() {
@@ -104,10 +136,19 @@
       (state.rated ? ` · ${state.rated} rated` : '');
   }
 
+  // Only where there is something to rate: a switch over an empty shelf is a
+  // control with nothing behind it.
+  function mode() {
+    if (!state.items.length) return '';
+    return `<button class="gl-mode" aria-expanded="${state.rating}"` +
+      ` title="${state.rating ? 'hide the scores' : 'score these pictures'}">` +
+      `rate</button>`;
+  }
+
   function head() {
     const page = `page ${state.page + 1}`;
     return `<header class="gl-head"><span class="gl-count">${esc(counted())}` +
-      `</span><span class="gl-pager">` +
+      `</span>${mode()}<span class="gl-pager">` +
       `<button class="gl-step" data-step="-1"${state.page ? '' : ' disabled'}` +
       ` aria-label="newer">&lt;</button><span class="gl-page">${esc(page)}</span>` +
       `<button class="gl-step" data-step="1"${state.hasMore ? '' : ' disabled'}` +
@@ -134,6 +175,7 @@
   function render() {
     panel.innerHTML = head() + body();
     panel.classList.toggle('gl-busy', state.loading);
+    panel.classList.toggle('gl-rating', state.rating);
   }
 
   // -------------------------------------------------------------------- load
@@ -182,8 +224,9 @@
     const figure = figureFor(shot.name);
     if (!figure) return;
     figure.querySelector('.gl-pips').innerHTML = pips(shot);
-    figure.querySelector('.gl-verdict').innerHTML = Number.isInteger(shot.score)
-      ? `<b>${shot.score}</b>/10` : 'not rated';
+    const said = figure.querySelector('.gl-verdict');
+    said.innerHTML = verdict(shot);
+    said.classList.toggle('gl-none', !Number.isInteger(shot.score));
     figure.querySelector('.gl-error')?.remove();   // the last failure, if any
     const line = panel.querySelector('.gl-count');
     if (line) line.textContent = counted();
@@ -214,6 +257,17 @@
   }
 
   panel.addEventListener('click', (event) => {
+    // A class flip, not a re-render: re-painting the grid to open a row would
+    // put every <img> in it back through the loader.
+    if (event.target.closest('.gl-mode')) {
+      state.rating = !state.rating;
+      remember(state.rating);
+      panel.classList.toggle('gl-rating', state.rating);
+      const button = panel.querySelector('.gl-mode');
+      button.setAttribute('aria-expanded', String(state.rating));
+      button.title = state.rating ? 'hide the scores' : 'score these pictures';
+      return;
+    }
     const step = event.target.closest('.gl-step');
     if (step) {
       const next = state.page + Number(step.dataset.step);
@@ -229,8 +283,15 @@
 
   // The tab, and only the tab (js/mind.js). Re-reading the same page on every
   // open is one small JSON request and it is how a shot taken while you were
-  // in the transcript is already here when you come back.
-  window.addEventListener('gallery-open', () => load());
+  // in the transcript is already here when you come back. The remembered fold
+  // is read here rather than at wiring time, like js/controls.js does it: the
+  // key is scoped to the character and the runtime that knows which character
+  // this is may still be a module load away.
+  window.addEventListener('gallery-open', async () => {
+    await runtimeReady;
+    state.rating = remembered();
+    load();
+  });
 
   window.addEventListener('world-ev', (event) => {
     if (panel.hidden) return;

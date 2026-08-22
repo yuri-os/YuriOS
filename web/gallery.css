@@ -6,6 +6,12 @@
    why the track is `auto-fill` rather than a count. Inherits each room's
    palette tokens like every other panel; it invents no colour of its own. */
 #gallery{ flex:1; min-height:0; display:flex; flex-direction:column; background:var(--void); }
+/* The author `display:flex` above beats the UA's `[hidden]{display:none}`, so
+   the attribute js/mind.js toggles needs its own rule or the shelf stays on
+   screen behind every other tab — the same trap `.model-setup` documents in
+   sanctuary.css. `#innerlife` and `#files` are only spared it because neither
+   sets `display` at all. */
+#gallery[hidden]{ display:none; }
 
 /* ------------------------------------------------------------------- head */
 .gl-head{
@@ -15,6 +21,17 @@
   text-transform:uppercase;
 }
 .gl-count{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+/* the one switch that unfolds the scoring console over the whole grid */
+.gl-mode{
+  flex:none; padding:3px 8px; border:1px solid var(--rule); background:transparent;
+  color:var(--dim); cursor:pointer; font:8px var(--font-mono);
+  letter-spacing:.1em; text-transform:uppercase;
+  transition:border-color .14s ease, background .14s ease, color .14s ease;
+}
+.gl-mode:hover{ border-color:var(--acid-dark); color:var(--ink); }
+.gl-mode[aria-expanded="true"]{
+  border-color:var(--acid-dark); background:rgb(215 255 88 / .16); color:var(--ink);
+}
 .gl-pager{ margin-left:auto; display:flex; align-items:center; gap:6px; flex:none; }
 .gl-page{ font-variant-numeric:tabular-nums; }
 .gl-step{
@@ -60,16 +77,27 @@
 }
 
 /* ---------------------------------------------------- the score out of ten */
-.gl-rate{
-  margin-top:9px; padding-top:9px; border-top:1px solid var(--rule);
-  display:flex; align-items:center; flex-wrap:wrap; gap:7px;
-}
+/* Folded by default (js/gallery.js): ten buttons under every tile is a scoring
+   form you have to look past to see the photograph. What survives the fold is
+   the score itself — a fact about the shot, one small line — and an unrated
+   shot keeps its whole row to itself by showing nothing. The console opens for
+   the entire grid from `.gl-mode`, which is why every rule below hangs off the
+   panel and not the tile: one class flip, no re-render, no reloaded images. */
+.gl-rate{ display:flex; align-items:center; flex-wrap:wrap; gap:7px; }
 .gl-verdict{
-  flex:none; color:var(--dim); font:8px var(--font-mono);
+  flex:none; margin-top:6px; color:var(--dim); font:8px var(--font-mono);
   letter-spacing:.12em; text-transform:uppercase;
 }
 .gl-verdict b{ color:var(--acid); font-weight:400; }
-.gl-pips{ margin-left:auto; display:flex; gap:2px; }
+.gl-verdict.gl-none{ display:none; }        /* folded, and nothing to report */
+.gl-pips{ display:none; }
+
+#gallery.gl-rating .gl-rate{
+  margin-top:9px; padding-top:9px; border-top:1px solid var(--rule);
+}
+#gallery.gl-rating .gl-verdict{ margin-top:0; }
+#gallery.gl-rating .gl-verdict.gl-none{ display:block; }
+#gallery.gl-rating .gl-pips{ margin-left:auto; display:flex; gap:2px; }
 .gl-pip{
   width:17px; height:17px; padding:0; border:1px solid var(--rule);
   background:transparent; color:var(--dim); cursor:pointer;

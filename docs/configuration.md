@@ -133,8 +133,8 @@ Ollama settings.
 | Key | Default | |
 |---|---|---|
 | `DATA_DIR` | `./data` | the host's character tree — see [Characters](characters.md#where-a-character-lives) |
-| `VAULT_DIR` | `./vault` | the legacy/seed Vault; point at an older Vault to continue that companion |
-| `SOUL_SRC` | `./soul-src` | the SOUL used to seed a fresh Vault |
+| `VAULT_DIR` | `./vault` | legacy import source; changing it does not move an existing character's Vault |
+| `SOUL_SRC` | `./soul-src` | legacy SOUL source used while seeding or importing |
 | `CORPUS_DIR` | `./corpus` | the raw conversation log — outside the Vault, append-only |
 | `TRACE_DIR` | `./traces` | tick traces, latency traces, context history |
 | `TOOL_LOG_DIR` | `./tool-logs` | the tool audit |
@@ -144,8 +144,9 @@ Ollama settings.
 | `UTILITY_ENABLED` | `true` | the off-hot-path model work |
 | `DREAM_ENABLED` | `true` | nightly consolidation |
 
-Under the 0.2 host these per-character paths are set from the registry; the values above are the
-defaults a single-companion install and the migration start from.
+Under the 0.2 host, active character paths are set from the registry under
+`DATA_DIR/characters/<id>/`. The other path values above are standalone defaults or legacy sources
+used by migration; they do not relocate an existing registered character.
 
 ### The night's budgets
 
@@ -185,6 +186,16 @@ and remote modes.
 The token is authentication, not transport encryption. Prefer Tailscale or an SSH tunnel. If a
 reverse proxy exposes YuriOS beyond a trusted private network, terminate TLS and authentication at
 that proxy; YuriOS intentionally does not own public certificates or Internet-facing TLS.
+
+Tailscale Serve can publish the default loopback bind without changing `HOST`:
+
+```bash
+tailscale serve --bg http://127.0.0.1:8768
+```
+
+Open settings through the resulting `https://<node>.<tailnet>.ts.net` address before showing the
+pairing panel. The generated QR uses that HTTPS origin. `yurios pair --url
+https://<node>.<tailnet>.ts.net` does the same from the terminal.
 
 ## Voice
 

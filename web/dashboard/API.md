@@ -135,6 +135,51 @@ empty one names the value it inherits — plus `chat_thinking`,
 `utility_thinking`, `temperature`, `max_reply_tokens` and `context_length`,
 which the profile form has no row for. Only changed fields are sent.
 
+## The house `.env`
+
+`GET /api/settings` returns the installation's configuration as groups of fields —
+the table in `yurios/envfile.py`, which is every knob the running `Config` declares,
+not a shortlist. A field is `{ key, type, help, value }`, except a secret, which is
+`{ …, configured: bool }` and never carries its value. `POST` takes `{ KEY: value }`
+for the fields that changed and answers
+`{ written: [...], ignored: [...], restart_required: bool, env_path }`. A blank
+string preserves a secret and JSON `null` removes it. A save that would leave the
+installation unable to start — an owner token under 32 characters, or a non-loopback
+`HOST` with no token — is refused with 422 rather than written.
+
+The board declares these itself rather than passing them to a character runtime, so
+**House settings** works on a node with nothing running. Where a primary character is
+up, her config answers, since a per-character channel credential resolves to the
+variable she actually reads it from.
+
+## Pairing a device
+
+`GET /api/pairing` describes how to get into this installation from somewhere else:
+
+```json
+{ "configured": true, "live": true, "reachable": true, "host": "0.0.0.0",
+  "port": 8768, "token": "…", "env_path": "…",
+  "links": [{ "origin": "http://192.168.1.20:8768",
+              "url": "http://192.168.1.20:8768/auth?token=…&next=%2F",
+              "qr": "<svg …>" }] }
+```
+
+One entry per address a phone might reach her at, most likely first — the Host header
+this request arrived on leads, since something on the network demonstrably routes
+there. `reachable` is false for a loopback bind, where no code will help.
+`live` is false when `.env` holds a token the running server is not honouring yet
+(a hand-edited file), so the panel can say which.
+
+`POST /api/pairing/token` generates a token, writes it, and applies it to the running
+boundary at once — no restart — returning the same payload. Rotating signs every other
+session out; the caller keeps its own, because the response re-issues its cookie.
+
+Both routes hand over the secret in the clear, which is the exception to the
+write-only rule above and is the point: the caller is already either on the loopback
+interface or holding that same token, and the value has to reach another device.
+Scanning the link opens `GET /auth?token=…`, which exchanges the token for the
+HttpOnly session cookie and redirects — the phone never stores the token.
+
 ## PNG import
 
 `POST /api/characters/import` accepts `multipart/form-data` with the character PNG

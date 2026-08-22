@@ -11,6 +11,9 @@
        settings panel, same reasoning): one tube, two doors -->
   <link rel="stylesheet" href="/shared/neon.css">
   <link rel="stylesheet" href="./dashboard.css">
+  <!-- the house `.env` panel (SPEC §11), the same stylesheet and the same script
+       every room loads. The board is where you reach it with nobody running. -->
+  <link rel="stylesheet" href="/shared/settings.css">
 </head>
 <body>
   <svg class="icon-bank" aria-hidden="true">
@@ -54,6 +57,15 @@
       <button class="button button-quiet import-open" type="button">
         <svg><use href="#i-upload"></use></svg>
         <span>Import</span>
+      </button>
+      <!-- The house's settings, not a character's: models, the bind and its
+           owner token, voice, keys — the `.env` every character inherits (§11).
+           The drawer's Settings button, one scope down, edits one character's
+           record; this one edits the file underneath all of them. -->
+      <button id="settings-open" class="button button-quiet" type="button"
+              title="the installation's .env — models, server, voice, keys">
+        <svg><use href="#i-tune"></use></svg>
+        <span>House settings</span>
       </button>
       <a class="button button-primary" href="/studio/">
         <svg><use href="#i-plus"></use></svg>
@@ -161,7 +173,7 @@
       <a id="drawer-mind" class="button button-quiet" href="#"><svg><use href="#i-mind"></use></svg>Debug mind</a>
       <a id="drawer-studio" class="button button-quiet" href="#"><svg><use href="#i-card"></use></svg>Edit in studio</a>
       <a id="drawer-export" class="button button-quiet" href="#" download><svg><use href="#i-download"></use></svg>Export PNG</a>
-      <button id="settings-open" class="button button-quiet" type="button"><svg><use href="#i-tune"></use></svg>Settings</button>
+      <button id="profile-open" class="button button-quiet" type="button"><svg><use href="#i-tune"></use></svg>Settings</button>
     </div>
     <nav id="detail-tabs" class="detail-tabs" aria-label="Character details">
       <button type="button" role="tab" aria-selected="true" data-tab="journal">Journal</button>
@@ -218,11 +230,11 @@
     </div>
   </dialog>
 
-  <dialog id="settings-dialog" class="modal">
-    <form id="settings-form" class="modal-card">
+  <dialog id="profile-dialog" class="modal">
+    <form id="profile-form" class="modal-card">
       <header class="modal-head">
         <div><p class="eyebrow">Runtime profile</p><h2>Edit settings</h2></div>
-        <button class="icon-button modal-close" type="button" aria-label="Close settings dialog"><svg><use href="#i-close"></use></svg></button>
+        <button class="icon-button modal-close" type="button" aria-label="Close profile dialog"><svg><use href="#i-close"></use></svg></button>
       </header>
       <div class="field-grid">
         <label><span>Display name</span><input name="name" type="text" maxlength="80" required></label>
@@ -249,11 +261,11 @@
         </fieldset>
       </div>
       <p class="form-note">Blank model fields inherit the node's .env. Endpoints and credential variables are granted only by host-owned connection profiles. A model or profile change reaches a running character at once.</p>
-      <div id="settings-error" class="form-error" role="alert"></div>
+      <div id="profile-error" class="form-error" role="alert"></div>
       <footer class="modal-actions">
         <button id="brain-open" class="button button-quiet modal-aside" type="button"><svg><use href="#i-brain"></use></svg><span>Her brain</span></button>
         <button class="button button-quiet modal-close" type="button">Cancel</button>
-        <button id="settings-submit" class="button button-primary" type="submit">Save profile</button>
+        <button id="profile-submit" class="button button-primary" type="submit">Save profile</button>
       </footer>
     </form>
   </dialog>
@@ -294,7 +306,31 @@
     </form>
   </dialog>
 
+  <!-- the house `.env` panel (SPEC §11, → /shared/settings.js). Identical markup
+       to the one every room carries, plus data-scope="house": the board is not
+       standing in anybody's room, so the character's own brain panel is left
+       out and this dialog is the file alone. -->
+  <dialog id="settings" class="settings" data-scope="house">
+    <form method="dialog" class="settings-form" id="house-settings-form">
+      <header class="settings-head">
+        <span class="settings-title">house settings</span>
+        <span class="settings-path" id="settings-path" title="the file being edited"></span>
+        <button type="button" id="settings-close" class="settings-x" aria-label="close"></button>
+      </header>
+      <div class="settings-body" id="settings-body">
+        <p class="settings-loading">loading…</p>
+      </div>
+      <footer class="settings-foot">
+        <span class="settings-note" id="settings-note"></span>
+        <button type="button" id="settings-save" class="settings-save">save</button>
+      </footer>
+    </form>
+  </dialog>
+
   <div id="toast-region" class="toast-region" aria-live="polite" aria-atomic="true"></div>
   <script type="module" src="./dashboard.js"></script>
+  <!-- raw, from the /shared mount, exactly as the rooms load it — one .env
+       editor, not a second copy that drifts -->
+  <script src="/shared/settings.js"></script>
 </body>
 </html>

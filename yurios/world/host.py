@@ -48,7 +48,7 @@ from yurios.app import vaultgit
 from . import debug, rewire
 from .config import Config
 from .inbox import Inbox
-from .main import DIST_DIR, create_app
+from .main import DIST_DIR, WEB_DIR, create_app
 
 log = logging.getLogger("world.host")
 
@@ -441,6 +441,10 @@ def save_brain_overrides(record: CharacterRecord, body: Mapping[str, Any],
 class CharacterHost:
     def __init__(self, base: Config, registry: CharacterRegistry):
         self.base = base
+        # The one owner secret in this process (SPEC §32.4). Installed on the
+        # host app, handed to every character app below it, so a token rotated
+        # from the gear in her room is the token the host's boundary checks.
+        self.owner_boundary = None
         self.registry = registry
         claimed: list[tuple[str, Path]] = []
         for record in registry:
@@ -538,6 +542,10 @@ class CharacterHost:
                 app = create_app(self.effective_config(record),
                                  manage_lifespan=False, mount_frontend=False,
                                  protect_access=False, limit_http_body=False)
+                # The settings route edits the house .env, not this character's
+                # registry-derived effective paths and backend overrides.
+                app.state.house_config = self.base
+                app.state.owner_boundary = self.owner_boundary
                 app.state.rt.voice_ws_limiter = self.voice_ws_limiter
                 # The second of the two switches, before the first tick can run
                 # (§26.1). It lives on the runtime rather than in the config so
@@ -777,7 +785,16 @@ def create_host_app(base: Config, registry: CharacterRegistry | None = None) -> 
     app.state.purge_challenges = {}
     from yurios.security import install_http_boundaries, install_owner_security
     install_http_boundaries(app)
-    install_owner_security(app, base)
+    host.owner_boundary = install_owner_security(app, base)
+
+    # The house `.env` panel (SPEC §11), on the board as well as in every room.
+    # Declared here rather than left to the primary-character fallback at the
+    # bottom of this file, because the switchboard is the surface you reach for
+    # when *nothing* is running — a fresh install with no character yet, or a
+    # node where every one of them is parked — and a settings screen that is
+    # only reachable once she is up cannot be where you go to fix her config.
+    from yurios.desktop.routes import settings as env_panel
+    app.include_router(env_panel.router)
 
     def require(character_id: str) -> CharacterRecord:
         record = registry.get(character_id)
@@ -1841,6 +1858,11 @@ def create_host_app(base: Config, registry: CharacterRegistry | None = None) -> 
     # dispatched to a character app that was created without its frontend.
     app.mount("/assets", StaticFiles(directory=DIST_DIR / "assets", check_dir=False),
               name="frontend-assets")
+    # …and the panel's own source, for the same reason its API is here: the board
+    # loads /shared/settings.{js,css} directly, and without this mount the path
+    # falls through to the primary character — which, on the node this panel
+    # exists to rescue, is not there.
+    app.mount("/shared", StaticFiles(directory=WEB_DIR / "shared"), name="host-shared")
     app.mount("/dashboard", StaticFiles(directory=DIST_DIR / "dashboard", html=True,
                                          check_dir=False), name="dashboard")
     # The studio selects its character by query parameter (`/studio/?character=…`)

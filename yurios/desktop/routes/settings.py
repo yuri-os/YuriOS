@@ -1,43 +1,53 @@
-"""GET/POST /api/settings — a local settings panel over the .env knobs (§11).
+"""The settings API — the `.env` panel and the pairing dialog (SPEC §11, §11.1).
 
-The whole config is read once at boot from .env (pydantic-settings, see
+The whole config is read once at boot from `.env` (pydantic-settings, see
 desktop/config.py + app/config.py), so this endpoint edits *that file* and the
 change takes effect on the next restart — it does not hot-reload a running model
-into VRAM. The UI (web/settings.js) says so out loud after a save.
+into VRAM. The UI (web/shared/settings.js) says so out loud after a save.
 
-One SCHEMA below is the single source of truth: it drives the form the browser
-renders (dropdowns where the value is an enum, text/number/password otherwise)
-*and* names which .env key each field writes. Current values are read from the
-live Config(), so the form always shows the effective setting (default or the
-.env override). Writes are surgical — only the fields the user changed are sent,
-and _update_env() upserts them line-by-line so the carefully-written comments in
-.env survive.
+The table it renders is not here: `yurios/envfile.py` owns it, because
+`yurios settings` on the command line edits the same file and the two must not
+be able to disagree about what a knob is called or what it may hold. This module
+is the HTTP surface over that table — who may call it, what a save returns, and
+the one knob that is more than a line in a file.
 
-A few keys are not the same variable for every companion: the host runs one
-runtime per character and each has her own Telegram bot (SPEC §10.5), so a field
-may carry `key_env` — the Config attribute naming the variable *this* runtime
-reads it from. _groups_for() resolves that per request, which is why the panel
-opened from Mia's room writes TELEGRAM_BOT_TOKEN_MIA and the one opened from
-Yuri's writes hers. It also drops fields the running build has no knob for.
+That knob is `OWNER_TOKEN`. It is the only setting whose *value* is a thing you
+have to get onto another device, so it has an affordance rather than a text box:
+`POST /api/pairing/token` generates one, writes it, and applies it to the running
+boundary immediately (`security.OwnerBoundary`), and `GET /api/pairing` draws the
+QR codes a phone can scan to come in without it ever being typed. Rotating it
+this way logs every other session out, including — unless we re-issue it here —
+the one that asked, so the response carries a fresh cookie for the caller.
 
-Secret fields are write-only: the API reports whether one is configured but
-never returns its value. Blank submissions preserve it and JSON null removes it.
+Secret fields are write-only everywhere else: the API reports whether one is
+configured but never returns its value. Blank submissions preserve it and JSON
+null removes it. The pairing routes are the deliberate exception, and they are
+the exception because their entire job is to hand the secret over — to a caller
+that is already either on the loopback interface or holding that same token.
 """
 from __future__ import annotations
 
 from pathlib import Path
 
+from dotenv import dotenv_values
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import JSONResponse
 
+from yurios import envfile, pairing
 from yurios.app.providers.catalog import provider_models
-from yurios.security import owner_or_loopback
-
-from ..avatar_models import MODELS
+from yurios.security import (boundary_for, external_request_origin,
+                             generate_owner_token, issue_session_cookie,
+                             is_loopback, owner_or_loopback)
 
 router = APIRouter()
 
-# .env sits at the project root (this file: desktop/routes/settings.py).
-ENV_PATH = Path(__file__).resolve().parents[3] / ".env"
+# Re-exported: `.env` sits at the installation root, and the tests point this at
+# a temporary file rather than at the developer's own configuration.
+ENV_PATH: Path = envfile.ENV_PATH
+# The hand-written half of the table, kept under its old name for the callers
+# (and tests) that reach for it.
+SCHEMA = envfile.CURATED
+_groups_for = envfile.groups_for
 
 
 def _require_local(request: Request) -> None:
@@ -45,217 +55,87 @@ def _require_local(request: Request) -> None:
     if not owner_or_loopback(request):
         raise HTTPException(status_code=403, detail="owner authentication required")
 
-_LANGS = ["en", "ja", "zh", "ko", "yue", "auto"]
-_WHISPER = ["tiny.en", "base.en", "small.en", "medium.en", "large-v3"]
 
-# Each field: key = the .env name (UPPERCASE); attr = the Config() attribute the
-# current value is read from; type ∈ {select,text,password,number,bool}; options
-# for a select; suggest = datalist hints for an open combobox; help = one line.
-SCHEMA: list[dict] = [
-    {"group": "Brain", "fields": [
-        # the key comes first: set it once and it's ready before you pick an
-        # openrouter/… route below (and it's what the model browse authenticates with).
-        {"key": "OPENROUTER_API_KEY", "attr": "openrouter_api_key", "type": "password",
-         "help": "needed for openrouter/… models — set this first (openrouter.ai/keys)"},
-        {"key": "CHAT_MODEL", "attr": "chat_model", "type": "model",
-         "help": "her reply voice — pick a provider, then type a model or browse what's loaded"},
-        {"key": "UTILITY_MODEL", "attr": "utility_model", "type": "model",
-         "help": "model for summaries/extraction (runs off the hot path)"},
-        {"key": "LMSTUDIO_BASE_URL", "attr": "lmstudio_base_url", "type": "text",
-         "suggest": ["http://localhost:1234/v1"],
-         "help": "OpenAI-compatible endpoint for lm_studio/… ids (chat + embeddings)"},
-        {"key": "OLLAMA_BASE_URL", "attr": "ollama_base_url", "type": "text",
-         "suggest": ["http://localhost:11434"],
-         "help": "local Ollama server — routes ollama/… ids and lists your pulled models"},
-        {"key": "CONTEXT_LENGTH", "attr": "context_length", "type": "number",
-         "min": "0",
-         "help": "her context window in tokens — 0 = the provider's default. "
-                 "Loads the LM Studio model at this size and sets the ceiling the "
-                 "masthead gauge measures against; raise it if turns start failing"},
-        {"key": "CHAT_THINKING", "attr": "chat_thinking", "type": "bool",
-         "help": "reply <think> pass — OFF for real-time voice (a reasoning model would stall)"},
-        {"key": "UTILITY_THINKING", "attr": "utility_thinking", "type": "bool",
-         "help": "extraction/summary <think> pass — ON (off the hot path, quality matters)"},
-        {"key": "UTILITY_MAX_TOKENS", "attr": "utility_max_tokens", "type": "number",
-         "help": "budget for the utility call's <think> block + JSON — too small loses the fact"},
-    ]},
-    {"group": "Embeddings", "fields": [
-        {"key": "EMBED_BACKEND", "attr": "embed_backend", "type": "select",
-         "options": ["sentence_tf", "lm_studio", "ollama"],
-         "help": "sentence_tf runs in-process — no LM Studio/Ollama needed. "
-                 "lm_studio/ollama reuse a local server. A swap auto-reindexes."},
-        {"key": "EMBED_MODEL", "attr": "embed_model", "type": "embed_model",
-         "backend_key": "EMBED_BACKEND",
-         "help": "MUST match the backend: sentence_tf → a HF repo (BAAI/bge-small-en-v1.5); "
-                 "lm_studio/ollama → browse that server's models (text-embedding-nomic-…)"},
-        {"key": "EMBED_DIM", "attr": "embed_dim", "type": "number",
-         "help": "must equal the model's vector width (bge-small=384, nomic=768)"},
-    ]},
-    {"group": "Storage", "fields": [
-        {"key": "VAULT_DIR", "attr": "vault_dir", "type": "text",
-         "help": "her memory; point at a Build #1 Vault to continue that companion"},
-        {"key": "SOUL_SRC", "attr": "soul_src", "type": "text",
-         "help": "the SOUL card used to seed a fresh Vault"},
-    ]},
-    {"group": "Server", "fields": [
-        {"key": "HOST", "attr": "host", "type": "text", "suggest": ["127.0.0.1", "0.0.0.0"],
-         "help": "127.0.0.1 keeps her local-only; any other bind requires OWNER_TOKEN"},
-        {"key": "PORT", "attr": "port", "type": "number"},
-        {"key": "OWNER_TOKEN", "attr": "owner_token", "type": "password",
-         "help": "remote owner secret (32+ characters); leave blank to keep, use remove to clear"},
-    ]},
-    {"group": "Speech-to-text", "fields": [
-        {"key": "STT_BACKEND", "attr": "stt_backend", "type": "select",
-         "options": ["faster_whisper", "fake"]},
-        {"key": "STT_MODEL", "attr": "stt_model", "type": "select", "options": _WHISPER,
-         "help": "smaller = lower latency, less accurate"},
-    ]},
-    {"group": "Text-to-speech", "fields": [
-        {"key": "TTS_BACKEND", "attr": "tts_backend", "type": "select",
-         "options": ["qwen3_tts", "kokoro", "gpt_sovits", "fake"],
-         "help": "the fields below apply to whichever backend you pick"},
-        {"key": "TTS_REGISTER", "attr": "tts_register", "type": "text",
-         "help": "kokoro voice register only"},
-        {"key": "QWEN_MODE", "attr": "qwen_mode", "type": "select",
-         "options": ["clone", "design"],
-         "help": "qwen3_tts: clone is stable; design re-authors the voice each turn (drifts)"},
-        {"key": "QWEN_REF_AUDIO", "attr": "qwen_ref_audio", "type": "text",
-         "help": "qwen3_tts clone reference wav; blank = bundled designed.wav"},
-        {"key": "QWEN_REF_TEXT", "attr": "qwen_ref_text", "type": "text",
-         "help": "exact transcript of the clone reference"},
-        {"key": "QWEN_DEVICE", "attr": "qwen_device", "type": "text",
-         "suggest": ["cuda:0", "cuda:1", "cpu"]},
-        {"key": "SOVITS_BASE_URL", "attr": "sovits_base_url", "type": "text",
-         "help": "gpt_sovits api_v2 server url"},
-        {"key": "SOVITS_REF_AUDIO", "attr": "sovits_ref_audio", "type": "text",
-         "help": "gpt_sovits reference wav (path on the server); blank = bundled designed.wav"},
-        {"key": "SOVITS_PROMPT_TEXT", "attr": "sovits_prompt_text", "type": "text",
-         "help": "exact transcript of the sovits reference clip"},
-        {"key": "SOVITS_PROMPT_LANG", "attr": "sovits_prompt_lang", "type": "select",
-         "options": _LANGS},
-        {"key": "SOVITS_TEXT_LANG", "attr": "sovits_text_lang", "type": "select",
-         "options": _LANGS},
-    ]},
-    {"group": "Turn-taking", "fields": [
-        {"key": "VAD_BACKEND", "attr": "vad_backend", "type": "select",
-         "options": ["silero", "fake"]},
-        {"key": "VAD_THRESHOLD", "attr": "vad_threshold", "type": "number",
-         "step": "0.05", "min": "0", "max": "1", "help": "speech-probability gate (0–1)"},
-        {"key": "VAD_ONSET_FRAMES", "attr": "vad_onset_frames", "type": "number",
-         "min": "1", "help": "consecutive speech frames to start a turn (debounce)"},
-        {"key": "VAD_BARGEIN_FRAMES", "attr": "vad_bargein_frames", "type": "number",
-         "min": "1", "help": "consecutive frames to interrupt her — higher rejects key-clatter"},
-        {"key": "VAD_CONFIRM", "attr": "vad_confirm", "type": "bool",
-         "help": "drop an endpointed utterance the VAD heard no real speech in"},
-    ]},
-    {"group": "The loop", "fields": [
-        {"key": "MASK_LATENCY", "attr": "mask_latency", "type": "bool",
-         "help": "play a filler line while the LLM spins up"},
-        {"key": "MAX_REPLY_TOKENS", "attr": "max_reply_tokens", "type": "number"},
-        {"key": "AVATAR_MODEL", "attr": "avatar_model", "type": "select",
-         "options": list(MODELS.keys()),
-         "help": "miara/kei/ren are the modern female rigs; unknown → hiyori"},
-    ]},
-    {"group": "Channels", "fields": [
-        # One bot, one character (SPEC §10.5): `key_env` names the Config
-        # attribute holding the variable this character's bot is actually
-        # written in, so the panel in Mia's room edits TELEGRAM_BOT_TOKEN_MIA
-        # and the one in Yuri's edits hers — pasting a token here can never
-        # take over another companion's chat.
-        {"key": "TELEGRAM_BOT_TOKEN", "attr": "telegram_bot_token",
-         "key_env": "telegram_bot_token_env", "type": "password",
-         "help": "her own @BotFather bot — one bot per companion, never shared "
-                 "(Telegram hands a token's updates to a single poller)"},
-        {"key": "TELEGRAM_CHAT_ID", "attr": "telegram_chat_id",
-          "key_env": "telegram_chat_id_env", "type": "text",
-          "help": "the one chat she answers in. Leave empty, save, restart, and "
-                  "message the bot once — it replies with the id to paste here"},
-        {"key": "TELEGRAM_SEND_NON_TELEGRAM", "attr": "telegram_send_non_telegram",
-         "type": "bool",
-         "help": "also copy replies from web, voice, CLI and API chats to Telegram"},
-    ]},
-    {"group": "Desktop window", "fields": [
-        {"key": "WINDOW_WIDTH", "attr": "window_width", "type": "number",
-         "help": "size of the `--window` desktop-pet window (px)"},
-        {"key": "WINDOW_HEIGHT", "attr": "window_height", "type": "number"},
-        {"key": "WINDOW_ON_TOP", "attr": "window_on_top", "type": "bool",
-         "help": "keep the floating avatar above other windows"},
-        {"key": "WINDOW_GUI", "attr": "window_gui", "type": "select",
-         "options": ["", "qt", "gtk"],
-         "help": "engine for --window: auto = qt/Chromium when installed (crisper); gtk = WebKitGTK"},
-    ]},
-]
+def _config(request: Request):
+    """The Config this app edits.
 
-def _groups_for(cfg) -> list[dict]:
-    """SCHEMA as one running build sees it — the single source of truth for both
-    directions, so the form and the POST validator can never disagree.
-
-    Two rewrites happen here. A field with `key_env` writes whichever variable
-    this runtime actually reads it from (`world/host.py` resolves those per
-    character, SPEC §10.5), so the panel in Mia's room edits her bot and the one
-    in Yuri's edits hers. And a field this build has no knob for is dropped
-    rather than shown dead: the channels live in the world server's config, and
-    the Build #2 desktop app doesn't have them."""
-    groups: list[dict] = []
-    for group in SCHEMA:
-        fields = []
-        for field in group["fields"]:
-            if not hasattr(cfg, field["attr"]):
-                continue
-            key = getattr(cfg, field["key_env"], "") if field.get("key_env") else ""
-            fields.append({**field, "key": key} if key else field)
-        if fields:
-            groups.append({"group": group["group"], "fields": fields})
-    return groups
+    A hosted character runtime carries registry-derived paths and overrides.
+    Those are useful runtime facts but they are not values in the house `.env`
+    this route edits, so the host gives every child its original house Config.
+    Standalone builds have no such split and use their runtime Config directly.
+    """
+    runtime = getattr(request.app.state, "rt", None)
+    if runtime is not None:
+        return getattr(request.app.state, "house_config", runtime.cfg)
+    host = getattr(request.app.state, "host", None)
+    if host is not None:
+        return host.base
+    raise HTTPException(status_code=503, detail="no configuration behind this app")
 
 
-def _display(field: dict, cfg) -> object:
-    """Current effective value for a field, coerced for the form."""
-    val = getattr(cfg, field["attr"], "")
+def _key_config(request: Request, cfg):
+    """Config that names character-scoped `.env` keys such as Telegram's."""
+    runtime = getattr(request.app.state, "rt", None)
+    return runtime.cfg if runtime is not None else cfg
+
+
+def _stored_values() -> dict[str, str]:
+    try:
+        return {str(key): str(value) for key, value in dotenv_values(ENV_PATH).items()
+                if key is not None and value is not None}
+    except OSError:
+        return {}
+
+
+def _display(field: dict, cfg, key_cfg, stored: dict[str, str]) -> object:
+    """The value the panel will write, rather than a character's effective one."""
+    if field["key"] not in stored:
+        source = key_cfg if field.get("key_env") else cfg
+        return envfile.display(field, source)
+    raw = stored[field["key"]]
     if field["type"] == "bool":
-        return bool(val)
+        return raw.strip().lower() in ("true", "1", "yes", "on")
     if field["type"] == "number":
-        return val
-    return "" if val is None else str(val)
+        source = key_cfg if field.get("key_env") else cfg
+        current = getattr(source, field["attr"], 0)
+        try:
+            return float(raw) if isinstance(current, float) else int(raw)
+        except ValueError:
+            return raw
+    return raw
 
 
-def _format(field: dict, raw) -> str:
-    """A submitted value → the exact text to write after KEY= in .env."""
-    if field["type"] == "bool":
-        return "true" if (raw is True or str(raw).lower() in ("true", "1", "yes")) else "false"
-    s = str(raw)
-    # quote if a bare value could be mis-parsed (spaces, inline #, =, quotes)
-    if s and (s != s.strip() or any(c in s for c in ' #="\'')):
-        return '"' + s.replace('"', '\\"') + '"'
-    return s
+def _pairing(request: Request, cfg) -> dict:
+    """The pairing view, built from the token the server will actually accept.
 
-
-def _update_env(path: Path, updates: dict[str, str]) -> list[str]:
-    """Upsert KEY=value lines, uncommenting a matching `# KEY=` and preserving the
-    rest of the file (comments, order, blank lines). Returns the keys written."""
-    lines = path.read_text().splitlines() if path.exists() else []
-    remaining = dict(updates)
-
-    def _matches(line: str, key: str) -> bool:
-        stripped = line.lstrip()
-        body = stripped[1:].lstrip() if stripped.startswith("#") else stripped
-        return body.split("=", 1)[0].strip() == key if "=" in body else False
-
-    for i, line in enumerate(lines):
-        for key in list(remaining):
-            if _matches(line, key):
-                lines[i] = f"{key}={remaining.pop(key)}"
-                break
-    # any keys with no line at all → append under a header
-    if remaining:
-        if lines and lines[-1].strip():
-            lines.append("")
-        lines.append("# --- set from the settings panel ---")
-        for key, val in remaining.items():
-            lines.append(f"{key}={val}")
-
-    path.write_text("\n".join(lines) + "\n")
-    return list(updates)
+    Not from `cfg`: that is a boot-time snapshot, and the whole point of the
+    boundary is that the token can move underneath it. A QR drawn from the stale
+    value would be a code that scans cleanly and then refuses you at the door.
+    `live` is the other half of the same fact — whether `.env` still says what
+    the boundary is honouring, which is what a hand-edited file or a
+    `yurios settings` run while she is up would break.
+    """
+    boundary = boundary_for(request.app)
+    token = boundary.token if boundary is not None else str(getattr(cfg, "owner_token", "") or "")
+    try:
+        stored = str(dotenv_values(ENV_PATH).get("OWNER_TOKEN") or "")
+    except OSError:
+        stored = token
+    request_origin = external_request_origin(
+        dict(request.headers), str(getattr(cfg, "host", "") or ""),
+        request.url.scheme)
+    peer = request.client.host if request.client else ""
+    if (is_loopback(str(getattr(cfg, "host", "") or "")) and is_loopback(peer)
+            and not request.headers.get("x-forwarded-for")):
+        request_origin = ""
+    described = pairing.describe(cfg, token, live=token == stored,
+                                 request_origin=request_origin)
+    described["env_path"] = str(ENV_PATH)
+    # The token in the clear, like the links it is already inside. This is the
+    # one place that does that, and it does it for the caller that is either on
+    # the loopback interface or holding this very value.
+    described["token"] = token
+    return described
 
 
 @router.get("/api/models")
@@ -264,25 +144,28 @@ async def list_models(request: Request, provider: str = ""):
     model picker. The listing itself lives in `app/providers/catalog.py` because
     the studio's optimize dialog asks the same question of the same servers."""
     _require_local(request)
-    return await provider_models(request.app.state.rt.cfg, provider)
+    cfg = _config(request)
+    return await provider_models(_key_config(request, cfg), provider)
 
 
 @router.get("/api/settings")
 async def get_settings(request: Request):
     _require_local(request)
-    cfg = request.app.state.rt.cfg
+    cfg = _config(request)
+    key_cfg = _key_config(request, cfg)
+    stored = _stored_values()
     return {
         "env_path": str(ENV_PATH),
         "groups": [
-            {"group": g["group"],
+            {"group": g["group"], "advanced": bool(g.get("advanced")),
              "fields": [
                  ({**{k: v for k, v in f.items() if k not in ("attr", "key_env")},
-                   "configured": bool(_display(f, cfg))}
+                    "configured": bool(_display(f, cfg, key_cfg, stored))}
                   if f["type"] == "password" else
                   {**{k: v for k, v in f.items() if k not in ("attr", "key_env")},
-                   "value": _display(f, cfg)})
+                    "value": _display(f, cfg, key_cfg, stored)})
                  for f in g["fields"]]}
-            for g in _groups_for(cfg)
+            for g in _groups_for(cfg, key_cfg=key_cfg)
         ],
     }
 
@@ -291,25 +174,78 @@ async def get_settings(request: Request):
 async def post_settings(request: Request):
     _require_local(request)
     payload = await request.json()
-    by_key = {f["key"]: f for g in _groups_for(request.app.state.rt.cfg)
-              for f in g["fields"]}
-    updates: dict[str, str] = {}
-    unknown: list[str] = []
-    for key, raw in (payload or {}).items():
-        field = by_key.get(key)
-        if field is None:
-            unknown.append(key)
-            continue
-        if field["type"] == "password":
-            if raw is None:              # explicit remove
-                updates[key] = ""
-                continue
-            if not isinstance(raw, str):
-                raise HTTPException(status_code=422,
-                                    detail=f"{key} must be a string or null")
-            if not raw.strip():           # blank means preserve
-                continue
-        updates[key] = _format(field, raw)
-    written = _update_env(ENV_PATH, updates) if updates else []
-    return {"ok": True, "written": written, "ignored": unknown,
+    cfg = _config(request)
+    key_cfg = _key_config(request, cfg)
+    try:
+        written, ignored = envfile.apply(
+            cfg, payload or {}, path=ENV_PATH, key_cfg=key_cfg)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    body = {"ok": True, "written": written, "ignored": ignored,
             "restart_required": bool(written), "env_path": str(ENV_PATH)}
+    return _rotated(request, written, payload, body)
+
+
+def _rotated(request: Request, written: list[str], payload: dict, body: dict):
+    """Apply an OWNER_TOKEN written through the ordinary settings form.
+
+    Typing the token by hand is still allowed — the field is there — and it has
+    to behave the same as generating one, or the panel would have two owner
+    tokens with two different meanings.
+    """
+    boundary = boundary_for(request.app)
+    if boundary is None or "OWNER_TOKEN" not in written:
+        return body
+    raw = payload.get("OWNER_TOKEN")                # JSON null = remove it
+    try:
+        boundary.set("" if raw is None else str(raw))
+    except ValueError as exc:                       # envfile.check catches this first
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    body["owner_token_applied"] = True
+    body["restart_required"] = bool([k for k in written if k != "OWNER_TOKEN"])
+    return _keep_caller_signed_in(request, JSONResponse(body), boundary)
+
+
+@router.get("/api/pairing")
+async def get_pairing(request: Request):
+    """The owner token as a set of scannable links, one per address that might work."""
+    _require_local(request)
+    return _pairing(request, _config(request))
+
+
+@router.post("/api/pairing/token")
+async def rotate_pairing_token(request: Request):
+    """Generate an owner token, save it, and start honouring it now.
+
+    The generator is the only sane way to produce this value, so it is a button
+    rather than advice in a help string. Rotation revokes every session opened
+    under the old token — which is also how you throw a device out.
+    """
+    _require_local(request)
+    cfg = _config(request)
+    key_cfg = _key_config(request, cfg)
+    token = generate_owner_token()
+    try:
+        envfile.apply(cfg, {"OWNER_TOKEN": token}, path=ENV_PATH,
+                      key_cfg=key_cfg)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    boundary = boundary_for(request.app)
+    if boundary is not None:
+        boundary.set(token)
+    described = _pairing(request, cfg)
+
+    return _keep_caller_signed_in(request, JSONResponse(described), boundary)
+
+
+def _keep_caller_signed_in(request: Request, response, boundary):
+    """Re-issue the session for whoever just rotated the token.
+
+    Only for a caller that had one: a loopback request needs no cookie, and
+    handing it one would be inventing a session nobody asked for.
+    """
+    if boundary is not None and boundary.token and \
+            getattr(request.state, "owner_authenticated", False):
+        issue_session_cookie(response, boundary,
+                             https=request.url.scheme == "https")
+    return response

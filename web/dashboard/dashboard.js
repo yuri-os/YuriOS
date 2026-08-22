@@ -38,7 +38,7 @@ const elements = {
   reviewDialogStudio: $("#review-dialog-studio"),
   reviewDialogError: $("#review-dialog-error"),
   importDialog: $("#import-dialog"),
-  settingsDialog: $("#settings-dialog"),
+  profileDialog: $("#profile-dialog"),
   brainDialog: $("#brain-dialog"),
   archiveDialog: $("#archive-dialog"),
   toastRegion: $("#toast-region"),
@@ -638,10 +638,10 @@ async function submitImport(event) {
 
 // What the profile form held once it finished loading — the baseline that says
 // whether leaving it for the brain panel would throw anything away.
-let settingsBaseline = {};
+let profileBaseline = {};
 
-function settingsValues() {
-  const form = $("#settings-form");
+function profileValues() {
+  const form = $("#profile-form");
   // The checkboxes have to be read off the elements: FormData drops an
   // unchecked box entirely, so unticking one would look like no change at all.
   return {
@@ -652,7 +652,7 @@ function settingsValues() {
 }
 
 function snapshotSettings() {
-  settingsBaseline = settingsValues();
+  profileBaseline = profileValues();
 }
 
 /* The doorbell needs a house switch as well as hers (SPEC §18.4.6), and a
@@ -680,10 +680,10 @@ function setNotifyAvailability(form, available) {
   }
 }
 
-async function openSettings() {
+async function openProfile() {
   const character = selectedCharacter();
   if (!character) return;
-  const form = $("#settings-form");
+  const form = $("#profile-form");
   form.elements.name.value = character.name;
   form.elements.voice.value = character.voice === "default" ? "" : character.voice;
   form.elements.model.value = character.model === "node default" ? "" : character.model;
@@ -699,10 +699,10 @@ async function openSettings() {
   // leave it inert, so the reason is on the field rather than left to be guessed.
   form.elements.notify.checked = character.notify.enabled;
   setNotifyAvailability(form, character.notify.available);
-  $("#settings-error").textContent = "";
+  $("#profile-error").textContent = "";
   brainState.confirmSwitch = false;
   snapshotSettings();
-  openModal(elements.settingsDialog);
+  openModal(elements.profileDialog);
   try {
     const [payload, connections] = await Promise.all([
       charactersApi.settings(character.id), charactersApi.connections(),
@@ -727,26 +727,26 @@ async function openSettings() {
     }
     snapshotSettings();          // the loaded record, not the registry summary
   } catch (error) {
-    if (error.name !== "AbortError") $("#settings-error").textContent = `Using registry values. ${errorMessage(error)}`;
+    if (error.name !== "AbortError") $("#profile-error").textContent = `Using registry values. ${errorMessage(error)}`;
   }
 }
 
-async function submitSettings(event) {
+async function submitProfile(event) {
   event.preventDefault();
   const character = selectedCharacter();
   if (!character) return;
   const form = event.currentTarget;
   const payload = Object.fromEntries(new FormData(form).entries());
   for (const key of ["mind", "utility", "dream", "notify"]) payload[key] = form.elements[key].checked;
-  const button = $("#settings-submit");
-  const error = $("#settings-error");
+  const button = $("#profile-submit");
+  const error = $("#profile-error");
   error.textContent = "";
   setBusy(button, true, "Saving...");
   try {
     const response = await charactersApi.saveSettings(character.id, payload);
     const updated = normalizeCharacter(response?.character ?? { ...character.raw, ...payload, id: character.id });
     if (updated) Object.assign(character, updated);
-    closeModal(elements.settingsDialog);
+    closeModal(elements.profileDialog);
     renderCharacters();
     syncDrawer();
     // A model or connection change lands on the live runtime (SPEC §31.4) —
@@ -830,7 +830,7 @@ function renderBrain(data) {
 async function openBrain() {
   const character = selectedCharacter();
   if (!character) return;
-  closeModal(elements.settingsDialog);
+  closeModal(elements.profileDialog);
   $("#brain-error").textContent = "";
   $("#brain-body").replaceChildren(element("p", { className: "form-note", text: "Reading her record..." }));
   openModal(elements.brainDialog);
@@ -858,7 +858,7 @@ async function submitBrain(event) {
   error.textContent = "";
   if (!Object.keys(diff).length) {
     closeModal(elements.brainDialog);
-    openSettings();
+    openProfile();
     return;
   }
   setBusy(button, true, "Saving...");
@@ -884,12 +884,12 @@ async function submitBrain(event) {
 /** Leaving the profile panel discards whatever is typed in it, so say so once
  *  and let the second press mean it. */
 function leaveForBrain() {
-  const now = settingsValues();
+  const now = profileValues();
   const dirty = Object.keys(now).some(
-    (name) => String(now[name]) !== String(settingsBaseline[name] ?? ""));
+    (name) => String(now[name]) !== String(profileBaseline[name] ?? ""));
   if (dirty && !brainState.confirmSwitch) {
     brainState.confirmSwitch = true;
-    $("#settings-error").textContent =
+    $("#profile-error").textContent =
       "Unsaved profile edits — save them first, or press Her brain again to discard them.";
     return;
   }
@@ -1023,8 +1023,8 @@ function wireEvents() {
   elements.reviewDialogApprove.addEventListener("click", () => approveCharacter(state.reviewId, {
     button: elements.reviewDialogApprove, errorSlot: elements.reviewDialogError,
     goTo: state.pendingRoom }));
-  $("#settings-open").addEventListener("click", openSettings);
-  $("#settings-form").addEventListener("submit", submitSettings);
+  $("#profile-open").addEventListener("click", openProfile);
+  $("#profile-form").addEventListener("submit", submitProfile);
   $("#brain-open").addEventListener("click", leaveForBrain);
   $("#brain-form").addEventListener("submit", submitBrain);
   // Every way out of the brain panel goes back where it came from — including
@@ -1034,7 +1034,7 @@ function wireEvents() {
     // Backing out returns you where you started; a completed save doesn't —
     // reopening the panel you just finished with reads as a failed save.
     if (brainState.saved) brainState.saved = false;
-    else if (!elements.settingsDialog.open) openSettings();
+    else if (!elements.profileDialog.open) openProfile();
   });
   $("#archive-open").addEventListener("click", () => {
     const character = selectedCharacter();

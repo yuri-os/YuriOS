@@ -99,6 +99,27 @@ def test_cross_site_origins_are_rejected_in_remote_and_loopback_modes():
             "Origin": "http://attacker.example"}).status_code == 403
 
 
+def test_loopback_reverse_proxy_accepts_its_forwarded_public_origin_only():
+    headers = {
+        "Authorization": f"Bearer {TOKEN}",
+        "Host": "127.0.0.1:8768",
+        "Origin": "https://node.tailnet.ts.net",
+        "X-Forwarded-For": "100.64.0.2",
+        "X-Forwarded-Host": "node.tailnet.ts.net",
+        "X-Forwarded-Proto": "https",
+    }
+    with TestClient(secured_app(host="127.0.0.1"),
+                    client=("100.64.0.2", 5000)) as client:
+        assert client.get("/api/private", headers=headers).status_code == 200
+        headers["Origin"] = "https://evil.example"
+        assert client.get("/api/private", headers=headers).status_code == 403
+
+    # A directly exposed server never trusts a client-selected forwarded host.
+    with TestClient(secured_app(), client=("192.0.2.4", 5000)) as client:
+        headers["Origin"] = "https://node.tailnet.ts.net"
+        assert client.get("/api/private", headers=headers).status_code == 403
+
+
 def test_remote_peer_is_fail_closed_even_if_configured_bind_is_loopback():
     with TestClient(secured_app(host="127.0.0.1", token=""),
                     client=("192.0.2.4", 5000)) as client:

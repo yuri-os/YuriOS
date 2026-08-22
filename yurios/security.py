@@ -1,4 +1,12 @@
-"""Single-owner access boundary for YuriOS HTTP and WebSocket surfaces."""
+"""Single-owner access boundary for YuriOS HTTP and WebSocket surfaces.
+
+The secret itself lives in an `OwnerBoundary`, not in the middleware that reads
+it: `.env` is editable while she runs (SPEC §11), and a rotated token that only
+took effect at the next restart would leave the settings panel — and the QR it
+just drew — describing an installation that does not exist yet. One boundary per
+process, shared by the host app and every character app mounted under it, so
+"the owner token" is one fact with one value everywhere.
+"""
 from __future__ import annotations
 
 import base64
@@ -8,6 +16,7 @@ import hmac
 import html
 import ipaddress
 import json
+import secrets
 from http.cookies import SimpleCookie
 from urllib.parse import parse_qs, quote, urlsplit
 
@@ -21,7 +30,13 @@ MAX_HTTP_BODY_BYTES = 48 * 1024 * 1024
 _SESSION_LABEL = b"yurios-owner-session-v1"
 
 
-def _is_loopback(host: str | None) -> bool:
+def generate_owner_token() -> str:
+    """A fresh owner secret. 32 url-safe bytes — 43 characters, comfortably over
+    MIN_TOKEN_LENGTH, and safe in a URL, which is how it reaches a phone."""
+    return secrets.token_urlsafe(32)
+
+
+def is_loopback(host: str | None) -> bool:
     if not host:
         return False
     # Starlette's in-process TestClient has no socket address and uses this
@@ -47,7 +62,52 @@ def _safe_next(value: str | None) -> str:
     return "/"
 
 
-def _origin_allowed(origin: str, host_header: str, local_only: bool) -> bool:
+def _header_hostname(value: str) -> str:
+    try:
+        parsed = urlsplit(f"//{value}")
+    except ValueError:
+        return ""
+    if parsed.username or parsed.password:
+        return ""
+    return parsed.hostname or ""
+
+
+def _forwarded_host(headers: dict[str, str], configured_local: bool) -> str:
+    """Return a proxy's public host only for a loopback reverse-proxy hop.
+
+    Tailscale Serve terminates HTTPS on loopback and may leave the backend Host
+    as 127.0.0.1 while carrying the browser-visible host in X-Forwarded-Host.
+    Trusting that header on a directly exposed bind would let a client choose
+    its own same-origin boundary, so it is accepted only when the installation
+    itself is loopback-bound, the backend Host is loopback, and the proxy also
+    supplied its forwarded client chain.
+    """
+    if not configured_local or not headers.get("x-forwarded-for"):
+        return ""
+    if not is_loopback(_header_hostname(headers.get("host", ""))):
+        return ""
+    value = headers.get("x-forwarded-host", "").split(",", 1)[0].strip()
+    return value if _header_hostname(value) else ""
+
+
+def external_request_origin(headers: dict[str, str], configured_host: str,
+                            scheme: str) -> str:
+    """The browser-visible origin for pairing links behind a local proxy."""
+    configured_local = is_loopback(configured_host)
+    forwarded = _forwarded_host(headers, configured_local)
+    host = forwarded or headers.get("host", "")
+    if not _header_hostname(host):
+        return ""
+    if forwarded:
+        forwarded_scheme = headers.get("x-forwarded-proto", "").split(",", 1)[0].strip()
+        if forwarded_scheme in ("http", "https"):
+            scheme = forwarded_scheme
+    if scheme not in ("http", "https"):
+        scheme = "http"
+    return f"{scheme}://{host}"
+
+
+def _origin_allowed(origin: str, host_headers: list[str], local_only: bool) -> bool:
     try:
         parsed = urlsplit(origin)
     except ValueError:
@@ -57,8 +117,9 @@ def _origin_allowed(origin: str, host_header: str, local_only: bool) -> bool:
     if local_only:
         # This also closes DNS rebinding: a browser page on an attacker hostname
         # is rejected even after that hostname resolves to 127.0.0.1.
-        return _is_loopback(parsed.hostname)
-    return parsed.netloc.lower().rstrip(".") == host_header.lower().rstrip(".")
+        return is_loopback(parsed.hostname)
+    authority = parsed.netloc.lower().rstrip(".")
+    return any(authority == host.lower().rstrip(".") for host in host_headers)
 
 
 def _headers(scope) -> dict[str, str]:
@@ -132,24 +193,61 @@ class HTTPBodyLimitMiddleware:
             await response(scope, receive, send)
 
 
-class OwnerAccessMiddleware:
-    """Require the installation owner secret whenever traffic is non-loopback."""
+class OwnerBoundary:
+    """This installation's owner secret, and the session value derived from it.
 
-    def __init__(self, app, *, configured_host: str, owner_token: str):
-        self.app = app
-        self.configured_local = _is_loopback(configured_host)
-        self.owner_token = owner_token
-        self.session = _session_value(owner_token) if owner_token else ""
+    Held in one mutable object rather than copied into the middleware, so that
+    rotating the token (the settings panel, `yurios pair --new`) takes effect on
+    the next request instead of the next boot. Rotation is a revocation too: the
+    cookie is an HMAC *of* the token, so every session opened under the old one
+    stops verifying the moment the new one lands.
+    """
 
-    def _authenticated(self, headers: dict[str, str]) -> bool:
-        if not self.owner_token:
+    def __init__(self, token: str = "") -> None:
+        self.token = ""
+        self.session = ""
+        self.set(token)
+
+    def set(self, token: str) -> None:
+        token = str(token or "")
+        if token and len(token) < MIN_TOKEN_LENGTH:
+            raise ValueError(
+                f"OWNER_TOKEN must be at least {MIN_TOKEN_LENGTH} characters")
+        self.token = token
+        self.session = _session_value(token) if token else ""
+
+    def authenticates(self, headers: dict[str, str]) -> bool:
+        if not self.token:
             return False
         authorization = headers.get("authorization", "")
-        supplied = authorization[7:].strip() if authorization.lower().startswith("bearer ") else ""
-        if supplied and hmac.compare_digest(supplied, self.owner_token):
+        supplied = (authorization[7:].strip()
+                    if authorization.lower().startswith("bearer ") else "")
+        if supplied and hmac.compare_digest(supplied, self.token):
             return True
         cookie = _cookie_value(headers.get("cookie", ""), COOKIE_NAME)
         return bool(cookie) and hmac.compare_digest(cookie, self.session)
+
+
+def boundary_for(app) -> OwnerBoundary | None:
+    """The boundary guarding this app, if it has one.
+
+    A character app mounted under the host has no middleware of its own — the
+    host's covers it — but it is handed the same object, so a settings save
+    served through her runtime rotates the secret the host is checking.
+    """
+    return getattr(app.state, "owner_boundary", None)
+
+
+class OwnerAccessMiddleware:
+    """Require the installation owner secret whenever traffic is non-loopback."""
+
+    def __init__(self, app, *, configured_host: str, boundary: OwnerBoundary):
+        self.app = app
+        self.configured_local = is_loopback(configured_host)
+        self.boundary = boundary
+
+    def _authenticated(self, headers: dict[str, str]) -> bool:
+        return self.boundary.authenticates(headers)
 
     async def __call__(self, scope, receive, send):
         if scope["type"] not in ("http", "websocket"):
@@ -158,9 +256,13 @@ class OwnerAccessMiddleware:
 
         headers = _headers(scope)
         peer = (scope.get("client") or (None, None))[0]
-        remote_mode = not self.configured_local or not _is_loopback(peer)
+        remote_mode = not self.configured_local or not is_loopback(peer)
         origin = headers.get("origin")
-        if origin and not _origin_allowed(origin, headers.get("host", ""),
+        allowed_hosts = [headers.get("host", "")]
+        forwarded = _forwarded_host(headers, self.configured_local)
+        if forwarded:
+            allowed_hosts.append(forwarded)
+        if origin and not _origin_allowed(origin, allowed_hosts,
                                           local_only=not remote_mode):
             if scope["type"] == "websocket":
                 await send({"type": "websocket.close", "code": 4403,
@@ -198,9 +300,38 @@ class OwnerAccessMiddleware:
 router = APIRouter()
 
 
+def issue_session_cookie(response, boundary: OwnerBoundary, *, https: bool):
+    """Put this boundary's session on a response.
+
+    Also used after a rotation (`desktop/routes/settings.py`): the new token
+    revokes every session including the caller's, and re-issuing here is what
+    keeps the hand that turned the key from being locked out by it.
+    """
+    response.set_cookie(COOKIE_NAME, boundary.session, httponly=True,
+                        secure=https, samesite="strict", path="/")
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    return response
+
+
 @router.get("/auth", include_in_schema=False)
-async def login_page(request: Request, next: str = "/"):
+async def login_page(request: Request, next: str = "/", token: str = ""):
+    """The unlock page — and, with `?token=`, the pairing link itself.
+
+    That query form is what the QR in the settings panel encodes (SPEC §11.1):
+    the phone opens one URL and is inside, with no 43-character secret to read
+    off a screen and retype. It costs what every magic link costs — the token is
+    in the phone's history and in any proxy log between the two of them — which
+    is why it is a LAN pairing affordance and why the redirect leaves the URL
+    behind immediately. Rotating the token from the panel invalidates a link that
+    leaked.
+    """
     target = _safe_next(next)
+    boundary = boundary_for(request.app)
+    if token and boundary and boundary.token and \
+            hmac.compare_digest(token, boundary.token):
+        return issue_session_cookie(RedirectResponse(target, status_code=303),
+                                    boundary, https=request.url.scheme == "https")
     if getattr(request.state, "owner_authenticated", False):
         return RedirectResponse(target, status_code=303)
     body = f"""<!doctype html>
@@ -235,35 +366,34 @@ async def create_owner_session(request: Request):
     except (UnicodeDecodeError, ValueError, TypeError):
         return JSONResponse({"detail": "invalid request"}, status_code=400)
 
-    owner_token = request.app.state.owner_token
+    boundary = boundary_for(request.app)
     supplied = str(payload.get("token", ""))
-    if not owner_token or not hmac.compare_digest(supplied, owner_token):
+    if boundary is None or not boundary.token or \
+            not hmac.compare_digest(supplied, boundary.token):
         return JSONResponse({"detail": "invalid owner token"}, status_code=401,
                             headers={"WWW-Authenticate": "Bearer"})
 
     target = _safe_next(str(payload.get("next", "/")))
     response = (JSONResponse({"ok": True}) if wants_json else
                 RedirectResponse(target, status_code=303))
-    response.set_cookie(COOKIE_NAME, _session_value(owner_token), httponly=True,
-                        secure=request.url.scheme == "https", samesite="strict", path="/")
-    response.headers["Cache-Control"] = "no-store"
-    return response
+    return issue_session_cookie(response, boundary,
+                                https=request.url.scheme == "https")
 
 
-def install_owner_security(app, cfg) -> None:
+def install_owner_security(app, cfg) -> OwnerBoundary:
     """Install the boundary and reject an unsafe advertised bind up front."""
     token = str(getattr(cfg, "owner_token", "") or "")
     configured_host = str(getattr(cfg, "host", "") or "")
-    if token and len(token) < MIN_TOKEN_LENGTH:
-        raise ValueError(f"OWNER_TOKEN must be at least {MIN_TOKEN_LENGTH} characters")
-    if not _is_loopback(configured_host) and not token:
+    boundary = OwnerBoundary(token)          # raises on a token too short to hold
+    if not is_loopback(configured_host) and not token:
         raise ValueError(
             "non-loopback HOST requires OWNER_TOKEN; generate one with "
-            "`python -c \"import secrets; print(secrets.token_urlsafe(32))\"`")
-    app.state.owner_token = token
+            "`yurios pair --new`")
+    app.state.owner_boundary = boundary
     app.include_router(router)
     app.add_middleware(OwnerAccessMiddleware, configured_host=configured_host,
-                       owner_token=token)
+                       boundary=boundary)
+    return boundary
 
 
 def install_http_boundaries(app, *, maximum: int = MAX_HTTP_BODY_BYTES) -> None:
@@ -307,5 +437,5 @@ def decode_bounded_base64(value: object, *, maximum: int, field: str) -> bytes:
 def owner_or_loopback(request: Request) -> bool:
     """Whether a sensitive local-management route may serve this request."""
     peer = request.client.host if request.client else None
-    return _is_loopback(peer) or bool(
+    return is_loopback(peer) or bool(
         getattr(request.state, "owner_authenticated", False))

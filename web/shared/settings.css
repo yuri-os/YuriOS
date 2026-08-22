@@ -104,7 +104,22 @@ stroke-width="2.4" stroke-linecap="round"><path d="M5.5 5.5 18.5 18.5M18.5 5.5 5
 .set-scope-house{ margin-top:26px; }
 .set-scope-warn{ color:var(--amber); font:9px/1.7 var(--font-mono); margin:14px 0 0; }
 
+.set-advanced{
+  margin-top:28px; padding-top:16px; border-top:1px solid var(--rule);
+}
+.set-advanced-title{
+  color:var(--soft); cursor:pointer; list-style:none;
+  font:9px var(--font-mono); letter-spacing:.14em; text-transform:uppercase;
+}
+.set-advanced-title::-webkit-details-marker{ display:none; }
+.set-advanced-title::before{ content:"+"; display:inline-block; width:18px; color:var(--acid); }
+.set-advanced[open] > .set-advanced-title::before{ content:"−"; }
+.set-advanced[hidden]{ display:none; }
+
 .set-row{ display:block; margin:16px 0; }
+/* An author `display` beats the UA stylesheet's `[hidden]{display:none}`, so the
+ * filter's hiding has to be said here or a narrowed row stays on screen. */
+.set-row[hidden], .set-group[hidden]{ display:none; }
 .set-key{
   margin-bottom:8px; color:var(--soft); font:9px var(--font-mono);
   letter-spacing:.08em; text-transform:uppercase;
@@ -162,3 +177,52 @@ select.set-input{ cursor:pointer; }
   transition:.18s ease;
 }
 .settings-save:hover{ background:#e1ff7b; box-shadow:0 0 24px rgb(215 255 88 / .13); }
+
+/* the pairing panel, under OWNER_TOKEN (SPEC §11.1, → settings.js)
+ *
+ * The QR itself is an <svg> the server drew (yurios/qr.py), sized here rather
+ * than there: it arrives with a viewBox and no fixed footprint worth trusting,
+ * and what it needs is to be big enough for a phone to see across a desk. The
+ * white plate is not decoration — a scanner reads dark-on-light, and this panel
+ * sits on a near-black page. */
+.set-pair{
+  margin-top:12px; padding:14px; border:1px solid var(--rule); border-radius:2px;
+  background:var(--panel-2, rgb(255 255 255 / .02));
+}
+.set-pair-note{ margin:0 0 12px; color:var(--dim); font:9px/1.7 var(--font-mono); }
+.set-pair-note.warn{ color:var(--amber); }
+.set-pair-frame{ display:flex; }
+.set-pair-frame svg{
+  width:min(232px, 60vw); height:auto; background:#fff; padding:10px;
+  border-radius:2px;
+}
+/* The board paints every <svg> as a line icon — `fill:none; stroke:currentColor`
+ * on the bare element selector. A QR is the opposite of a line icon, and a rule
+ * beats the presentation attributes the encoder writes, so undo it explicitly
+ * rather than relying on the markup to win. */
+.set-pair-frame svg rect{ fill:#fff; stroke:none; }
+.set-pair-frame svg path{ fill:#000; stroke:none; }
+.set-pair-frame:empty{ display:none; }
+.set-pair-link{
+  display:block; margin-top:12px; color:var(--acid); font:9px/1.5 var(--font-mono);
+  word-break:break-all; text-decoration:none;
+}
+.set-pair-link:hover{ text-decoration:underline; }
+.set-pair-others{ display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-top:12px; }
+.set-pair-others-label{ color:var(--dim); font:9px var(--font-mono); }
+
+/* the header's filter box (→ settings.js). The table is every knob the running
+ * config declares — around two hundred — so narrowing it is not a luxury. It
+ * sits between the title and the path, where the eye already is. */
+.settings-filter{
+  flex:0 1 190px; min-width:110px; margin-left:auto;
+  padding:6px 9px; border:1px solid var(--rule); border-radius:2px;
+  background:transparent; color:var(--ink); font:10px var(--font-mono);
+}
+.settings-filter::placeholder{ color:var(--dim); }
+.settings-filter:focus{ outline:none; border-color:var(--acid-dark); }
+.set-pair-token{
+  display:block; margin-top:10px; color:var(--dim); font:9px/1.5 var(--font-mono);
+  word-break:break-all; user-select:all;
+}
+.set-pair-token:empty{ display:none; }

@@ -13,11 +13,26 @@
  * Everything is read at server boot, so a save asks for a restart rather than
  * pretending to hot-apply.
  *
+ * The table is EVERY knob the running config declares (yurios/envfile.py), which
+ * is around two hundred of them — so the header grows a filter box, built here
+ * rather than added to each page's markup. It narrows by key and by help text,
+ * and hides a group once nothing in it matches, which is what makes "where is
+ * the setting for X" a question the panel can answer.
+ *
  * The CHAT_MODEL / UTILITY_MODEL fields (type "model") get a richer control: a
  * provider dropdown (LM Studio · Ollama · OpenRouter · Custom) beside a model box
  * you can type into OR fill from a live "browse" of what that provider is serving
  * (GET /api/models?provider=…). The stored .env value is the LiteLLM id — the
  * provider prefix + the model — which we split apart on load and re-join on save.
+ *
+ * OWNER_TOKEN is the one field that is not really a text box. Its value has to
+ * end up on a *different device* — the phone you want to read her from — so
+ * beside it sit two buttons: "generate" mints one server-side and applies it to
+ * the running boundary at once, and "pair a phone" opens a panel of QR codes,
+ * one per address this machine might be reachable at. Scanning opens
+ * /auth?token=… and the phone is in, with nothing typed. Both talk to
+ * /api/pairing (SPEC §11.1); the panel says out loud when the bind is loopback
+ * and no phone can reach her whatever it scans.
  *
  * Above all of that sits a second panel with a different owner: HER brain
  * (GET|PATCH /api/brain, world/host.py — SPEC §31.2, §31.4). Those fields belong to one
@@ -26,7 +41,9 @@
  * her voice are two small objects, not a process — a save applies to the running
  * conversation at once. So one dialog carries two scopes with two honest
  * promises: hers now, the house's on restart. `rows` carries the scope, which is
- * what keeps the diff going to the right endpoint. */
+ * what keeps the diff going to the right endpoint. The board opens the same
+ * dialog with data-scope="house" on it, which drops the character panel: the
+ * switchboard is not standing in anybody's room. */
 (() => {
   const runtimeReady = window.YuriOSRuntime
     ? Promise.resolve()
@@ -41,6 +58,7 @@
   let rows = [];           // {key, scope, read} — the source of truth for save()
   let loaded = false;
   let brain = null;        // the character's own brain panel, if this node has one
+  let filterBox = null;    // the header's narrowing box, built on first load
 
   const el = (tag, props = {}, ...kids) => {
     const n = Object.assign(document.createElement(tag), props);
@@ -192,6 +210,115 @@
     return { node: combo, read: () => input.value, status: b.status };
   }
 
+  // ---- OWNER_TOKEN: the field whose value has to reach another device ----
+  //
+  // Everything here is drawn in JS rather than added to each page's markup:
+  // four pages carry the settings <dialog>, and a pairing panel that only one
+  // of them had would be the kind of drift this file exists to avoid.
+  function pairingPanel(input) {
+    const panel = el("div", { className: "set-pair", hidden: true });
+    const status = el("p", { className: "set-pair-note" });
+    const frame = el("div", { className: "set-pair-frame" });
+    const link = el("a", { className: "set-pair-link", target: "_blank",
+      rel: "noreferrer" });
+    // The token in the clear, HERE and not in the field above: that one stays
+    // write-only ("blank keeps what is there"), and filling it would make
+    // merely looking at this panel read as an unsaved change. This is the place
+    // the secret is handed over, so this is the place it is legible — for the
+    // device that cannot use a camera.
+    const token = el("code", { className: "set-pair-token" });
+    const others = el("div", { className: "set-pair-others" });
+    panel.append(status, frame, link, token, others);
+
+    function draw(data, minted) {
+      status.classList.toggle("warn", !data.reachable);
+      const lines = [];
+      if (minted) lines.push("New token — every other session is signed out.");
+      if (!data.configured) lines.push("No owner token yet. Generate one to pair.");
+      if (!data.reachable)
+        lines.push(`HOST=${data.host || "unset"} is loopback: nothing off this `
+          + "machine can reach her. Set HOST to 0.0.0.0, save, and restart — "
+          + "then this code works.");
+      else if (!data.live)
+        lines.push("Saved, but she is still running on the previous token — "
+          + "restart before scanning.");
+      const links = data.links || [];
+      if (data.configured && !links.length)
+        lines.push("No address on this machine looks reachable from a phone.");
+      status.textContent = lines.join(" ") || "Scan this with the phone's camera "
+        + "— it opens her already signed in.";
+      frame.replaceChildren();
+      link.textContent = "";
+      link.removeAttribute("href");
+      token.textContent = data.token || "";
+      others.replaceChildren();
+      if (data.configured) input.placeholder = "configured — leave blank to keep";
+      if (!links.length) { panel.hidden = false; return; }
+      const chosen = links[0];
+      frame.innerHTML = chosen.qr;                 // server-built <svg>, no markup from us
+      link.href = chosen.url;
+      link.textContent = chosen.origin;
+      if (links.length > 1) {
+        others.append(el("span", { className: "set-pair-others-label",
+          textContent: "other addresses:" }));
+        for (const other of links.slice(1)) {
+          const pick = el("button", { type: "button", className: "set-reveal",
+            textContent: other.origin });
+          pick.addEventListener("click", () => {
+            links.splice(links.indexOf(other), 1);
+            links.unshift(other);
+            draw(data, false);
+          });
+          others.append(pick);
+        }
+      }
+      panel.hidden = false;
+    }
+
+    async function show(minted, data) {
+      await runtimeReady;
+      status.textContent = "loading…";
+      panel.hidden = false;
+      try {
+        const payload = data || await fetch(apiPath("/api/pairing"))
+          .then((r) => r.json());
+        draw(payload, minted);
+      } catch (e) {
+        status.textContent = "couldn't read the pairing state: " + e;
+      }
+    }
+
+    return { node: panel, show,
+      toggle: () => (panel.hidden ? show(false) : (panel.hidden = true)) };
+  }
+
+  function ownerTokenExtras(ctl, wrap) {
+    const pair = pairingPanel(ctl.input);
+    const generate = el("button", { type: "button", className: "set-reveal",
+      textContent: "generate" });
+    const open = el("button", { type: "button", className: "set-reveal",
+      textContent: "pair a phone" });
+    generate.addEventListener("click", async () => {
+      await runtimeReady;
+      generate.disabled = true;
+      try {
+        const r = await fetch(apiPath("/api/pairing/token"), { method: "POST" });
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.detail || `HTTP ${r.status}`);
+        // Written and applied by that one call, so there is nothing for save()
+        // to send afterwards — which is why nothing here touches the field.
+        await pair.show(true, data);
+      } catch (e) {
+        note.textContent = "could not generate a token: " + e;
+      } finally {
+        generate.disabled = false;
+      }
+    });
+    open.addEventListener("click", () => pair.toggle());
+    wrap.append(generate, open);
+    return pair.node;
+  }
+
   function control(f) {
     const id = "set-" + f.key;
     if (f.type === "select") {
@@ -289,6 +416,7 @@
     if (f.type !== "model") label.htmlFor = "brain-" + f.key;
     rows.push({ key: f.key, scope: "brain", read: ctl.read });
     initial["brain:" + f.key] = ctl.read();
+    label.dataset.match = (f.key + " " + (f.help || "")).toLowerCase();
     label.append(el("div", { className: "set-key", textContent: f.key.replace(/_/g, " ") }), wrap);
     if (f.help) label.append(el("div", { className: "set-help", textContent: f.help }));
     if (ctl.status) label.append(ctl.status);
@@ -319,6 +447,7 @@
     const wrap = el("div", { className: "set-ctl" });
 
     let ctl;
+    let pairPanel = null;
     if (f.type === "model" || f.type === "embed_model") {
       ctl = f.type === "embed_model" ? embedModelField(f) : modelField(f);
       wrap.append(ctl.node);
@@ -336,14 +465,18 @@
         });
         wrap.append(reveal);
         wrap.append(ctl.remove);
+        if (f.key === "OWNER_TOKEN") pairPanel = ownerTokenExtras(ctl, wrap);
       }
     }
 
     rows.push({ key: f.key, scope: "env", read: ctl.read });
     initial["env:" + f.key] = ctl.read();
+    label.dataset.match = (f.key + " " + (f.help || "")).toLowerCase();
+    if (f.relevant_if) label.dataset.relevantIf = JSON.stringify(f.relevant_if);
     label.append(head, wrap);
     if (f.help) label.append(el("div", { className: "set-help", textContent: f.help }));
     if (ctl.status) label.append(ctl.status);
+    if (pairPanel) label.append(pairPanel);      // under the field it belongs to
     return label;
   }
 
@@ -351,6 +484,10 @@
   // Build #2 desktop app) 404s here, and a node with nothing running answers
   // 503 — both mean "no character to configure", not an error to show.
   async function loadBrain() {
+    // The board opens this dialog for the house, not for a character: there is
+    // no "her" to show a brain panel for, and the primary character's would be
+    // the wrong one to show anyway.
+    if (dlg.dataset.scope === "house") return null;
     try {
       const r = await fetch(apiPath("/api/brain"));
       if (!r.ok) return null;
@@ -359,6 +496,58 @@
     } catch (e) {
       return null;
     }
+  }
+
+  // ---- the filter -----------------------------------------------------------
+  // Matching is on the key and on the one-line help, because half of what you
+  // are looking for you know by description rather than by name: "telegram"
+  // finds the credentials, "context" finds CONTEXT_LENGTH and the budgets.
+  function applyFilter() {
+    const q = (filterBox?.value || "").trim().toLowerCase();
+    for (const section of body.querySelectorAll(".set-group")) {
+      let shown = 0;
+      for (const row of section.querySelectorAll(".set-row")) {
+        const active = row.dataset.relevant !== "false";
+        const hit = active && (!q || (row.dataset.match || "").includes(q));
+        row.hidden = !hit;
+        shown += hit ? 1 : 0;
+      }
+      section.hidden = !shown;
+    }
+    // …only when there is something to have failed to match: with no groups at
+    // all the panel is reporting an error, and "no setting matches that" on top
+    // of it would be answering a question nobody asked.
+    const groups = [...body.querySelectorAll(".set-group")];
+    const empty = q && groups.length && !groups.some((section) => !section.hidden);
+    body.querySelector(".set-nomatch")?.toggleAttribute("hidden", !empty);
+    const advanced = body.querySelector(".set-advanced");
+    if (advanced) {
+      advanced.hidden = ![...advanced.querySelectorAll(".set-group")]
+        .some((section) => !section.hidden);
+      if (q && !advanced.hidden) advanced.open = true;
+    }
+  }
+
+  function applyRelevance() {
+    for (const row of body.querySelectorAll(".set-row[data-relevant-if]")) {
+      let rules = {};
+      try { rules = JSON.parse(row.dataset.relevantIf || "{}"); } catch (_) {}
+      row.dataset.relevant = String(Object.entries(rules).every(([key, allowed]) => {
+        const input = document.getElementById("set-" + key);
+        const value = input?.type === "checkbox" ? String(input.checked) : String(input?.value ?? "");
+        return (allowed || []).map(String).includes(value);
+      }));
+    }
+    applyFilter();
+  }
+
+  function ensureFilter() {
+    if (filterBox) return;
+    filterBox = el("input", { type: "search", className: "settings-filter",
+      placeholder: "filter settings", autocomplete: "off",
+      "aria-label": "filter settings" });
+    filterBox.addEventListener("input", applyFilter);
+    pathEl.parentElement.insertBefore(filterBox, pathEl.nextSibling);
   }
 
   async function load() {
@@ -378,21 +567,36 @@
     if (brain) {
       body.append(brainSection(brain));
       body.append(el("p", { className: "set-scope-note set-scope-house",
-        textContent: "Everything below is the house's .env — the default every "
-          + "character inherits, and a restart to apply." }));
+        textContent: "Everything below is stored in the house's .env and applies "
+          + "after restart. Character channel credentials use her own named key." }));
     }
     if (Array.isArray(settings.groups)) {
-      for (const g of settings.groups) {
+      const ordinary = settings.groups.filter((g) => !g.advanced);
+      const advancedGroups = settings.groups.filter((g) => g.advanced);
+      const appendGroup = (parent, g) => {
         const sec = el("section", { className: "set-group" });
         sec.append(el("h3", { className: "set-group-title", textContent: g.group }));
         for (const f of g.fields) sec.append(fieldRow(f));
-        body.append(sec);
+        parent.append(sec);
+      };
+      for (const g of ordinary) appendGroup(body, g);
+      if (advancedGroups.length) {
+        const count = advancedGroups.reduce((n, g) => n + g.fields.length, 0);
+        const advanced = el("details", { className: "set-advanced" });
+        advanced.append(el("summary", { className: "set-advanced-title",
+          textContent: `Advanced settings · ${count}` }));
+        for (const g of advancedGroups) appendGroup(advanced, g);
+        body.append(advanced);
       }
     } else {
       body.append(el("p", { className: "settings-loading",
         textContent: "couldn't load the .env panel: "
           + (settings.error || settings.detail || "unavailable") }));
     }
+    body.append(el("p", { className: "settings-loading set-nomatch", hidden: true,
+      textContent: "no setting matches that" }));
+    ensureFilter();
+    applyRelevance();       // also reapplies a filter left in the box
     loaded = true;
   }
 
@@ -422,6 +626,7 @@
       body: JSON.stringify(diff),
     });
     const res = await r.json();
+    if (!r.ok) throw new Error(res.detail || `HTTP ${r.status}`);
     const n = (res.written || []).length;
     for (const k of res.written || []) initial["env:" + k] = diff[k];
     return { restart: !!res.restart_required,
@@ -470,5 +675,6 @@
   });
   document.getElementById("settings-close").addEventListener("click", () => dlg.close());
   document.getElementById("settings-save").addEventListener("click", save);
+  body.addEventListener("change", applyRelevance);
   dlg.addEventListener("click", (e) => { if (e.target === dlg) dlg.close(); });  // click backdrop
 })();

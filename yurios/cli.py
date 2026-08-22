@@ -18,6 +18,8 @@ from yurios.models import (DEFAULT_HUGGINGFACE_MODEL, NONE, RECOMMENDED_MODELS,
                             download_gguf, gguf_connection_defaults,
                             huggingface_gguf_model, is_configured, normalize_model,
                             save_model_choice, update_env, validate_model)
+from yurios import envfile, pairing, qr
+from yurios.security import generate_owner_token
 from yurios.world.config import Config
 
 _PROVIDER_PREFIXES = {
@@ -533,6 +535,206 @@ def _clear_character_overrides(root: Path, cfg: Config, model: str, *,
         print(f"Cleared {', '.join(keys)} for {character_id}.")
     if cleared:
         print("Restart YuriOS for the change to take effect.")
+
+
+# --- the .env knobs, from the terminal (SPEC §11) ----------------------------
+#
+# The same table the settings panel renders (`yurios/envfile.py`), so a knob is
+# spelled, typed and validated identically whichever surface you reach for. What
+# differs is the listing: a browser can afford to show two hundred fields at
+# once and a terminal cannot, so this prints the curated groups plus whatever
+# else this installation has actually changed, and `--all` prints the rest.
+
+def _settings_cfg(root: Path):
+    return _configured_cfg(root)
+
+
+def _current(field: dict, cfg) -> str:
+    """One knob's value as a line of terminal output — never a secret's."""
+    if field["type"] == "password":
+        return "configured" if getattr(cfg, field["attr"], "") else "not configured"
+    value = envfile.display(field, cfg)
+    if field["type"] == "bool":
+        return "true" if value else "false"
+    text = str(value)
+    return text if text else "(empty)"
+
+
+def _is_default(field: dict, cfg) -> bool:
+    model_field = getattr(type(cfg), "model_fields", {}).get(field["attr"])
+    if model_field is None:
+        return False
+    return getattr(cfg, field["attr"], None) == model_field.default
+
+
+def _print_settings(cfg, *, group: str | None, show_all: bool) -> None:
+    wanted = (group or "").strip().lower()
+    shown = 0
+    for entry in envfile.groups_for(cfg):
+        if wanted and wanted not in entry["group"].lower():
+            continue
+        curated = any(entry["group"] == g["group"] for g in envfile.CURATED)
+        fields = [f for f in entry["fields"]
+                  if show_all or curated or not _is_default(f, cfg)]
+        if not fields:
+            continue
+        print(f"\n{entry['group']}")
+        width = max(len(f["key"]) for f in fields)
+        for field in fields:
+            print(f"  {field['key']:<{width}}  {_current(field, cfg)}")
+            if field.get("help") and (show_all or wanted):
+                print(f"  {'':<{width}}  {field['help']}")
+        shown += len(fields)
+    if not shown:
+        print("nothing to show" + (f" for {group!r}" if group else ""))
+    elif not show_all and not wanted:
+        print("\nOnly the common knobs and the ones this installation has changed. "
+              "`yurios settings --all` lists every one.")
+
+
+def _show_one(cfg, key: str) -> int:
+    field = envfile.fields_by_key(cfg).get(key.upper())
+    if field is None:
+        print(f"{key.upper()}: this build has no such setting", file=sys.stderr)
+        return 1
+    print(f"{field['key']}={_current(field, cfg)}")
+    if field.get("help"):
+        print(f"  {field['help']}")
+    return 0
+
+
+def command_settings(args) -> int:
+    root = _root()
+    cfg = _settings_cfg(root)
+    assignments = [item for item in args.item if "=" in item]
+    lookups = [item for item in args.item if "=" not in item]
+    if lookups and (assignments or args.unset):
+        print("Read or write, not both: give KEY on its own, or KEY=VALUE to set it.",
+              file=sys.stderr)
+        return 1
+    if lookups:
+        return max(_show_one(cfg, key) for key in lookups)
+    if not assignments and not args.unset:
+        _print_settings(cfg, group=args.group, show_all=args.all)
+        return 0
+
+    table = envfile.fields_by_key(cfg)
+    payload: dict[str, object] = {}
+    for item in assignments:
+        key, _, raw = item.partition("=")
+        key = key.strip().upper()
+        field = table.get(key)
+        if field is None:
+            print(f"{key}: this build has no such setting", file=sys.stderr)
+            return 1
+        if field["type"] == "password" and not raw.strip():
+            print(f"{key}: a blank secret means 'keep what is there'. "
+                  f"Use `yurios settings --unset {key}` to clear it.", file=sys.stderr)
+            return 1
+        payload[key] = raw
+    for key in args.unset:
+        key = key.strip().upper()
+        field = table.get(key)
+        if field is None:
+            print(f"{key}: this build has no such setting", file=sys.stderr)
+            return 1
+        payload[key] = None if field["type"] == "password" else ""
+
+    try:
+        written, _ = envfile.apply(cfg, payload, path=_env_path(root))
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    for key in written:
+        print(f"{key} saved to {_env_path(root)}")
+    if "OWNER_TOKEN" in written:
+        print("The owner token changed: every open session is signed out. "
+              "`yurios pair` shows the new one as a QR code.")
+    print("Restart before she reads it: `yurios restart`.")
+    return 0
+
+
+# --- pairing a phone (SPEC §11.1) --------------------------------------------
+
+def _pair_over_api(cfg, *, rotate: bool) -> dict | None:
+    """Ask the running daemon, so a rotated token applies without a restart.
+
+    Only the server can do that — it holds the boundary the token is checked
+    against — so this is the preferred path whenever she is up, and the local
+    one below is what happens when she is not.
+    """
+    # Not `cfg.host`: a wildcard bind is not an address, and it would travel as
+    # the Host header and come back offered as somewhere to point a phone.
+    host = "127.0.0.1" if cfg.host in ("0.0.0.0", "::", "") else cfg.host
+    base = f"http://{host}:{cfg.port}/api/pairing"
+    try:
+        with httpx.Client(timeout=5.0, headers=_owner_headers(cfg)) as client:
+            response = (client.post(base + "/token") if rotate else client.get(base))
+        if response.status_code in (401, 403):
+            return None            # .env has drifted from the running token
+        response.raise_for_status()
+        return dict(response.json())
+    except httpx.HTTPError:
+        return None
+
+
+def _pair_locally(cfg, root: Path, *, rotate: bool) -> dict:
+    token = str(cfg.owner_token or "")
+    if rotate or not token:
+        token = generate_owner_token()
+        envfile.apply(cfg, {"OWNER_TOKEN": token}, path=_env_path(root))
+    described = pairing.describe(cfg, token, live=False)
+    described["token"] = token
+    return described
+
+
+def command_pair(args) -> int:
+    root = _root()
+    cfg = _configured_cfg(root)
+    rotate = bool(args.new) or not str(cfg.owner_token or "")
+    described = _pair_over_api(cfg, rotate=rotate)
+    if described is None:
+        described = _pair_locally(cfg, root, rotate=rotate)
+        if rotate:
+            print("She is not answering, so this was written to .env only — "
+                  "start or restart her before the link works.")
+    elif rotate:
+        print("A new owner token is live: every open session is signed out.")
+
+    # From the answer, not from `.env`: when she is up, the token that matters is
+    # the one her boundary is honouring, and the links were built from it.
+    token = str(described.get("token") or "")
+    if not token:
+        print("No owner token is configured. `yurios pair --new` makes one.",
+              file=sys.stderr)
+        return 1
+
+    links = described.get("links") or []
+    if args.url:
+        links = [{"origin": args.url.rstrip("/"),
+                  "url": pairing.link(args.url, token)}]
+    if not described.get("reachable"):
+        print(f"HOST={described.get('host') or 'unset'} is loopback, so nothing "
+              "off this machine can reach her. Set HOST=0.0.0.0 and restart "
+              "(`yurios settings HOST=0.0.0.0`), then scan this.")
+    if not links:
+        print("No address on this machine looks reachable from a phone. "
+              "Pass the one to use: `yurios pair --url http://your-host:port`.",
+              file=sys.stderr)
+        return 1
+
+    chosen = links[0]
+    print(f"\nOwner token: {token}")
+    print(f"Pairing link: {chosen['url']}\n")
+    print(qr.terminal(qr.encode(chosen["url"]), color=not args.no_color))
+    print(f"\nScan it with the phone's camera. It opens {chosen['origin']} already "
+          "signed in — the token is exchanged for a cookie and is not stored there.")
+    if len(links) > 1:
+        print("\nOther addresses this machine has, if that one is not the right "
+              "network:")
+        for other in links[1:]:
+            print(f"  {other['origin']}   (yurios pair --url {other['origin']})")
+    return 0
 
 
 def command_download(args) -> int:
@@ -1074,6 +1276,22 @@ def main(argv: list[str] | None = None) -> int:
     configure.add_argument("--selfie-local-model",
                            help="path to a local .safetensors checkpoint for Diffusers")
     configure.set_defaults(func=command_configure)
+    settings = sub.add_parser("settings", help="read or change the .env configuration")
+    settings.add_argument("item", nargs="*", metavar="KEY[=VALUE]",
+                          help="nothing lists them; KEY shows one; KEY=VALUE sets it")
+    settings.add_argument("--group", help="only this group (any part of its name)")
+    settings.add_argument("--all", action="store_true",
+                          help="list every knob, not just the common and changed ones")
+    settings.add_argument("--unset", action="append", default=[], metavar="KEY",
+                          help="clear a setting back to its default")
+    settings.set_defaults(func=command_settings)
+    pair = sub.add_parser("pair", help="show a QR code that signs a phone in")
+    pair.add_argument("--new", action="store_true",
+                      help="generate a fresh owner token first (signs out every session)")
+    pair.add_argument("--url", help="pair against this origin instead of a detected one")
+    pair.add_argument("--no-color", action="store_true",
+                      help="draw the code with blocks instead of ANSI colour")
+    pair.set_defaults(func=command_pair)
     download = sub.add_parser("download", help="download the selected GGUF model")
     download.add_argument("model", nargs="?", help="gguf/<Hugging Face repo>; defaults to CHAT_MODEL")
     download.set_defaults(func=command_download)

@@ -146,6 +146,37 @@ yurios configure
 yurios restart
 ```
 
+Everything else in `.env` is editable from either surface too: **House settings** on
+the switchboard (and the gear in every room) opens the same table `yurios settings`
+prints.
+
+```bash
+yurios settings                       # the common knobs, and whatever you have changed
+yurios settings --all                 # every one of them
+yurios settings CHAT_THINKING=false   # …and a restart applies it
+```
+
+To reach her from a phone, bind her to the network and pair the device — the owner
+token is generated, applied and handed over as a QR code, so nothing gets typed:
+
+```bash
+yurios settings HOST=0.0.0.0
+yurios restart
+yurios pair                           # prints a link and a QR; scan it
+```
+
+The same button is beside `OWNER_TOKEN` in House settings. For private HTTPS access
+without opening a LAN bind, publish the loopback server with Tailscale Serve:
+
+```bash
+tailscale serve --bg http://127.0.0.1:8768
+```
+
+Open House settings through the resulting `https://…ts.net` address; its QR keeps
+that HTTPS origin. For terminal pairing, pass the same address to
+`yurios pair --url https://…ts.net`. SSH and authenticated TLS reverse proxies are
+also supported.
+
 Use `yurios doctor` if something is not working.
 
 ## Learn More

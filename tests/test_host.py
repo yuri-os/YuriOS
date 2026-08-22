@@ -618,6 +618,72 @@ def test_the_settings_panel_edits_this_characters_own_bot(tmp_path, monkeypatch)
     assert "TELEGRAM_SEND_NON_TELEGRAM=true" in env_path.read_text()
 
 
+def test_the_board_carries_the_house_settings_panel_with_nothing_running(
+        tmp_path, monkeypatch):
+    """The switchboard is where you go when she is NOT up (SPEC §32.3).
+
+    The `.env` panel used to live only inside a character runtime, reached at
+    the root by the primary-character fallback — so on the node that most needs
+    it (a fresh install, or every character parked) the settings screen answered
+    503. The host declares it itself, against the house config, and serves the
+    panel's own source too."""
+    from yurios.desktop.routes import settings as panel
+
+    env = tmp_path / "house.env"
+    env.write_text("CHAT_MODEL=old\n", encoding="utf-8")
+    monkeypatch.setattr(panel, "ENV_PATH", env)
+    registry = CharacterRegistry(tmp_path)
+    app = create_host_app(Config(data_dir=tmp_path, chat_model="old"), registry)
+
+    with TestClient(app) as client:
+        assert client.get("/api/characters").json()["characters"] == []
+
+        body = client.get("/api/settings").json()
+        fields = {f["key"]: f for g in body["groups"] for f in g["fields"]}
+        assert fields["CHAT_MODEL"]["value"] == "old"
+        assert body["env_path"] == str(env)
+
+        saved = client.post("/api/settings", json={"CHAT_MODEL": "new"}).json()
+        assert saved["written"] == ["CHAT_MODEL"]
+        assert "CHAT_MODEL=new" in env.read_text()
+
+        # …and the panel's own source, which the board loads by path
+        assert "/api/settings" in client.get("/shared/settings.js").text
+        assert client.get("/shared/settings.css").status_code == 200
+
+    board = (Path(__file__).resolve().parents[1] / "web" / "dashboard" / "index.html")
+    markup = board.read_text()
+    assert 'id="settings-open"' in markup and 'data-scope="house"' in markup
+    assert '<script src="/shared/settings.js"></script>' in markup
+
+
+def test_house_settings_never_display_a_running_characters_effective_paths(
+        tmp_path, monkeypatch):
+    from yurios.desktop.routes import settings as panel
+
+    env = tmp_path / "house.env"
+    env.write_text("VAULT_DIR=./legacy-vault\nCHAT_MODEL=lm_studio/house\n",
+                   encoding="utf-8")
+    monkeypatch.setattr(panel, "ENV_PATH", env)
+    registry = CharacterRegistry(tmp_path)
+    resident = record(tmp_path, "adia")
+    resident.models.chat = "ollama/adia"
+    registry.add(resident)
+    monkeypatch.setattr("yurios.world.host.create_app", fake_character_app)
+    app = create_host_app(Config(
+        _env_file=None, data_dir=tmp_path, vault_dir=Path("./legacy-vault"),
+        chat_model="lm_studio/house"), registry)
+
+    with TestClient(app) as client:
+        fields = {field["key"]: field
+                  for group in client.get("/api/settings").json()["groups"]
+                  for field in group["fields"]}
+
+    assert fields["VAULT_DIR"]["value"] == "./legacy-vault"
+    assert fields["CHAT_MODEL"]["value"] == "lm_studio/house"
+    assert "data/characters/adia/vault" not in fields["VAULT_DIR"]["value"]
+
+
 def test_host_refuses_overlapping_character_storage(tmp_path):
     registry = CharacterRegistry(tmp_path)
     first = record(tmp_path, "yuri", enabled=False)

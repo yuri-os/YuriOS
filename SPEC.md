@@ -966,13 +966,49 @@ A knob in `.env` is the **host default**: every character inherits it unless her
 overrides that field (§31.2). The knobs a character may override are hers alone; the rest —
 the port, the room, the reflex windows, what leaves the machine — are the house's.
 
-The local settings panel (`desktop/routes/settings.py`, the gear in every room) edits that file
-directly and **MUST** stay loopback-only, since it hands the browser the keys it renders. Its one
-SCHEMA drives the form *and* validates the POST, so the two can never disagree; a field's `.env`
-key **MAY** be resolved per runtime (the per-character channel credentials, §10.5), and a field the
-running build has no knob for **MUST** be dropped rather than shown dead. Values are read from the
-live `Config`, writes are surgical (only changed fields, upserted line-by-line so the comments in
-`.env` survive), and a save asks for a restart rather than pretending to hot-apply.
+The settings surface (`yurios/envfile.py`) is **one table, two front ends**: the panel — the gear in
+every room and **House settings** on the board — and `yurios settings` in the terminal. Neither
+owns the list, so they cannot disagree about what a knob is called or what it may hold. The table
+**MUST** be the running `Config`'s whole field set, not a shortlist: a hand-written half carries
+the knobs worth a real control (the model comboboxes, the enums, the secrets), and the rest is
+derived from the config's own annotations and grouped and described by reading `.env.example`, so a
+knob added to the config and documented there appears on both surfaces with no schema edit. A field
+this build has no knob for **MUST** be dropped rather than shown dead, and a field's `.env` key
+**MAY** be resolved per runtime (the per-character channel credentials, §10.5).
+
+Access is owner-or-loopback: local management, or a request that came through the §32.4 boundary —
+the panel hands the browser the keys it renders, and the whole point of the owner token is that
+the browser may be a phone. Values are read from the live `Config`, writes are surgical (only
+changed fields, upserted line-by-line so the comments in `.env` survive), and a save asks for a
+restart rather than pretending to hot-apply. A save that would leave the installation **unable to
+boot** — an `OWNER_TOKEN` under 32 characters, or a non-loopback `HOST` with none — **MUST** be
+refused before the file is written: the process that reads those raises at startup, and the
+surface that wrote them would be behind a server that no longer starts.
+
+The board **MUST** declare this panel itself rather than routing it to a character. A settings
+screen reachable only once she is up cannot be where you go to fix the config that is stopping her
+(§32.3).
+
+### §11.1 — Pairing: the one setting that has to reach another device
+
+`OWNER_TOKEN` is not a text box. It is 43 random characters whose destination is the phone across
+the room, so the panel and the CLI **MUST** offer it as an act rather than as advice: generate,
+apply, hand over. `POST /api/pairing/token` (and `yurios pair --new`) mints one, writes it, and
+applies it to the **running** boundary — a token that only took effect after a restart would make
+the QR beside it a lie. Rotation is also revocation: the session cookie is an HMAC of the token,
+so every other device is signed out, and the response re-issues the caller's own cookie so the
+hand that turned the key is not locked out by it.
+
+The handover is a QR code (`yurios/qr.py`, in-repo — the payload is one URL and the format is
+frozen) around `GET /auth?token=…`, which trades the token for the HttpOnly session cookie and
+redirects. The phone never stores the token. It costs what every magic link costs — the token is
+in that device's history — which is why this is a LAN affordance, why the redirect leaves the URL
+behind at once, and why rotating is one button.
+
+`HOST=0.0.0.0` is not an address. The candidate origins **MUST** come from the machine's own
+interfaces and from the Host header the request arrived on — something on that network
+demonstrably routes there — and a loopback bind **MUST** say that no code will help rather than
+drawing one for `127.0.0.1`.
 
 The same gear opens a second panel above it with a different owner: **this character's own brain**
 (§31.4). Those fields belong to her registry record, every one of them blank by default meaning
@@ -2059,13 +2095,17 @@ changes; a runtime does not know it has neighbours.
   `offline` / `starting` / `ready` / `failed`. A failed character reports her error. The board
   **MUST** display an unrecognised state as unknown rather than inventing one.
 - §32.3 **One design system.** The board, both bodies (§6.6) and the shared `.env` panel (§11)
-  carry the same chrome (§6.3): entering a character must not feel like leaving the app.
+  carry the same chrome (§6.3): entering a character must not feel like leaving the app. The board
+  carries the panel too, under **House settings** — one scope up from the drawer's per-character
+  Settings, and served by the host itself so it answers with nothing running.
 - §32.4 **The API is same-origin JSON** (`web/dashboard/API.md`): `GET /api/characters`,
   `GET /api/connections`, `POST /api/characters/import`, `GET|PATCH /api/characters/<id>/profile`,
   `GET|PATCH /api/characters/<id>/brain` (§31.4 — also unprefixed, for the primary),
   `PATCH /api/characters/<id>/loop`, `PATCH /api/characters/<id>/controls`,
   `GET /api/characters/<id>/{portrait,export,journal,log,context-history}`,
-  `POST /api/characters/<id>/archive`, `DELETE /api/characters/<id>/purge?confirm=…`. The portrait
+  `POST /api/characters/<id>/archive`, `DELETE /api/characters/<id>/purge?confirm=…`,
+  and the house's own `GET|POST /api/settings` with `GET /api/pairing` +
+  `POST /api/pairing/token` beside it (§11, §11.1). The portrait
   route **MUST** send `Cache-Control: no-cache`: one stable URL whose bytes genuinely change
   (a re-render, a replaced file, a fresh install on the same port) must not show yesterday's face.
 - §32.4a **The tile carries four switches, not three.** Mind, utility, DREAM and **hands** (§26),

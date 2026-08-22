@@ -120,7 +120,19 @@ class KokoroTTS:
         except ImportError as e:  # pragma: no cover - environment dependent
             raise RuntimeError(_INSTALL_HINT) from e
         ensure_espeak()
-        self._pipeline = KPipeline(lang_code="a", repo_id="hexgrad/Kokoro-82M")
+        # device="cpu", not the default None. KPipeline's default is
+        # `'cuda' if torch.cuda.is_available() else 'cpu'`, so on any box with a
+        # CUDA torch build installed for the body, the 82M voice quietly moves
+        # onto the GPU the LLM is already living on — and the whole point of
+        # kokoro here is that it does not (ch. 24: "every gigabyte the voice
+        # eats is a gigabyte the LLM can't"). It doesn't even fail loudly: a
+        # resident LM Studio leaves ~45 MB free, kokoro's first 12 MB
+        # allocation OOMs, `build_seam` catches it and boots the fake, and she
+        # is silent for the rest of the session with nothing on screen to say
+        # why. Whether that happens depends on load order, so it looks
+        # intermittent: boot before the model is loaded and the voice works.
+        self._pipeline = KPipeline(lang_code="a", repo_id="hexgrad/Kokoro-82M",
+                                   device="cpu")
         self._voice = REGISTERS.get(register, register)
 
     def stream(self, text: str, register: str | None = None):

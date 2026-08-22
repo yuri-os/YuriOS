@@ -285,6 +285,28 @@ def test_runtime_holds_no_voice_until_a_client_opens_the_socket(cfg):
     assert rt.voice.loaded is False             # …and shutdown frees it regardless
 
 
+def test_the_all_clear_says_which_voice_actually_landed(cfg):
+    """A seam that fell back to the fake looks *exactly* like a working one from
+    the room: the turn runs, her line lands in the transcript, and nothing plays.
+    That is a real state and not a rare one — kokoro refusing to load (no
+    espeak-ng, a GPU with nothing left on it) degrades to the fake so she boots
+    at all. Until `ready` carried the name, the only account of it was one
+    WARNING at boot, and "I unmuted her and she said nothing" was unanswerable
+    from inside the app. web/js/voice.js captions `tts === "fake"`."""
+    cfg = cfg.model_copy(update={"tools_backend": "off", "mind_enabled": False})
+    app = create_app(cfg, brain=FakeBrain())
+    with TestClient(app) as c:
+        with c.websocket_connect("/ws/voice") as ws:
+            ws.send_json({"type": "hello", "session_id": None})
+            frames = {}
+            while "ready" not in frames:
+                frame = ws.receive_json()
+                frames[frame["type"]] = frame
+            assert frames["ready"]["tts"] == "fake"   # the suite's voice IS the fake
+            while ws.receive_json()["type"] != "done":
+                pass
+
+
 def test_a_house_full_of_characters_warms_no_voices(tmp_path, monkeypatch):
     """The bug this exists for: `start_all` brings up every autostart character
     at boot (world/host.py), and each one used to warm its own Kokoro on the way

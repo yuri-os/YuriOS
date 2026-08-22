@@ -132,7 +132,13 @@ export function initVoice({ viseme, els }) {
         setWarming(true, m.message);
         break;
       case 'ready':
-        break;                          // handled above; here so it isn't "unknown"
+        // A voice seam that refused to load falls back to the fake and the fake
+        // is silent — the turn still runs, her line still lands in the
+        // transcript, and the only difference out here is that nothing plays.
+        // Say it in the room rather than leaving "why is she not answering?"
+        // to a WARNING in the log nobody is looking at.
+        if (m.tts === 'fake') sayMute();
+        break;                          // otherwise handled above
       case 'ping':
         if (ws?.readyState === 1) ws.send(JSON.stringify({ type: 'pong' }));
         break;
@@ -377,6 +383,16 @@ export function initVoice({ viseme, els }) {
     // Each room words its own composer; the class is the hook their CSS uses.
     els.text?.closest('.composer')?.classList.toggle('warming', on);
     renderProcessing();
+  }
+  /* Her voice didn't load. Written once per connection, into the same line the
+   * warm notice used — it's where you're already looking when you're waiting to
+   * hear her, and the next caption she speaks would overwrite it anyway (there
+   * won't be one). Deliberately not phrased as "she's broken": she is answering
+   * normally, in text, which is the part that isn't obvious. */
+  function sayMute() {
+    els.caption.textContent = 'her voice didn\u2019t load \u2014 she\u2019s answering ' +
+                              'in text only (the log says why)';
+    setStatus('live', 'text only');
   }
   function setSpeaking(v) {
     playing = v;

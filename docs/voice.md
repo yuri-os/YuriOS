@@ -63,6 +63,17 @@ falls back to the fake rather than take the server down with it.
 `TTS_REGISTER` picks the voice: `default`, `late_night`, `expressive` — or any kokoro voice id
 directly.
 
+It runs on the CPU **by force**, not by preference: `KPipeline` autodetects, and its autodetect
+says CUDA the moment a CUDA torch is installed for the body. On a box where the LLM already holds
+the card there is nothing left to take, so the voice OOMs on its first few megabytes, degrades to
+the fake, and she is silent for the rest of the session. That is what the pin prevents.
+
+**She answers but you hear nothing?** A fake voice is silent by design, so read what actually
+landed rather than what you asked for. The room captions *her voice didn't load — she's answering
+in text only* the moment the socket opens on a fake; `curl localhost:8768/api/health` says the
+same in `voice.tts` (while somebody is in the room — the stack is unloaded when nobody is); and
+`.yurios/yurios.log` carries the reason, one WARNING at the load that failed.
+
 ### qwen3_tts
 
 The voice is **designed** once (that render is the bundled `designed.wav`) and then **cloned**

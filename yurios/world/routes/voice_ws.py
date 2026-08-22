@@ -41,7 +41,10 @@ Client → server messages (JSON, except audio which is binary frames):
 Server → client messages (JSON; audio PCM is base64 in `pcm`):
     {"type":"session", "session_id":...}
     {"type":"warming", "message":...}   her voice is loading — first one in (§9.9)
-    {"type":"ready"}                    …and it landed; the composer reopens
+    {"type":"ready", "tts":...}         …and it landed; the composer reopens.
+                                        `tts` is the voice ACTUALLY wired —
+                                        "fake" when the real one refused to
+                                        load, which the room has to caption
     {"type":"filler"|"audio", "text":..., "sr":..., "pcm": <base64 float32>}
     {"type":"done", "latency":..., "expression":...} | {"type":"cancelled"}
     {"type":"error", "message":...}
@@ -167,7 +170,14 @@ async def _connected(ws: WebSocket, rt) -> None:
         # Always send the all-clear. A demand-driven client closes this socket
         # while muted, and a later reconnect may find an already-warm stack
         # without ever receiving the `warming` frame.
-        await safe_send({"type": "ready"})
+        #
+        # It carries the voice that actually landed, because a seam that fell
+        # back to the fake is INDISTINGUISHABLE from a working one out here: the
+        # turn runs, the reply is in the transcript, and no audio ever plays.
+        # Until this field existed the only account of it was one WARNING in the
+        # log at boot — so "I unmuted her and she said nothing" was a question
+        # you had to leave the room to answer.
+        await safe_send({"type": "ready", "tts": rt.voice.tts_name})
         await _in_the_room(ws, rt, session_id, safe_send, guard)
     finally:
         # every way out of the room — a clean close, a reload, a raise — puts the

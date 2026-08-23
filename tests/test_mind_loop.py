@@ -149,6 +149,26 @@ async def test_reconsider_drops_stale_open_minded_only(cfg, seeded_vault):
     assert states["birthday reminder"] == "pending"        # promise, defended
 
 
+async def test_reconsider_reports_only_what_it_just_let_go_of(cfg, seeded_vault):
+    """The return value is what the day rollover journals, so it has to be
+    *this* pass's work. Returning every abandoned goal re-announced "let go of:
+    X (the moment for it passed)" every morning, forever — including goals you
+    had let go of yourself, by hand, hours earlier."""
+    rig = make_mind(cfg, seeded_vault)
+    from yurios.mind.util import iso_of
+    past = iso_of(rig.clock.now() - 3600)
+    old = rig.mind.goals.add("last week's idea", commitment="open-minded",
+                             due=past)
+    rig.mind.goals.set_state(old.id, "abandoned")          # already let go of
+    rig.mind.goals.add("share that article", commitment="open-minded", due=past)
+
+    dropped = [g.text for g in rig.mind.goals.reconsider()]
+    assert dropped == ["share that article"]
+
+    # …and a second pass with nothing newly stale says nothing at all
+    assert rig.mind.goals.reconsider() == []
+
+
 def test_promise_scan_shapes():
     out = extract_promises("I'll look into VRM springbones tonight.",
                            "also remind me to buy rice")

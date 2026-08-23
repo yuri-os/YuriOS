@@ -192,18 +192,26 @@ class GoalStore:
 
     def reconsider(self) -> list[Goal]:
         """Apply commitment strategies to stale goals (SPEC §22.2): blind is
-        defended, open-minded drops the moment it stops being timely."""
+        defended, open-minded drops the moment it stops being timely.
+
+        Returns the goals *this* pass let go of, not every goal that happens to
+        be abandoned. The difference is the whole value of the return: the day
+        rollover journals a line per goal it gets back (`loop._day_rollover`),
+        so the wider reading re-announced "let go of: X (the moment for it
+        passed)" every morning for every goal ever dropped — including ones you
+        let go of yourself, hours earlier, by hand.
+        """
         goals = self.all()
-        changed = False
+        dropped = []
         for g in goals:
             if g.state not in ("pending", "waiting"):
                 continue
             if g.is_stale(self.clock) and g.commitment == "open-minded":
                 g.state = "abandoned"
-                changed = True
-        if changed:
+                dropped.append(g)
+        if dropped:
             self._save(goals)
-        return [g for g in goals if g.state == "abandoned"]
+        return dropped
 
 
 def _parse_meta(raw: str) -> dict:

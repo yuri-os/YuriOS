@@ -95,7 +95,7 @@ def est_tokens(text: str) -> int:
     return len(text) // 4
 
 
-def _age_tag(mem: Memory) -> str:
+def age_tag(mem: Memory) -> str:
     days = int(mem.age_days())
     if days <= 0:
         return "today"
@@ -225,7 +225,7 @@ def assemble(soul: Soul, *, user_md: str, summary: str, memories: list[Memory],
             blocks.append(_block("WHAT YOU'VE TALKED ABOUT", summary))
         if mems:
             blocks.append(_block("THINGS THAT MAY BE RELEVANT", "\n".join(
-                f"- ({_age_tag(m)}) {m.text}" for m in mems)))
+                f"- ({age_tag(m)}) {m.text}" for m in mems)))
         if known:
             body = apply_macros(KNOWLEDGE_NOTE, soul.name, user_name) + "\n\n"
             body += "\n\n".join(f"{c.text.strip()}\n— {c.citation}" for c in known)

@@ -404,3 +404,38 @@ async def decide_edit(edit_id: str, request: Request) -> dict:
         "selfedit_decision",
         {"id": edit_id, "approve": bool(body.get("approve"))}, source="user")
     return {"queued": True, "id": edit_id}
+
+
+@router.post("/api/mind/goals/filing")
+async def set_goal_filing(request: Request) -> dict:
+    """Turn goals-of-her-own on or off. Body: {"enabled": true|false}.
+
+    Applied straight to the running mind rather than queued as a signal: this
+    is a permission, not a decision she should get a say in, and the same
+    property that makes the hands' kill switch a switch — it works without a
+    restart — has to hold here. Nothing already filed is touched.
+    """
+    body = await request.json()
+    mind = _mind(request)
+    enabled = bool(body.get("enabled"))
+    mind.set_goal_filing_enabled(enabled)
+    return {"enabled": enabled}
+
+
+@router.post("/api/mind/goals/{goal_id}/abandon")
+async def abandon_goal(goal_id: str, request: Request) -> dict:
+    """Let go of one open goal — the counterweight to goals she files herself.
+
+    A signal rather than a write, for the same reason ruling on a self-edit is
+    one: the loop applies it on its next tick and journals it, so your decision
+    leaves a trail in the same place hers do. Works on any open goal, not only
+    the ones she filed — "I didn't mean that one" is as true of a promise she
+    misheard as of an idea she had at 4am.
+    """
+    mind = _mind(request)
+    goal = mind.goals.get(goal_id)
+    if goal is None or goal.state in ("done", "abandoned"):
+        raise HTTPException(404, f"no open goal {goal_id}")
+    request.app.state.rt.signals.post(
+        "goal_decision", {"id": goal_id, "abandon": True}, source="user")
+    return {"queued": True, "id": goal_id}

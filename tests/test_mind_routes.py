@@ -451,3 +451,53 @@ async def test_watching_a_long_read_and_stopping_it_from_the_panel(
     assert c.post("/api/mind/reading/resume", json={"doc": "long.md"}).is_success
     assert store.pending_docs() == ["long.md"]
     assert store._resume_point("long.md") == result.chunks
+
+
+# --- goals of her own: the two controls beside them (SPEC §22.1) ------------
+
+async def test_letting_go_of_a_goal_goes_through_the_mind(client_with_mind):
+    """Like a self-edit ruling and unlike the switch below: a decision about a
+    particular goal is a signal, so the loop applies it and journals it."""
+    c, rig = client_with_mind
+    goal = rig.mind.goals.add("something I have gone off", kind="task")
+
+    r = c.post(f"/api/mind/goals/{goal.id}/abandon")
+    assert r.json()["queued"] is True
+    assert rig.mind.goals.get(goal.id).state != "abandoned"   # not yet
+
+    await rig.mind.tick()
+    assert rig.mind.goals.get(goal.id).state == "abandoned"
+    day_files = list((rig.mind.vault.vault / "memory" / "episodic").glob("*.md"))
+    assert any("you let go of" in p.read_text() for p in day_files)
+
+
+def test_a_goal_that_is_already_gone_is_404(client_with_mind):
+    c, rig = client_with_mind
+    goal = rig.mind.goals.add("done and dusted", kind="task")
+    rig.mind.goals.set_state(goal.id, "done")
+    assert c.post(f"/api/mind/goals/{goal.id}/abandon").status_code == 404
+    assert c.post("/api/mind/goals/nope/abandon").status_code == 404
+
+
+def test_the_filing_switch_lands_at_once_and_shows_in_the_snapshot(
+        client_with_mind):
+    """A permission, not a decision she gets a say in — so it applies straight
+    to the running mind rather than waiting for a tick."""
+    c, rig = client_with_mind
+    assert c.get("/api/mind").json()["goal_filing"]["enabled"] is True
+
+    assert c.post("/api/mind/goals/filing",
+                  json={"enabled": False}).json()["enabled"] is False
+    assert rig.mind.cfg.mind_goal_filing_enabled is False
+    assert c.get("/api/mind").json()["goal_filing"]["enabled"] is False
+
+    c.post("/api/mind/goals/filing", json={"enabled": True})
+    assert rig.mind.cfg.mind_goal_filing_enabled is True
+
+
+def test_the_snapshot_counts_only_her_goals_against_the_cap(client_with_mind):
+    c, rig = client_with_mind
+    rig.mind.goals.add("something you asked for", provenance="user:remind-me")
+    rig.mind.goals.add("something she wanted", provenance="strategy:2026-07-06")
+    filing = c.get("/api/mind").json()["goal_filing"]
+    assert filing["open"] == 1 and filing["max"] > 0

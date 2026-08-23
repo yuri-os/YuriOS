@@ -477,6 +477,25 @@ svg{ width:1.1em; height:1.1em; fill:none; stroke:currentColor; stroke-width:1.7
 .il-goals li{ margin:0 0 10px; color:var(--soft); }
 .il-goals .g-abandoned{ color:var(--dim); text-decoration:line-through; }
 .il-prov{ font:9px var(--font-mono); letter-spacing:.04em; }
+.il-goals .g-hers{ border-left:2px solid var(--acid-dark); padding-left:9px; }
+.il-hers{
+  color:var(--acid); font:9px var(--font-mono); letter-spacing:.08em;
+  text-transform:uppercase;
+}
+/* the switch, on the list it governs — two states side by side, the live one
+   marked, so "off" is never a checkbox you have to read twice */
+.il-filing{ margin:0 0 12px; color:var(--soft); font-size:12px; }
+.il-sw,.il-drop{
+  min-height:22px; display:inline-flex; align-items:center; padding:0 9px;
+  margin-left:6px; border:1px solid var(--rule); border-radius:2px;
+  background:transparent; color:var(--dim); cursor:pointer;
+  font:9px var(--font-mono); letter-spacing:.08em; text-transform:uppercase;
+  transition:.18s ease;
+}
+.il-sw:hover,.il-drop:hover{ border-color:var(--soft); color:var(--ink); }
+.il-sw.on{ border-color:var(--acid); background:var(--acid); color:#10140a; font-weight:700; }
+.il-sw:disabled{ cursor:default; }
+.il-sw.on:disabled{ opacity:1; }
 .il-shelf li{ margin:0 0 7px; color:var(--soft); font:10px var(--font-mono); }
 
 /* a queued self-edit: hers to ask, yours to allow (SPEC §24.3) */

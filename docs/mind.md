@@ -432,16 +432,49 @@ cat data/characters/yuri/vault/goals.md
 Each goal carries a kind, a priority, an optional due time, its **provenance**, and a **commitment
 strategy**, and moves `pending → active → waiting → done | abandoned`.
 
-Goals come from three designed sources:
+Goals come from four designed sources:
 
 | Provenance | Where it came from |
 |---|---|
 | `user:remind-me` | your explicit asks, scanned from your turns |
 | `promise:her-own-words` | **her own promises** — REFLECT scans every committed reply for first-person commitments ("I'll look into that") and files each as a reach-out goal with a due time |
 | maintenance | DREAM backlog, shelf drops |
+| `strategy:<day>` | **her own judgement** — the night's stock-take, below |
 
 A companion who forgets her own promises is worse than one who forgets yours. Near-duplicate open
 goals merge rather than multiply.
+
+### Goals she files herself
+
+The nightly `strategy` job already stood back from the list and wrote down what mattered and what
+to do next. It now files that last part as a goal, under its own provenance, without asking.
+
+Four things keep that from turning the list into landfill, and one keeps it honest:
+
+- **A cap.** At most `MIND_SELF_GOALS_MAX` (3) of hers are open at once; the cap counts only hers,
+  so a week of your requests never locks her out of having one idea.
+- **No filing what she already carries.** The cap bounds how many she may hold, not how many times
+  she may hold the same one. Live, four consecutive nights filed *"write a note detailing three
+  micro-intentions"*, *"write the micro-intentions note and execute the first one"*, *"write the
+  micro-intentions note now, focusing on three sensory cues"* and *"finish the micro-intentions note
+  by mapping…"* — one thought in every slot, and four different strings as far as `goals.md`'s
+  exact-text merge could tell. So a candidate is compared against every open goal, whatever filed
+  it, and a rewording is refused with `already carrying that one` in the DREAM log. The measure is
+  content-word overlap rather than embedding distance, because on `bge-small` those four scored
+  0.65–0.83 against each other while two *unrelated* promises scored 0.70 — there is no cosine
+  threshold that catches the first without merging the second.
+- **Expiry.** Each is filed `open-minded` with a due date a few days out, so the same
+  `reconsider()` that drops any stale open-minded goal lets go of one she never advanced. Nothing
+  new decays it — this is the existing lifecycle doing its job.
+- **A switch.** `MIND_GOAL_FILING_ENABLED` is on by default, and the panel's toggle sits on the
+  goals list itself and takes effect between one night and the next without a restart.
+- **Provenance, everywhere.** Hers say so on the goals list, in `goals.md`, and on the inner-life
+  panel. She may *add* to what she carries; she still cannot silently reprioritise or drop what you
+  asked for. And any open goal — hers or yours — can be let go of in one click, which travels as a
+  signal the loop consumes, so your rulings leave the same trail hers do.
+
+The point of the default being *on*: a companion whose every intention traces back to something you
+said is a queue with a voice.
 
 **Commitment governs staleness.** `blind` is defended past due (a birthday is a birthday);
 `single-minded` drops only when it's moot; `open-minded` is abandoned the moment it stops being
@@ -550,6 +583,8 @@ MIND_ACT_THRESHOLD=0.4            # gate 1
 MIND_INTERRUPT_THRESHOLD=0.75     # gate 2 — YOUR dial
 MIND_MAX_INTERRUPTS_PER_DAY=3     # the hard daily cap
 MIND_CONSIDER_COOLDOWN_S=3600     # minimum gap between re-chewing one goal
+MIND_GOAL_FILING_ENABLED=true     # may the night file a goal of her own?
+MIND_SELF_GOALS_MAX=3             # how many of hers may be open at once
 MIND_DAILY_TOKENS=200000
 MIND_DREAM_TICK_TOKENS=40000
 MIND_TRACE_MAX_BYTES=2000000       # rotate traces/ticks.jsonl to ticks.jsonl.1 at this size
@@ -586,6 +621,9 @@ see [Characters](characters.md#loop-switches).
 
 - **No tool calls.** Her hands stay conversational; a tool-bearing autonomous act needs a
   broker that comes with the sandboxed workshop.
+- **No goals invented mid-conversation.** She files one of her own on the night's stock-take and
+  nowhere else — deliberately, so a new intention is something you can read on the goals page
+  before it acts, rather than something that appeared while you were mid-sentence.
 - **No code execution, no shell, no autonomous research-and-build.**
 - **No multimodal sensing** — SENSE reads text, time, files and its own completions.
 - **No temporal knowledge graph** — the world model stops at the snapshot.

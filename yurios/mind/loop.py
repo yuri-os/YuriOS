@@ -34,7 +34,7 @@ import logging
 import random
 from typing import Awaitable, Callable
 
-from yurios.app.core.assemble import soul_preamble
+from yurios.app.core.assemble import age_tag, soul_preamble
 from yurios.world import correlate
 from yurios.world.avatar.controller import VrmController
 from yurios.world.clock import Clock
@@ -44,7 +44,7 @@ from yurios.world.vram import PATIENT_WAIT_S, ParkGate
 
 from .budget import BudgetGovernor
 from .dream import DreamConsolidator
-from .dreamjobs import DreamRunner
+from .dreamjobs import SELF_GOAL, DreamRunner
 from .goals import Goal, GoalStore, extract_promises, promise_kind
 from .hands import (START_DONT_AWAIT, Hands, build_guard, klass, parse_intent,
                     stamp_contract)
@@ -176,6 +176,11 @@ class MindLoop:
         if hasattr(brain, "set_selfedit"):
             brain.set_selfedit(self.selfedit)  # §23: `propose_edit` gets a door
         self.journal = Journal(self.vault, clock, hub, store=state.store)
+        # The same memory the conversation recalls from (§22.4). Kept rather
+        # than passed along, because goal work needs to ask it questions too:
+        # semantic facts told her *what* is true of you, and nothing told her
+        # when any of it happened.
+        self.store = state.store
         self.dream = DreamConsolidator(self.vault, state.store, clock,
                                        utility=self._utility
                                        if state.utility else None)
@@ -520,6 +525,13 @@ class MindLoop:
                 if res:
                     reflect_notes.append(
                         f"you {res.outcome} my edit to {res.surface}")
+            elif sig.type == "goal_decision":
+                goal = self.goals.get(str(sig.payload.get("id", "")))
+                if goal is not None and sig.payload.get("abandon"):
+                    self.goals.set_state(goal.id, "abandoned")
+                    self.wakeups.pop(goal.id, None)
+                    reflect_notes.append(
+                        f"you let go of: {goal.text}")
             elif sig.type == "suspend_gap":
                 self.goals.reconsider()        # ONE catch-up over the whole gap
                 reflect_notes.append(
@@ -990,6 +1002,30 @@ class MindLoop:
                                 f"{self._goal_desk_path(goal)}")
         self.vault.mark_dirty()
 
+    def _goal_memories(self, goal: Goal, facts: str) -> list:
+        """The episodic half of §22.4 — what she can remember about this goal.
+
+        `facts.md` above is the *semantic* residue: what DREAM decided is still
+        true in a month, with the evenings it came from burned off. Working
+        alone she had only that, so she knew you had a sister and not that you
+        had mentioned her on Tuesday sounding tired. This asks the same index
+        the conversation asks (`store.recall`), probed from the goal rather
+        than from a message, the way the greeting probes from state.
+
+        Anything already sitting in the facts block is dropped: the same
+        sentence under two headings reads as two pieces of evidence.
+        """
+        probe = " ".join(p for p in (goal.text,
+                                     str(goal.meta.get("about") or "").strip())
+                         if p)
+        try:
+            mems = self.store.recall(probe, self.cfg.retrieval_k)
+        except Exception:  # noqa: BLE001 — a cold index is not a reason to
+            log.debug("goal work: no recall", exc_info=True)   # skip the step
+            return []
+        seen = facts.lower()
+        return [m for m in mems if m.text.strip().lower() not in seen]
+
     def _goal_context(self, goal: Goal) -> str:
         """Everything the *conversational* prompt would have given her, minus
         the conversation (SPEC §7.1, §34.3, §19.2).
@@ -1035,6 +1071,10 @@ class MindLoop:
         facts = self.vault.read("memory/semantic/facts.md")[-1200:].strip()
         if facts:
             parts.append("WHAT YOU KNOW ABOUT THEM\n\n" + facts)
+        recalled = self._goal_memories(goal, facts)
+        if recalled:
+            parts.append("THINGS THAT MAY BE RELEVANT\n\n" + "\n".join(
+                f"- ({age_tag(m)}) {m.text}" for m in recalled))
         other = [g.text for g in self.goals.open_goals() if g.id != goal.id][-8:]
         if other:
             parts.append("YOUR OTHER OPEN GOALS (do not work these now)\n\n"
@@ -1460,6 +1500,19 @@ class MindLoop:
         """
         self.hands.granted = bool(enabled)
 
+    def set_goal_filing_enabled(self, enabled: bool) -> None:
+        """The same switch, for goals she files herself (§22.1).
+
+        Mutates the live config rather than a flag of its own, because the
+        config object *is* the live one — `world/rewire.py` already changes
+        models under a running brain the same way — and `DreamContext.file_goal`
+        reads it at the moment it files. So switching off between two nights
+        takes effect on the next one with no restart, and nothing already filed
+        is disturbed: the goals she has are hers to finish or let go of, and
+        withdrawing the permission is not the same act as deleting the work.
+        """
+        self.cfg.mind_goal_filing_enabled = bool(enabled)
+
     def cadence(self) -> float:
         """REGULATE's other half: how long until the next heartbeat — the
         activity state's cadence, shortened if a goal comes due sooner or a
@@ -1502,6 +1555,16 @@ class MindLoop:
                        "provenance": g.provenance}
                       for g in self.goals.all()][-30:],
             "pending_edits": self.selfedit.pending(),
+            # Goals of her own (§22.1), as the inner-life panel reads them.
+            # `open` counts only hers against the cap, so the panel can say
+            # "2 of 3" rather than leaving you to work out which of the goals
+            # on the list were her idea.
+            "goal_filing": {
+                "enabled": bool(getattr(self.cfg,
+                                        "mind_goal_filing_enabled", True)),
+                "open": sum(1 for g in self.goals.open_goals()
+                            if str(g.provenance or "").startswith(SELF_GOAL)),
+                "max": int(getattr(self.cfg, "mind_self_goals_max", 3) or 0)},
             "shelf": self.knowledge.shelf(),
             "interrupts_today": self.interrupts.get("count", 0),
             "dream_backlog": self.dreams.backlog(),

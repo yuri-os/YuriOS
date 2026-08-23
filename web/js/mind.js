@@ -184,6 +184,39 @@ import { STATE_META, canonicalState } from '../shared/activity-state.js';
     return html;
   }
 
+  // Her own goals are marked as hers and nothing else about them is hidden:
+  // the raw provenance stays visible beside the plain-language tag, because
+  // `strategy:2026-08-23` is the thing you would grep for and "she filed this"
+  // is the thing you can read at a glance. Both, not one.
+  const HERS = 'strategy:';
+
+  function goalRow(g) {
+    const hers = String(g.provenance || '').startsWith(HERS);
+    const open = g.state !== 'abandoned';
+    return `<li class="g-${esc(g.state)}${hers ? ' g-hers' : ''}">` +
+      (hers ? '<span class="il-hers">she filed this</span> ' : '') +
+      `${esc(g.text)} ` +
+      `<span class="il-prov">(${esc(g.kind)} · ${esc(g.provenance)}` +
+      `${open ? '' : ' · let go'})</span>` +
+      (open ? ` <button class="il-drop" data-goal="${esc(g.id)}">let go` +
+              '</button>' : '') + '</li>';
+  }
+
+  // The switch sits here, on the list it governs, rather than in the settings
+  // dialog — a permission you can only find by leaving the page that shows you
+  // why you'd want it is a permission nobody revokes in time. Two buttons side
+  // by side, with the live one marked: no hunting for which way a checkbox
+  // means "off".
+  function filingSwitch(f) {
+    if (!f) return '';
+    const btn = (on, label) =>
+      `<button class="il-sw${f.enabled === on ? ' on' : ''}" ` +
+      `data-filing="${on}"${f.enabled === on ? ' disabled' : ''}>${label}</button>`;
+    return '<p class="il-filing">goals of her own ' +
+      btn(true, 'on') + btn(false, 'off') +
+      `<span class="il-prov"> ${f.open} of ${f.max} open</span></p>`;
+  }
+
   async function render() {
     await runtimeReady;
     let state, journal, read = null;
@@ -230,13 +263,12 @@ import { STATE_META, canonicalState } from '../shared/activity-state.js';
     }
 
     const goals = (state.goals || []).filter(g => g.state !== 'done');
-    if (goals.length) {
-      html += section('on her mind',
-        '<ul class="il-goals">' + goals.map(g =>
-          `<li class="g-${esc(g.state)}">${esc(g.text)} ` +
-          `<span class="il-prov">(${esc(g.kind)} · ${esc(g.provenance)}` +
-          `${g.state === 'abandoned' ? ' · let go' : ''})</span></li>`
-        ).join('') + '</ul>');
+    const filing = state.goal_filing;
+    if (goals.length || filing) {
+      html += section('on her mind', filingSwitch(filing) +
+        (goals.length
+          ? '<ul class="il-goals">' + goals.map(goalRow).join('') + '</ul>'
+          : '<p class="il-off">nothing she means to do right now</p>'));
     }
 
     if ((state.shelf || []).length) {
@@ -304,6 +336,31 @@ import { STATE_META, canonicalState } from '../shared/activity-state.js';
       });
     } catch { /* the next refresh shows the truth either way */ }
     setTimeout(render, 1500);           // the loop applies it on its next tick
+  });
+
+  // Letting go of a goal, and the filing switch. Separate from the self-edit
+  // handler above because these two are not rulings on something she asked for
+  // — she did not ask, and that is exactly why they have to be one click.
+  panel.addEventListener('click', async (ev) => {
+    const el = ev.target;
+    const goal = el?.dataset?.goal;
+    const filing = el?.dataset?.filing;
+    if (goal === undefined && filing === undefined) return;
+    if (el.disabled) return;
+    el.disabled = true;
+    try {
+      await runtimeReady;
+      const [path, body] = goal !== undefined
+        ? [`/api/mind/goals/${encodeURIComponent(goal)}/abandon`, {}]
+        : ['/api/mind/goals/filing', { enabled: filing === 'true' }];
+      const res = await fetch(apiPath(path), {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) el.textContent = 'that didn’t take';
+    } catch { el.textContent = 'no answer from her'; }
+    // A dropped goal lands on her next tick; the switch has already landed.
+    setTimeout(render, goal !== undefined ? 1500 : 300);
   });
 
   // One timer, re-pitched every render: a progress bar that only moves every

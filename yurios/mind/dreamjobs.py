@@ -264,6 +264,76 @@ class Step:
                 "result": self.result, "failed": self.failed}
 
 
+#: Provenance prefix for a goal she filed herself, out of a night's stock-take
+#: (§22.1). Load-bearing rather than cosmetic: it is what the inner-life panel
+#: marks as hers, what the cap counts, and what the switch retires. `strategy:`
+#: because the job is the author — the same shape as `promise:her-own-words`
+#: and `maintenance:shelf`, which name the mechanism that filed them.
+SELF_GOAL = "strategy:"
+
+#: Days before a self-filed goal she never advanced lets go of itself. Not a
+#: deadline she is working to — it is the `due` that makes `reconsider()` able
+#: to see it as stale at all (goals.py), since an open-minded goal with no due
+#: date is immortal.
+SELF_GOAL_TTL_DAYS = 3.0
+
+#: How much of a candidate goal's vocabulary may already be in one she is
+#: carrying before it counts as the same goal reworded rather than a new one.
+#:
+#: Measured, not guessed. Four consecutive nights against a real vault filed
+#: "write a note … detailing three specific micro-intentions", "write the
+#: micro-intentions note and execute the first one", "write the micro-intentions
+#: note now, focusing on three sensory cues" and "finish the micro-intentions
+#: note by mapping…" — one thought wearing four hats, filling every slot the cap
+#: allows. `GoalStore.add`'s exact-text merge saw four different strings.
+#:
+#: Embedding cosine does *not* separate these: on bge-small the four scored
+#: 0.65–0.83 against each other, but two unrelated promises ("give you something
+#: just for us" / "give you everything without taking up too much space") scored
+#: 0.70 — no threshold exists that catches the first without merging the second.
+#: Content-word overlap does separate them cleanly: the rewordings scored
+#: 0.29–0.57 and every genuinely different pair scored at most 0.25.
+SELF_GOAL_ECHO = 0.28
+
+#: Words carrying no subject matter, so that overlap counts what a goal is
+#: *about*. Deliberately short: this is a shared-vocabulary measure, not a
+#: parser, and a longer list would start deciding which content words matter.
+_ECHO_STOP = frozenset("""
+a an the and or but if then so to of in on at for with without from by as is
+are was were be been being it its this that these those there here you your
+yours i me my mine we our us he him his she her hers they them their do does
+did done doing have has had having will would can could should may might must
+not no nor now just about into over under before after again more most one two
+three what which who whom when where why how all any both each few other some
+such only own same than too very
+""".split())
+
+
+def _echo_words(text: str) -> set[str]:
+    return {w for w in re.findall(r"[a-z]+", (text or "").lower())
+            if len(w) >= 3 and w not in _ECHO_STOP}
+
+
+def echoes(text: str, existing) -> object | None:
+    """The open goal `text` is a rewording of, or None.
+
+    Overlap is measured against the *shorter* of the two vocabularies rather
+    than their union, because the rewordings are rarely the same length —
+    "finish the micro-intentions note by mapping…" is half the size of the goal
+    that created that note, and a union-based score buries the shared half.
+    """
+    words = _echo_words(text)
+    if not words:
+        return None
+    for g in existing:
+        theirs = _echo_words(getattr(g, "text", ""))
+        if not theirs:
+            continue
+        if len(words & theirs) / min(len(words), len(theirs)) >= SELF_GOAL_ECHO:
+            return g
+    return None
+
+
 @dataclass
 class DreamContext:
     """Everything a job is handed, and the only way it reaches anything.
@@ -319,6 +389,13 @@ class DreamContext:
     exchanges: list[Exchange] = field(default_factory=list)
     steps: list[Step] = field(default_factory=list)
     writes: list[str] = field(default_factory=list)
+    #: Goal ids this context filed (§22.1). Recorded like `writes` below, so a
+    #: dry run can claim specifically that it filed nothing.
+    filed: list[str] = field(default_factory=list)
+    #: Why the last `file_goal` filed nothing: "" | off | capped | echo | dry.
+    #: A night that had nothing to say and a night that was refused look the
+    #: same in the log otherwise, and only some of them are worth acting on.
+    goal_refusal: str = ""
     #: What this context handed to the inbox. Recorded rather than counted so a
     #: dry run can claim, specifically, that it delivered nothing.
     delivered: list[str] = field(default_factory=list)
@@ -433,6 +510,81 @@ class DreamContext:
         self.note_call("write_note", {"path": rel, "bytes": len(text)},
                        result=f"wrote {rel}",
                        duration_ms=(self.clock.now() - started) * 1000.0)
+
+    def file_goal(self, text: str, *, day: str) -> object | None:
+        """File one goal of her own. The second output path, and the only one
+        that leaves `workspace/`.
+
+        `put` above is jailed to the desk for good reasons that all still hold.
+        This is not a hole in that: it is a different act with its own limits.
+        The standing objection was that a DREAM which could file goals makes the
+        goals page "a thing you read *after* the fact rather than a thing you
+        can trust" — but that is an argument about *legibility*, not about
+        authority, and it is answered by provenance rather than by an empty
+        write path. Every goal filed here says `from: strategy:<day>` on its own
+        line in `goals.md`, which is what the inner-life panel prints and what
+        the switch below retires. `SelfEdit.classify` already treats `goals.md`
+        as a working product rather than a soul surface, applied and never
+        queued; this agrees with it.
+
+        Four limits, in the order they are checked: the switch
+        (`MIND_GOAL_FILING_ENABLED`), the cap on how many of hers may be open at
+        once (`MIND_SELF_GOALS_MAX`), whether she is already carrying this goal
+        under another wording (`echoes`), and `GoalStore.add`'s own exact-text
+        merge. Returns None when any of them refuses and leaves the reason in
+        `goal_refusal`, so a job can say which silence this was rather than
+        claiming a goal it did not get.
+        """
+        self.goal_refusal = ""
+        text = (text or "").strip()
+        if not text or self.goals is None:
+            return None
+        if not getattr(self.cfg, "mind_goal_filing_enabled", True):
+            self.goal_refusal = "off"
+            return None
+        open_goals = list(self.goals.open_goals())
+        cap = int(getattr(self.cfg, "mind_self_goals_max", 3) or 0)
+        mine = [g for g in open_goals
+                if str(g.provenance or "").startswith(SELF_GOAL)]
+        if len(mine) >= cap:
+            self.goal_refusal = "capped"
+            return None
+        # Against *every* open goal, not only hers. The defect is carrying the
+        # same intention twice, and where the first copy came from does not
+        # change that — a promise she made you out loud is as much a thing she
+        # is already doing as an idea she had at 4am.
+        echo = echoes(text, open_goals)
+        if echo is not None:
+            self.goal_refusal = "echo"
+            self.note_call("file_goal", {"text": text[:200]},
+                           result=f"already carrying it as {echo.id}")
+            return None
+        if self.dry_run:
+            self.goal_refusal = "dry"
+            return None
+        started = self.clock.now()
+        goal = self.goals.add(
+            text,
+            kind="task",
+            # Workable without a due date, and still ranked under anything she
+            # promised you out loud. `appraise_goal` scores priority * 0.6
+            # against MIND_ACT_THRESHOLD, so a self-filed goal at an intuitive
+            # 0.45 scores 0.27 and never gets worked at all — it would sit until
+            # its own expiry. 0.68 clears the gate at 0.408 and still sits below
+            # a promise-derived task's 0.42.
+            priority=0.68,
+            due=iso_of(self.clock.now() + SELF_GOAL_TTL_DAYS * 86400),
+            # Open-minded is what makes it disposable: `reconsider()` abandons
+            # exactly the stale open-minded goals, so one she never advances
+            # lets go of itself and the list cannot silt up.
+            commitment="open-minded",
+            provenance=f"{SELF_GOAL}{day}",
+        )
+        self.filed.append(goal.id)
+        self.note_call("file_goal", {"text": text[:200], "id": goal.id},
+                       result=f"filed {goal.id}",
+                       duration_ms=(self.clock.now() - started) * 1000.0)
+        return goal
 
     def deliver(self, *, title: str, path: str, summary: str) -> None:
         """Hand one named artifact to the inbox, to be waiting when they look.
@@ -883,17 +1035,37 @@ STRATEGY_SYSTEM = (
     "Write it as yourself, in first person — 'I', not your own name, and never "
     "as someone describing you from outside. "
     "Under 150 words. No preamble, no headings, no numbered list — just the "
-    "thinking.")
+    "thinking. "
+    # The one machine-read line in an otherwise human note. Asked for last so
+    # the thinking above it is not written backwards from a conclusion, and
+    # made optional out loud, because a night that files nothing is the common
+    # case and a prompt that always demands a line always gets one.
+    "Then, only if something is genuinely worth starting, end with one final "
+    "line of the form 'next: <the one thing worth doing>' — concrete enough to "
+    "act on, and something you can do yourself. It must be something new, not "
+    "one of the goals above said in different words: if the thing worth doing "
+    "is already on that list, you are already doing it. If nothing is worth "
+    "starting, leave that line out entirely.")
+
+
+#: Pulls the machine-read tail off the end of a strategy note. Anchored to a
+#: line start and tolerant of the bullet or bold a model reaches for unasked.
+NEXT_RE = re.compile(r"^\s*(?:[-*]\s*)?(?:\*\*)?next(?:\*\*)?\s*:\s*(.+?)\s*$",
+                     re.IGNORECASE | re.MULTILINE)
 
 
 class StrategyJob(DreamJob):
     """Standing back from her own goals, once a night.
 
     Not per-day, because the answer barely changes overnight and ninety nights
-    of backlog would be ninety near-identical reviews. The output is a note on
-    the desk, never a change to the goal store: DREAM that could silently
-    reprioritise her goals would make the goals page a thing you read *after*
-    the fact rather than a thing you can trust.
+    of backlog would be ninety near-identical reviews.
+
+    Two outputs, and the asymmetry is the point. The note goes to the desk and
+    says whatever it likes. The goal store gets at most one new goal, filed
+    under its own provenance so the page still answers "who wanted this" — she
+    may *add* to what she is carrying, and she still cannot silently
+    reprioritise or drop what you asked her for. Filing is capped, expires on
+    its own, and is switchable off mid-flight; see `DreamContext.file_goal`.
     """
 
     name = "strategy"
@@ -908,13 +1080,13 @@ class StrategyJob(DreamJob):
         open_goals = []
         if ctx.goals is not None:
             open_goals = [g for g in ctx.goals.open_goals()]
-        if not open_goals:
-            out.result = "no open goals to think about"
-            return out
+        # An empty list is not a reason to skip the night. It used to be, and
+        # that made the one state she most needs to think her way out of — no
+        # goals at all — the one state where she was not allowed to think.
         listing = "\n".join(
             f"- {g.text} (kind {g.kind}, priority {g.priority}, state {g.state}"
             + (f", due {g.due}" if g.due else "") + ")"
-            for g in open_goals[:20])
+            for g in open_goals[:20]) or "- (nothing open right now)"
         thinking = await ctx.ask(
             self.system(STRATEGY_SYSTEM).format(char=ctx.char_name),
             f"Today is {day}.\n\nYour open goals:\n{listing}\n\n"
@@ -922,10 +1094,29 @@ class StrategyJob(DreamJob):
         if not thinking:
             out.result = "nothing came of it"
             return out
-        ctx.put(f"strategy/{day}.md", f"# Taking stock — {day}\n\n{thinking}\n")
+        # Split the machine-read tail off the human note before either is used,
+        # so the desk keeps reading like her thinking and not like a form.
+        hit = NEXT_RE.search(thinking)
+        note = NEXT_RE.sub("", thinking).strip()
+        ctx.put(f"strategy/{day}.md", f"# Taking stock — {day}\n\n{note}\n")
         out.changed = True
-        out.result = f"reviewed {len(open_goals)} goal(s)"
-        out.note = "stood back and looked at what I'm carrying"
+        reviewed = f"reviewed {len(open_goals)} goal(s)"
+        filed = ctx.file_goal(hit.group(1), day=day) if hit else None
+        if filed is not None:
+            out.result = f"{reviewed}, filed one of my own"
+            out.note = f"decided this matters: {filed.text}"
+        elif not hit:
+            out.result = reviewed
+            out.note = "stood back and looked at what I'm carrying"
+        else:
+            # Say which silence this was. A night with nothing to add, a night
+            # that was capped or switched off, and a night that named something
+            # she is already doing look identical in the log otherwise — and
+            # they call for three different things from you.
+            out.result = (f"{reviewed}, already carrying that one"
+                          if ctx.goal_refusal == "echo"
+                          else f"{reviewed}, kept one to myself")
+            out.note = "stood back and looked at what I'm carrying"
         return out
 
 

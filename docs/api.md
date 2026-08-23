@@ -223,10 +223,12 @@ set a timer?" gets answered without reading logs.
 
 | Route | |
 |---|---|
-| `GET /api/mind` | activity state, cadence, budget, goals, shelf, pending self-edits |
+| `GET /api/mind` | activity state, cadence, budget, goals, shelf, pending self-edits, and `goal_filing` (the switch, plus how many of her own goals are open against the cap) |
 | `GET /api/mind/journal?days=` | her `[she]` lines by day (max 30) |
 | `GET /api/mind/trace?n=` | the tick-trace tail (max 200) |
 | `POST /api/mind/edits/{id}` | `{"approve": bool}` — queued as a signal the loop consumes next tick |
+| `POST /api/mind/goals/{id}/abandon` | let go of one open goal; a signal like the ruling above, so the loop applies and journals it |
+| `POST /api/mind/goals/filing` | `{"enabled": bool}` — may the night file goals of her own (§22.1b)? A permission, so it lands at once rather than on the next tick |
 | `GET /api/mind/reading` | research runs, the document being read right now with its passage and model-call counts, and everything held |
 | `POST /api/mind/reading/stop` | `{"run": "<id>"}` to stop a research run, `{}` to stop just the read in flight |
 | `POST /api/mind/reading/resume` | `{"doc": "<name>"}` — let a held document be read again, from where it stopped |

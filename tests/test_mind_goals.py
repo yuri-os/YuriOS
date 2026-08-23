@@ -398,3 +398,81 @@ def test_the_contract_stamp_names_the_goal_that_wanted_it():
     assert stamped["_deliver"] == "vault"      # principle 8
     assert stamped["_goal_id"] == "g-1"        # principle 7
     assert json.loads(json.dumps(stamped)) == stamped
+
+
+# --- she works with her memory in the room (SPEC §22.4) -----------------------
+#
+# The facts block above is the *semantic* residue — what DREAM kept because it
+# would still be true in a month, with the evening it came from burned off.
+# Working alone she had only that, so she knew a thing about you and not the
+# night you said it. These pin the episodic half.
+
+def _remember(rig, text: str, *, when: float | None = None) -> None:
+    """Put one episode in the index the conversation recalls from.
+
+    `utc_iso_of`, not `iso_of`: the index is read back by `_recency`,
+    which subtracts an aware `now` — the journal writes it aware for the
+    same reason.
+    """
+    from yurios.mind.util import utc_iso_of
+    store = rig.mind.store
+    store.index.upsert(
+        id=f"ep-{abs(hash(text))}", kind="turn", text=text,
+        source_path="memory/episodic/test.md", source_span="",
+        created_at=utc_iso_of(when if when is not None
+                              else rig.clock.now()),
+        embedding=store.embedder.embed([text])[0])
+
+
+async def test_goal_work_recalls_what_she_remembers(cfg, seeded_vault):
+    """The private step asks the same index the conversation asks."""
+    utility = ScriptedUtility("think noted.")
+    rig = make_mind(cfg, seeded_vault, utility=utility)
+    _remember(rig, "they want a wide paddleboard, it felt stabler")
+    rig.mind.goals.add("pick a paddleboard for them", kind="task",
+                       priority=0.9)
+    await rig.mind.tick()
+
+    context = utility.calls[-1][-1]["content"]
+    assert "THINGS THAT MAY BE RELEVANT" in context
+    assert "it felt stabler" in context, \
+        "she worked the goal without the evening it came from"
+
+
+async def test_a_cold_index_is_not_a_reason_to_skip_the_step(cfg, seeded_vault):
+    """Recall is context, not a precondition. A store that cannot answer must
+    cost her the block and nothing else."""
+    utility = ScriptedUtility("think noted.")
+    rig = make_mind(cfg, seeded_vault, utility=utility)
+
+    def boom(*a, **k):
+        raise RuntimeError("index is cold")
+
+    rig.mind.store.recall = boom
+    goal = rig.mind.goals.add("work out the tiles", kind="task", priority=0.9)
+    await rig.mind.tick()
+
+    context = utility.calls[-1][-1]["content"]
+    assert "THE GOAL" in context and "THINGS THAT MAY BE RELEVANT" not in context
+    assert rig.mind.goals.get(goal.id).steps == 1, "the step still happened"
+
+
+async def test_the_same_sentence_is_not_served_under_two_headings(
+        cfg, seeded_vault):
+    """A fact DREAM already distilled is in the facts block. Recalling it again
+    reads as two pieces of evidence for one thing."""
+    utility = ScriptedUtility("think noted.")
+    rig = make_mind(cfg, seeded_vault, utility=utility)
+    fact = "they keep the good knives in the second drawer"
+    rig.mind.vault.write("memory/semantic/facts.md", f"- (2026-08-01) {fact}\n")
+    _remember(rig, fact)
+    # a second, distinct episode, so the block is present either way and this
+    # cannot pass by recalling nothing at all
+    _remember(rig, "the good knives want sharpening before the knives blunt")
+    rig.mind.goals.add("sharpen the knives", kind="task", priority=0.9)
+    await rig.mind.tick()
+
+    context = utility.calls[-1][-1]["content"]
+    assert "THINGS THAT MAY BE RELEVANT" in context
+    assert "want sharpening" in context
+    assert context.count(fact) == 1, "the same sentence under two headings"

@@ -196,6 +196,15 @@ class Config(VoiceConfig):
     # becoming "she chews the same goal forever": three steps is enough to read
     # the desk, do a thing, and write down where it got to.
     mind_goal_max_steps: int = 3
+    # Goals of her own, out of the night's stock-take (§22.1). On, because a
+    # companion who can only ever want what you asked her to want is the thing
+    # this project is trying not to build — and off is one click away, next to
+    # the goals themselves. The cap is what keeps an every-night job from
+    # silting the list up; expiry does the rest, since these are filed
+    # open-minded with a due date and `reconsider()` lets go of the ones she
+    # never advanced.
+    mind_goal_filing_enabled: bool = True
+    mind_self_goals_max: int = 3
     # How long a goal sits in `waiting` on work it dispatched before the loop
     # wakes it anyway. `task_completion` is the ordinary way back; this is the
     # safety net for the run that died without posting one, because a goal

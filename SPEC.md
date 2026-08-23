@@ -1562,8 +1562,23 @@ optional due time, **provenance**, and a **commitment strategy**; lifecycle
   explicit asks (`user:remind-me`, scanned from their turns); **her own promises**
   (`promise:her-own-words`) — REFLECT scans every committed reply for first-person commitments
   ("I'll look into that") and files each one, because a companion who forgets her own promises is
-  worse than one who forgets yours; and maintenance (DREAM backlog, shelf drops). Near-duplicate
-  open goals **MUST** merge, not multiply.
+  worse than one who forgets yours; maintenance (DREAM backlog, shelf drops); and **her own
+  judgement** (`strategy:<day>`) — the night's stock-take (§21.2) already asks her for the one thing
+  worth doing next, and MAY file it. A companion whose every intention traces back to something the
+  user said is a queue with a voice. Near-duplicate open goals **MUST** merge, not multiply.
+- §22.1b **A goal she filed herself is legible, capped, and disposable.** She may *add* to what she
+  carries; she still **MUST NOT** silently reprioritise or drop what the user asked for. Every such
+  goal **MUST** carry its `strategy:` provenance into `goals.md` and onto the inner-life surface, so
+  the goals page stays a thing you read *before* the fact. At most `MIND_SELF_GOALS_MAX` of hers may
+  be open at once; each is filed `open-minded` with a due date so §22.2's `reconsider()` lets go of
+  what she never advanced; and `MIND_GOAL_FILING_ENABLED` **MUST** take effect without a restart.
+  The cap bounds how many she may hold, **not how many times she may hold the same one**, so she
+  **MUST NOT** file a goal she is already carrying under another wording — measured against every
+  open goal, whatever filed it, because where the first copy came from does not change that she has
+  it. Left unenforced this is not a rare edge: four consecutive nights against a real vault spent
+  all three slots on one idea reworded four ways, which `goals.md`'s exact-text merge cannot see.
+  The counterweight to filing without asking is that any open goal can be let go of in one click,
+  as a signal the loop consumes (§16.2) — so the user's rulings leave the same trail hers do.
 - §22.1a **A promise is work or it is news, and the two are filed differently.** The verb she leads
   with decides: "I'll let you know when it lands" is a `reach_out` — the whole content is that you
   hear it, so its act is a message and Gate 2 rules on it, and it carries a due time because a thing
@@ -1670,7 +1685,8 @@ timeouts `MIND_{ENGAGED,IDLE,DORMANT,DREAM}_CADENCE_S`, `MIND_ENGAGED_TIMEOUT_S`
 `MIND_DREAM_START_HOUR`/`END_HOUR`; and the reflex windows `IDLE_SETTLE_S`, `IDLE_ACT_MIN/MAX_S`,
 `IDLE_TALK_MIN/MAX_S` (§15.5). Her desk (§34): `WORKSPACE_ENABLED`, `WORKSPACE_DIGEST_FILES`,
 `SKILLS_ENABLED`, `TOOL_RATE_DESK`. The goal lifecycle (§22.3): `MIND_GOAL_MAX_STEPS`,
-`MIND_DISPATCH_TIMEOUT_S`, `GOALS_IN_PROMPT`. Her hands in the loop (§26) — every one of these is
+`MIND_DISPATCH_TIMEOUT_S`, `GOALS_IN_PROMPT`; and goals of her own (§22.1b):
+`MIND_GOAL_FILING_ENABLED` (**true**) with `MIND_SELF_GOALS_MAX`. Her hands in the loop (§26) — every one of these is
 inert until the first is true: `MIND_TOOLS_ENABLED` (**false**), `MIND_TOOL_ALLOWLIST` (**empty**),
 `MIND_TOOL_CALLS_PER_DAY`, `MIND_TOOL_PRESSURE_CEILING`,
 `MIND_TOOL_COOLDOWN_{CHEAP,EXPENSIVE}_S` plus the per-tool `MIND_TOOL_COOLDOWN_S` override, and the

@@ -94,6 +94,13 @@ def test_scanning_the_link_signs_a_browser_in_without_typing_anything(
         assert landing.headers["location"] == "/dashboard/"
         cookie = landing.headers["set-cookie"]
         assert "HttpOnly" in cookie and boundary.token not in cookie
+        # The two attributes the QR flow lives or dies by: the camera app hands
+        # the phone a navigation the browser did not start, so a Strict cookie
+        # would be withheld from the 303 that follows and the phone would land
+        # on the unlock form holding a session it could not spend. And it has to
+        # outlive the browser process, or the next reap of the tab means pairing
+        # the same phone again.
+        assert "SameSite=lax" in cookie and "Max-Age=" in cookie
         assert client.get("/api/settings").status_code == 200
 
 

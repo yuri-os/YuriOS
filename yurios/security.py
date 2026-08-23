@@ -27,6 +27,9 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 COOKIE_NAME = "yurios_owner"
 MIN_TOKEN_LENGTH = 32
 MAX_HTTP_BODY_BYTES = 48 * 1024 * 1024
+# How long a paired browser keeps its session cookie. See
+# issue_session_cookie: rotation revokes, not expiry.
+SESSION_MAX_AGE_SECONDS = 400 * 24 * 60 * 60
 _SESSION_LABEL = b"yurios-owner-session-v1"
 
 
@@ -306,9 +309,30 @@ def issue_session_cookie(response, boundary: OwnerBoundary, *, https: bool):
     Also used after a rotation (`desktop/routes/settings.py`): the new token
     revokes every session including the caller's, and re-issuing here is what
     keeps the hand that turned the key from being locked out by it.
+
+    Two attributes here are load-bearing for the flow this cookie exists to
+    serve — a phone that scanned a QR code (SPEC §11.1):
+
+    `SameSite=Lax`, not Strict. The pairing link is opened by the camera app,
+    so the browser sees a navigation it did not start; a Strict cookie is then
+    withheld from the very next hop, and the 303 out of `/auth` lands on `/`
+    looking signed out. The phone shows the unlock form, a manual reload sends
+    the cookie the browser had all along, and the owner concludes the pairing
+    link is broken. Lax rides top-level GET navigations, which is exactly and
+    only what pairing needs. It does not weaken the door: cross-site POSTs and
+    WebSocket handshakes still carry an `Origin` and are still checked against
+    the host above, and no GET route here changes anything.
+
+    `Max-Age`, rather than a cookie that dies with the browser. A session cookie
+    is gone the next time a phone reaps its tabs, which reads as "she forgot me
+    again" and sends the owner back to a 43-character secret. Expiry is not this
+    installation's revocation story anyway — the cookie is an HMAC of the token,
+    so rotating the token is what ends a session, and it ends it everywhere at
+    once. So keep it as long as browsers will (Chrome caps at 400 days).
     """
     response.set_cookie(COOKIE_NAME, boundary.session, httponly=True,
-                        secure=https, samesite="strict", path="/")
+                        secure=https, samesite="lax", path="/",
+                        max_age=SESSION_MAX_AGE_SECONDS)
     response.headers["Cache-Control"] = "no-store"
     response.headers["Referrer-Policy"] = "no-referrer"
     return response

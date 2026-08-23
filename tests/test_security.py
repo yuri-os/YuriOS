@@ -69,8 +69,12 @@ def test_remote_browser_login_sets_httponly_session_for_http_and_websocket():
                                follow_redirects=False)
         assert response.status_code == 303
         cookie = response.headers["set-cookie"]
-        assert "HttpOnly" in cookie and "SameSite=strict" in cookie
-        assert TOKEN not in cookie
+        assert "HttpOnly" in cookie and TOKEN not in cookie
+        # Lax, not Strict: the phone arrives on a navigation the camera app
+        # started, and a Strict cookie would sit out the 303 that follows.
+        assert "SameSite=lax" in cookie
+        # And it outlives the browser, so pairing is a thing you do once.
+        assert "Max-Age=" in cookie
         assert client.get("/api/private").status_code == 200
         with client.websocket_connect("/ws/private") as ws:
             assert ws.receive_json() == {"ok": True}

@@ -178,8 +178,8 @@ python -c "import secrets; print(secrets.token_urlsafe(32))"
 ```
 
 On a non-loopback bind, every page, API, SSE stream and WebSocket requires the token. Opening the
-site in a browser shows a login form that exchanges it for an HttpOnly, `SameSite=Strict` session
-cookie. API clients send `Authorization: Bearer <token>`; terminal chat accepts the safer
+site in a browser shows a login form that exchanges it for an HttpOnly, `SameSite=Lax` session
+cookie that outlives the browser (rotation is what revokes it, not expiry). API clients send `Authorization: Bearer <token>`; terminal chat accepts the safer
 `YURIOS_OWNER_TOKEN` environment variable. Cross-site browser origins are rejected in both local
 and remote modes.
 
@@ -196,6 +196,11 @@ tailscale serve --bg http://127.0.0.1:8768
 Open settings through the resulting `https://<node>.<tailnet>.ts.net` address before showing the
 pairing panel. The generated QR uses that HTTPS origin. `yurios pair --url
 https://<node>.<tailnet>.ts.net` does the same from the terminal.
+
+Serve still requires `OWNER_TOKEN`, even though `HOST` stays loopback. Serve proxies from
+127.0.0.1 but forwards the tailnet peer in `X-Forwarded-For`, and the server reads that as the
+client — so a request arriving over the tailnet is remote traffic and is asked for the token, while
+a browser on this machine is not.
 
 ## Voice
 

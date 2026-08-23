@@ -704,7 +704,15 @@ class Runtime:
                 # (SELFIE_BACKEND=off leaves the camera out of the buckets, and
                 # the fake runner advertises it regardless). Auto-admitting
                 # everything would quietly hand back the hands config took away.
-                for name, child in getattr(runner, "started", []):
+                #
+                # Only `MultiToolRunner` keeps `started` as the (name, child)
+                # list this walks; a single runner uses the same attribute for
+                # a plain "did I come up" bool. Iterating that raised
+                # `TypeError: 'bool' object is not iterable` — inside the except
+                # below, so `TOOLS_BACKEND=fake` booted her handless with one
+                # warning and no discovery ever ran.
+                servers = getattr(runner, "started", None)
+                for name, child in (servers if isinstance(servers, list) else []):
                     if name == "yurios":
                         continue
                     rate = self._external_rates.get(name, self.cfg.tool_rate_external)

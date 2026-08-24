@@ -361,6 +361,10 @@ one intention. Judge only the supplied candidates and user request. Return at mo
 one concrete, standalone objective grounded in their subject and object. Never copy
 another task or invent work. If every candidate is framing, return null.
 
+The final state at the END of the assistant reply controls. If the reply later gives
+the result, confirmation, answer, artifact, or explicitly says the work is complete,
+return null even when an earlier sentence said "I will" or "let me" do that work.
+
 Return exactly one JSON object and no prose:
 {"goal": null}
 or

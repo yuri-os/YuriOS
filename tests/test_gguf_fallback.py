@@ -56,6 +56,33 @@ async def test_direct_gguf_chat_and_utility_share_one_loaded_context(monkeypatch
     assert chat._loaded is utility._loaded is loaded
 
 
+async def test_direct_gguf_translates_openai_json_schema(monkeypatch):
+    received = {}
+
+    class Llama(_Llama):
+        def create_chat_completion(self, *, stream, **kwargs):
+            received.update(kwargs)
+            return super().create_chat_completion(stream=stream, **kwargs)
+
+    loaded = _Loaded()
+    loaded.llama = Llama()
+    monkeypatch.setattr(gguf, "get_model", lambda *args: loaded)
+    cfg = Config(_env_file=None, utility_model="gguf/example/model-GGUF")
+    utility = gguf.GGUFUtilityModel(
+        cfg.utility_model, cfg, max_tokens=32, thinking=True)
+    schema = {"type": "object", "required": ["goal"],
+              "properties": {"goal": {"type": "null"}}}
+
+    await utility.complete(
+        [{"role": "user", "content": "review"}],
+        response_format={"type": "json_schema",
+                         "json_schema": {"name": "review", "strict": True,
+                                         "schema": schema}})
+
+    assert received["response_format"] == {
+        "type": "json_object", "schema": schema}
+
+
 def test_qwen_template_can_be_rendered_with_thinking_disabled():
     template = (
         "{% if enable_thinking is defined and enable_thinking is false %}"

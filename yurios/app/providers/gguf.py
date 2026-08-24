@@ -597,6 +597,17 @@ def _without_thinking(messages: list[dict]) -> list[dict]:
     return messages
 
 
+def _llama_response_format(response_format: dict | None) -> dict | None:
+    """Translate OpenAI JSON Schema into llama-cpp-python's JSON grammar shape."""
+    if response_format is None or response_format.get("type") != "json_schema":
+        return response_format
+    wrapper = response_format.get("json_schema")
+    schema = wrapper.get("schema") if isinstance(wrapper, dict) else None
+    if not isinstance(schema, dict):
+        raise ValueError("json_schema response format requires a schema object")
+    return {"type": "json_object", "schema": schema}
+
+
 def _next(iterator):
     try:
         return True, next(iterator)
@@ -705,11 +716,13 @@ class GGUFUtilityModel:
             if not params.get("thinking", self.thinking):
                 messages = _without_thinking(messages)
             loaded = await _acquire_current(self)
+            response_format = _llama_response_format(params.get("response_format"))
 
             def run():
                 return loaded.llama.create_chat_completion(
                     messages=messages, temperature=params.get("temperature", 0.2),
-                    max_tokens=params.get("max_tokens", self.max_tokens), stream=False)
+                    max_tokens=params.get("max_tokens", self.max_tokens), stream=False,
+                    response_format=response_format)
 
             try:
                 response = await asyncio.to_thread(run)

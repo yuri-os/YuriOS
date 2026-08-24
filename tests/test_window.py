@@ -277,9 +277,10 @@ def test_a_reconnect_recovers_only_what_the_page_missed():
     backfill, and a reconnect only owes the page the messages it never saw."""
     chat = (WEB / "js" / "chat.js").read_text()
 
-    assert "if (!everOpened) { everOpened = true; return; }" in chat
+    assert "recoverHistory()" in chat
     assert "const missed = history.filter((m) => !m.id || !seen.has(m.id));" in chat
     assert "missed.forEach(addMsg)" in chat
+    assert "document.addEventListener('visibilitychange'" in chat
 
 
 def test_shared_settings_panel_is_served(client):

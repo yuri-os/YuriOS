@@ -159,6 +159,7 @@ export function initVoice({ viseme, els }) {
         break;
       case 'done':
         showLatency(m.latency);
+        if (m.message) window.WorldChat?.receiveMessage?.(m.message);
         completeLlm(m.client_id, m.active_selfies || []);
         break;
       case 'cancelled':
@@ -610,6 +611,11 @@ export function initVoice({ viseme, els }) {
         window.localStorage?.setItem(sessionKey, sessionId);
       }
       if (data.user_message) window.WorldChat?.confirmUser?.(data.user_message);
+      // SSE provides the progressive draft, but the HTTP response is the
+      // authoritative completion. Render it too: addMsg deduplicates by id when
+      // the live event already arrived, and this saves a reply if a suspended
+      // tab's stale EventSource missed the final event.
+      if (data.message) window.WorldChat?.receiveMessage?.(data.message);
       completeLlm(clientId, data.active_selfies || []);
     } catch (e) {
       if (e.name === 'AbortError') return;

@@ -269,6 +269,16 @@
   // drafts and avatar ops are about *now* and never need re-ordering.)
   let backfilled = false;
   let queued = [];
+  let recovering = false;
+  let recoveryPending = false;
+
+  function receiveMessage(message) {
+    // A locally submitted line is already visible. Confirm it immediately,
+    // even while old history is still loading, instead of hiding its receipt
+    // behind the backfill queue for up to five seconds.
+    if (message.client_id && pending.has(message.client_id)) addMsg(message);
+    else if (backfilled && !recovering) addMsg(message); else queued.push(message);
+  }
 
   /* Her inbox (SPEC §18.4, §32.5) — what she reached out about while the room
    * was empty. The transcript ring is in memory, so a reach-out from last night
@@ -336,42 +346,81 @@
     history.forEach(addMsg);
     optimistic.forEach((el) => messages?.appendChild(el));
     backfilled = true;
-    queued.forEach(addMsg);               // addMsg dedups by id — an overlap is fine
-    queued = [];
+    if (recoveryPending) {
+      recoveryPending = false;
+      recoverHistory();
+    } else {
+      queued.forEach(addMsg);             // addMsg dedups by id — an overlap is fine
+      queued = [];
+    }
     markWhileYouWereAway();
     if (unheard.size) markInboxRead();
   }
 
-  async function connect({ onStatus } = {}) {
-    await runtimeReady;
-    if (es) return;                       // one stream per page
-    es = new EventSource(apiPath('/api/events'));
+  function recoverHistory() {
+    if (!backfilled) {
+      // Let the initial history + durable inbox merge land first. Starting a
+      // history-only recovery now could win that race and suppress inbox rows.
+      recoveryPending = true;
+      return Promise.resolve();
+    }
+    if (recovering) {
+      // Another reconnect happened while this snapshot was in flight. Run one
+      // more afterward so the second disconnected interval is covered too.
+      recoveryPending = true;
+      return Promise.resolve();
+    }
+    recovering = true;
+    return fetch(apiPath('/api/history')).then((r) => {
+      if (!r.ok) throw new Error(String(r.status));
+      return r.json();
+    }).then((d) => {
+      const history = d.messages || [];
+      // Announce only what this page has not already rendered. Replaying the
+      // whole transcript on every reconnect — and re-dispatching a
+      // chat-history-message per entry to every listener — is duplicate work
+      // on a flaky link, not recovery. Computed before addMsg, which is what
+      // fills `seen`.
+      const missed = history.filter((m) => !m.id || !seen.has(m.id));
+      for (const message of missed) {
+        window.dispatchEvent(new CustomEvent('chat-history-message', {
+          detail: { type: 'message', ...message },
+        }));
+      }
+      missed.forEach(addMsg);
+    }).catch(() => {}).finally(() => {
+      recovering = false;
+      if (recoveryPending) {
+        recoveryPending = false;
+        recoverHistory();
+      } else {
+        queued.forEach(addMsg);
+        queued = [];
+      }
+    });
+  }
+
+  function openStream(onStatus, recoverOnOpen = false) {
+    const source = new EventSource(apiPath('/api/events'));
+    es = source;
     let everOpened = false;
-    es.onopen = () => {
+    source.onopen = () => {
+      if (source !== es) return;
       onStatus?.(true);
-      // The first open is already covered by the initial backfill below; only a
-      // *re*-connect needs recovery, because EventSource reconnects silently and
-      // anything she committed while the stream was down never arrived.
-      if (!everOpened) { everOpened = true; return; }
-      fetch(apiPath('/api/history')).then((r) => r.json()).then((d) => {
-        const history = d.messages || [];
-        // Announce only what this page has not already rendered. Replaying the
-        // whole transcript on every reconnect — and re-dispatching a
-        // chat-history-message per entry to every listener — is duplicate work
-        // on a flaky link, not recovery. Computed before addMsg, which is what
-        // fills `seen`.
-        const missed = history.filter((m) => !m.id || !seen.has(m.id));
-        for (const message of missed) {
-          window.dispatchEvent(new CustomEvent('chat-history-message', {
-            detail: { type: 'message', ...message },
-          }));
-        }
-        if (backfilled) missed.forEach(addMsg);
-        else flushBackfill(history);
-      }).catch(() => {});
+      // The first connection is covered by the initial backfill. A native
+      // reconnect, or a fresh stream after the page was suspended, must repair
+      // messages committed while this client was not receiving events.
+      if (!everOpened) {
+        everOpened = true;
+        if (!recoverOnOpen) return;
+      }
+      recoverHistory();
     };
-    es.onerror = () => onStatus?.(false); // EventSource auto-reconnects
-    es.onmessage = (e) => {
+    source.onerror = () => {
+      if (source === es) onStatus?.(false); // EventSource auto-reconnects
+    };
+    source.onmessage = (e) => {
+      if (source !== es) return;
       let m;
       try { m = JSON.parse(e.data); } catch { return; }
       // the stage adapters listen here (the YuriOS `yurios-ev` pattern)
@@ -399,14 +448,26 @@
         // here — but this page *is* here, and rendering it is being seen. Clear
         // it now, or a line you watched arrive keeps a badge on the switchboard.
         if (m.unheard) markInboxRead();
-        // A locally submitted line is already visible. Confirm it immediately,
-        // even while old history is still loading, instead of hiding the receipt
-        // behind the backfill queue for up to five seconds.
-        if (m.client_id && pending.has(m.client_id)) addMsg(m);
-        else if (backfilled) addMsg(m); else queued.push(m);
+        receiveMessage(m);
       } else if (m.type === 'draft') addDraft(m.text);
       else if (m.type === 'draft_cancel') dropDraft();
     };
+  }
+
+  async function connect({ onStatus } = {}) {
+    await runtimeReady;
+    if (es) return;                       // one stream per page
+    openStream(onStatus);
+    // Browsers may freeze a background page without promptly noticing that its
+    // TCP stream died. Native EventSource reconnect then never fires `onopen`,
+    // so returning to the tab explicitly replaces the uncertain connection.
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState !== 'visible' || !es) return;
+      es.close();
+      es = null;
+      dropDraft();
+      openStream(onStatus, true);
+    });
     // backfill what was said before this page opened (SPEC §2.6) — and what she
     // said into the empty room before that (SPEC §18.4). The inbox fetch cannot
     // hold up the transcript: a failed one is an empty run, not a blank chat.
@@ -430,6 +491,7 @@
     scrollToLatest: scroll,
     addPendingUser,
     confirmUser: addMsg,
+    receiveMessage,
     failPending,
     stopPending,
   };

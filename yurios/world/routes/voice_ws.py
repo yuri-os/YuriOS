@@ -46,7 +46,7 @@ Server → client messages (JSON; audio PCM is base64 in `pcm`):
                                         "fake" when the real one refused to
                                         load, which the room has to caption
     {"type":"filler"|"audio", "text":..., "sr":..., "pcm": <base64 float32>}
-    {"type":"done", "latency":..., "expression":...} | {"type":"cancelled"}
+    {"type":"done", "latency":..., "message":...} | {"type":"cancelled"}
     {"type":"error", "message":...}
 (expressions and chat text now ride /api/events — SPEC §10)
 """
@@ -238,6 +238,7 @@ async def _in_the_room(ws: WebSocket, rt, session_id: str, safe_send,
         await rt.park_gate.wait()
         rt.turn_started(proactive=proactive)       # the mind (§15.3)
         spoken: list[str] = []                     # the draft
+        committed_message: dict | None = None
         if commit_text:
             rt.hub.publish("draft", {"text": commit_text})
         try:
@@ -256,8 +257,9 @@ async def _in_the_room(ws: WebSocket, rt, session_id: str, safe_send,
                         if not commit_text:            # …unless the text is given
                             rt.hub.publish("draft", {"text": " ".join(spoken)})
                     elif ev.kind == "done" and (spoken or commit_text):  # commit
-                        rt.post_message("assistant", commit_text or " ".join(spoken),
-                                        proactive=proactive, channel="voice")
+                        committed_message = rt.post_message(
+                            "assistant", commit_text or " ".join(spoken),
+                            proactive=proactive, channel="voice")
                         if user_text:                  # the SignalBus tee
                             rt.signals.post("turn_committed",
                                             {"text": user_text,
@@ -268,6 +270,8 @@ async def _in_the_room(ws: WebSocket, rt, session_id: str, safe_send,
                     payload = _encode(ev)
                     if ev.kind == "done":
                         payload["client_id"] = client_id
+                        if committed_message:
+                            payload["message"] = committed_message
                         payload["active_selfies"] = (
                             rt.selfies.active_ids(client_id)
                             if rt.selfies and client_id else [])

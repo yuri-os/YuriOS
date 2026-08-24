@@ -189,7 +189,10 @@ def test_turns_commit_to_the_transcript_greeting_is_proactive(rig):
         accepted = ws.receive_json()
         assert accepted["type"] == "accepted"
         assert accepted["message"]["client_id"] == "browser-1"
-        drain(ws)
+        while True:
+            done = ws.receive_json()
+            if done["type"] == "done":
+                break
         assert wait_for(lambda: len(rt.transcript) == 3)
         assert [m["role"] for m in rt.transcript] == ["assistant", "user", "assistant"]
         assert rt.transcript[1]["text"] == "talk to me"
@@ -198,6 +201,11 @@ def test_turns_commit_to_the_transcript_greeting_is_proactive(rig):
         assert "all done now" in rt.transcript[2]["text"]
         assert rt.transcript[2]["channel"] == "voice"
         assert not rt.transcript[2].get("proactive")    # a reply, not an approach
+        # The voice socket is the typed turn's transport when sound is enabled.
+        # Its terminal frame must carry the committed line too, so a stale SSE
+        # connection cannot make an otherwise successful spoken reply textless.
+        assert done["client_id"] == "browser-1"
+        assert done["message"] == rt.transcript[2]
 
 
 def test_the_cold_open_is_committed_as_written_not_as_spoken(rig):

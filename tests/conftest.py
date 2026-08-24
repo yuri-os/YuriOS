@@ -190,6 +190,22 @@ class FakeUtility:
     async def complete(self, messages, **params):
         system = messages[0].get("content", "") if messages else ""
         low = system.lower()
+        if "reviewing possible commitments" in low:
+            import json
+            payload = json.loads(messages[1].get("content", "{}"))
+            candidates = payload.get("candidates", [])
+            if not candidates:
+                return '{"goal":null}'
+            candidate = candidates[0]
+            text = candidate.get("text", "")
+            from yurios.mind.goals import promise_kind
+            kind = promise_kind(text, str(candidate.get("provenance", "promise:")))
+            return json.dumps({"goal": {
+                "text": text, "kind": kind,
+                "rationale": "the reply leaves this work unresolved",
+                "success": "the stated work is completed",
+                "candidates": [0],
+            }})
         if "durable facts" in system:
             body = messages[1].get("content", "") if len(messages) > 1 else ""
             keep = [l.split("  ", 1)[-1] for l in body.splitlines()

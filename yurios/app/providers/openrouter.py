@@ -220,6 +220,10 @@ class LiteLLMUtilityModel:
         # caller that knows it is asking for a long one may say so.
         if params.get("timeout"):
             extra["timeout"] = params["timeout"]
+        if params.get("response_format") is not None:
+            # OpenAI-compatible local servers, including LM Studio, enforce
+            # JSON Schema as a top-level completion parameter.
+            extra["response_format"] = params["response_format"]
         async with inference_admission():
             response = await litellm.acompletion(
                 model=self.model,

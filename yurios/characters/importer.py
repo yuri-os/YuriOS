@@ -518,6 +518,14 @@ def _create_soul(soul: Path, fields: Mapping[str, Any], name: str,
     # router, not a rewriter: a card whose layout it cannot read comes out with
     # everything under Identity, which is what this function always did.
     sections = split_description(description)
+    drives_text = sections.get("drives", "").strip()
+    drive_lines = [re.sub(r"^\s*[-*•]\s*", "", line).strip()
+                   for line in drives_text.splitlines()
+                   if line.strip() and not re.fullmatch(
+                       r"(?i)\s*(?:goals?|motivations?|drives?|values?|"
+                       r"aspirations?|ambitions?|purposes?)\s*:?[\s*]*",
+                       line)]
+    drives = drive_lines if len(drive_lines) > 1 else ([drives_text] if drives_text else [])
     version, misfiled_version = clean_version(_text(fields.get("character_version")))
     if misfiled_version:
         # A source URL or a "chat name" in `character_version` is worth keeping
@@ -545,6 +553,7 @@ spec: v3
 canon: imported
 portrait: portrait.png
 tags: {json.dumps(_string_list(fields.get('tags')), ensure_ascii=False)}
+drives: {json.dumps(drives, ensure_ascii=False)}
 fields:
   description:
     - CONSTITUTION.md#Identity

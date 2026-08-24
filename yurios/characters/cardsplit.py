@@ -8,7 +8,7 @@ like: bracketed blocks, bold headers, bullet attribute lists, ASCII rules, emoji
 section markers, `{{char}} - Appearance ---`. There is no schema to parse.
 
 So this is a **router, not a rewriter**. It finds the lines that open a labelled
-block, decides which of the four sections that label belongs to, and moves the
+block, decides which SOUL section that label belongs to, and moves the
 author's own lines there verbatim. Nothing is reworded, nothing is dropped, and
 a card it cannot read at all comes out exactly as it went in — everything in
 `identity`, which is what the importer did before any of this existed.
@@ -39,6 +39,11 @@ _SECTION_WORDS: tuple[tuple[str, frozenset[str]], ...] = (
     ("history", frozenset({
         "backstory", "background", "history", "past", "origin", "origins",
         "biography", "bio", "upbringing", "childhood",
+    })),
+    ("drives", frozenset({
+        "goal", "goals", "motivation", "motivations", "drive", "drives",
+        "value", "values", "aspiration", "aspirations", "ambition",
+        "ambitions", "purpose", "purposes",
     })),
     ("manner", frozenset({
         "personality", "personalities", "traits", "trait", "behaviour",
@@ -125,7 +130,7 @@ def _tidy(block: Iterable[str]) -> str:
 
 
 def split_description(description: str) -> dict[str, str]:
-    """Route a card's `description` into `{identity, history, appearance, manner}`.
+    """Route a card description into identity, history, appearance, manner, drives.
 
     Every line of the input lands in exactly one of them, in its original order
     and its original words. Unlabelled prose, and anything under a label this
@@ -133,7 +138,8 @@ def split_description(description: str) -> dict[str, str]:
     the opening of a card means `identity`.
     """
     sections: dict[str, list[str]] = {name: [] for name in
-                                      ("identity", "history", "appearance", "manner")}
+                                      ("identity", "history", "appearance", "manner",
+                                       "drives")}
     current = "identity"
     for line in str(description or "").splitlines():
         found = _label(line)

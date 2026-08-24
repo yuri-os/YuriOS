@@ -33,6 +33,7 @@ import { STATE_META, canonicalState } from '../shared/activity-state.js';
   let open = false;
   let refreshTimer = null;
   let busy = false;               // is she reading? decides the refresh cadence
+  const droppingGoals = new Set();
   const SLOW = 20000;             // DORMANT ticks are slow
   const FAST = 2000;              // a passage takes seconds; a bar should move
 
@@ -192,12 +193,16 @@ import { STATE_META, canonicalState } from '../shared/activity-state.js';
 
   function goalRow(g) {
     const hers = String(g.provenance || '').startsWith(HERS);
-    const open = g.state !== 'abandoned';
-    return `<li class="g-${esc(g.state)}${hers ? ' g-hers' : ''}">` +
+    const abandoned = g.state === 'abandoned';
+    if (abandoned) droppingGoals.delete(g.id);
+    const dropping = !abandoned && droppingGoals.has(g.id);
+    const open = !abandoned && !dropping;
+    return `<li class="g-${esc(open ? g.state : 'abandoned')}` +
+      `${hers ? ' g-hers' : ''}">` +
       (hers ? '<span class="il-hers">she filed this</span> ' : '') +
       `${esc(g.text)} ` +
       `<span class="il-prov">(${esc(g.kind)} · ${esc(g.provenance)}` +
-      `${open ? '' : ' · let go'})</span>` +
+      `${open ? '' : dropping ? ' · letting go' : ' · let go'})</span>` +
       (open ? ` <button class="il-drop" data-goal="${esc(g.id)}">let go` +
               '</button>' : '') + '</li>';
   }
@@ -263,12 +268,21 @@ import { STATE_META, canonicalState } from '../shared/activity-state.js';
     }
 
     const goals = (state.goals || []).filter(g => g.state !== 'done');
+    const maintenance = goals.filter(g => g.kind === 'maintenance' ||
+      String(g.provenance || '').startsWith('maintenance:'));
+    const intentions = goals.filter(g => !maintenance.includes(g));
     const filing = state.goal_filing;
-    if (goals.length || filing) {
+    if (intentions.length || filing) {
       html += section('on her mind', filingSwitch(filing) +
-        (goals.length
-          ? '<ul class="il-goals">' + goals.map(goalRow).join('') + '</ul>'
+        (intentions.length
+          ? '<ul class="il-goals">' + intentions.map(goalRow).join('') + '</ul>'
           : '<p class="il-off">nothing she means to do right now</p>'));
+    }
+    if (maintenance.length) {
+      html += section('system upkeep',
+        '<p class="il-off">automatic work kept separate from her own intentions</p>' +
+        '<ul class="il-goals il-maintenance">' + maintenance.map(goalRow).join('') +
+        '</ul>');
     }
 
     if ((state.shelf || []).length) {
@@ -348,6 +362,15 @@ import { STATE_META, canonicalState } from '../shared/activity-state.js';
     if (goal === undefined && filing === undefined) return;
     if (el.disabled) return;
     el.disabled = true;
+    const row = goal !== undefined ? el.closest('li') : null;
+    if (goal !== undefined) {
+      // The route queues a decision for the mind's next tick. Show the decision
+      // now, and remember it across API-driven rerenders, rather than restoring
+      // an apparently live button while the signal is still in flight.
+      droppingGoals.add(goal);
+      row?.classList.add('g-abandoned');
+      el.textContent = 'letting go…';
+    }
     try {
       await runtimeReady;
       const [path, body] = goal !== undefined
@@ -357,8 +380,20 @@ import { STATE_META, canonicalState } from '../shared/activity-state.js';
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
-      if (!res.ok) el.textContent = 'that didn’t take';
-    } catch { el.textContent = 'no answer from her'; }
+      if (!res.ok) {
+        if (goal !== undefined) droppingGoals.delete(goal);
+        row?.classList.remove('g-abandoned');
+        el.textContent = 'that didn’t take';
+        el.disabled = false;
+      } else if (goal !== undefined) {
+        render();
+      }
+    } catch {
+      if (goal !== undefined) droppingGoals.delete(goal);
+      row?.classList.remove('g-abandoned');
+      el.textContent = 'no answer from her';
+      el.disabled = false;
+    }
     // A dropped goal lands on her next tick; the switch has already landed.
     setTimeout(render, goal !== undefined ? 1500 : 300);
   });

@@ -65,6 +65,7 @@ class Soul:
     return_greetings: list[str]  # SCENARIO.md alternate greetings (continuity fallback)
     hard_limits: str           # CONSTITUTION.md#Hard limits — post-history (§7.1)
     examples: str              # EXAMPLES.md, <START>-joined
+    drives: list[str] = field(default_factory=list)  # durable motives, not tasks
     lorebook: list[LoreEntry] = field(default_factory=list)
     bootstrap: str | None = None  # BOOTSTRAP.md#Cold open, if the file is present (§5.4)
 
@@ -134,6 +135,10 @@ class SoulLoader:
 
         lorebook = [LoreEntry(e.name, e.keys, mac(e.content), e.insertion_order)
                     for e in _build_lorebook(reader, str(fields["character_book"]))]
+        raw_drives = manifest.get("drives", [])
+        drives = ([mac(str(value).strip()) for value in raw_drives
+                   if str(value).strip()]
+                  if isinstance(raw_drives, list) else [])
 
         return Soul(
             name=name,
@@ -145,6 +150,7 @@ class SoulLoader:
             return_greetings=[mac(g) for g in reader.resolve_list(fields["alternate_greetings"])],
             hard_limits=mac(reader.resolve_field(fields["post_history_instructions"])),
             examples=mac(_build_examples(reader, str(fields["mes_example"]))),
+            drives=drives,
             lorebook=lorebook,
             bootstrap=bootstrap,
         )

@@ -90,11 +90,14 @@ def template_draft(soul_src: Path | None = None) -> Draft:
                     if heading.lower().startswith("example")]
     lorebook = _template_lorebook(folder)
 
+    manifest_drives = manifest.get("drives", [])
     draft = Draft(
         name=str(manifest.get("name") or ""),
         creator=str(manifest.get("creator") or ""),
         character_version=str(manifest.get("character_version") or "1.0.0"),
         tags=[str(tag) for tag in (manifest.get("tags") or [])],
+        drives=([str(drive) for drive in manifest_drives if str(drive).strip()]
+                if isinstance(manifest_drives, list) else []),
         identity=_section(folder, "CONSTITUTION.md", "Identity"),
         history=_section(folder, "CONSTITUTION.md", "History"),
         appearance=_section(folder, "PERSONA.md", "Appearance"),

@@ -158,8 +158,9 @@ async def test_finishing_promised_work_files_the_telling(cfg, seeded_vault):
     rig = make_mind(cfg, seeded_vault,
                     utility=ScriptedUtility("think it's a Turkish van. goal complete"))
     rig.say("what breed was that cat?", reply="I'll look up that breed for you.")
-    # One tick: SENSE files it and APPRAISE can see it the same time round, so
-    # a thing she just said she would do is a thing she starts on now.
+    # Review is its own deliberate intention; the following tick starts work.
+    reviewed = await rig.mind.tick()
+    assert reviewed["acted"]["what"] == "promise_review"
     trace = await rig.mind.tick()
     assert trace["acted"]["what"] == "goal_work"
 

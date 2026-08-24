@@ -36,6 +36,19 @@ from .vaultio import MindVault
 
 COMMITMENTS = ("blind", "single-minded", "open-minded")
 
+# Content-word overlap catches one intention rephrased without collapsing two
+# generic relationship goals whose embeddings happen to sit close together.
+GOAL_ECHO_THRESHOLD = 0.28
+_ECHO_STOP = frozenset("""
+a an the and or but if then so to of in on at for with without from by as is
+are was were be been being it its this that these those there here you your
+yours i me my mine we our us he him his she her hers they them their do does
+did done doing have has had having will would can could should may might must
+not no nor now just about into over under before after again more most one two
+three what which who whom when where why how all any both each few other some
+such only own same than too very
+""".split())
+
 
 @dataclass
 class Goal:
@@ -81,6 +94,32 @@ class Goal:
         """
         d = self.meta.get("dispatched")
         return d if isinstance(d, dict) else {}
+
+
+def _echo_words(text: str) -> set[str]:
+    return {word for word in re.findall(r"[a-z]+", (text or "").lower())
+            if len(word) >= 3 and word not in _ECHO_STOP}
+
+
+def echoes(text: str, existing) -> object | None:
+    """Return the open goal that expresses the same content, if one exists."""
+    words = _echo_words(text)
+    for goal in existing:
+        if getattr(goal, "text", "").strip().lower() == (text or "").strip().lower():
+            return goal
+    # One content word ("see what's there") is too little evidence for a
+    # repository-wide semantic merge. Exact equality above still deduplicates it.
+    if len(words) < 2:
+        return None
+    for goal in existing:
+        theirs = _echo_words(getattr(goal, "text", ""))
+        if len(theirs) < 2:
+            continue
+        shared = words & theirs
+        overlap = len(shared) / min(len(words), len(theirs))
+        if len(shared) >= 3 and overlap >= GOAL_ECHO_THRESHOLD:
+            return goal
+    return None
 
 
 LINE_RE = re.compile(r"^- \[(?P<done>[ x~])\] \((?P<id>[\w-]+)\) (?P<text>.*?)"
@@ -145,10 +184,11 @@ class GoalStore:
             due: str | None = None, commitment: str = "single-minded",
             provenance: str = "user", meta: dict | None = None) -> Goal:
         goals = self.all()
-        for existing in goals:                 # skip near-duplicates of open goals
-            if (existing.state in ("pending", "active", "waiting")
-                    and existing.text.lower() == text.lower()):
-                return existing
+        open_goals = [g for g in goals
+                      if g.state in ("pending", "active", "waiting")]
+        existing = echoes(text, open_goals)
+        if isinstance(existing, Goal):
+            return existing
         g = Goal(id=new_id("g"), text=text, kind=kind, priority=priority, due=due,
                  commitment=commitment, provenance=provenance,
                  created=iso_of(self.clock.now()), meta=meta or {})
@@ -280,6 +320,215 @@ def _clean(text: str) -> str:
     return text.strip().rstrip(",;:").strip()
 
 
+@dataclass(frozen=True)
+class PromiseCandidate:
+    """One possible commitment, preserving enough source for semantic review."""
+
+    index: int
+    text: str
+    provenance: str
+    source: str
+    start: int
+    confidence: str                 # explicit | strong | soft
+
+    def as_dict(self) -> dict:
+        return {"index": self.index, "text": self.text,
+                "provenance": self.provenance, "source": self.source,
+                "start": self.start, "confidence": self.confidence}
+
+
+@dataclass(frozen=True)
+class PromiseDecision:
+    """The one canonical unresolved objective accepted from an exchange."""
+
+    text: str
+    kind: str
+    rationale: str
+    success: str
+    candidates: tuple[int, ...]
+
+
+class PromiseReviewError(ValueError):
+    """A utility completion did not satisfy the promise-review contract."""
+
+
+PROMISE_REVIEW_SYSTEM = """\
+You are reviewing possible commitments extracted from one completed conversation.
+Decide whether the character left any NEW, UNRESOLVED work after the reply ended.
+Conversational framing, principles, feelings, capabilities, hypotheticals, and work
+already completed in the same reply are not goals. Merge clauses that are steps of
+one intention. Judge only the supplied candidates and user request. Return at most
+one concrete, standalone objective grounded in their subject and object. Never copy
+another task or invent work. If every candidate is framing, return null.
+
+Return exactly one JSON object and no prose:
+{"goal": null}
+or
+{"goal":{"text":"imperative objective","kind":"task|reach_out",\
+"rationale":"why it remains owed","success":"observable completion",\
+"candidates":[0]}}
+"""
+
+PROMISE_REVIEW_RESPONSE_FORMAT = {
+    "type": "json_schema",
+    "json_schema": {
+        "name": "promise_review",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["goal"],
+            "properties": {
+                "goal": {
+                    "anyOf": [
+                        {"type": "null"},
+                        {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "required": ["text", "kind", "rationale", "success",
+                                         "candidates"],
+                            "properties": {
+                                "text": {"type": "string"},
+                                "kind": {"type": "string",
+                                         "enum": ["task", "reach_out"]},
+                                "rationale": {"type": "string"},
+                                "success": {"type": "string"},
+                                "candidates": {
+                                    "type": "array",
+                                    "items": {"type": "integer"},
+                                    "minItems": 1,
+                                    "uniqueItems": True,
+                                },
+                            },
+                        },
+                    ],
+                },
+            },
+        },
+    },
+}
+
+
+def discover_promise_candidates(reply: str, user_msg: str) -> list[PromiseCandidate]:
+    """Find possible commitments in source order; make no semantic decision."""
+    raw: list[tuple[int, str, str, str, str]] = []
+    seen: set[tuple[str, str]] = set()
+
+    def take(start: int, text: str, provenance: str, source: str,
+             confidence: str) -> None:
+        if _TRAILING_OFFER.search(text):
+            return
+        text = _clean(text)
+        key = (text.lower(), provenance)
+        if not text or _NEGATED.match(text) or key in seen:
+            return
+        seen.add(key)
+        raw.append((start, text, provenance, source.strip(), confidence))
+
+    # Explicit reminders are already decisions by the user. They remain first
+    # for compatibility with the old three-item cap and bypass model review.
+    for match in REMIND_RE.finditer(user_msg or ""):
+        take(match.start(), match.group(1), "user:remind-me", match.group(0),
+             "explicit")
+
+    patterns = (
+        (PROMISE_RES[0], "strong"),
+        (PROMISE_RES[1], "soft"),
+        (PROMISE_RES[2], "soft"),
+        (PROMISE_RES[3], "soft"),
+        (PROMISE_RES[4], "strong"),
+    )
+    found: list[tuple[int, str, str, str, str]] = []
+    for pattern, confidence in patterns:
+        for match in pattern.finditer(reply or ""):
+            if _CONDITIONAL.search((reply or "")[:match.start()].rsplit("\n", 1)[-1]):
+                continue
+            found.append((match.start(), match.group(1),
+                          "promise:her-own-words", match.group(0), confidence))
+    for item in sorted(found, key=lambda value: value[0]):
+        take(*item)
+
+    # User reminders precede assistant candidates; each group retains source order.
+    explicit = [item for item in raw if item[2].startswith("user:")]
+    assistant = sorted((item for item in raw if item[2].startswith("promise:")),
+                       key=lambda value: value[0])
+    ordered = [*explicit, *assistant][:6]
+    return [PromiseCandidate(index=i, start=item[0], text=item[1],
+                             provenance=item[2], source=item[3],
+                             confidence=item[4])
+            for i, item in enumerate(ordered)]
+
+
+def fallback_promises(candidates: list[PromiseCandidate]) -> list[PromiseCandidate]:
+    """High-precision behavior when semantic review is unavailable."""
+    return [candidate for candidate in candidates
+            if candidate.confidence in ("explicit", "strong")][:1]
+
+
+def promise_review_messages(*, user_text: str, reply: str,
+                            candidates: list[dict], capabilities: list[str]) -> list[dict]:
+    payload = {
+        "user_request": user_text,
+        "assistant_reply": reply,
+        "candidates": candidates,
+        "available_capabilities": capabilities,
+    }
+    return [{"role": "system", "content": PROMISE_REVIEW_SYSTEM},
+            {"role": "user", "content": json.dumps(payload, ensure_ascii=False)}]
+
+
+def _json_payload(raw: str) -> dict:
+    text = re.sub(r"^\s*<think>.*?</think>\s*", "", raw or "", flags=re.S)
+    fence = re.fullmatch(r"\s*```(?:json)?\s*(.*?)\s*```\s*", text, flags=re.S | re.I)
+    if fence:
+        text = fence.group(1)
+    try:
+        value = json.loads(text)
+    except (TypeError, json.JSONDecodeError) as exc:
+        raise PromiseReviewError("promise review was not JSON") from exc
+    if not isinstance(value, dict) or set(value) != {"goal"}:
+        raise PromiseReviewError("promise review must contain only goal")
+    return value
+
+
+def parse_promise_review(raw: str, *, candidate_count: int) -> PromiseDecision | None:
+    """Parse the strict utility contract; `None` is a valid no-goal decision."""
+    value = _json_payload(raw)
+    goal = value["goal"]
+    if goal is None:
+        return None
+    required = {"text", "kind", "rationale", "success", "candidates"}
+    if not isinstance(goal, dict) or set(goal) != required:
+        raise PromiseReviewError("promise goal fields do not match the contract")
+    text = " ".join(str(goal["text"]).split()).strip()
+    rationale = " ".join(str(goal["rationale"]).split()).strip()
+    success = " ".join(str(goal["success"]).split()).strip()
+    kind = goal["kind"]
+    indexes = goal["candidates"]
+    if (not text or len(text) > 240 or "|" in text
+            or kind not in ("task", "reach_out")
+            or not rationale or len(rationale) > 400
+            or not success or len(success) > 400
+            or not isinstance(indexes, list) or not indexes
+            or any(type(index) is not int for index in indexes)
+            or len(set(indexes)) != len(indexes)
+            or any(index < 0 or index >= candidate_count for index in indexes)):
+        raise PromiseReviewError("invalid canonical promise goal")
+    return PromiseDecision(text=text, kind=kind, rationale=rationale,
+                           success=success, candidates=tuple(indexes))
+
+
+def promise_decision_grounded(decision: PromiseDecision, candidates: list[dict],
+                              user_text: str) -> bool:
+    """A canonical objective must retain subject matter from its source exchange."""
+    source = " ".join([
+        user_text,
+        *(str(candidates[index].get("text", "")) for index in decision.candidates),
+        *(str(candidates[index].get("source", "")) for index in decision.candidates),
+    ])
+    return bool(_echo_words(decision.text) & _echo_words(source))
+
+
 #: Telling verbs: the promise whose whole substance is that *they* hear it.
 #:
 #: Anchored at the front of the captured predicate on purpose. "I'll read it and
@@ -332,28 +581,5 @@ def extract_promises(reply: str, user_msg: str) -> list[tuple[str, str]]:
     Hers first and capped at three, because a reply that offers a list is one
     conversation, not a day's work — and a companion who files everything she
     ever said "I could" about ends up with a to-do list she can only fail."""
-    out: list[tuple[str, str]] = []
-    seen: set[str] = set()
-
-    def take(text: str, provenance: str) -> None:
-        if _TRAILING_OFFER.search(text):
-            return
-        text = _clean(text)
-        key = text.lower()
-        if not text or _NEGATED.match(text) or key in seen:
-            return
-        seen.add(key)
-        out.append((text, provenance))
-
-    # The user's explicit asks go in first, so a reply full of soft offers can
-    # never spend the whole budget on her own words and drop the one thing she
-    # was actually *told* to remember.
-    for m in REMIND_RE.finditer(user_msg or ""):
-        take(m.group(1), "user:remind-me")
-    for pattern in PROMISE_RES:
-        for m in pattern.finditer(reply or ""):
-            # the clause this opener sits in, up to where it starts
-            if _CONDITIONAL.search((reply or "")[:m.start()].rsplit("\n", 1)[-1]):
-                continue
-            take(m.group(1), "promise:her-own-words")
-    return out[:3]
+    return [(candidate.text, candidate.provenance)
+            for candidate in discover_promise_candidates(reply, user_msg)[:3]]

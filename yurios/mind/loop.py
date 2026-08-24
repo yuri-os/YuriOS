@@ -45,7 +45,11 @@ from yurios.world.vram import PATIENT_WAIT_S, ParkGate
 from .budget import BudgetGovernor
 from .dream import DreamConsolidator
 from .dreamjobs import SELF_GOAL, DreamRunner
-from .goals import Goal, GoalStore, extract_promises, promise_kind
+from .goals import (Goal, GoalStore, PromiseCandidate,
+                    PROMISE_REVIEW_RESPONSE_FORMAT,
+                    discover_promise_candidates, fallback_promises,
+                    parse_promise_review, promise_decision_grounded,
+                    promise_kind, promise_review_messages)
 from .hands import (START_DONT_AWAIT, Hands, build_guard, klass, parse_intent,
                     stamp_contract)
 from .journal import Journal
@@ -205,6 +209,7 @@ class MindLoop:
             # audit as her daytime hands (§7.3), so the Tools page answers
             # "what did this actually do to the vault" for DREAM too.
             soul_text=self._soul_text,
+            drives=self._soul_drives,
             audit=(brain.guard.audit
                    if getattr(brain, "guard", None) is not None else None))
         state_dir = cfg.vault_dir / "state"
@@ -247,6 +252,12 @@ class MindLoop:
         # The one-shot §5.4 handoff, below. A date rather than a bool so the
         # journal line and the goal it files can be traced back to the day.
         self.bootstrapped_on: str = st.get("bootstrapped_on", "")
+        reviews = st.get("promise_reviews", [])
+        self.promise_reviews: list[dict] = [
+            review for review in reviews
+            if isinstance(review, dict)
+            and isinstance(review.get("candidates"), list)
+        ] if isinstance(reviews, list) else []
         self.hands.load(st)
 
         self._session: str | None = None       # lazy brain session for her own words
@@ -289,8 +300,10 @@ class MindLoop:
         full = full and mode != "brief"
         try:
             soul_dir = self.cfg.vault_dir / "soul"
-            stamp = max((p.stat().st_mtime for p in soul_dir.glob("*.md")),
-                        default=0.0)
+            stamp = max((p.stat().st_mtime for p in
+                         [*soul_dir.glob("*.md"), soul_dir / "soul.yaml"]
+                         if p.is_file()),
+                         default=0.0)
         except OSError:
             stamp = 0.0
         key = (stamp, full)
@@ -311,6 +324,15 @@ class MindLoop:
             text = ""
         self._soul_cache = (key, text, self.clock.now())
         return text
+
+    def _soul_drives(self) -> list[str]:
+        """Current durable motives, loaded live like every other SOUL surface."""
+        try:
+            loader = getattr(self.brain.state, "soul_loader", None)
+            return list(loader.load().drives) if loader is not None else []
+        except Exception:  # noqa: BLE001 — absent drives cost context, not a night
+            log.warning("character drives unavailable", exc_info=True)
+            return []
 
     async def _utility(self, messages: list[dict], *, soul: bool = False,
                        **params) -> str:
@@ -491,34 +513,41 @@ class MindLoop:
             if sig.type == "user_message":
                 self.activity.preempt_engaged()
             elif sig.type == "turn_committed":
-                # the reactive path already replied (SPEC §15.3); REFLECT's share
-                # is the promise scan — her own words become goals she must keep
-                for text, prov in extract_promises(
-                        sig.payload.get("reply", ""), sig.payload.get("text", "")):
-                    kind = promise_kind(text, prov)
-                    g = self.goals.add(
-                        text, kind=kind,
-                        # Work she took on outranks talking about work, and it
-                        # has to clear gate 1 *now* rather than in twelve hours:
-                        # 0.6 scores 0.36, under every threshold, which is how
-                        # every promise she ever made sat untouched until its due
-                        # time turned it into something to say instead.
-                        priority=0.6 if kind == "reach_out" else 0.7,
-                        # A reach-out is a thing to say by a time. Work isn't: a
-                        # due date on "look into that" is a deadline she invented,
-                        # and `reconsider()` would eventually hold her to it.
-                        due=(iso_of(self.clock.now() + 24 * 3600)
-                             if kind == "reach_out" else None),
-                        commitment="single-minded", provenance=prov,
-                        # What it was *about*, which the scan drops: it keeps
-                        # the predicate after "I'll" and the subject was in
-                        # their sentence. Kept on the goal rather than looked up
-                        # later because the goal outlives the conversation.
-                        meta=({"about": self._trim(sig.payload.get("text", ""))}
-                              if kind == "task" else None))
-                    reflect_notes.append(
-                        f"I promised: {g.text}" if kind == "reach_out"
-                        else f"I took that on: {g.text}")
+                user_text = str(sig.payload.get("text", ""))
+                reply = str(sig.payload.get("reply", ""))
+                candidates = discover_promise_candidates(reply, user_text)
+                explicit = [candidate for candidate in candidates
+                            if candidate.confidence == "explicit"]
+                assistant = [candidate for candidate in candidates
+                             if candidate.confidence != "explicit"]
+                for candidate in explicit:
+                    note = self._file_promise_candidate(
+                        candidate, user_text=user_text, reply=reply)
+                    if note:
+                        reflect_notes.append(note)
+                if assistant and self._promise_review_available():
+                    known = {str(review.get("signal_id", ""))
+                             for review in self.promise_reviews}
+                    if sig.id not in known:
+                        normalized = [
+                            {**candidate.as_dict(), "index": index}
+                            for index, candidate in enumerate(assistant)]
+                        self.promise_reviews.append({
+                            "signal_id": sig.id,
+                            "user_text": self._trim(user_text, 1000),
+                            "reply": self._trim(reply, 3000),
+                            "candidates": normalized,
+                            "attempts": 0,
+                        })
+                        # The signal bus is not replayed after restart. Persist
+                        # before advancing its offset at the end of this tick.
+                        self._persist()
+                elif assistant:
+                    for candidate in fallback_promises(assistant):
+                        note = self._file_promise_candidate(
+                            candidate, user_text=user_text, reply=reply)
+                        if note:
+                            reflect_notes.append(note)
             elif sig.type == "selfedit_decision":
                 res = self.selfedit.decide(sig.payload.get("id", ""),
                                            bool(sig.payload.get("approve")))
@@ -527,7 +556,8 @@ class MindLoop:
                         f"you {res.outcome} my edit to {res.surface}")
             elif sig.type == "goal_decision":
                 goal = self.goals.get(str(sig.payload.get("id", "")))
-                if goal is not None and sig.payload.get("abandon"):
+                if (goal is not None and sig.payload.get("abandon")
+                        and goal.state not in ("done", "abandoned")):
                     self.goals.set_state(goal.id, "abandoned")
                     self.wakeups.pop(goal.id, None)
                     reflect_notes.append(
@@ -576,6 +606,11 @@ class MindLoop:
         if self._pending_announce and not self._engaged_now():
             appraisals.append(Appraisal("announce", "impulse", 0.9,
                                         "a timer landed — a promise due"))
+        eligible_reviews = self._eligible_promise_reviews()
+        if eligible_reviews and self._promise_review_available():
+            appraisals.append(Appraisal(
+                "promise_review", "promise_review", 0.86,
+                f"{eligible_reviews} committed exchange(s) awaiting review"))
         # Which of her hands, if any, are reachable this tick (§26, as amended).
         # Computed in APPRAISE and checked again at dispatch, so a hand that is
         # blocked shows up in the trace as a runner-up with its reason rather
@@ -631,8 +666,9 @@ class MindLoop:
         # more than one thing worth doing? one intention per tick still holds —
         # the runners-up just shorten the next heartbeat instead of piling into
         # this one (the DREAM chunking discipline, generalised)
-        self._backlog = sum(
+        self._backlog = (sum(
             1 for a in appraisals if a.score >= self.cfg.mind_act_threshold) > 1
+            or eligible_reviews > 1)
 
         # ---- ACT: at most one act, through the host's own surfaces ------------
         acted: dict = {"what": None, "result": "rest"}
@@ -705,6 +741,8 @@ class MindLoop:
             return await self._act_ingest()
         if chosen.subject == "dream":
             return await self._act_dream()
+        if chosen.subject == "promise_review":
+            return await self._act_promise_review(offer)
         if chosen.kind == "signal":
             sig: Signal = chosen.subject
             if sig.type == "task_completion":
@@ -723,6 +761,102 @@ class MindLoop:
             return await self._act_goal_work(
                 goal, offer if chosen.kind == "tool_step" else None)
         return ({"what": None, "result": "rest"}, {}, [])
+
+    def _promise_review_available(self) -> bool:
+        return bool(self.cfg.utility_enabled and self.brain.state.utility is not None)
+
+    def _eligible_promise_reviews(self) -> int:
+        now = self.clock.now()
+        return sum(1 for review in self.promise_reviews
+                   if float(review.get("retry_at", 0) or 0) <= now)
+
+    def _file_promise_candidate(self, candidate: PromiseCandidate, *,
+                                user_text: str, reply: str,
+                                text: str | None = None,
+                                kind: str | None = None,
+                                rationale: str = "",
+                                success: str = "",
+                                sources: list[dict] | None = None) -> str:
+        objective = self._trim(text or candidate.text, 240)
+        goal_kind = kind or promise_kind(objective, candidate.provenance)
+        before = {goal.id for goal in self.goals.open_goals()}
+        meta = {
+            "about": self._trim(user_text),
+            "source": self._trim(candidate.source, 300),
+            "reply": self._trim(reply, 600),
+        }
+        if rationale:
+            meta["rationale"] = self._trim(rationale, 400)
+        if success:
+            meta["success"] = self._trim(success, 400)
+        if sources:
+            meta["candidate_sources"] = sources
+        goal = self.goals.add(
+            objective, kind=goal_kind,
+            priority=0.6 if goal_kind == "reach_out" else 0.7,
+            due=(iso_of(self.clock.now() + 24 * 3600)
+                 if goal_kind == "reach_out" else None),
+            commitment="single-minded", provenance=candidate.provenance,
+            meta=meta)
+        if goal.id in before:
+            return ""
+        return (f"I promised: {goal.text}" if goal_kind == "reach_out"
+                else f"I took that on: {goal.text}")
+
+    async def _act_promise_review(self, offer=None) -> tuple[dict, dict, list[str]]:
+        now = self.clock.now()
+        index = next((index for index, review in enumerate(self.promise_reviews)
+                      if float(review.get("retry_at", 0) or 0) <= now), -1)
+        if index < 0:
+            return ({"what": "promise_review", "result": "review is backing off"}, {}, [])
+        review = self.promise_reviews.pop(index)
+        candidates = review.get("candidates", [])
+        messages = promise_review_messages(
+            user_text=str(review.get("user_text", "")),
+            reply=str(review.get("reply", "")), candidates=candidates,
+            capabilities=list(offer.tools) if offer else [])
+        try:
+            with correlate.scope(kind=correlate.UTILITY):
+                raw = await self._utility(
+                    messages, soul=False, thinking=True, reasoning_effort="low",
+                    max_tokens=1200,
+                    response_format=PROMISE_REVIEW_RESPONSE_FORMAT)
+            decision = parse_promise_review(raw, candidate_count=len(candidates))
+        except Exception:  # noqa: BLE001 — a malformed review must not kill the tick
+            log.warning("promise review failed; retaining it", exc_info=True)
+            attempts = int(review.get("attempts", 0)) + 1
+            review["attempts"] = attempts
+            review["retry_at"] = now + min(3600.0, 30.0 * (2 ** (attempts - 1)))
+            self.promise_reviews.append(review)
+            return ({"what": "promise_review",
+                     "result": "invalid review retained for retry"}, {}, [])
+
+        if decision is None:
+            return ({"what": "promise_review", "result": "no unresolved promise"}, {}, [])
+        if not promise_decision_grounded(
+                decision, candidates, str(review.get("user_text", ""))):
+            log.warning("promise review returned an ungrounded objective; discarded")
+            return ({"what": "promise_review", "result": "ungrounded goal discarded"}, {}, [])
+        selected = [candidates[index] for index in decision.candidates]
+        primary = selected[0]
+        candidate = PromiseCandidate(
+            index=int(primary.get("index", 0)),
+            text=str(primary.get("text", "")),
+            provenance=str(primary.get("provenance", "promise:her-own-words")),
+            source=str(primary.get("source", "")),
+            start=int(primary.get("start", 0)),
+            confidence=str(primary.get("confidence", "soft")))
+        sources = [{"text": self._trim(str(item.get("source", "")), 200),
+                    "candidate": int(item.get("index", 0))}
+                   for item in selected]
+        note = self._file_promise_candidate(
+            candidate, user_text=str(review.get("user_text", "")),
+            reply=str(review.get("reply", "")), text=decision.text,
+            kind=decision.kind, rationale=decision.rationale,
+            success=decision.success, sources=sources)
+        return ({"what": "promise_review",
+                 "result": "filed one canonical goal" if note else
+                           "matched an existing goal"}, {}, [note] if note else [])
 
     async def _act_announce(self) -> tuple[dict, dict, list[str]]:
         """A landed timer — a promise, so it queues until deliverable (the
@@ -1361,6 +1495,7 @@ class MindLoop:
             "considered": self.considered, "last_tick_ts": self.last_tick_ts,
             "wakeups": self.wakeups, "reconsidered_on": self.reconsidered_on,
             "bootstrapped_on": self.bootstrapped_on,
+            "promise_reviews": self.promise_reviews,
             # the fingerprint ledger and the daily call count, beside
             # `interrupts` and rolling at the same local midnight (§26, amended)
             **self.hands.snapshot()})
@@ -1480,12 +1615,27 @@ class MindLoop:
             self.bootstrapped_on = day_of(now)
             return []
         self.bootstrapped_on = day_of(now)
+        user_model = self.vault.read("soul/USER.md")
+        ongoing = ""
+        in_ongoing = False
+        for line in user_model.splitlines():
+            if line.strip().lower() == "## ongoing":
+                in_ongoing = True
+                continue
+            if in_ongoing and line.startswith("## "):
+                break
+            if in_ongoing and line.lstrip().startswith("-"):
+                candidate = line.lstrip()[1:].strip()
+                if candidate and not candidate.startswith("_("):
+                    ongoing = candidate
+                    break
+        if not ongoing:
+            return ["our first conversation is done; no concrete follow-up was left open"]
         goal = self.goals.add(
-            f"pick up where the first conversation left off with "
-            f"{self.cfg.user_name} — ask how the thing they told me about is going",
+            f"ask {self.cfg.user_name} about this ongoing thread: {ongoing}",
             kind="reach_out", priority=0.55,
             due=iso_of(now + 36 * 3600), commitment="open-minded",
-            provenance="bootstrap:first-session")
+            provenance="bootstrap:first-session", meta={"about": ongoing})
         return [f"our first conversation is done; I want to follow it up: {goal.text}"]
 
     def set_hands_enabled(self, enabled: bool) -> None:
@@ -1529,6 +1679,10 @@ class MindLoop:
         # minutes and lands whenever the heartbeat happens to fall.
         for at in self.wakeups.values():
             delay = max(1.0, min(delay, float(at) - now))
+        for review in self.promise_reviews:
+            retry_at = float(review.get("retry_at", 0) or 0)
+            if retry_at > now:
+                delay = max(1.0, min(delay, retry_at - now))
         return delay
 
     async def run(self) -> None:

@@ -7,7 +7,7 @@
  */
 
 export const EMPTY_DRAFT = Object.freeze({
-  name: "", nickname: "", creator: "", character_version: "1.0.0", tags: [],
+  name: "", nickname: "", creator: "", character_version: "1.0.0", tags: [], drives: [],
   identity: "", history: "", appearance: "", manner: "", personality: "",
   scenario: "", first_mes: "", alternate_greetings: [], group_only_greetings: [],
   examples: [], system_prompt: "", post_history_instructions: "", creator_notes: "",
@@ -38,6 +38,8 @@ export const SECTIONS = Object.freeze([
       { key: "appearance", label: "Appearance", type: "textarea" },
       { key: "manner", label: "Manner", type: "textarea" },
       { key: "personality", label: "Personality line", type: "text", hint: "A short comma-separated register" },
+      { key: "drives", label: "Drives and values", type: "list", rows: 2,
+        hint: "Durable motivations for private planning — not executable tasks" },
       { key: "system_prompt", label: "Voice law", type: "textarea", constitution: true },
       { key: "post_history_instructions", label: "Hard limits", type: "textarea", constitution: true,
         hint: "Sent after the history — the last thing read before she replies" },

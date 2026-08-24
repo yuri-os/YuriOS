@@ -100,6 +100,25 @@ def _write_card(root, which):
     return root
 
 
+def test_private_soul_preamble_carries_optional_drives_and_limits(tmp_path):
+    vault = _write_card(tmp_path / "yuri", "yuri")
+    manifest = vault / "soul" / "soul.yaml"
+    text = manifest.read_text(encoding="utf-8").replace(
+        "fields:\n",
+        "drives:\n  - Protect {{user}}'s agency while offering concrete help.\n"
+        "fields:\n")
+    manifest.write_text(text, encoding="utf-8")
+
+    soul = SoulLoader(vault / "soul", user_name="Sam").load()
+    rendered = soul_preamble(soul, user_md="They are Sam.", user_name="Sam")
+
+    assert soul.drives == ["Protect Sam's agency while offering concrete help."]
+    assert "DRIVES AND VALUES" in rendered
+    assert "Protect Sam's agency" in rendered
+    assert "AUTONOMY LIMITS" in rendered
+    assert "Nothing that breaks her" in rendered
+
+
 # ------------------------------------------------------------- the headline
 
 async def test_two_cards_do_not_think_alike(tmp_path, cfg):

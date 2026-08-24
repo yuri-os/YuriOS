@@ -463,12 +463,13 @@ async def test_letting_go_of_a_goal_goes_through_the_mind(client_with_mind):
 
     r = c.post(f"/api/mind/goals/{goal.id}/abandon")
     assert r.json()["queued"] is True
+    assert c.post(f"/api/mind/goals/{goal.id}/abandon").json()["queued"] is True
     assert rig.mind.goals.get(goal.id).state != "abandoned"   # not yet
 
     await rig.mind.tick()
     assert rig.mind.goals.get(goal.id).state == "abandoned"
     day_files = list((rig.mind.vault.vault / "memory" / "episodic").glob("*.md"))
-    assert any("you let go of" in p.read_text() for p in day_files)
+    assert sum(p.read_text().count("you let go of") for p in day_files) == 1
 
 
 def test_a_goal_that_is_already_gone_is_404(client_with_mind):

@@ -12,6 +12,16 @@ import pytest
 from yurios.characters.cardsplit import clean_version, split_description
 
 
+def test_authored_goals_become_drives_not_executable_tasks():
+    result = split_description(
+        "A careful analyst.\n\nGoals:\n- Verify catalysts before trading\n"
+        "- Protect capital before chasing returns")
+
+    assert "Verify catalysts" in result["drives"]
+    assert "Protect capital" in result["drives"]
+    assert "Goals:" not in result["identity"]
+
+
 def _words(text: str) -> set[str]:
     return {word for word in text.split() if len(word) > 3}
 

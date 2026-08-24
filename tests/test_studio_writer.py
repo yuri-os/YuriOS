@@ -123,6 +123,15 @@ def test_the_comments_people_write_in_survive(soul):
     assert "# a comment between the two halves" in text
 
 
+def test_drives_round_trip_as_optional_manifest_metadata(soul):
+    drives = ["Research before acting", "Protect the user's agency"]
+    write_soul(soul, _draft(drives=drives))
+    manifest = yaml.safe_load((soul / "soul.yaml").read_text(encoding="utf-8"))
+
+    assert manifest["drives"] == drives
+    assert "# a header comment people write in" in (soul / "soul.yaml").read_text()
+
+
 def test_a_nested_key_of_the_same_name_is_not_the_one_rewritten(tmp_path):
     path = tmp_path / "soul.yaml"
     path.write_text("name: Top\nfields:\n  name: PERSONA.md@name\n", encoding="utf-8")

@@ -4,11 +4,40 @@ idle machine it replaced.
 """
 from __future__ import annotations
 
+import json
 import subprocess
 
-from yurios.mind.goals import extract_promises, promise_kind
+import pytest
 
-from .conftest import make_mind, run_mind
+from yurios.mind.goals import (PromiseReviewError, discover_promise_candidates,
+                               extract_promises, parse_promise_review,
+                               promise_decision_grounded, promise_kind)
+
+from .conftest import FakeUtility, make_mind, run_mind
+
+
+class ReviewUtility(FakeUtility):
+    def __init__(self, *reviews: str):
+        self.reviews = list(reviews)
+        self.review_calls = 0
+        self.review_params = []
+
+    async def complete(self, messages, **params):
+        system = messages[0].get("content", "") if messages else ""
+        if "reviewing possible commitments" in system.lower():
+            self.review_calls += 1
+            self.review_params.append(params)
+            return self.reviews.pop(0)
+        return await super().complete(messages, **params)
+
+
+def review_goal(text: str, *, candidates=(0,), kind="task") -> str:
+    return json.dumps({"goal": {
+        "text": text, "kind": kind,
+        "rationale": "the reply ended before this was completed",
+        "success": "an authoritative answer is reported to the user",
+        "candidates": list(candidates),
+    }})
 
 
 async def test_one_intention_per_tick_and_the_trace_shape(cfg, seeded_vault):
@@ -179,6 +208,126 @@ def test_promise_scan_shapes():
     assert "promise:her-own-words" in provs and "user:remind-me" in provs
     # negations are not promises
     assert extract_promises("I'll never leave.", "") == []
+
+
+def test_promise_candidates_keep_source_order_across_openers():
+    reply = ("I need to be careful because the brief says Wednesday. "
+             "Let me check the release calendar. "
+             "I need to convert it to Seoul time accurately.")
+    candidates = discover_promise_candidates(reply, "when is the release?")
+    assert [candidate.text for candidate in candidates] == [
+        "be careful because the brief says Wednesday",
+        "check the release calendar",
+        "convert it to Seoul time accurately",
+    ]
+
+
+def test_promise_review_parser_is_strict():
+    valid = review_goal("verify the release calendar")
+    decision = parse_promise_review(valid, candidate_count=1)
+    assert decision and decision.text == "verify the release calendar"
+    assert parse_promise_review('{"goal":null}', candidate_count=1) is None
+    with pytest.raises(PromiseReviewError):
+        parse_promise_review("The answer is " + valid, candidate_count=1)
+    with pytest.raises(PromiseReviewError):
+        parse_promise_review(review_goal("bad", candidates=(1,)), candidate_count=1)
+    with pytest.raises(PromiseReviewError):
+        parse_promise_review('{"goal":null,"extra":true}', candidate_count=1)
+
+
+def test_promise_review_cannot_copy_an_unrelated_open_goal():
+    decision = parse_promise_review(
+        review_goal("check this week's economic calendar"), candidate_count=1)
+    candidates = [{"text": "be honest because good can mean different things",
+                   "source": "I want to be honest because good can mean different things."}]
+    assert decision is not None
+    assert not promise_decision_grounded(decision, candidates, "explain this framing")
+
+
+async def test_yuriquant_fragments_become_one_canonical_goal(cfg, seeded_vault):
+    utility = ReviewUtility(review_goal(
+        "verify the next BTC-moving US economic release and report its exact "
+        "date and time in Seoul time", candidates=(0, 1, 2)))
+    rig = make_mind(cfg, seeded_vault, utility=utility)
+    rig.say(
+        "when is the next market event? give me the exact Seoul time",
+        reply=("I need to be careful here because my brief mentioned Wednesday. "
+               "Let me check the exact dates and times. "
+               "I need to convert them to Seoul time accurately."))
+
+    trace = await rig.mind.tick()
+
+    assert trace["acted"]["what"] == "promise_review"
+    goals = rig.mind.goals.open_goals()
+    assert len(goals) == 1
+    assert goals[0].text.startswith("verify the next BTC-moving")
+    assert goals[0].state == "pending", "review is the tick's one intention"
+    assert goals[0].meta["success"] == "an authoritative answer is reported to the user"
+    assert len(goals[0].meta["candidate_sources"]) == 3
+    assert utility.review_params[0]["thinking"] is True
+    assert utility.review_params[0]["reasoning_effort"] == "low"
+    assert utility.review_params[0]["response_format"]["type"] == "json_schema"
+
+
+async def test_promise_reviews_are_fifo_and_survive_restart(cfg, seeded_vault):
+    utility = ReviewUtility(
+        review_goal("check the first source"),
+        review_goal("check the second source"))
+    rig = make_mind(cfg, seeded_vault, utility=utility)
+    rig.say("first", reply="I'll check the first source.")
+    rig.say("second", reply="I'll check the second source.")
+
+    await rig.mind.tick()
+    assert [goal.text for goal in rig.mind.goals.open_goals()] == [
+        "check the first source"]
+    assert len(rig.mind.promise_reviews) == 1
+
+    restarted = make_mind(cfg, seeded_vault, clock=rig.clock, utility=utility)
+    assert len(restarted.mind.promise_reviews) == 1
+    await restarted.mind.tick()
+    assert [goal.text for goal in restarted.mind.goals.open_goals()] == [
+        "check the first source", "check the second source"]
+
+
+async def test_invalid_review_rotates_without_blocking_later_turns(cfg, seeded_vault):
+    utility = ReviewUtility("not json", review_goal("check the second source"))
+    rig = make_mind(cfg, seeded_vault, utility=utility)
+    rig.say("first", reply="I'll check the first source.")
+    rig.say("second", reply="I'll check the second source.")
+
+    first = await rig.mind.tick()
+    assert first["acted"]["result"] == "invalid review retained for retry"
+    assert rig.mind.promise_reviews[0]["user_text"] == "second"
+    assert rig.mind.promise_reviews[1]["attempts"] == 1
+
+    await rig.mind.tick()
+    assert [goal.text for goal in rig.mind.goals.open_goals()] == [
+        "check the second source"]
+    assert len(rig.mind.promise_reviews) == 1
+
+
+async def test_invalid_single_review_backs_off_before_calling_again(cfg, seeded_vault):
+    utility = ReviewUtility("not json")
+    rig = make_mind(cfg, seeded_vault, utility=utility)
+    rig.say("first", reply="I'll check the source.")
+
+    await rig.mind.tick()
+    retry_at = rig.mind.promise_reviews[0]["retry_at"]
+    await rig.mind.tick()
+
+    assert utility.review_calls == 1
+    assert retry_at == rig.clock.now() + 30
+
+
+async def test_no_utility_uses_only_the_strict_fallback(cfg, seeded_vault):
+    rig = make_mind(cfg, seeded_vault)
+    rig.mind.brain.state.utility = None
+    rig.say("market", reply="I want to be honest with you. I'll verify the date.")
+
+    await rig.mind.tick()
+
+    assert [goal.text for goal in rig.mind.goals.open_goals()] == ["verify the date"]
+    assert rig.mind.promise_reviews == []
 
 
 def test_a_promise_is_split_into_work_and_news():

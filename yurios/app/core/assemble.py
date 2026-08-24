@@ -163,6 +163,11 @@ def soul_preamble(soul: Soul, *, user_md: str = "", user_name: str = "you",
         backbone = f"{backbone}\n\nPersonality: {soul.personality}".strip()
     if backbone:
         blocks.append(_block("PERSONA BACKBONE", backbone))
+    if soul.drives:
+        blocks.append(_block("DRIVES AND VALUES", "\n".join(
+            f"- {drive}" for drive in soul.drives)))
+    if soul.hard_limits.strip():
+        blocks.append(_block("AUTONOMY LIMITS", soul.hard_limits))
     if full:
         if soul.scenario.strip():
             blocks.append(_block("SCENARIO", soul.scenario))

@@ -49,6 +49,7 @@ parsed out of it.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import re
 from dataclasses import dataclass, field
@@ -62,6 +63,7 @@ from yurios.world.clock import Clock
 from yurios.app.providers.admission import InferenceBusy
 
 from .dream import DreamConsolidator
+from .goals import echoes
 from .hands import parse_intent
 from .journal import canonical_day, is_canonical_day
 from .util import day_of, iso_of, read_json, write_json
@@ -277,63 +279,6 @@ SELF_GOAL = "strategy:"
 #: date is immortal.
 SELF_GOAL_TTL_DAYS = 3.0
 
-#: How much of a candidate goal's vocabulary may already be in one she is
-#: carrying before it counts as the same goal reworded rather than a new one.
-#:
-#: Measured, not guessed. Four consecutive nights against a real vault filed
-#: "write a note … detailing three specific micro-intentions", "write the
-#: micro-intentions note and execute the first one", "write the micro-intentions
-#: note now, focusing on three sensory cues" and "finish the micro-intentions
-#: note by mapping…" — one thought wearing four hats, filling every slot the cap
-#: allows. `GoalStore.add`'s exact-text merge saw four different strings.
-#:
-#: Embedding cosine does *not* separate these: on bge-small the four scored
-#: 0.65–0.83 against each other, but two unrelated promises ("give you something
-#: just for us" / "give you everything without taking up too much space") scored
-#: 0.70 — no threshold exists that catches the first without merging the second.
-#: Content-word overlap does separate them cleanly: the rewordings scored
-#: 0.29–0.57 and every genuinely different pair scored at most 0.25.
-SELF_GOAL_ECHO = 0.28
-
-#: Words carrying no subject matter, so that overlap counts what a goal is
-#: *about*. Deliberately short: this is a shared-vocabulary measure, not a
-#: parser, and a longer list would start deciding which content words matter.
-_ECHO_STOP = frozenset("""
-a an the and or but if then so to of in on at for with without from by as is
-are was were be been being it its this that these those there here you your
-yours i me my mine we our us he him his she her hers they them their do does
-did done doing have has had having will would can could should may might must
-not no nor now just about into over under before after again more most one two
-three what which who whom when where why how all any both each few other some
-such only own same than too very
-""".split())
-
-
-def _echo_words(text: str) -> set[str]:
-    return {w for w in re.findall(r"[a-z]+", (text or "").lower())
-            if len(w) >= 3 and w not in _ECHO_STOP}
-
-
-def echoes(text: str, existing) -> object | None:
-    """The open goal `text` is a rewording of, or None.
-
-    Overlap is measured against the *shorter* of the two vocabularies rather
-    than their union, because the rewordings are rarely the same length —
-    "finish the micro-intentions note by mapping…" is half the size of the goal
-    that created that note, and a union-based score buries the shared half.
-    """
-    words = _echo_words(text)
-    if not words:
-        return None
-    for g in existing:
-        theirs = _echo_words(getattr(g, "text", ""))
-        if not theirs:
-            continue
-        if len(words & theirs) / min(len(words), len(theirs)) >= SELF_GOAL_ECHO:
-            return g
-    return None
-
-
 @dataclass
 class DreamContext:
     """Everything a job is handed, and the only way it reaches anything.
@@ -373,6 +318,7 @@ class DreamContext:
     #: can change under it — through the self-edit gate, or because the user
     #: edited PERSONA.md at lunchtime. `MindLoop._soul_text` does the caching.
     soul_text: Callable[[], str] | None = None
+    drives: Callable[[], list[str]] | None = None
     #: This job's appetite for it, set by the runner before each job from the
     #: job's own `soul` attribute. Not one switch for the night: the diary and
     #: the stock-take are hers and must sound like it, while consolidation is
@@ -479,6 +425,68 @@ class DreamContext:
     def facts(self, *, limit: int = 2000) -> str:
         return self.vault.read("memory/semantic/facts.md")[-limit:]
 
+    def strategy_context(self, day: str, open_goals: list) -> str:
+        """Bounded evidence for deciding what deserves to become a new goal."""
+        parts: list[str] = [f"DAY UNDER REVIEW\n{day}"]
+        drives: list[str] = []
+        if self.drives is not None:
+            try:
+                drives = self.drives()[:8]
+            except Exception:  # noqa: BLE001 — missing drives mean no drive block
+                log.warning("strategy: character drives unavailable", exc_info=True)
+        if drives:
+            parts.append("DURABLE DRIVES (values, not tasks)\n" + "\n".join(
+                f"- {str(drive)[:300]}" for drive in drives))
+        enabled = bool(getattr(self.cfg, "mind_tools_enabled", False))
+        allowlist = str(getattr(self.cfg, "mind_tool_allowlist", "") or "")
+        capability = allowlist if enabled and allowlist.strip() else "thought-only"
+        parts.append("AVAILABLE AUTONOMOUS CAPABILITIES\n" + capability)
+
+        if open_goals:
+            lines = []
+            for goal in open_goals[:20]:
+                about = str(getattr(goal, "meta", {}).get("about") or "")[:180]
+                line = (f"- {str(goal.text)[:300]} | {goal.kind} | {goal.state} | "
+                        f"priority {goal.priority} | from {goal.provenance}")
+                if goal.due:
+                    line += f" | due {goal.due}"
+                if about:
+                    line += f" | source: {about}"
+                lines.append(line)
+            parts.append("OPEN GOALS\n" + "\n".join(lines))
+        else:
+            parts.append("OPEN GOALS\n- (nothing open right now)")
+
+        journal = self.journal(day, limit=3500).strip()
+        if journal:
+            parts.append("WHAT ACTUALLY HAPPENED THAT DAY\n" + journal)
+        summary = self.vault.read("memory/summary.md")[-1600:].strip()
+        if summary:
+            parts.append("RECENT RELATIONSHIP CONTEXT\n" + summary)
+        facts = self.facts(limit=1600).strip()
+        if facts:
+            parts.append("DURABLE FACTS\n" + facts)
+
+        if self.workspace is not None:
+            previous = [entry for entry in self.workspace.list("strategy")
+                        if not entry.is_dir and entry.path.endswith(".md")
+                        and entry.path != f"strategy/{day}.md"]
+            if previous:
+                latest = previous[-1].path
+                note = self.workspace.read(latest, default="")[-1200:].strip()
+                if note:
+                    parts.append(f"PREVIOUS STRATEGY ({latest})\n{note}")
+            digest = self.workspace.digest(limit=10)
+            if digest:
+                parts.append("DESK (paths only)\n" + digest[:1200])
+        if self.skills is not None:
+            catalog = self.skills.catalog(limit=8)
+            if catalog:
+                parts.append("KNOWN SKILLS\n" + catalog[:1000])
+
+        rendered = "\n\n".join(parts)
+        return rendered[:12000]
+
     # ------------------------------------------------------------------ write
 
     def put(self, rel: str, text: str) -> None:
@@ -511,7 +519,8 @@ class DreamContext:
                        result=f"wrote {rel}",
                        duration_ms=(self.clock.now() - started) * 1000.0)
 
-    def file_goal(self, text: str, *, day: str) -> object | None:
+    def file_goal(self, text: str, *, day: str,
+                  meta: dict | None = None) -> object | None:
         """File one goal of her own. The second output path, and the only one
         that leaves `workspace/`.
 
@@ -579,6 +588,7 @@ class DreamContext:
             # lets go of itself and the list cannot silt up.
             commitment="open-minded",
             provenance=f"{SELF_GOAL}{day}",
+            meta=meta,
         )
         self.filed.append(goal.id)
         self.note_call("file_goal", {"text": text[:200], "id": goal.id},
@@ -1053,6 +1063,80 @@ STRATEGY_SYSTEM = (
 NEXT_RE = re.compile(r"^\s*(?:[-*]\s*)?(?:\*\*)?next(?:\*\*)?\s*:\s*(.+?)\s*$",
                      re.IGNORECASE | re.MULTILINE)
 
+STRATEGY_OUTPUT = """\
+Return exactly one JSON object and no prose:
+{"reflection":"your first-person stock-take","next":null}
+or
+{"reflection":"your first-person stock-take","next":{"objective":"one concrete \
+standalone action","why":"why this follows from your drives and current evidence",\
+"evidence":"the specific recent fact or event supporting it","success":"an \
+observable completion condition","first_action":"the first bounded step",\
+"capability":"the available capability it uses, or thought-only"}}
+Do not file a value, feeling, relationship posture, metaphorical physical act, or
+anything containing an unresolved reference such as 'the thing'. If no new action
+is both character-specific and executable with the capabilities shown, use null.
+"""
+
+
+@dataclass(frozen=True)
+class StrategyCandidate:
+    objective: str
+    why: str
+    evidence: str
+    success: str
+    first_action: str
+    capability: str
+
+
+@dataclass(frozen=True)
+class StrategyDecision:
+    reflection: str
+    next: StrategyCandidate | None
+
+
+def parse_strategy_decision(raw: str) -> StrategyDecision:
+    """Structured strategy output, with the old `next:` shape as compatibility."""
+    text = (raw or "").strip()
+    fence = re.fullmatch(r"```(?:json)?\s*(.*?)\s*```", text, flags=re.S | re.I)
+    candidate_json = fence.group(1) if fence else text
+    try:
+        value = json.loads(candidate_json)
+    except (TypeError, json.JSONDecodeError):
+        value = None
+    if isinstance(value, dict) and set(value) == {"reflection", "next"}:
+        reflection = str(value["reflection"] or "").strip()[:2000]
+        item = value["next"]
+        if item is None:
+            return StrategyDecision(reflection=reflection, next=None)
+        fields = {"objective", "why", "evidence", "success", "first_action",
+                  "capability"}
+        if isinstance(item, dict) and set(item) == fields:
+            cleaned = {key: " ".join(str(item[key] or "").split())
+                       for key in fields}
+            objective = cleaned["objective"][:240]
+            if (objective and "|" not in objective
+                    and all(cleaned[key] for key in fields - {"objective"})):
+                return StrategyDecision(
+                    reflection=reflection,
+                    next=StrategyCandidate(
+                        objective=objective,
+                        why=cleaned["why"][:400],
+                        evidence=cleaned["evidence"][:400],
+                        success=cleaned["success"][:400],
+                        first_action=cleaned["first_action"][:400],
+                        capability=cleaned["capability"][:120]))
+        return StrategyDecision(reflection=reflection, next=None)
+
+    hit = NEXT_RE.search(text)
+    reflection = NEXT_RE.sub("", text).strip()[:2000]
+    legacy = " ".join(hit.group(1).split())[:240] if hit else ""
+    next_goal = (StrategyCandidate(
+        objective=legacy, why="legacy strategy candidate",
+        evidence="legacy strategy note", success="the objective is completed",
+        first_action=legacy, capability="unspecified")
+                 if legacy and "|" not in legacy else None)
+    return StrategyDecision(reflection=reflection, next=next_goal)
+
 
 class StrategyJob(DreamJob):
     """Standing back from her own goals, once a night.
@@ -1075,37 +1159,48 @@ class StrategyJob(DreamJob):
     priority = 0.4
     per_day = False
 
+    def cost(self, ctx: DreamContext, day: str) -> int:
+        open_goals = list(ctx.goals.open_goals()) if ctx.goals is not None else []
+        context = ctx.strategy_context(day, open_goals)
+        system = (self.system(STRATEGY_SYSTEM).format(
+            char=ctx.char_name, user=ctx.user_name) + "\n\n" + STRATEGY_OUTPUT)
+        # 800 output tokens is the `max_tokens` below; convert it to the same
+        # conservative character accounting the rest of the night uses.
+        return max(64, (len(context) + len(system) + ctx.soul_chars() + 3200) // 4)
+
     async def work(self, ctx: DreamContext, day: str) -> JobReport:
         out = JobReport(name=self.name, days=[day])
         open_goals = []
         if ctx.goals is not None:
             open_goals = [g for g in ctx.goals.open_goals()]
-        # An empty list is not a reason to skip the night. It used to be, and
-        # that made the one state she most needs to think her way out of — no
-        # goals at all — the one state where she was not allowed to think.
-        listing = "\n".join(
-            f"- {g.text} (kind {g.kind}, priority {g.priority}, state {g.state}"
-            + (f", due {g.due}" if g.due else "") + ")"
-            for g in open_goals[:20]) or "- (nothing open right now)"
+        system = (self.system(STRATEGY_SYSTEM).format(
+            char=ctx.char_name, user=ctx.user_name)
+                  + "\n\n" + STRATEGY_OUTPUT)
         thinking = await ctx.ask(
-            self.system(STRATEGY_SYSTEM).format(char=ctx.char_name),
-            f"Today is {day}.\n\nYour open goals:\n{listing}\n\n"
-            f"What you know:\n{ctx.facts()}")
+            system, ctx.strategy_context(day, open_goals),
+            thinking=False, max_tokens=800)
         if not thinking:
             out.result = "nothing came of it"
             return out
-        # Split the machine-read tail off the human note before either is used,
-        # so the desk keeps reading like her thinking and not like a form.
-        hit = NEXT_RE.search(thinking)
-        note = NEXT_RE.sub("", thinking).strip()
+        decision = parse_strategy_decision(thinking)
+        note = decision.reflection
         ctx.put(f"strategy/{day}.md", f"# Taking stock — {day}\n\n{note}\n")
         out.changed = True
         reviewed = f"reviewed {len(open_goals)} goal(s)"
-        filed = ctx.file_goal(hit.group(1), day=day) if hit else None
+        candidate = decision.next
+        filed = ctx.file_goal(
+            candidate.objective, day=day,
+            meta={"strategy_note": f"strategy/{day}.md",
+                  "rationale": candidate.why,
+                  "evidence": candidate.evidence,
+                  "success": candidate.success,
+                  "first_action": candidate.first_action,
+                  "capability": candidate.capability}
+        ) if candidate else None
         if filed is not None:
             out.result = f"{reviewed}, filed one of my own"
             out.note = f"decided this matters: {filed.text}"
-        elif not hit:
+        elif candidate is None:
             out.result = reviewed
             out.note = "stood back and looked at what I'm carrying"
         else:
@@ -2142,7 +2237,8 @@ class DreamRunner:
                  research: object | None = None,
                  deliver_report: Callable[..., None] | None = None,
                  audit: Callable[..., None] | None = None,
-                 soul_text: Callable[[], str] | None = None):
+                 soul_text: Callable[[], str] | None = None,
+                 drives: Callable[[], list[str]] | None = None):
         self.vault = vault
         self.store = store
         self.clock = clock
@@ -2156,6 +2252,7 @@ class DreamRunner:
         self.deliver_report = deliver_report
         self.audit = audit
         self.soul_text = soul_text
+        self.drives = drives
         self.ledger = JobLedger(vault.vault / "state" / "dream_jobs.json")
         #: Kept because `reload()` has to build a fresh `ConsolidateJob`, and a
         #: consolidator is the one thing here the runner cannot construct.
@@ -2257,7 +2354,7 @@ class DreamRunner:
             goals=self.goals, workspace=self.workspace, skills=self.skills,
             utility=self.utility, selfie=self.selfie, audit=self.audit,
             research=self.research, deliver_report=self.deliver_report,
-            soul_text=self.soul_text, cfg=self.cfg,
+            soul_text=self.soul_text, drives=self.drives, cfg=self.cfg,
             char_name=str(getattr(self.cfg, "companion_name", "") or "she"),
             user_name=str(getattr(self.cfg, "user_name", "") or "the user"),
             **kw)

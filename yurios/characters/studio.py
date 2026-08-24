@@ -65,6 +65,7 @@ class Draft:
     creator: str = ""
     character_version: str = "1.0.0"
     tags: list[str] = field(default_factory=list)
+    drives: list[str] = field(default_factory=list)
     identity: str = ""
     history: str = ""
     appearance: str = ""
@@ -158,12 +159,15 @@ def read_draft(record: CharacterRecord) -> tuple[Draft, dict[str, FieldProvenanc
     snapshot = read_soul(record)
     manifest = snapshot.manifest
     fields = manifest["fields"]
+    manifest_drives = manifest.get("drives", [])
     draft = Draft(
         name=str(manifest.get("name") or record.display.name or ""),
         nickname=str(manifest.get("nickname") or ""),
         creator=str(manifest.get("creator") or record.display.creator or ""),
         character_version=str(manifest.get("character_version") or "1.0.0"),
         tags=[str(tag) for tag in (manifest.get("tags") or [])],
+        drives=([str(drive) for drive in manifest_drives if str(drive).strip()]
+                if isinstance(manifest_drives, list) else []),
         personality=_section(snapshot, str(fields.get("personality") or "")),
         scenario=_section(snapshot, str(fields.get("scenario") or "")),
         creator_notes=_section(snapshot, str(fields.get("creator_notes") or "")),
@@ -247,6 +251,7 @@ _FIELD_FILES: dict[str, str] = {
     "first_mes": "BOOTSTRAP.md", "examples": "EXAMPLES.md",
     "lorebook": "WORLD.md", "creator_notes": "NOTES.md",
     "name": "soul.yaml", "tags": "soul.yaml", "creator": "soul.yaml",
+    "drives": "soul.yaml",
     "character_version": "soul.yaml", "nickname": "soul.yaml",
 }
 
@@ -481,6 +486,7 @@ def write_soul(soul: Path, draft: Draft) -> list[str]:
     manifest: dict[str, Any] = {
         "name": draft.name, "creator": draft.creator,
         "character_version": draft.character_version, "tags": draft.tags,
+        "drives": draft.drives,
     }
     if draft.nickname.strip():
         manifest["nickname"] = draft.nickname

@@ -8,6 +8,8 @@ expiry, and a switch that works between one night and the next.
 """
 from __future__ import annotations
 
+import json
+
 from yurios.app.memory.store import FileMemoryStore
 from yurios.mind.dream import DreamConsolidator
 from yurios.mind.dreamjobs import SELF_GOAL, DreamRunner, echoes
@@ -24,7 +26,7 @@ NOTE = ("I keep circling the same two things and only one of them is mine.\n"
         "next: write down what I actually think about the move")
 
 
-def _rig(tmp_path, cfg, *, answer: str = NOTE, **overrides):
+def _rig(tmp_path, cfg, *, answer: str = NOTE, drives=None, **overrides):
     clock = VirtualClock(start=SIM_START.timestamp())
     vault = MindVault(tmp_path / "vault")
     store = FileMemoryStore(tmp_path / "vault", FakeEmbedder(),
@@ -32,7 +34,10 @@ def _rig(tmp_path, cfg, *, answer: str = NOTE, **overrides):
     cfg = cfg.model_copy(update={"selfie_backend": "off", **overrides})
     goals = GoalStore(vault, clock)
 
+    calls = []
+
     async def utility(messages, **params):
+        calls.append(messages)
         return answer
 
     runner = DreamRunner(
@@ -41,7 +46,9 @@ def _rig(tmp_path, cfg, *, answer: str = NOTE, **overrides):
         goals=goals,
         workspace=Workspace(tmp_path / "vault" / "workspace"),
         skills=SkillStore(tmp_path / "vault" / "skills"),
+        drives=lambda: list(drives or []),
         utility=utility)
+    runner.test_calls = calls
     return runner, clock, goals
 
 
@@ -65,6 +72,59 @@ async def test_the_night_can_file_a_goal_of_her_own(tmp_path, cfg):
     assert goal.commitment == "open-minded", "she has to be able to let it go"
     assert goal.due, "with no due date reconsider() can never see it as stale"
     assert "filed one of my own" in out.result
+
+
+async def test_structured_strategy_uses_character_context_and_keeps_rationale(
+        tmp_path, cfg):
+    answer = json.dumps({
+        "reflection": "I should verify the catalyst instead of filling space.",
+        "next": {
+            "objective": "verify the next BTC catalyst and report it in Seoul time",
+            "why": "careful market research is one of my durable drives",
+            "evidence": "they are tracking Bitcoin-moving events",
+            "success": "an authoritative date and KST time are recorded",
+            "first_action": "open the official release calendar",
+            "capability": "web_search",
+        },
+    })
+    runner, _clock, goals = _rig(
+        tmp_path, cfg, answer=answer,
+        drives=["Research market catalysts before acting"])
+    vault = tmp_path / "vault"
+    episodic = vault / "memory" / "episodic"
+    episodic.mkdir(parents=True, exist_ok=True)
+    (episodic / "2026-07-06.md").write_text(
+        "# Journal\n\n### 09:00 you: when is the next BTC event?\n")
+    (vault / "memory" / "summary.md").write_text(
+        "They prefer dates expressed in Seoul time.\n")
+    source = goals.add(
+        "check the market calendar", provenance="promise:her-own-words",
+        meta={"about": "when is the next BTC event?"})
+
+    out, _ctx = await _stocktake(runner)
+
+    assert "filed one of my own" in out.result
+    prompt = runner.test_calls[-1][1]["content"]
+    for expected in ("DURABLE DRIVES", "Research market catalysts",
+                     "WHAT ACTUALLY HAPPENED", "Seoul time",
+                     source.provenance, "when is the next BTC event?"):
+        assert expected in prompt
+    filed = [goal for goal in goals.open_goals()
+             if goal.provenance.startswith(SELF_GOAL)][0]
+    assert filed.meta["success"] == "an authoritative date and KST time are recorded"
+    assert filed.meta["capability"] == "web_search"
+    assert filed.meta["strategy_note"] == "strategy/2026-07-06.md"
+
+
+async def test_structured_strategy_can_choose_no_new_goal(tmp_path, cfg):
+    answer = json.dumps({
+        "reflection": "What matters is already represented by the open goal.",
+        "next": None,
+    })
+    runner, _clock, goals = _rig(tmp_path, cfg, answer=answer)
+    out, _ctx = await _stocktake(runner)
+    assert goals.open_goals() == []
+    assert out.result == "reviewed 0 goal(s)"
 
 
 async def test_the_machine_read_line_does_not_reach_the_desk(tmp_path, cfg):

@@ -78,6 +78,16 @@ async def test_local_routes_send_no_attribution(acompletion):
     assert "extra_headers" not in acompletion.kwargs
 
 
+async def test_utility_forwards_json_schema_to_lm_studio(acompletion):
+    response_format = {
+        "type": "json_schema",
+        "json_schema": {"name": "answer", "schema": {"type": "object"}},
+    }
+    await LiteLLMUtilityModel("lm_studio/gemma").complete(
+        [{"role": "user", "content": "hi"}], response_format=response_format)
+    assert acompletion.kwargs["response_format"] == response_format
+
+
 async def test_the_streaming_voice_carries_it_too(acompletion):
     """The reply voice is where the tokens actually are (§3)."""
     model = LiteLLMChatModel("some/model")

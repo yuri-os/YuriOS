@@ -89,6 +89,8 @@ async def test_bootstrap_retirement_files_one_standing_goal(cfg, seeded_vault):
     soul = seeded_vault / "soul"
     (soul / "onboarded").mkdir(parents=True, exist_ok=True)
     (soul / "BOOTSTRAP.md").rename(soul / "onboarded" / "BOOTSTRAP.done.md")
+    (soul / "USER.md").write_text(
+        "# User model\n\n## Ongoing\n\n- Waiting to hear about a job interview.\n")
 
     rig = make_mind(cfg, seeded_vault)
     await rig.mind.tick()
@@ -96,6 +98,7 @@ async def test_bootstrap_retirement_files_one_standing_goal(cfg, seeded_vault):
              if g.provenance == "bootstrap:first-session"]
     assert len(filed) == 1
     assert filed[0].kind == "reach_out"
+    assert "job interview" in filed[0].text
 
     # …once. A day of ticking does not file it again.
     for _ in range(5):

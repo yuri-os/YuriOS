@@ -191,6 +191,14 @@ import { STATE_META, canonicalState } from '../shared/activity-state.js';
   // is the thing you can read at a glance. Both, not one.
   const HERS = 'strategy:';
 
+  function visibleIntentions(goals) {
+    const crossed = (g) => g.state === 'abandoned' || droppingGoals.has(g.id);
+    return [
+      ...goals.filter(g => !crossed(g)),
+      ...goals.filter(crossed).slice(-5),
+    ];
+  }
+
   function goalRow(g) {
     const hers = String(g.provenance || '').startsWith(HERS);
     const abandoned = g.state === 'abandoned';
@@ -270,7 +278,7 @@ import { STATE_META, canonicalState } from '../shared/activity-state.js';
     const goals = (state.goals || []).filter(g => g.state !== 'done');
     const maintenance = goals.filter(g => g.kind === 'maintenance' ||
       String(g.provenance || '').startsWith('maintenance:'));
-    const intentions = goals.filter(g => !maintenance.includes(g));
+    const intentions = visibleIntentions(goals.filter(g => !maintenance.includes(g)));
     const filing = state.goal_filing;
     if (intentions.length || filing) {
       html += section('on her mind', filingSwitch(filing) +

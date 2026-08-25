@@ -6,7 +6,7 @@ missing one, and one that is up but refusing JSON are three different fixes, and
 telling somebody the wrong one costs them an afternoon.
 
 No Docker is invoked anywhere here — the runtime probes are patched, because a
-test suite that needs a container daemon isn't offline (SPEC §13).
+test suite that needs a container daemon isn't offline (SPEC §27).
 """
 from __future__ import annotations
 

@@ -4,7 +4,7 @@ This is ch. 34's canonical control surface: *all decisions live in Python; the
 browser is a render-and-control client.* The method surface is the vrm-viewer
 reference impl's `VrmController`, kept verbatim — plus Build #4's two scene
 channels (`set_rain`, `music`) — because this exact seam is what Build #5's tick
-loop will hold (SPEC §14): swap the caller, not the wire.
+loop will hold (SPEC §28): swap the caller, not the wire.
 
 The transport, though, is no longer its own: every method is one `avatar` event
 published on the **EventHub** (SPEC §10 — the YuriOS shape), fanned out to every

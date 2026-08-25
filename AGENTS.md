@@ -4,6 +4,8 @@
 
 - `SPEC.md` is the normative specification: RFC-2119 language, cited from code as `SPEC §n` comments (hundreds of them). When changing specified behavior, update `SPEC.md` in the same change; when code and spec disagree, the spec is authoritative by convention — treat the mismatch as a bug.
 - Section numbers are stable and never renumbered — code, tests, and scripts cite them, so only ever append or revise within a section.
+- A bare `SPEC §n` means *this* spec and must resolve — `tests/test_spec_citations.py` fails on a citation to a section that doesn't exist, or to one SPEC.md marks superseded. A predecessor build's spec carries its prefix instead (`B1`/`B2`/`B4`, per `PROVENANCE.md`'s map of which package came from which build).
+- `docs/spec-map.md` is the inverse index — section → the code that implements it — generated from those citations by `python scripts/spec_map.py`. Use it to go from a section to its modules; the file's own docstring goes the other way. Regenerate it (and `--check` it) after moving code between modules.
 - `docs/` is the plain-language companion; `SPEC.md` wins on any disagreement. Don't treat `docs/` as a source of truth for behavior.
 
 ## Toolchain and verification

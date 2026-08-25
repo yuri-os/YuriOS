@@ -9,7 +9,7 @@ command line and she has different hands; the brain doesn't change.
 
 `ToolRunner` is the seam the brain actually depends on, so tests drive the tool
 loop with `fakes.FakeToolRunner` and pin the *real* server's contract separately
-over an in-memory session (SPEC §13) — the same split as the voice seams (B2 §3).
+over an in-memory session (SPEC §27) — the same split as the voice seams (B2 §3).
 """
 from __future__ import annotations
 

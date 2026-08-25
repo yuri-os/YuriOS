@@ -42,7 +42,7 @@ class SearxngProvider:
                  safesearch: int = 1, transport: httpx.AsyncBaseTransport | None = None,
                  timeout: float = 8.0):
         # `transport` is the test seam: httpx.MockTransport serves canned payloads
-        # so the parser is pinned without the network (SPEC §13) — fetch.py's rule.
+        # so the parser is pinned without the network (SPEC §27) — fetch.py's rule.
         self.base_url = base_url.rstrip("/")
         self.language = language
         self.safesearch = safesearch

@@ -4,7 +4,7 @@ This is YuriOS's `EventHub` (host/http_api.py), ported: every host→frontend
 event — chat messages, drafts, puppet commands, scene changes — is one typed
 JSON dict fanned out to every subscriber, drained by the `/api/events` SSE
 route. One bus, many event types, instead of one socket per concern; the shape
-Build #4 converges on as it grows toward the YuriOS runtime (SPEC §14).
+Build #4 converges on as it grows toward the YuriOS runtime (SPEC §28).
 
 Two rules carried over from the pieces it replaces:
 

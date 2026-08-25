@@ -1,4 +1,4 @@
-"""Session bookkeeping — `vault/state/sessions.json` (SPEC §4.1).
+"""Session bookkeeping — `vault/state/sessions.json` (B1 §4.1).
 
 Plain JSON in the Vault (committed with each turn, like everything durable):
 ids, counts, last_active. Single-user, so a flat file is exactly enough.

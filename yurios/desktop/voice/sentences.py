@@ -1,4 +1,4 @@
-"""Incremental sentence splitting for streaming TTS (SPEC §4.1, → ch. 24).
+"""Incremental sentence splitting for streaming TTS (B2 §4.1, → ch. 24).
 
 Build #1's TTS lesson: synthesize sentence-by-sentence so the first words play
 while later ones are still rendering. But here the text arrives a token at a

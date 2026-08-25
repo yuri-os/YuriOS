@@ -40,7 +40,7 @@ class TimerBoard:
 
     def poll(self) -> list[Timer]:
         """Move every elapsed timer onto the announcement queue. Deterministic —
-        the sim-time tests drive this directly (SPEC §13)."""
+        the sim-time tests drive this directly (SPEC §27)."""
         now = self.clock.now()
         landed = [t for t in self._timers if t.due <= now]
         self._timers = [t for t in self._timers if t.due > now]

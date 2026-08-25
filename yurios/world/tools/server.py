@@ -2,7 +2,7 @@
 
 Run standalone (`python -m yurios.world.tools.server`) it speaks MCP over stdio; the
 host spawns it exactly that way (client.py). Tests connect to the same server
-object over an in-memory session — the contract is identical (SPEC §13).
+object over an in-memory session — the contract is identical (SPEC §27).
 
 The server is the *contract and audit point*: it validates arguments and returns
 the structured result. Side effects that need her body or her voice — actually

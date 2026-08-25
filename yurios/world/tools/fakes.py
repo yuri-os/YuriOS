@@ -1,4 +1,4 @@
-"""A deterministic ToolRunner (SPEC §13) — the tool loop's offline stand-in.
+"""A deterministic ToolRunner (SPEC §27) — the tool loop's offline stand-in.
 
 Same role as the voice fakes (B2 §3): the loop's behaviour — parsing, guarding,
 continuation, cancellation — is what the tests pin; no server, no subprocess.

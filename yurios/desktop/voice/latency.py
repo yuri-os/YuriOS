@@ -1,4 +1,4 @@
-"""Latency budget instrumentation (SPEC §4.2, → ch. 21, ch. 24).
+"""Latency budget instrumentation (B2 §4.2, → ch. 21, ch. 24).
 
 The bar is ≤ ~1.2 s from end-of-speech to first audio out. The pipeline has
 five stages and any one will happily eat the whole second, so the loop is
@@ -51,7 +51,7 @@ class TurnTrace:
         return None
 
     def first_audio_ms(self) -> float | None:
-        """The one number that matters (SPEC §4.2)."""
+        """The one number that matters (B2 §4.2)."""
         return self.span_ms("endpoint", "first_audio")
 
     def report(self) -> dict:

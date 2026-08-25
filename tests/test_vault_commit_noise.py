@@ -1,4 +1,4 @@
-"""The Vault log is a diary, not a heartbeat monitor (SPEC §4.1, §15.1).
+"""The Vault log is a diary, not a heartbeat monitor (B1 §4.1, SPEC §15.1).
 
 Three defects once conspired to make 95% of a real Vault's history a single
 changed timestamp, at one commit every five seconds:

@@ -1,4 +1,4 @@
-"""Deterministic fakes behind every voice seam (SPEC §13.3).
+"""Deterministic fakes behind every voice seam (B2 §13.3).
 
 The point of the seams (like Build #1's provider seams) is that the loop runs
 with no model installed — `pytest` is green on a laptop with no GPU, no torch,
@@ -72,7 +72,7 @@ class FakeVAD:
 
 
 class FakeBrain:
-    """Scripted reply stream + a persistence spy (SPEC §13.3).
+    """Scripted reply stream + a persistence spy (B2 §13.3).
 
     Yields tokens with a `await asyncio.sleep(0)` between them so a barge-in can
     land mid-stream, and records how many tokens it actually emitted — that count

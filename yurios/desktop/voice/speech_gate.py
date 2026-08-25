@@ -17,7 +17,7 @@ This is the normative reference for the edge VAD debounce in `web/voice.js`
 (barge-in is decided at the edge for latency — ch. 24 — so the browser runs the
 same algorithm on the same constants). The server uses it to *validate* that an
 endpointed utterance actually contained speech (`confirmed`), closing the last
-gap when a client's edge gate is naive (SPEC §4.2 defense-in-depth).
+gap when a client's edge gate is naive (B2 §4.2 defense-in-depth).
 """
 from __future__ import annotations
 

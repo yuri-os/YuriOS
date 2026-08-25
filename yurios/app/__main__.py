@@ -1,4 +1,4 @@
-"""Run the sanctuary: `python -m app` (SPEC §14).
+"""Run the sanctuary: `python -m app` (SPEC §28).
 
 Reads HOST/PORT from the environment / .env (via Config, §11) so you never
 have to pass uvicorn flags. `uvicorn app.main:app --factory` still works and

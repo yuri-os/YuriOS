@@ -654,7 +654,7 @@ class Runtime:
                 return text or None
         return None
 
-    # ---- ambient speech seam (SPEC §8.4) ----
+    # ---- ambient speech seam (B4 §8.4; today's obligations are SPEC §8, §9) ----
 
     def attach_ambient(self, session_id: str, inject) -> None:
         self._ambient[session_id] = inject

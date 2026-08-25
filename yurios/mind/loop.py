@@ -37,6 +37,7 @@ from typing import Awaitable, Callable
 from yurios.app.core.assemble import age_tag, soul_preamble
 from yurios.kernel import correlate
 from yurios.world.avatar.controller import VrmController
+from yurios.world.brain_protocol import AutonomousBrain
 from yurios.kernel.clock import Clock
 from yurios.kernel.hub import EventHub
 from yurios.world.tools.timers import TimerBoard
@@ -117,7 +118,7 @@ class MindLoop:
 
     def __init__(self, cfg, clock: Clock, *,
                  bus: SignalBus,
-                 brain,                                    # the ToolBrain
+                 brain: AutonomousBrain,                   # a ToolBrain, in practice
                  controller: VrmController,
                  timers: TimerBoard,
                  hub: EventHub,
@@ -148,16 +149,14 @@ class MindLoop:
         state = brain.state                    # the Build #1 AppState
         self.world = WorldModelStore(self.vault, clock, controller=controller,
                                      timers=timers, user_name=cfg.user_name)
-        if hasattr(brain, "set_world"):
-            brain.set_world(self.world)        # the §19.2 seam swap: every prompt
+        brain.set_world(self.world)            # the §19.2 seam swap: every prompt
                                                # now carries the store's stage
         self.knowledge = KnowledgeStore(
             self.vault, state.embedder, clock,
             utility=self._utility if cfg.utility_enabled and state.utility else None,
             min_score=cfg.knowledge_min_score)
-        if hasattr(brain, "set_knowledge"):
-            brain.set_knowledge(self.knowledge)  # §20.2: the shelf joins the
-                                                 # prompt's knowledge slot
+        brain.set_knowledge(self.knowledge)    # §20.2: the shelf joins the
+                                               # prompt's knowledge slot
         # her desk and her skills (§34). Built before the dream runner, which
         # gives jobs a place to write, and before the brain seam below.
         self._desk_notes: list[str] = []       # drained by REFLECT, see below
@@ -165,20 +164,17 @@ class MindLoop:
                           if cfg.workspace_enabled else None)
         self.skills = (SkillStore(cfg.vault_dir / "skills")
                        if cfg.skills_enabled else None)
-        if hasattr(brain, "set_workspace"):
-            brain.set_workspace(self.workspace, self.skills,
-                                on_write=self._desk_written)
+        brain.set_workspace(self.workspace, self.skills,
+                            on_write=self._desk_written)
         self.goals = GoalStore(self.vault, clock)
         #: (key, rendered, when) for `_soul_text` — see there.
         self._soul_cache: tuple = ((None, None), "", -1e18)
         self.selfedit = SelfEdit(self.vault, clock)
-        if hasattr(brain, "set_goals"):
-            brain.set_goals(self.goals)        # §22: her standing list joins the
+        brain.set_goals(self.goals)            # §22: her standing list joins the
                                                # conversational prompt, so the
                                                # talking-self and the intending-
                                                # self stop being two people
-        if hasattr(brain, "set_selfedit"):
-            brain.set_selfedit(self.selfedit)  # §23: `propose_edit` gets a door
+        brain.set_selfedit(self.selfedit)      # §23: `propose_edit` gets a door
         self.journal = Journal(self.vault, clock, hub, store=state.store)
         # The same memory the conversation recalls from (§22.4). Kept rather
         # than passed along, because goal work needs to ask it questions too:

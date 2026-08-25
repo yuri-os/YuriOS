@@ -254,7 +254,7 @@ module = "yurios.world.tray"
 ignore_errors = true
 
 # --- THE BASELINE ----------------------------------------------------------------
-# These 34 modules were written before there was a typecheck, and between them they
+# These 33 modules were written before there was a typecheck, and between them they
 # report 144 findings — mostly duck-typed seams (a settings dict splatted into a
 # typed library constructor, an `object`-typed model that is whatever the router
 # returned) and Optionals that a runtime guard rules out where mypy cannot see it.
@@ -263,7 +263,7 @@ ignore_errors = true
 #
 # They are listed rather than fixed because clearing them is a typing pass over the
 # runtime, not release infrastructure, and mixing the two makes both unreviewable.
-# What this buys today: the other 158 modules ARE checked, so nothing NEW arrives
+# What this buys today: the other 160 modules ARE checked, so nothing NEW arrives
 # unnoticed, and the debt has a name and a length instead of being a number nobody
 # has looked at.
 #
@@ -296,7 +296,6 @@ module = [
     "yurios.world.brain",
     "yurios.world.channels.notify",
     "yurios.world.channels.telegram",
-    "yurios.world.main",
     "yurios.world.routes.mind",
     "yurios.world.routes.voice_ws",
     "yurios.world.selfies",

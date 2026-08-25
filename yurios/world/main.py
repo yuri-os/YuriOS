@@ -25,6 +25,7 @@ import threading
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Awaitable, Callable
 
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
@@ -42,6 +43,7 @@ from yurios.models import is_configured
 from .avatar.controller import VrmController
 from .boot import BootBoard
 from .brain import ToolBrain
+from .brain_protocol import AutonomousBrain
 from .channels.manager import ChannelManager
 from yurios.app.conversation import ConversationLog
 from ..kernel.clock import Clock
@@ -258,13 +260,18 @@ class Runtime:
                 controller=self.controller, selfies=self.selfies,
                 research=self.research, chat_model=chat_model,
                 utility_model=utility_model, embedder=embedder)
+        #: Whether this brain can carry a mind, asked once instead of one
+        #: attribute at a time (world/brain_protocol.py). A `ToolBrain` can; the
+        #: conversational fake a route test injects cannot, and everything the
+        #: mind would have wired is skipped rather than half-wired.
+        self.autonomous = isinstance(self.brain, AutonomousBrain)
         # the meter reads the prompt where every path funnels through: the chat
         # provider itself (reply, greeting, ambient, each tool-loop pass)
         self._wire_context_meter()
         # …and the prompt log records what was actually in it (SPEC §24.2). Wired
         # here rather than from the mind, because greetings and chat turns happen
         # whether or not the loop is running, and they are half the record.
-        if hasattr(self.brain, "set_prompt_log"):
+        if self.autonomous:
             self.brain.set_prompt_log(PromptLog.from_config(cfg, self.clock))
         self._tool_runner = tool_runner        # injected, or built at startup
         self.tools_status = "off"
@@ -321,7 +328,7 @@ class Runtime:
         # per-connection ambient injectors (SPEC §15.5): session_id → coroutine fn.
         # The mind speaks *through a live voice connection* so barge-in and the
         # OutEvent stream work exactly as they do for a real turn.
-        self._ambient: dict[str, object] = {}
+        self._ambient: dict[str, Callable[[str], Awaitable[bool]]] = {}
         # in-flight turn count + its idle gate (§7.6): the selfie lab's parker
         # must never unload her LLM while a turn streams from it.
         self._turns_in_flight = 0
@@ -656,7 +663,8 @@ class Runtime:
 
     # ---- ambient speech seam (B4 §8.4; today's obligations are SPEC §8, §9) ----
 
-    def attach_ambient(self, session_id: str, inject) -> None:
+    def attach_ambient(self, session_id: str,
+                       inject: Callable[[str], Awaitable[bool]]) -> None:
         self._ambient[session_id] = inject
 
     def detach_ambient(self, session_id: str) -> None:
@@ -807,7 +815,7 @@ class Runtime:
         elif runner is None and self.cfg.tools_backend == "fake":
             from .tools.fakes import FakeToolRunner
             runner = FakeToolRunner()
-        if runner is not None and not hasattr(self.brain, "set_tools"):
+        if runner is not None and not self.autonomous:
             runner = None                      # injected test brain has no hands
         if runner is not None:
             self.boot.start("tools", detail=self.cfg.tools_backend)
@@ -872,7 +880,7 @@ class Runtime:
         if self.cfg.mind_enabled and not self.model_configured:
             self.mind_status = "waiting for model selection"
             self.boot.done("mind", state="skipped", detail="choose a language model")
-        elif self.cfg.mind_enabled and hasattr(self.brain, "state"):
+        elif self.cfg.mind_enabled and self.autonomous:
             try:
                 self.mind = MindLoop(self.cfg, self.clock, bus=self.signals,
                                      brain=self.brain, controller=self.controller,
@@ -997,7 +1005,7 @@ class Runtime:
         """Pause/resume autonomy without taking conversation offline."""
         if enabled:
             if self.mind is None:
-                if not hasattr(self.brain, "state"):
+                if not self.autonomous:
                     raise RuntimeError("this brain has no autonomy state")
                 self.mind = MindLoop(
                     self.cfg, self.clock, bus=self.signals, brain=self.brain,

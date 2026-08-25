@@ -29,6 +29,11 @@ never a crash, and never silence about a promise she made.
 """
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from yurios.forge import ImageForge
+
 import asyncio
 import logging
 from pathlib import Path
@@ -143,7 +148,7 @@ def _identity(cfg):
     return Character.neutral(getattr(cfg, "companion_name", "") or "her")
 
 
-def build_forge(cfg) -> tuple[object, str]:
+def build_forge(cfg) -> tuple["ImageForge", str]:
     """The forge behind the lab, from config. Returns (forge, status) where
     status is what /api/health reports: "openrouter" | "mock" | "mock (…)"."""
     from yurios.forge import ImageForge, SelfieBook, make_backend

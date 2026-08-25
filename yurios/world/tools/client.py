@@ -19,6 +19,7 @@ import logging
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from collections.abc import Sequence
 from typing import Protocol
 
 log = logging.getLogger("world.tools")
@@ -261,7 +262,7 @@ class MultiToolRunner:
       hands can never be shadowed by somebody else's.
     """
 
-    def __init__(self, children: list[tuple[str, object]]):
+    def __init__(self, children: Sequence[tuple[str, object]]):
         #: [(server name, runner)] in mount order — hers first.
         self.children = list(children)
         self.started: list[tuple[str, object]] = []

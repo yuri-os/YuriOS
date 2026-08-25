@@ -113,7 +113,11 @@ test = ["pytest", "pytest-asyncio", "pytest-xdist", "httpx", "numpy"]
 # releases and mypy sharpens its inference in every one, so upgrading either can turn
 # up findings on a commit that touched nothing. That is the tools working. Read them,
 # fix them or ignore them by name here — do not pin your way out of hearing about it.
-dev = ["yurios[test]", "ruff>=0.14,<1", "mypy>=1.18,<3", "build>=1.2,<2"]
+# `coverage` is here rather than in [test] because nothing in the gate needs it:
+# it exists for `scripts/test_map.py`, which is run on demand to regenerate
+# docs/test-map.md. [test] stays the lean offline extra.
+dev = ["yurios[test]", "ruff>=0.14,<1", "mypy>=1.18,<3", "build>=1.2,<2",
+       "coverage>=7.6,<8"]
 # Her own camera: a local SDXL checkpoint (SELFIE_BACKEND=diffusers) rendered
 # in-process — no A1111/ComfyUI server, no API key. Needs torch WITH CUDA for
 # real speed (the default PyPI wheel is the CUDA one — the opposite of the CPU
@@ -319,3 +323,14 @@ packages = { find = { include = ["yurios*"] } }
 "yurios.forge" = ["characters/*.yaml", "templates/*.yaml"]
 # the portrait a migrated/first-run Yuri starts with, until the forge renders her one
 "yurios.characters" = ["assets/*.png"]
+
+# --- coverage -------------------------------------------------------------------
+# Only `scripts/test_map.py` uses this; the gate never runs coverage. `test_function`
+# is what makes the map possible at all — it records WHICH test was executing when a
+# line ran, so "what covers world/brain.py" is a query rather than a guess at the
+# file names. The run is deliberately serial — see scripts/test_map.py on why
+# `-n 8` and `COVERAGE_CORE=sysmon` each silently produce an empty map.
+[tool.coverage.run]
+source = ["yurios"]
+dynamic_context = "test_function"
+omit = ["*/__main__.py"]

@@ -36,3 +36,8 @@ web/dist/
 # the Windows desktop shell's electron.exe — installed by WINDOWS' node, per
 # machine (desktop-shell/README.md); the shell itself is four small files
 desktop-shell/node_modules/
+
+# coverage's database, written by scripts/test_map.py; the MAP is committed,
+# the measurement it came from is not
+.coverage
+.coverage.*

@@ -20,6 +20,7 @@ maintained by hand would be one more thing to drift.
 from __future__ import annotations
 
 import argparse
+import pathlib
 import re
 import sys
 from collections import defaultdict
@@ -90,12 +91,75 @@ def render(titles: list[tuple[str, str]], hits: dict[str, dict[str, int]]) -> st
     return "\n".join(lines)
 
 
+def audit(titles: list[tuple[str, str]], hits: dict[str, dict[str, int]]) -> int:
+    """List citations that resolve to a section they probably do not mean.
+
+    `tests/test_spec_citations.py` catches two failure modes: a `SPEC §n` that
+    does not exist, and one that lands on a superseded stub. There is a third
+    it cannot see — a citation that resolves perfectly, to the wrong section.
+    `app/vaultgit.py` said `SPEC §6.5` for the Vault's commit rule; §6.5 exists
+    and is *Desktop presence*. The number was the predecessor spec's and had
+    lost its `B1` prefix, so every check passed.
+
+    No test can decide that one: it is a question about meaning. What a machine
+    *can* do is narrow where to look, and the signal that works is the odd
+    package out — a section reached from one package by a single site while
+    every other citer of it lives elsewhere. That is what a citation inherited
+    from another build's numbering looks like, and it is how the second
+    instance (`app/memory/summarise.py`, "Rolling summarisation (SPEC §7.3)",
+    where §7.3 is Guardrails) was found.
+
+    A review list, not a verdict — most rows below are correct citations that
+    simply happen to be lonely. Run it after moving code between packages, and
+    read the pairs.
+    """
+    named = dict(titles)
+    flagged = 0
+    print("Citations worth a second look — the odd package out of a section's "
+          "citers.\nMost are fine; read the pairing, not the count.\n")
+    for section in sorted(hits, key=_sort_key):
+        files = hits[section]
+        if len(files) < 4:
+            continue
+        # `yurios/` only: a package is a meaningful grouping there, and
+        # nowhere else. `web/` is one frontend and `tests/` is flat, so
+        # including either turns every section into an "outlier".
+        packages: dict[str, list[str]] = defaultdict(list)
+        for rel in files:
+            parts = pathlib.Path(rel).parts
+            if parts[0] != "yurios":
+                continue
+            packages[parts[1] if len(parts) > 2 else "top"].append(rel)
+        owned_total = sum(len(v) for v in packages.values())
+        if len(packages) < 2 or owned_total < 4:
+            continue
+        for package, owned in sorted(packages.items()):
+            if len(owned) != 1 or owned_total - 1 < 3:
+                continue
+            parent = section.split(".")[0]
+            title = named.get(parent, "")
+            where = (f"§{section}, under §{parent} — {title}" if "." in section
+                     else f"§{section} — {title}")
+            print(f"  {owned[0]}")
+            print(f"    cites {where}")
+            print(f"    …alone; the other {owned_total - 1} in yurios/ are "
+                  f"{', '.join(sorted(set(packages) - {package}))}\n")
+            flagged += 1
+    print(f"{flagged} flagged.")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--check", action="store_true",
                     help="exit non-zero if docs/spec-map.md is out of date")
+    ap.add_argument("--audit", action="store_true",
+                    help="list citations that may resolve to the wrong section")
     args = ap.parse_args()
-    body = render(*collect())
+    titles, hits = collect()
+    if args.audit:
+        return audit(titles, hits)
+    body = render(titles, hits)
     if args.check:
         current = OUT.read_text(encoding="utf-8") if OUT.exists() else ""
         if current != body:

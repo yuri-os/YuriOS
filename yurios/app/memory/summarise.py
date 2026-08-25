@@ -1,4 +1,4 @@
-"""Rolling summarisation (SPEC §7.3).
+"""Rolling summarisation (B1 §7.3).
 
 Every SUMMARY_EVERY_N turns, fold the last N exchanges into the previous
 `memory/summary.md` — third person, present-continuous, bounded. The summary

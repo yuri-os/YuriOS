@@ -47,8 +47,8 @@ import json
 import logging
 from dataclasses import dataclass, field
 
-from yurios.world import correlate
-from yurios.world.clock import Clock
+from yurios.kernel import correlate
+from yurios.kernel.clock import Clock
 from yurios.world.tools.guard import Guard, _fingerprint
 
 from .policy import DORMANT, DREAM, ENGAGED
@@ -632,5 +632,5 @@ def build_guard(cfg, clock: Clock) -> Guard | None:
 
 
 #: The correlate kind every mind-initiated call is stamped with, re-exported so
-#: callers don't have to reach across into `world.correlate` for one constant.
+#: callers don't have to reach across into `kernel.correlate` for one constant.
 MIND_TOOL = correlate.MIND_TOOL

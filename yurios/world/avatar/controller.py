@@ -24,7 +24,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, Optional, Tuple
 
-from ..hub import EventHub
+from ...kernel.hub import EventHub
 
 log = logging.getLogger("world.avatar")
 

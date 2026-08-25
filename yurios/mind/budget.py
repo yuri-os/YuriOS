@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from yurios.world.clock import Clock
+from yurios.kernel.clock import Clock
 
 from .util import day_of, estimate_tokens, read_json, write_json
 

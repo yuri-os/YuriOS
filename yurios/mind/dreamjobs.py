@@ -58,8 +58,8 @@ from typing import Awaitable, Callable
 
 import yaml
 
-from yurios.world import correlate
-from yurios.world.clock import Clock
+from yurios.kernel import correlate
+from yurios.kernel.clock import Clock
 from yurios.app.providers.admission import InferenceBusy
 
 from .dream import DreamConsolidator

@@ -29,7 +29,7 @@ import json
 import re
 from dataclasses import dataclass, field
 
-from yurios.world.clock import Clock
+from yurios.kernel.clock import Clock
 
 from .util import iso_of, new_id, ts_of_iso
 from .vaultio import MindVault

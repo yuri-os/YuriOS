@@ -32,7 +32,7 @@ from dataclasses import dataclass, field
 
 from yurios.characters.setting import read_place
 from yurios.world.avatar.controller import VrmController
-from yurios.world.clock import Clock
+from yurios.kernel.clock import Clock
 from yurios.world.situation import render_situation
 from yurios.world.tools.timers import TimerBoard
 

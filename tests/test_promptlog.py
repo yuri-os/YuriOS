@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from yurios.mind.promptlog import PromptLog
 from yurios.mind.util import jsonl_tail
-from yurios.world import correlate
+from yurios.kernel import correlate
 
 from .conftest import ScriptedChat, collect, make_mind
 

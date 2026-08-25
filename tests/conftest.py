@@ -18,7 +18,7 @@ dotenv.load_dotenv = lambda *a, **kw: False
 
 from yurios.desktop.config import Config as VoiceConfig  # noqa: E402,F401 (re-export habit)
 from yurios.world.avatar.controller import VrmController
-from yurios.world.clock import VirtualClock
+from yurios.kernel.clock import VirtualClock
 from yurios.world.config import Config
 from yurios.world.tools.guard import Guard
 from yurios.world.tools.timers import TimerBoard
@@ -380,7 +380,7 @@ def make_mind(cfg, vault, clock=None, *, chat=None, seed=7,
     off and on again gets: a rebuilt MindLoop on a SignalBus that never went
     away. Left out, each rig gets its own, which is what a restart gets."""
     from yurios.world.brain import ToolBrain
-    from yurios.world.hub import EventHub
+    from yurios.kernel.hub import EventHub
     from yurios.world.tools.guard import Guard
     from yurios.world.tools.timers import TimerBoard
 

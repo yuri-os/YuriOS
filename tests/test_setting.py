@@ -21,7 +21,7 @@ from yurios.characters.setting import (
     DERIVED_MARK, SETTING_SYSTEM, derive_place, ensure_setting, mechanical_place,
     opening_situation, place_excerpt, place_of, read_place, refine_setting,
     write_authored, write_setting)
-from yurios.world.clock import VirtualClock
+from yurios.kernel.clock import VirtualClock
 from yurios.world.situation import (
     DESKTOP, EMBODIMENT, HOUSE_PLACE, embodiment, render_situation)
 from yurios.world.avatar.controller import VrmController

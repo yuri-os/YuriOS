@@ -22,7 +22,7 @@ from yurios.mind.dream import DreamConsolidator
 from yurios.mind.dreamjobs import DreamRunner
 from yurios.mind.vaultio import MindVault
 from yurios.mind.workspace import SkillStore, Workspace
-from yurios.world.clock import VirtualClock
+from yurios.kernel.clock import VirtualClock
 
 from .conftest import (SIM_START, FakeEmbedder, FakeUtility, ScriptedUtility,
                        make_mind)

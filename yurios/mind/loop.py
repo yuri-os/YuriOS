@@ -35,10 +35,10 @@ import random
 from typing import Awaitable, Callable
 
 from yurios.app.core.assemble import age_tag, soul_preamble
-from yurios.world import correlate
+from yurios.kernel import correlate
 from yurios.world.avatar.controller import VrmController
-from yurios.world.clock import Clock
-from yurios.world.hub import EventHub
+from yurios.kernel.clock import Clock
+from yurios.kernel.hub import EventHub
 from yurios.world.tools.timers import TimerBoard
 from yurios.world.vram import PATIENT_WAIT_S, ParkGate
 

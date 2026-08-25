@@ -6,7 +6,7 @@ import asyncio
 import threading
 
 from yurios.world.avatar.controller import VrmController
-from yurios.world.hub import EventHub
+from yurios.kernel.hub import EventHub
 
 
 async def drain(q: asyncio.Queue) -> list[dict]:

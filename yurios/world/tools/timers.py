@@ -11,7 +11,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass, field
 
-from ..clock import Clock
+from ...kernel.clock import Clock
 
 
 @dataclass

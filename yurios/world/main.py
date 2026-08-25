@@ -44,10 +44,10 @@ from .boot import BootBoard
 from .brain import ToolBrain
 from .channels.manager import ChannelManager
 from yurios.app.conversation import ConversationLog
-from .clock import Clock
+from ..kernel.clock import Clock
 from .config import Config
 from .context import ContextMeter, short_tokens
-from .hub import EventHub
+from ..kernel.hub import EventHub
 from .inbox import Inbox
 from .turns import TextTurns
 from .research import Researcher

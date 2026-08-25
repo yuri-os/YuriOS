@@ -10,7 +10,7 @@ import pytest
 
 from yurios.mind.knowledge import KnowledgeStore
 from yurios.mind.vaultio import MindVault
-from yurios.world.clock import VirtualClock
+from yurios.kernel.clock import VirtualClock
 
 from .conftest import SIM_START, FakeEmbedder
 

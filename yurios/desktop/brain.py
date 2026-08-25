@@ -29,7 +29,7 @@ from yurios.app.memory.store import Record
 from yurios.app.routes.chat import post_turn
 from yurios.app import vaultgit
 from yurios.mind.util import estimate_tokens
-from yurios.world import correlate
+from yurios.kernel import correlate
 
 from .config import Config
 from .voice.emotion import EXPRESSION_DIRECTIVE, SPOKEN_STYLE_DIRECTIVE

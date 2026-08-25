@@ -34,7 +34,7 @@ import logging
 from pathlib import Path
 from typing import Awaitable, Callable, Optional
 
-from .clock import Clock
+from ..kernel.clock import Clock
 
 log = logging.getLogger("world.selfies")
 

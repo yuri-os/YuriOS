@@ -33,7 +33,7 @@ from collections import Counter
 from dataclasses import dataclass
 from typing import Awaitable, Callable
 
-from yurios.world.clock import Clock
+from yurios.kernel.clock import Clock
 
 from .util import iso_of, jsonl_append, jsonl_read, new_id, read_json, write_json
 from .vaultio import MindVault

@@ -41,6 +41,7 @@ Python; the browser is a render-and-control client.
 | `yurios/forge` | the image service behind her camera (`take_selfie`, `show_picture`): character register, template library, backends, provenance |
 | `yurios/world` | the body, the tools, the bus, the server, the channels, the host |
 | `yurios/mind` | the autonomy engine |
+| `yurios/kernel` | below all of them: the injected clock, the `corr_id`, the one event bus — stdlib only |
 | `yurios/characters` | the registry, the card parser/importer, connection profiles |
 | `soul-src/` | the SOUL she's seeded from |
 | `web/` | the frontends: the VRM stage, the Live2D client, the switchboard, the shared chrome |
@@ -84,7 +85,7 @@ them forever, so a cap is the difference between a log and a leak. All of them l
 there: an assembled prompt contains `USER.md` and her recalled memories verbatim.
 
 The four files are written by four different objects, so **one `corr_id` per unit of work**
-(`world/correlate.py`) is what makes them one story: the tick that decided, the prompt that
+(`kernel/correlate.py`) is what makes them one story: the tick that decided, the prompt that
 phrased it, the call that ran it, and the photo that came back minutes later all carry the same
 key. Chat turns are the one deliberate split — `prompts.jsonl` holds an index row pointing at
 `corpus/turns.jsonl`, because that is the training asset and `ratings.jsonl` joins to its id.
@@ -108,7 +109,7 @@ key. Chat turns are the one deliberate split — `prompts.jsonl` holds an index 
 | **The SOUL split** | `mind/selfedit.py` + `mind/vaultio.py` |
 | **The journal + trace** | `mind/journal.py`, `mind/trace.py` |
 | **Every prompt she was given** | `mind/promptlog.py` → `traces/prompts.jsonl` |
-| **What caused what** | `world/correlate.py` — one `corr_id` per unit of work |
+| **What caused what** | `kernel/correlate.py` — one `corr_id` per unit of work |
 | **The inner-life surface** | `world/routes/mind.py` + `web/js/mind.js` |
 | **The mind debug page** | `world/debug.py` + `web/mind/` (host routes under `…/debug/*`) |
 | **The host + registry API** | `world/host.py` |
@@ -118,7 +119,7 @@ key. Chat turns are the one deliberate split — `prompts.jsonl` holds an index 
 | **The MCP server / client / guard** | `world/tools/server.py`, `client.py`, `guard.py` |
 | **The selfie lab** | `world/selfies.py` + `forge/` |
 | **The channels seam** | `world/channels/base.py`, `manager.py`, `telegram.py` |
-| **Injected time everywhere** | `world/clock.py` — `Clock` / `VirtualClock` |
+| **Injected time everywhere** | `kernel/clock.py` — `Clock` / `VirtualClock` |
 
 ## Seams and fakes
 

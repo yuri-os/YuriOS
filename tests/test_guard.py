@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 
-from yurios.world import correlate
+from yurios.kernel import correlate
 from yurios.world.tools.guard import RESULT_MAX_CHARS, Guard
 
 

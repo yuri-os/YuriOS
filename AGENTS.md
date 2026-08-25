@@ -32,6 +32,7 @@
 ## Architecture constraints
 
 - `yurios/world` hosts FastAPI, character routing, event/channel plumbing, MCP tools, and the voice-facing runtime; `yurios/mind` owns autonomous ticks; `yurios/app` owns the SOUL, Vault, memory, and model providers; `yurios/characters` owns registry and card import/export; `yurios/forge` owns image backends; `yurios/desktop` owns STT/TTS/VAD and native-window support.
+- `yurios/kernel` sits below all of them and holds the three primitives they share — the injected clock, the `corr_id`, the `EventHub`. It imports the standard library and nothing from `yurios`; `tests/test_layering.py` enforces that. Put something there only if every layer above could need it, and never let it grow a dependency on a package that imports it.
 - Optional heavyweight backends are lazy, replaceable seams with fakes. Preserve that property: avoid importing model, voice, camera, or GPU dependencies at module import time, and retain a testable fake/degraded path when changing a seam.
 - The mind relies on injected time. Do not add direct wall-clock reads or bare sleeps in `yurios/mind`; use the runtime clock so VirtualClock tests remain deterministic.
 - The browser is a thin client: host-to-client updates use the shared SSE `EventHub`. Add cross-surface state as typed events rather than a frontend-specific polling path.

@@ -14,8 +14,8 @@ from pathlib import Path
 
 from yurios.mind.util import jsonl_append, new_id
 
-from .. import correlate
-from ..clock import Clock
+from ...kernel import correlate
+from ...kernel.clock import Clock
 
 log = logging.getLogger("world.guard")
 

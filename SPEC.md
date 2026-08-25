@@ -324,7 +324,7 @@ pass does not truncate the answer to an empty string and silently lose the fact.
 
 Every assembled prompt — reply, greeting, and ambient speech alike — **MUST** carry one
 appended `## THE SITUATION RIGHT NOW` block, rendered fresh per prompt from surfaces the host
-owns: the current date and time from the **injected clock** (`yurios/world/clock.py`, never
+owns: the current date and time from the **injected clock** (`yurios/kernel/clock.py`, never
 the wall clock), the room's sticky scene state (rain, music), and the timer board's pending
 timers with time remaining. The block **MUST** state the **embodiment truth**: her body is
 rendered live — eyes that blink, a face that shows feeling, a mouth that moves with her voice
@@ -877,7 +877,7 @@ STT/TTS/VAD SDK, and fakes implement each seam so the whole loop runs offline (�
 **Everything the host tells a frontend is one typed event on one bus.** The only thing that
 keeps a socket of its own is sound.
 
-- **`EventHub`** (`yurios/world/hub.py`) — the single outbound fan-out. Every host→frontend
+- **`EventHub`** (`yurios/kernel/hub.py`) — the single outbound fan-out. Every host→frontend
   event is one typed JSON dict: `hello` (her name), `message` (chat entries, including
   `image_url` selfies, and the originating `channel`), `draft` / `draft_cancel`, `avatar` (§4,
   scene channels included), and — with the mind — `journal` and `mind` (§24). Publishes are
@@ -1093,7 +1093,7 @@ surface between turns.
   worth it. (3) **Everything is journaled** (§24.1) and **traced** (§24.2), and every tick
   that changed the Vault ends in **exactly one git commit** (`tick <id>: <intention>`); an
   uneventful tick commits nothing, and that is not an error. Time is **injected**
-  (`yurios/world/clock.py`): no wall-clock reads, no bare sleeps, anywhere in the mind — this
+  (`yurios/kernel/clock.py`): no wall-clock reads, no bare sleeps, anywhere in the mind — this
   is the entire test story (§27).
 - §15.2 **The mind's home is the same Vault.** No second database: the mind reads and writes
   the Vault the brain already keeps, adding `world/` (§19), `knowledge/` (§20), `goals.md`

@@ -25,7 +25,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from yurios.characters.soulfiles import shape_complaint
-from yurios.world.clock import Clock
+from yurios.kernel.clock import Clock
 
 from .util import iso_of, new_id, read_json, write_json
 from .vaultio import ConstitutionReadOnly, MindVault

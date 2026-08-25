@@ -20,7 +20,7 @@ from yurios.world.channels.base import Channel                # noqa: E402
 from yurios.world.channels.manager import ChannelManager      # noqa: E402
 from yurios.world.channels.manager import _claims as claims   # noqa: E402
 from yurios.world.channels.telegram import TelegramChannel    # noqa: E402
-from yurios.world.hub import EventHub                         # noqa: E402
+from yurios.kernel.hub import EventHub                         # noqa: E402
 from yurios.world.main import create_app                      # noqa: E402
 
 STRIPPED = "Hey, you made it back. I missed you today."       # FakeBrain, tags gone

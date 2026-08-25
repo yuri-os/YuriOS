@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
-from yurios.world.clock import Clock
+from yurios.kernel.clock import Clock
 
 from .util import iso_of, jsonl_append, new_id
 

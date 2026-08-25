@@ -22,7 +22,7 @@ from __future__ import annotations
 import datetime
 
 from .avatar.controller import VrmController
-from .clock import Clock
+from ..kernel.clock import Clock
 from .tools.timers import TimerBoard
 
 # The embodiment truth (SPEC §2.5), in three parts: the body, the place, and the

@@ -37,7 +37,7 @@ a section are folded into it.
 | **§24** — The journal, the trace, and the inner-life surface | `yurios/world/debug.py`<br>`yurios/world/host.py`<br>`yurios/world/main.py`<br>`yurios/world/routes/mind.py`<br>*+13 more* | `tests/test_host_debug.py`<br>`tests/test_mind_routes.py` |
 | **§25** — Config (the mind's knobs) | — | — |
 | **§26** — Omissions (normative) | `yurios/mind/loop.py`<br>`yurios/mind/hands.py`<br>`yurios/world/host.py`<br>`web/dashboard/dashboard.js`<br>*+4 more* | `tests/test_characters_registry.py`<br>`tests/test_host.py`<br>`tests/test_mind_hands.py` |
-| **§27** — Tests (the hard gate) | `web/js/stage/sanctuary/Cat.js`<br>`yurios/world/clock.py`<br>`yurios/world/tools/client.py`<br>`yurios/world/tools/fakes.py`<br>*+3 more* | `tests/conftest.py`<br>`tests/test_forge_diffusers.py`<br>`tests/test_forge_krea2.py`<br>*+2 more* |
+| **§27** — Tests (the hard gate) | `web/js/stage/sanctuary/Cat.js`<br>`yurios/kernel/clock.py`<br>`yurios/world/tools/client.py`<br>`yurios/world/tools/fakes.py`<br>*+3 more* | `tests/conftest.py`<br>`tests/test_forge_diffusers.py`<br>`tests/test_forge_krea2.py`<br>*+2 more* |
 | **§28** — Extends to | `yurios/world/host.py`<br>`web/dashboard/dashboard.js`<br>`web/dashboard/model.js`<br>`web/vite.config.js`<br>*+5 more* | `tests/test_card_roundtrip.py`<br>`tests/test_host.py` |
 | **§29** — The host and the character registry | — | — |
 | **§30** — Character cards: import, review, edit, export | `scripts/bench_cards.py`<br>`web/studio/optimize.js`<br>`yurios/characters/optimize.py`<br>`yurios/world/host.py` | — |

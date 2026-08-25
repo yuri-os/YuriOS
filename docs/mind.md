@@ -570,7 +570,7 @@ still there.
 
 Two things make it useful where the tab is not. It reads **files, not a running mind**, so a
 stopped or crashed character is fully inspectable — the moment you most need it, and exactly when
-`/api/mind` answers `503`. And one `corr_id` per unit of work (`world/correlate.py`) ties the four
+`/api/mind` answers `503`. And one `corr_id` per unit of work (`kernel/correlate.py`) ties the four
 separate logs into one story, so "why did she take that photo" walks from the tick that decided it
 to the prompt that phrased it to the audit line that ran it.
 

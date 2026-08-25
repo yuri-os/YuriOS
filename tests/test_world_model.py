@@ -14,7 +14,7 @@ from yurios.mind.signals import Signal
 from yurios.mind.util import iso_of
 from yurios.mind.vaultio import MindVault
 from yurios.mind.world import WorldModelStore
-from yurios.world.clock import VirtualClock
+from yurios.kernel.clock import VirtualClock
 from yurios.world.situation import EMBODIMENT
 from yurios.world.tools.timers import TimerBoard
 

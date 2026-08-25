@@ -35,6 +35,7 @@ consolidation.
 | `yurios/app` | the brain: SOUL, Vault, prompt assembly, memory, provider seams |
 | `yurios/world` | FastAPI, the host, character routing, event/channel plumbing, MCP tools, voice-facing runtime |
 | `yurios/mind` | the autonomy engine — the tick loop and everything it drives |
+| `yurios/kernel` | below everything: injected clock, `corr_id`, `EventHub` — stdlib only, enforced by a test |
 | `yurios/characters` | registry, card parse/import/export, connection profiles, privacy |
 | `yurios/forge` | image backends behind her camera |
 | `yurios/desktop` | STT/TTS/VAD and the native window |
@@ -54,7 +55,7 @@ Records *about* her sit deliberately outside it and rotate to a single `.1` gene
 `traces/` (ticks, activity, signals, context, prompts), `tool-logs/calls.jsonl`, `corpus/`,
 `selfies/`. These are `PRIVATE_SURFACES` (`characters/privacy.py`) and never leave with an
 exported card. Four different objects write them, so **one `corr_id` per unit of work**
-(`world/correlate.py`) is what joins the tick, the prompt, the call and the photo into one story.
+(`kernel/correlate.py`) is what joins the tick, the prompt, the call and the photo into one story.
 
 ### Contracts to preserve
 
@@ -65,7 +66,7 @@ exported card. Four different objects write them, so **one `corr_id` per unit of
 - **One outbound event bus** — every host→frontend update is typed JSON on the SSE `EventHub`, so
   any medium is a thin view. Add cross-surface state as an event, not a frontend-specific poll.
 - **A failed turn leaves no trace** — no memory line, no commit.
-- **Time is injected** (`world/clock.py`) — no wall-clock reads or bare sleeps in `yurios/mind`,
+- **Time is injected** (`kernel/clock.py`) — no wall-clock reads or bare sleeps in `yurios/mind`,
   so the `VirtualClock` scenario battery stays deterministic.
 
 ### Extension points

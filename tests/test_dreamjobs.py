@@ -21,8 +21,8 @@ from yurios.mind.dreamjobs import (JOB_NAME_RE, PROMPT_OVERHEAD_CHARS,
                                    ResearchJob, validate_job_file)
 from yurios.mind.vaultio import MindVault
 from yurios.mind.workspace import SkillStore, Workspace
-from yurios.world import correlate
-from yurios.world.clock import VirtualClock
+from yurios.kernel import correlate
+from yurios.kernel.clock import VirtualClock
 from yurios.world.tools.fetch import FakeFetcher
 from yurios.world.tools.search import FakeSearch
 

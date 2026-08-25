@@ -313,7 +313,9 @@ ignore_errors = true
 [tool.setuptools]
 # one namespace package `yurios`, with the former top-level modules as subpackages:
 # the brain (yurios.app), the voice stack (yurios.desktop), the image service
-# (yurios.forge, §7.6), Build #4's body (yurios.world), and the mind (yurios.mind).
+# (yurios.forge, §7.6), Build #4's body (yurios.world), the mind (yurios.mind), and
+# below all of them the primitives they share (yurios.kernel: the injected clock,
+# the corr_id, the event bus).
 packages = { find = { include = ["yurios*"] } }
 
 [tool.setuptools.package-data]

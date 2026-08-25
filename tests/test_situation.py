@@ -10,7 +10,7 @@ from __future__ import annotations
 import datetime
 
 from yurios.world.avatar.controller import VrmController
-from yurios.world.clock import VirtualClock
+from yurios.kernel.clock import VirtualClock
 from yurios.world.situation import EMBODIMENT, render_situation
 from yurios.world.tools.timers import TimerBoard
 

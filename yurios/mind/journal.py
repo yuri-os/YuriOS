@@ -18,8 +18,8 @@ from __future__ import annotations
 import datetime
 import logging
 
-from yurios.world.clock import Clock
-from yurios.world.hub import EventHub
+from yurios.kernel.clock import Clock
+from yurios.kernel.hub import EventHub
 
 from .util import day_of, dt_of, iso_of, utc_iso_of
 from .vaultio import MindVault

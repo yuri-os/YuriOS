@@ -36,7 +36,7 @@ from yurios.desktop.brain import BrainAdapter
 from yurios.desktop.config import Config
 from yurios.mind.workspace import DESK_WRITE_TOOLS
 
-from . import correlate
+from ..kernel import correlate
 from .avatar.controller import VrmController
 from .situation import render_situation
 from .tools.client import ToolRunner, ToolSpec, build_directive

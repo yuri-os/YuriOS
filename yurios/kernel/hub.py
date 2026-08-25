@@ -26,7 +26,7 @@ import asyncio
 import logging
 from typing import Any, Dict, Hashable, List, Optional
 
-log = logging.getLogger("world.hub")
+log = logging.getLogger("kernel.hub")
 
 
 class EventHub:

@@ -10,7 +10,7 @@ from yurios.mind.policy import (DORMANT, DREAM, ENGAGED, IDLE, ActivityControlle
                          appraise_signal, score_interrupt)
 from yurios.mind.signals import Signal
 from yurios.mind.util import jsonl_tail
-from yurios.world.clock import VirtualClock
+from yurios.kernel.clock import VirtualClock
 from yurios.world.config import Config
 
 from .conftest import SIM_START

@@ -66,7 +66,7 @@ always-on one. For the record, its arrival:
   `WorldModelStore` when the mind runs (the situation-seam swap, SPEC §19.2).
 - `world/situation.py` — demoted (docstring only) from "the world model" to the world
   model's host-lines renderer; the rendering itself is unchanged.
-- `world/clock.py`, `world/tools/timers.py`, `world/boot.py` — re-aimed at the mind;
+- `kernel/clock.py` (was `world/clock.py`), `world/tools/timers.py`, `world/boot.py` — re-aimed at the mind;
   behaviour unchanged (timers' due queue is now drained by the loop's SENSE).
 - `world/config.py`, `.env.example` — the `IDLE_ENABLED`/`IDLE_SEED` knobs give way to
   the `MIND_*` family (SPEC §25); the reflex windows (`IDLE_*_S`) survive; port 8768.

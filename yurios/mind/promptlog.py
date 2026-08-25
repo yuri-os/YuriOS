@@ -28,8 +28,8 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from yurios.world import correlate
-from yurios.world.clock import Clock
+from yurios.kernel import correlate
+from yurios.kernel.clock import Clock
 
 from .util import estimate_tokens, iso_of, jsonl_append, new_id
 

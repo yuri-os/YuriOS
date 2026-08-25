@@ -15,7 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from yurios.world.clock import Clock
+from yurios.kernel.clock import Clock
 
 from .util import dt_of, iso_of, jsonl_append, read_json, write_json
 

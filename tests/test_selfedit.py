@@ -9,7 +9,7 @@ import pytest
 
 from yurios.mind.selfedit import SelfEdit, SoulShapeError
 from yurios.mind.vaultio import ConstitutionReadOnly, MindVault
-from yurios.world.clock import VirtualClock
+from yurios.kernel.clock import VirtualClock
 
 from .conftest import SIM_START
 

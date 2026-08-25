@@ -18,7 +18,7 @@ from yurios.mind.policy import appraise_goal
 from yurios.mind.util import ts_of_iso
 from yurios.mind.vaultio import MindVault
 from yurios.mind.workspace import SkillStore, Workspace
-from yurios.world.clock import VirtualClock
+from yurios.kernel.clock import VirtualClock
 
 from .conftest import SIM_START, FakeEmbedder
 

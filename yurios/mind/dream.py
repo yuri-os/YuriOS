@@ -28,7 +28,7 @@ from __future__ import annotations
 import logging
 from typing import Awaitable, Callable
 
-from yurios.world.clock import Clock
+from yurios.kernel.clock import Clock
 from yurios.app.providers.admission import InferenceBusy
 
 from .util import day_of, read_json, utc_iso_of, write_json

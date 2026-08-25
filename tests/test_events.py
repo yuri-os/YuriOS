@@ -7,7 +7,7 @@ import json
 
 import pytest
 
-from yurios.world.hub import EventHub
+from yurios.kernel.hub import EventHub
 
 pytest.importorskip("fastapi")
 from starlette.testclient import TestClient           # noqa: E402

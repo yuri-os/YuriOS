@@ -15,7 +15,7 @@ import pytest
 from yurios.app.providers.usage import chunk_prompt_tokens, chunk_text
 from yurios.world.context import (ContextMeter, IMAGE_TOKENS, estimate_messages,
                                   short_tokens)
-from yurios.world.hub import EventHub
+from yurios.kernel.hub import EventHub
 
 pytest.importorskip("fastapi")
 from starlette.testclient import TestClient                  # noqa: E402

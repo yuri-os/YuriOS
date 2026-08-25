@@ -309,7 +309,7 @@ def goals(record) -> dict:
 
     from yurios.mind.goals import GoalStore
     from yurios.mind.vaultio import MindVault
-    from yurios.world.clock import Clock
+    from yurios.kernel.clock import Clock
     try:
         store = GoalStore(MindVault(Path(record.paths.vault)), Clock())
         items = [asdict(g) for g in store.all()]

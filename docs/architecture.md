@@ -95,6 +95,7 @@ key. Chat turns are the one deliberate split — `prompts.jsonl` holds an index 
 | Piece | Code |
 |---|---|
 | **The tick loop** | `mind/loop.py` — `MindLoop.tick()` |
+| **What a tick can do** | `mind/acts.py` · `mind/goalwork.py` · `mind/prompts.py` · `mind/housekeeping.py` |
 | **The inbound signal bus** | `mind/signals.py` + the `FORK` tee in `world/routes/voice_ws.py` |
 | **The voice wire, both bodies** | `desktop/voice/ws_session.py` (+ `ws_limits.py` for the numbers) |
 | **What a connection is given** | `world/main.py` — `Runtime`; the heavy parts are built in `world/runtime.py` |

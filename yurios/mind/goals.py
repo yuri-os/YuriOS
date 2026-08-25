@@ -128,6 +128,13 @@ LINE_RE = re.compile(r"^- \[(?P<done>[ x~])\] \((?P<id>[\w-]+)\) (?P<text>.*?)"
                      r"(?P<fields>(?: \| \w[\w-]*: [^|]*)*)$")
 
 
+def trim(text: str, limit: int = 200) -> str:
+    """One line, short enough that `goals.md` still reads as a checklist —
+    the meta field rides on the goal's own line."""
+    one = " ".join((text or "").split())
+    return one if len(one) <= limit else one[:limit - 1].rstrip() + "…"
+
+
 class GoalStore:
     def __init__(self, vault: MindVault, clock: Clock):
         self.vault = vault

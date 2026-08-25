@@ -866,13 +866,23 @@ async function uploadPortrait(file) {
   reader.readAsDataURL(file);
 }
 
+/* The gate in front of both irreversible buttons, in one place because it had
+   already drifted apart in two: export took you to the field it was complaining
+   about and create did not. Both buttons live in a sticky header, so on a form
+   this tall a refusal that only writes the banner leaves its reason a couple of
+   thousand pixels above the fold — the button looks like it did nothing at all.
+   Focusing the field is what actually moves the viewport to the problem. */
+function blockedByAProblem(draft) {
+  const [first] = problems(draft);
+  if (!first) return false;
+  notice(first.message);
+  document.querySelector(
+    `[data-field="${first.field}"] textarea, [data-field="${first.field}"] input`)?.focus();
+  return true;
+}
+
 async function doExport() {
-  const blocking = problems(state.draft);
-  if (blocking.length) {
-    notice(blocking[0].message);
-    document.querySelector(`[data-field="${blocking[0].field}"] textarea, [data-field="${blocking[0].field}"] input`)?.focus();
-    return;
-  }
+  if (blockedByAProblem(state.draft)) return;
   if (state.id && !equal(state.draft, state.saved)) {
     // Never ship a file that disagrees with the Vault it claims to come from.
     await studioApi.save(state.id, state.draft);
@@ -916,11 +926,7 @@ function download(blob, filename) {
 }
 
 async function doCreate() {
-  const blocking = problems(state.draft);
-  if (blocking.length) {
-    notice(blocking[0].message);
-    return;
-  }
+  if (blockedByAProblem(state.draft)) return;
   elements.primary.disabled = true;
   try {
     const payload = await studioApi.create(state.draft);

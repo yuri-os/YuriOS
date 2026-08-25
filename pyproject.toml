@@ -53,7 +53,7 @@ dependencies = [
 [project.optional-dependencies]
 # Real voice backends are optional imports (B2 §3): the loop runs against fakes with
 # none installed, so `pytest` is green on a machine with no models or GPU — the full
-# 185-test suite passes on a bare `pip install -e ".[test]"`.
+# suite passes on a bare `pip install -e ".[test]"`.
 #
 # Each extra is ONE optional backend beyond the always-available local embedder.
 # Measured venv size on disk (Linux, py3.12, CPU torch where torch is involved — with
@@ -96,7 +96,15 @@ tts-kokoro = ["kokoro", "soundfile"]         # alias of [tts], kept for older do
 # caps rAF at ~30fps and needs NVIDIA quirks — a full 3D body suffers more than
 # B2's Live2D did. WINDOW_GUI=gtk + pywebview[gtk] is the lighter fallback.
 desktop = ["pywebview", "qtpy", "PyQt6", "PyQt6-WebEngine"]
-test = ["pytest", "pytest-asyncio", "httpx", "numpy"]
+# pytest-xdist is not optional-in-spirit: the suite is 1,668 tests and about six
+# minutes of it is wall-clock waiting rather than work, so `-n 8` takes the run
+# from ~7m40s to ~1m15s. It parallelises safely because every test already gets
+# its own `tmp_path`, the park gate is reset per test, and the embedder is fake —
+# there is no shared mutable state between workers to serialise on. Do not raise
+# the worker count much past 8: each worker pays a one-off ~24s to import torch
+# through sentence-transformers, and beyond 8 that startup outruns the parallelism
+# (measured on a 20-core box: `-n auto` is SLOWER than `-n 8`).
+test = ["pytest", "pytest-asyncio", "pytest-xdist", "httpx", "numpy"]
 # The gate `./scripts/check.sh` runs before a commit: lint + typecheck on top of
 # [test]. `build` is here for scripts/smoke_install.sh, which needs a wheel.
 #
@@ -234,7 +242,7 @@ strict_optional = true
 # Not a package-level namespace conflict: yurios/desktop/main.py and
 # yurios/world/main.py are two different modules with the same basename.
 explicit_package_bases = true
-# tests/ is not checked. The suite is 1,296 tests of deliberately loose fakes —
+# tests/ is not checked. The suite is 1,668 tests of deliberately loose fakes —
 # duck-typed stand-ins for a TTS, a model, a bus — and typing those is work that
 # would make the fakes harder to write without making the runtime any safer.
 

@@ -9,7 +9,7 @@
 ## Toolchain and verification
 
 - Support Python `>=3.11,<3.14`; Python 3.12 is the installer target. Use the project interpreter when present: `.venv/bin/python`.
-- Run the offline suite with `.venv/bin/python -m pytest -q`. Focus a change with `.venv/bin/python -m pytest -q tests/test_file.py::test_name`. The full suite takes ~9 minutes — prefer focused runs while iterating.
+- Run the offline suite with `.venv/bin/python -m pytest -q -n 8` — 1,668 tests in ~70s across eight workers, ~7m40s serial, so pass `-n 8`. Focus a change with `.venv/bin/python -m pytest -q tests/test_file.py::test_name`, and drop `-n` when you need a readable traceback (xdist interleaves eight workers' output). Don't raise the worker count much past 8: each worker pays a one-off ~24s importing torch, and `-n auto` measured slower than `-n 8` on a 20-core box.
 - Tests deliberately replace dotenv loading and use fake voice, tools, image, model, and clock seams. Do not require a configured model, API key, GPU, or live service for test coverage.
 - `./scripts/check.sh` is the gate: `ruff check`, `mypy`, pytest, and the web suite, each stage running even when an earlier one failed. Use `--fast` to skip pytest while iterating, `--release` to add the install smoke test. It needs `pip install -e ".[dev]"`. There is no CI; this is the whole gate.
 - Lint and typecheck are configured in `pyproject.toml` and are green — keep them that way. Ruff is `check` only, never `format` (the formatting is hand-set). Mypy skips the 36 modules listed in its overrides, which predate it: that list may only shrink, and new modules are checked from the start.

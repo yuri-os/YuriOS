@@ -2,7 +2,7 @@
 # Everything that can say no before a commit does, in one command.
 #
 #   ./scripts/check.sh              lint, typecheck, the Python suite, the web suite
-#   ./scripts/check.sh --fast       …without the Python suite (it takes ~9 minutes)
+#   ./scripts/check.sh --fast       …without the Python suite (~1m15s across 8 workers)
 #   ./scripts/check.sh --release    …plus the install smoke test, on the 3.11 floor
 #
 # There is no CI behind this. That is a choice, not an omission: YuriOS is installed
@@ -27,8 +27,9 @@ usage() {
     cat <<'EOF'
 Usage: ./scripts/check.sh [options]
 
-  --fast      Skip the Python test suite (~9 minutes). Lint, typecheck and the
-              web suite still run — seconds, and they catch most of what a
+  --fast      Skip the Python test suite (~1m15s across 8 workers; set
+              PYTEST_WORKERS to change that, 0 for serial). Lint, typecheck and
+              the web suite still run — seconds, and they catch most of what a
               half-finished edit does.
   --release   Also run scripts/smoke_install.sh against Python 3.11, the floor in
               requires-python: build the wheel, install it, resolve the declared
@@ -100,11 +101,27 @@ fi
 # --- the Python suite -------------------------------------------------------------
 # Offline by construction (SPEC §13): fake voice backends, a fake tool runner, an
 # in-memory MCP session, a VirtualClock. It needs no model, no GPU and no network.
+#
+# Run in parallel: ~7m40s serial, ~1m15s across 8 workers, and a gate nobody waits
+# for is a gate that gets skipped. Eight rather than `auto` because each worker pays
+# a one-off ~24s importing torch through sentence-transformers — past 8 that startup
+# costs more than the extra parallelism buys (on a 20-core box `-n auto` measured
+# SLOWER than `-n 8`). Override for a machine with a different shape:
+#     PYTEST_WORKERS=4 ./scripts/check.sh
+# PYTEST_WORKERS=0 runs the old serial way, which is what to do when a failure needs
+# a readable traceback — xdist interleaves output from eight workers.
+PYTEST_WORKERS="${PYTEST_WORKERS:-8}"
 if [ "$FAST" = true ]; then
     printf '\n\033[1m==> pytest\033[0m\n    skipped (--fast)\n'
 else
     start "pytest"
-    "$PY" -m pytest -q
+    # No xdist installed is not a failure — it is an older [test] extra, so fall
+    # back to serial rather than refusing to run the suite at all.
+    if [ "$PYTEST_WORKERS" != "0" ] && "$PY" -c 'import xdist' >/dev/null 2>&1; then
+        "$PY" -m pytest -q -n "$PYTEST_WORKERS"
+    else
+        "$PY" -m pytest -q
+    fi
     verdict $?
 fi
 

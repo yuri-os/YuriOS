@@ -154,7 +154,7 @@ cd web && npm install && npm test
 ```bash
 pip install -e ".[dev]"            # ruff, mypy, and the build backend
 ./scripts/check.sh                 # lint, typecheck, both suites
-./scripts/check.sh --fast          # …without pytest, which takes ~9 minutes
+./scripts/check.sh --fast          # …without pytest (~70s across 8 workers)
 ./scripts/check.sh --release       # …plus the install smoke test, on Python 3.11
 ```
 

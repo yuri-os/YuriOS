@@ -1,4 +1,4 @@
-"""Shared fixtures. The whole suite runs offline (SPEC §13): fake voice backends
+"""Shared fixtures. The whole suite runs offline (SPEC §27): fake voice backends
 (B2 §3), a fake tool runner, an in-memory MCP session,
 and a VirtualClock for everything timed."""
 from __future__ import annotations
@@ -12,7 +12,7 @@ import pytest
 # the brain hands every later one real values (CONTEXT_LENGTH, a live Telegram
 # token…) through the environment, behind `Config(_env_file=None)`'s back. conftest
 # is imported before any test module, and litellm binds the name at ITS import, so
-# stubbing it here is what keeps the suite offline (SPEC §13) whatever order the
+# stubbing it here is what keeps the suite offline (SPEC §27) whatever order the
 # files run in. (`.env` still reaches a Config that asks for it by path.)
 dotenv.load_dotenv = lambda *a, **kw: False
 
@@ -68,7 +68,7 @@ def clock() -> VirtualClock:
 def cfg(tmp_path) -> Config:
     return Config(
         # the developer's own `.env` (real API keys, tuned mind_* knobs) must
-        # never leak into a test's idea of the code's defaults (SPEC §13)
+        # never leak into a test's idea of the code's defaults (SPEC §27)
         _env_file=None,
         tts_backend="fake", stt_backend="fake", vad_backend="fake",
         mask_latency=False, tools_backend="fake",
@@ -171,6 +171,7 @@ async def collect(agen) -> list[str]:
 # loop through simulated days in milliseconds. Signals in, trace records out.
 
 import datetime  # noqa: E402
+import shutil  # noqa: E402
 import subprocess  # noqa: E402
 import sys  # noqa: E402
 from pathlib import Path  # noqa: E402
@@ -289,16 +290,34 @@ class PostRecorder:
         return [m for m in self.messages if m["proactive"]]
 
 
-@pytest.fixture
-def seeded_vault(tmp_path):
-    """A throwaway Vault seeded from the SOUL — the new-user path."""
+@pytest.fixture(scope="session")
+def _vault_template(tmp_path_factory):
+    """The seeded Vault, built once for the run.
+
+    Seeding is a subprocess and a `git init` — 0.7s, which is nothing once and
+    two and a half minutes across the ~230 tests that each want a fresh one.
+    The finished tree is 96 KB, so `seeded_vault` copies it in 0.02s instead and
+    every test still gets a Vault of its own to write to. Deterministic from
+    `soul-src/` alone: it reads no config and no environment, which is what makes
+    building it once safe."""
     if not (ROOT / "soul-src" / "soul.yaml").exists():
         pytest.skip("soul-src missing")
-    dst = tmp_path / "vault"
+    dst = tmp_path_factory.mktemp("vault-template") / "vault"
     r = subprocess.run([sys.executable, str(ROOT / "scripts" / "seed_vault.py"),
                         "--soul", str(ROOT / "soul-src"), "--vault", str(dst)],
                        capture_output=True, text=True, cwd=ROOT)
     assert r.returncode == 0, r.stderr
+    return dst
+
+
+@pytest.fixture
+def seeded_vault(_vault_template, tmp_path):
+    """A throwaway Vault seeded from the SOUL — the new-user path.
+
+    A copy of the session template, `.git` and all: her whole mind is a folder,
+    so copying the folder is the same thing seeding it produced."""
+    dst = tmp_path / "vault"
+    shutil.copytree(_vault_template, dst, symlinks=True)
     return dst
 
 

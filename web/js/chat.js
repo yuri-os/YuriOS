@@ -227,6 +227,12 @@
     div.className = 'msg ' + (her ? 'her' : 'you') + (m.proactive ? ' proactive' : '')
       + (m.id && unheard.has(m.id) ? ' unheard' : '');
     delete div.dataset.clientId;
+    // …but not out of reach. `clientId` is addMsg's adoption handle and has to
+    // stop matching once this line is committed, or the next message carrying
+    // the same id would adopt the div a second time. A turn can still fail
+    // after its user line lands, though, and failPending has to find the line
+    // it belongs to — so the id survives under a key only that lookup reads.
+    if (!her && m.client_id) div.dataset.sentId = m.client_id;
     // the transcript id on the bubble, so the walk back can find the one line
     // it is anchored on without keeping a second map of the column
     if (m.id) div.dataset.messageId = m.id;
@@ -293,7 +299,15 @@
   }
 
   function failPending(clientId, reason = 'not received') {
-    const div = pending.get(clientId);
+    // Not just the pending map: her line failing does not un-send yours, and
+    // the user message arrives over SSE *before* the turn can fail, so addMsg
+    // has already adopted the optimistic div and dropped it from `pending`.
+    // Looking only there meant a failed turn was marked nowhere and the room
+    // showed a question sitting answered-looking forever. Same fallback addMsg
+    // uses to find its own optimistic line.
+    if (!clientId) return;
+    const div = pending.get(clientId) || (messages && [...messages.children]
+      .find((el) => el.dataset.sentId === clientId));
     if (!div) return;
     div.classList.remove('pending');
     div.classList.add('failed');

@@ -721,6 +721,7 @@ export function initVoice({ viseme, els }) {
   // a touch keyboard without a newline key can offer).
   async function sendHttp(path, body, clientId) {
     aborter = new AbortController();
+    let reached = false;                  // did the server answer at all?
     try {
       const response = await fetch(runtime.apiPath(path), {
         method: 'POST',
@@ -728,6 +729,7 @@ export function initVoice({ viseme, els }) {
         body: JSON.stringify(body),
         signal: aborter.signal,
       });
+      reached = true;
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.detail || `request failed: ${response.status}`);
       if (data.session_id) {
@@ -743,8 +745,16 @@ export function initVoice({ viseme, els }) {
       completeLlm(clientId, data.active_selfies || []);
     } catch (e) {
       if (e.name === 'AbortError') return;
-      window.WorldChat?.failPending?.(clientId, 'not received');
-      els.caption.textContent = e.message;
+      // Two different failures wearing one word. `reached` means the server
+      // answered and the turn itself broke (a 502 off turns.py) — the line got
+      // to her, the reply is what is missing. Only a fetch that never came back
+      // is genuinely not received.
+      window.WorldChat?.failPending?.(clientId, reached ? 'no reply' : 'not received');
+      // notice(), not the caption directly: `.caption` is display:none in the
+      // browser room (the chat column carries text there), so writing to it
+      // made every failed turn invisible. notice() writes both it and the
+      // composer placeholder, which is the line every room has.
+      notice(e.message);
       finishProcessing();
     }
   }

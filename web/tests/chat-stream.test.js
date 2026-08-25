@@ -49,7 +49,9 @@ it('replaces a suspended stream and recovers the final reply from history', asyn
   const initialHistory = new Promise((resolve) => { resolveInitialHistory = resolve; });
   let historyRequests = 0;
   vi.stubGlobal('fetch', vi.fn(async (url) => {
-    if (url === '/api/history') {
+    // A page opening asks for a screenful (`?limit=`); a reconnect asks for the
+    // route's generous catch-up default.
+    if (String(url).startsWith('/api/history')) {
       historyRequests += 1;
       if (historyRequests === 1) return initialHistory;
       return { ok: true, json: async () => ({ messages: [reply, newer] }) };

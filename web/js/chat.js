@@ -410,6 +410,16 @@
    * held across the insert — a column that jumps has lost the line you were
    * reading, which is the whole reason you pressed the button. */
   const EARLIER_PAGE = 6;
+  /* …and a fresh page opens on that same six.
+   *
+   * It used to open on the route's default hundred, which put a threshold in
+   * front of the control nobody asked for: the button cannot appear until the
+   * archive holds *more* than the opening window, so a hundred lines of
+   * conversation had to accumulate before the walk existed at all. The only
+   * honest gate is "is there anything older" — so the opening window is the
+   * step, and one earlier line is enough to earn the button. A press is what
+   * turns a screenful into two, which is the whole shape of the feature. */
+  const OPENING_PAGE = EARLIER_PAGE;
   /* Where the next press resumes — and it is an id the *archive* handed over,
    * never merely the oldest line on screen. Those differ after a restart: the
    * inbox (§18.4) is a separate file that predates `transcript.jsonl` on every
@@ -542,7 +552,16 @@
       if (!r.ok) throw new Error(String(r.status));
       return r.json();
     }).then((d) => {
-      const history = d.messages || [];
+      // Recovery keeps the route's generous default on purpose — a long
+      // disconnect can miss far more than the opening screenful. But that
+      // window reaches back *behind* the top of the column, and addMsg appends:
+      // without this cut a reconnect would paste the archive under the newest
+      // line, oldest last. Everything from the anchor on is newer than the
+      // column's top; an anchor the window no longer covers means more than a
+      // window's worth arrived, and all of it is newer.
+      const all = d.messages || [];
+      const from = oldestId ? all.findIndex((m) => m.id === oldestId) : 0;
+      const history = from > 0 ? all.slice(from) : all;
       // Announce only what this page has not already rendered. Replaying the
       // whole transcript on every reconnect — and re-dispatching a
       // chat-history-message per entry to every listener — is duplicate work
@@ -639,7 +658,7 @@
     // said into the empty room before that (SPEC §18.4). The inbox fetch cannot
     // hold up the transcript: a failed one is an empty run, not a blank chat.
     Promise.all([
-      fetch(apiPath('/api/history')).then((r) => r.json())
+      fetch(apiPath('/api/history?limit=' + OPENING_PAGE)).then((r) => r.json())
         .catch(() => ({})),
       loadInbox(),
     ]).then(([d, waiting]) => {

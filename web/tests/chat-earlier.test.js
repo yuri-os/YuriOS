@@ -19,8 +19,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const SOURCE = readFileSync(resolve(process.cwd(), 'js/chat.js'), 'utf8');
 
 class FakeEventSource {
-  constructor(url) { this.url = url; this.close = vi.fn(); }
+  constructor(url) {
+    this.url = url;
+    this.close = vi.fn();
+    FakeEventSource.instances.push(this);
+  }
 }
+FakeEventSource.instances = [];
 
 /** `line 0` … `line n-1`, oldest first, the shape post_message commits. */
 const conversation = (n) => Array.from({ length: n }, (_, i) => ({
@@ -28,20 +33,23 @@ const conversation = (n) => Array.from({ length: n }, (_, i) => ({
   ts: `2026-08-2${1 + Math.floor(i / 10)}T09:0${i % 10}:00`,
 }));
 
-/** The host: the last six of `all`, then six at a time behind `before`.
+/** The host: one window of `all`, sized by `limit` and bounded by `before`.
  *
  *  `inbox` is what she reached out with while the room was empty — the same
  *  shape the durable file keeps, and deliberately allowed to hold rows the
  *  archive does not: inbox.json predates transcript.jsonl on every vault that
  *  existed before it, so its oldest rows are older than the whole log. */
-function host(all, { pageSize = 6, inbox = [] } = {}) {
+function host(all, { inbox = [] } = {}) {
   return vi.fn(async (url) => {
     if (String(url).startsWith('/api/history')) {
       const query = new URL(url, 'http://x').searchParams;
       const before = query.get('before');
       const cut = before ? all.findIndex((m) => m.id === before) : all.length;
       if (cut < 0) return { ok: true, json: async () => ({ messages: [], has_more: false }) };
-      const window = all.slice(Math.max(0, cut - pageSize), cut);
+      // the real route: `limit` bounds every window, and no `limit` is the
+      // generous catch-up default (100) a reconnecting page asks for
+      const size = Number(query.get('limit')) || 100;
+      const window = all.slice(Math.max(0, cut - size), cut);
       return {
         ok: true,
         json: async () => ({ messages: window, has_more: cut - window.length > 0 }),
@@ -69,7 +77,7 @@ async function open(all, options) {
 const drawn = () => [...document.querySelectorAll('.msg')].map((el) => el.textContent);
 const button = () => document.querySelector('.load-earlier');
 
-beforeEach(() => { vi.useRealTimers(); });
+beforeEach(() => { vi.useRealTimers(); FakeEventSource.instances = []; });
 afterEach(() => {
   vi.unstubAllGlobals();
   delete window.WorldChat;
@@ -185,5 +193,42 @@ describe('the button at the top of the column', () => {
     expect(drawn()[0]).toContain('I left this here last night.');
     expect(drawn()[1]).toContain('line 8');
     expect(drawn()[7]).toContain('line 14');
+  });
+
+  it('opens on a screenful, not on the route\'s hundred', async () => {
+    const fetched = await open(conversation(20));
+    expect(fetched.mock.calls.map(([url]) => String(url)))
+      .toContain('/api/history?limit=6');
+  });
+
+  it('offers the walk when a single line sits behind the opening screenful', async () => {
+    /* The threshold that made the feature look dead: the page opened on the
+     * route's hundred, so the button could not appear until the archive held a
+     * hundred and one lines. One earlier line is the whole requirement. */
+    await open(conversation(7));
+    expect(drawn()).toHaveLength(6);
+    expect(button()).not.toBeNull();
+
+    button().click();
+    await vi.waitFor(() => expect(drawn()).toHaveLength(7));
+    expect(drawn()[0]).toContain('line 0');
+    expect(button()).toBeNull();            // and that was the whole archive
+  });
+
+  it('does not paste the archive under the newest line when the stream comes back', async () => {
+    /* Recovery keeps the generous window on purpose, but it reaches back behind
+     * the top of a six-line column and addMsg appends — so without the cut at
+     * the anchor a reconnect would redraw the whole archive, oldest last. */
+    await open(conversation(20));
+    expect(drawn()).toHaveLength(6);
+    // a tab coming back to the foreground replaces the uncertain stream, and
+    // the replacement opening is what triggers the catch-up fetch
+    document.dispatchEvent(new Event('visibilitychange'));
+    const replacement = FakeEventSource.instances.at(-1);
+    replacement.onopen();
+    await new Promise((resolve) => { setTimeout(resolve, 100); });
+    expect(drawn()).toHaveLength(6);
+    expect(drawn()[0]).toContain('line 14');
+    expect(drawn().at(-1)).toContain('line 19');
   });
 });

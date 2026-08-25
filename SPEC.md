@@ -373,6 +373,10 @@ best-effort and never fsynced: it is the draw buffer for a chat column, and the 
 file — is what a turn depends on. `GET /api/history?before=<message id>&limit=` walks back
 through it, which the chat surface **MUST** offer as a single control at the top of the column
 loading **six** older lines a press, holding the reader's scroll position across the insert.
+A page **MUST** open on that same six and no more: the control can only appear when something
+older than the opening window exists, so a wider one is a threshold in front of the feature —
+open on a hundred and the walk does not exist until the hundred-and-first line. One earlier
+line is the whole requirement.
 
 The chat is the *visible* conversation, not her memory — the Vault stays the only durable
 record of what she *knows*, nothing in the transcript file is ever read back into a prompt, and

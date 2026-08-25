@@ -762,34 +762,12 @@ class Runtime:
         runner = self._tool_runner
         if runner is None and self.cfg.tools_backend == "mcp":
             from .tools.client import McpToolRunner
-            runner = McpToolRunner(env={
-                "TIMER_MAX_MINUTES": str(self.cfg.timer_max_minutes),
-                # off = the tool isn't even advertised: no hand, not a dead one
-                "SELFIE_ENABLED": "0" if self.cfg.selfie_backend == "off" else "1",
-                # the contract side builds its description from the SAME merged
-                # book the host renders from (world/selfies.py) — overlay and
-                # its tool_hint included — so the two can never disagree
-                "SELFIE_TEMPLATES_EXTRA": self.cfg.selfie_templates_extra,
-                "SELFIE_TEMPLATES": self.cfg.selfie_templates,
-                # the web hands (§7.7) — off means unadvertised, same rule
-                "SEARCH_BACKEND": self.cfg.search_backend,
-                "SEARXNG_URL": self.cfg.searxng_url,
-                "SEARCH_RESULTS": str(self.cfg.search_results),
-                "SEARCH_LANGUAGE": self.cfg.search_language,
-                "SEARCH_SAFESEARCH": str(self.cfg.search_safesearch),
-                "FETCH_TIMEOUT_S": str(self.cfg.fetch_timeout_s),
-                "FETCH_MAX_BYTES": str(self.cfg.fetch_max_bytes),
-                "RESEARCH_MAX_PAGES": str(self.cfg.research_max_pages),
-                # her desk (§34.2). The path IS the sandbox root, so this is
-                # also what scopes the hands to *this* character's vault — and
-                # an unset one leaves the desk tools unadvertised entirely.
-                "VAULT_DIR": str(self.cfg.vault_dir),
-                "WORKSPACE_ENABLED": "1" if self.cfg.workspace_enabled else "0",
-                "SKILLS_ENABLED": "1" if self.cfg.skills_enabled else "0",
-                # §23: unadvertised without a mind, because the queue it writes
-                # into is only ever read by the loop and the inner-life panel.
-                "SELFEDIT_ENABLED": "1" if self.cfg.mind_enabled else "0",
-            })
+            from .tools.spawn_env import ToolServerEnv
+            # Everything that crosses into her hands' process, in one object
+            # (tools/spawn_env.py): what each knob is called, what it means
+            # when it is absent, and how a Config answers it. The server reads
+            # the same object on the other side, so the two cannot drift.
+            runner = McpToolRunner(env=ToolServerEnv.from_config(self.cfg).to_environ())
             # …plus anybody else's hands (§7.2). With no MCP_SERVERS file this
             # is skipped entirely and she runs on her own server alone, exactly
             # as before — the wrapper only appears when there is something to

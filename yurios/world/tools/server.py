@@ -13,10 +13,8 @@ shape Build #5 keeps when these same tools move behind a broker (→ ch. 19).
 """
 from __future__ import annotations
 
-import os
 import time
 import uuid
-from pathlib import Path
 from typing import Literal, get_args
 
 from mcp.server.fastmcp import FastMCP
@@ -28,6 +26,7 @@ from yurios.mind.workspace import (DeskFull, OutsideTheDesk, SkillStore,
 
 from .fetch import PageFetcher, build_fetcher, gist
 from .search import SearchProvider, build_provider
+from .spawn_env import ToolServerEnv
 
 NOTE_READ_MAX_CHARS = 4_000
 
@@ -59,51 +58,54 @@ def build_server(*, max_minutes: float | None = None,
                  max_pages: int | None = None,
                  workspace: "Workspace | None" = None,
                  skills: "SkillStore | None" = None,
-                 selfedit: bool | None = None) -> FastMCP:
-    """Build the FastMCP server. Args are the test seams; `python -m` reads env."""
-    max_minutes = max_minutes if max_minutes is not None else float(
-        os.environ.get("TIMER_MAX_MINUTES", "180"))
+                 selfedit: bool | None = None,
+                 settings: ToolServerEnv | None = None) -> FastMCP:
+    """Build the FastMCP server. Args are the test seams; `python -m` reads env.
+
+    Every setting that crosses the spawn boundary is read once, here, through
+    `ToolServerEnv` — what each key is called, what type it is and what it means
+    when it is absent all live in `spawn_env.py`, beside the encoder the host
+    writes it with. Name an env key in this module and the two sides of the
+    wire can start disagreeing again, so `tests/test_spawn_env.py` refuses one.
+    """
+    env = ToolServerEnv.from_environ() if settings is None else settings
+    max_minutes = max_minutes if max_minutes is not None else env.timer_max_minutes
     if selfies is None:                        # off = not advertised at all (§7.6)
-        selfies = os.environ.get("SELFIE_ENABLED", "1") != "0"
-    results = results if results is not None else int(
-        os.environ.get("SEARCH_RESULTS", "5"))
-    max_pages = max_pages if max_pages is not None else int(
-        os.environ.get("RESEARCH_MAX_PAGES", "5"))
+        selfies = env.selfies
+    results = results if results is not None else env.search_results
+    max_pages = max_pages if max_pages is not None else env.research_max_pages
     # The web hands go together or not at all (§7.7): searching with no way to
     # read what you found is half a capability, and `research` is the two of
     # them in sequence. SEARCH_BACKEND=off is the SELFIE_BACKEND=off rule —
     # `list_tools` simply doesn't mention them.
-    backend = os.environ.get("SEARCH_BACKEND", "off")
     if search is None:
         search = build_provider(
-            backend, base_url=os.environ.get("SEARXNG_URL", "http://localhost:8080"),
-            language=os.environ.get("SEARCH_LANGUAGE", "en"),
-            safesearch=int(os.environ.get("SEARCH_SAFESEARCH", "1")))
+            env.search_backend, base_url=env.searxng_url,
+            language=env.search_language, safesearch=env.search_safesearch)
     if fetcher is None and search is not None:
         fetcher = build_fetcher(
-            "fake" if backend == "fake" else "http",
-            timeout=float(os.environ.get("FETCH_TIMEOUT_S", "8")),
-            max_bytes=int(os.environ.get("FETCH_MAX_BYTES", "2000000")))
+            "fake" if env.search_backend == "fake" else "http",
+            timeout=env.fetch_timeout_s, max_bytes=env.fetch_max_bytes)
     # Her desk and her skills (§34.2). This process has no runtime and no
     # config object — a path is the entire wiring, and no path means the tools
     # are not advertised at all, the SELFIE_BACKEND=off rule again. The host
     # passes VAULT_DIR only for the character whose server this is, so one
     # character's hands can never reach another's desk: the sandbox's root is
     # decided at spawn time, not by an argument the model gets to write.
-    vault = os.environ.get("VAULT_DIR", "")
-    if workspace is None and vault and os.environ.get("WORKSPACE_ENABLED", "1") != "0":
-        workspace = Workspace(Path(vault) / "workspace")
-    if skills is None and vault and os.environ.get("SKILLS_ENABLED", "1") != "0":
-        skills = SkillStore(Path(vault) / "skills")
+    #
+    # …and it is also the root the manifest her rewrites are held against. No
+    # VAULT_DIR means no shape check: this process cannot invent one, and a
+    # refusal it cannot justify would be worse than the host's own check alone.
+    vault_dir = env.vault_path
+    if workspace is None and vault_dir is not None and env.workspace:
+        workspace = Workspace(vault_dir / "workspace")
+    if skills is None and vault_dir is not None and env.skills:
+        skills = SkillStore(vault_dir / "skills")
     # The self-edit door (§23). Off means unadvertised, the SELFIE_BACKEND=off
     # rule once more — and it is off unless the host says otherwise, because
     # the queue this writes into is only *read* where the mind is running.
     if selfedit is None:
-        selfedit = os.environ.get("SELFEDIT_ENABLED", "0") != "0"
-    # …and the manifest her rewrites are held against, from the same root. No
-    # VAULT_DIR means no shape check: this process cannot invent one, and a
-    # refusal it cannot justify would be worse than the host's own check alone.
-    vault_dir = Path(vault) if vault else None
+        selfedit = env.selfedit
 
     mcp = FastMCP("world-companion-tools")
 
@@ -244,14 +246,12 @@ def build_server(*, max_minutes: float | None = None,
         # choices she sees can never drift from what the forge would compose.
         from ..selfies import book_path
         from yurios.forge import SelfieBook
-        overlays = [os.environ["SELFIE_TEMPLATES_EXTRA"]] \
-            if os.environ.get("SELFIE_TEMPLATES_EXTRA") else []
+        overlays = [env.selfie_templates_extra] if env.selfie_templates_extra else []
         # …base included: a character with her own library (SELFIE_TEMPLATES,
         # → characters/selfiebook.py) replaces the shipped book, and the tool
         # description has to name *her* rows or she is offered scenes her
         # camera would never compose.
-        book = SelfieBook.load(book_path(os.environ.get("SELFIE_TEMPLATES")),
-                               overlays=overlays)
+        book = SelfieBook.load(book_path(env.selfie_templates), overlays=overlays)
         desc = ("Take a photo of yourself to share in the chat — it appears "
                 "there a few moments later. "
                 "`look` is the important one: describe the picture you want in "

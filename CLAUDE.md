@@ -33,7 +33,8 @@ consolidation.
 | Package | What it owns |
 |---|---|
 | `yurios/app` | the brain: SOUL, Vault, prompt assembly, memory, provider seams |
-| `yurios/world` | FastAPI, the host, character routing, event/channel plumbing, MCP tools, voice-facing runtime |
+| `yurios/world` | FastAPI, character routing, event/channel plumbing, MCP tools, voice-facing runtime |
+| `yurios/world/host` | the switchboard app: `hosting.py` (the host + per-character config), `app.py` (composition), and one module per route group |
 | `yurios/mind` | the autonomy engine — the tick loop and everything it drives |
 | `yurios/kernel` | below everything: injected clock, `corr_id`, `EventHub` — stdlib only, enforced by a test |
 | `yurios/characters` | registry, card parse/import/export, connection profiles, privacy |

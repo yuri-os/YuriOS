@@ -323,7 +323,7 @@ def test_a_house_full_of_characters_warms_no_voices(tmp_path, monkeypatch):
     def character_app(character_cfg, **kwargs):
         return create_app(character_cfg, brain=FakeBrain())
 
-    monkeypatch.setattr("yurios.world.host.create_app", character_app)
+    monkeypatch.setattr("yurios.world.host.hosting.create_app", character_app)
     base = WorldConfig(_env_file=None, data_dir=tmp_path, tools_backend="off",
                        mind_enabled=False, selfie_backend="off",
                        tts_backend="fake", stt_backend="fake", vad_backend="fake",

@@ -81,7 +81,7 @@ def test_host_lists_and_dispatches_isolated_characters(tmp_path, monkeypatch):
     registry = CharacterRegistry(tmp_path)
     registry.add(record(tmp_path, "yuri"))
     registry.add(record(tmp_path, "mika"))
-    monkeypatch.setattr("yurios.world.host.create_app", fake_character_app)
+    monkeypatch.setattr("yurios.world.host.hosting.create_app", fake_character_app)
     app = create_host_app(Config(data_dir=tmp_path), registry)
 
     with TestClient(app) as client:
@@ -105,8 +105,9 @@ def test_host_preserves_dashboard_and_sanctuary_routes(tmp_path, monkeypatch):
         "export const ready = true;", encoding="utf-8")
     registry = CharacterRegistry(tmp_path)
     registry.add(record(tmp_path))
-    monkeypatch.setattr("yurios.world.host.create_app", fake_character_app)
-    monkeypatch.setattr("yurios.world.host.DIST_DIR", dist)
+    monkeypatch.setattr("yurios.world.host.hosting.create_app", fake_character_app)
+    monkeypatch.setattr("yurios.world.host.app.DIST_DIR", dist)
+    monkeypatch.setattr("yurios.world.host.pages.DIST_DIR", dist)
     app = create_host_app(Config(data_dir=tmp_path), registry)
 
     with TestClient(app) as client:
@@ -130,8 +131,9 @@ def test_every_body_of_a_character_is_reachable_by_her_own_id(tmp_path, monkeypa
     (dist / "text" / "index.html").write_text("text room", encoding="utf-8")
     registry = CharacterRegistry(tmp_path)
     registry.add(record(tmp_path))
-    monkeypatch.setattr("yurios.world.host.create_app", fake_character_app)
-    monkeypatch.setattr("yurios.world.host.DIST_DIR", dist)
+    monkeypatch.setattr("yurios.world.host.hosting.create_app", fake_character_app)
+    monkeypatch.setattr("yurios.world.host.app.DIST_DIR", dist)
+    monkeypatch.setattr("yurios.world.host.pages.DIST_DIR", dist)
     app = create_host_app(Config(data_dir=tmp_path), registry)
 
     with TestClient(app) as client:
@@ -157,7 +159,7 @@ def test_socket_for_a_parked_character_is_refused_in_websocket(tmp_path, monkeyp
     parked = record(tmp_path, "virelle", enabled=False, autostart=False)
     parked.lifecycle.review_required = True
     registry.add(parked)
-    monkeypatch.setattr("yurios.world.host.create_app", fake_character_app)
+    monkeypatch.setattr("yurios.world.host.hosting.create_app", fake_character_app)
     app = create_host_app(Config(data_dir=tmp_path), registry)
 
     with TestClient(app) as client:
@@ -199,7 +201,7 @@ def test_socket_with_no_active_character_is_refused_in_websocket(tmp_path, monke
     falls through to the primary mount, which may have nobody behind it."""
     registry = CharacterRegistry(tmp_path)
     registry.add(record(tmp_path, enabled=False))
-    monkeypatch.setattr("yurios.world.host.create_app", fake_character_app)
+    monkeypatch.setattr("yurios.world.host.hosting.create_app", fake_character_app)
     app = create_host_app(Config(data_dir=tmp_path), registry)
 
     with TestClient(app) as client:
@@ -214,7 +216,7 @@ def test_primary_prefers_running_autostart_character(tmp_path, monkeypatch):
     registry = CharacterRegistry(tmp_path)
     registry.add(record(tmp_path, "mia", autostart=False))
     registry.add(record(tmp_path, "yuri", autostart=True))
-    monkeypatch.setattr("yurios.world.host.create_app", fake_character_app)
+    monkeypatch.setattr("yurios.world.host.hosting.create_app", fake_character_app)
     app = create_host_app(Config(data_dir=tmp_path), registry)
 
     with TestClient(app) as client:
@@ -269,8 +271,8 @@ def test_dashboard_import_stays_parked_and_does_not_request_autostart(tmp_path, 
             registry.add(imported)
             return imported
 
-    monkeypatch.setattr("yurios.world.host.CharacterImporter", FakeImporter)
-    monkeypatch.setattr("yurios.world.host.create_app", fake_character_app)
+    monkeypatch.setattr("yurios.world.host.studio.CharacterImporter", FakeImporter)
+    monkeypatch.setattr("yurios.world.host.hosting.create_app", fake_character_app)
     monkeypatch.setattr("yurios.app.main.build_utility_model",
                         lambda cfg: utility_calls.append(cfg))
     app = create_host_app(Config(data_dir=tmp_path), registry)
@@ -294,7 +296,7 @@ def test_approve_clears_review_and_starts_the_runtime(tmp_path, monkeypatch):
     parked = record(tmp_path, "virelle", enabled=False, autostart=False)
     parked.lifecycle.review_required = True
     registry.add(parked)
-    monkeypatch.setattr("yurios.world.host.create_app", fake_character_app)
+    monkeypatch.setattr("yurios.world.host.hosting.create_app", fake_character_app)
     app = create_host_app(Config(data_dir=tmp_path), registry)
 
     with TestClient(app) as client:
@@ -322,7 +324,7 @@ def test_approve_reports_a_failed_start_without_reverting_the_approval(tmp_path,
     def broken_app(cfg, **kwargs):
         raise RuntimeError("no connection profile named 'default'")
 
-    monkeypatch.setattr("yurios.world.host.create_app", broken_app)
+    monkeypatch.setattr("yurios.world.host.hosting.create_app", broken_app)
     app = create_host_app(Config(data_dir=tmp_path), registry)
 
     with TestClient(app) as client:
@@ -442,7 +444,7 @@ def test_purge_rolls_back_data_and_running_state_if_registry_commit_fails(
     registry = CharacterRegistry(tmp_path)
     item = record(tmp_path)
     registry.add(item)
-    monkeypatch.setattr("yurios.world.host.create_app", fake_character_app)
+    monkeypatch.setattr("yurios.world.host.hosting.create_app", fake_character_app)
     app = create_host_app(Config(data_dir=tmp_path), registry)
 
     with TestClient(app) as client:
@@ -478,7 +480,7 @@ def test_failed_purge_cleanup_leaves_unregistered_tombstone(tmp_path, monkeypatc
     registry = CharacterRegistry(tmp_path)
     item = record(tmp_path, enabled=False)
     registry.add(item)
-    monkeypatch.setattr("yurios.world.host.shutil.rmtree",
+    monkeypatch.setattr("yurios.world.host.switchboard.shutil.rmtree",
                         lambda _path: (_ for _ in ()).throw(OSError("busy")))
 
     with TestClient(create_host_app(Config(data_dir=tmp_path), registry)) as client:
@@ -669,7 +671,7 @@ def test_house_settings_never_display_a_running_characters_effective_paths(
     resident = record(tmp_path, "adia")
     resident.models.chat = "ollama/adia"
     registry.add(resident)
-    monkeypatch.setattr("yurios.world.host.create_app", fake_character_app)
+    monkeypatch.setattr("yurios.world.host.hosting.create_app", fake_character_app)
     app = create_host_app(Config(
         _env_file=None, data_dir=tmp_path, vault_dir=Path("./legacy-vault"),
         chat_model="lm_studio/house"), registry)
@@ -827,7 +829,7 @@ def test_the_brain_panel_shows_what_is_hers_and_what_is_inherited(tmp_path, monk
     her = record(tmp_path, "yuri")
     her.models.chat = "ollama/llama3"
     registry.add(her)
-    monkeypatch.setattr("yurios.world.host.create_app", fake_character_app)
+    monkeypatch.setattr("yurios.world.host.hosting.create_app", fake_character_app)
     base = Config(data_dir=tmp_path, _env_file=None, chat_model="lm_studio/house")
 
     with TestClient(create_host_app(base, registry)) as client:
@@ -844,7 +846,7 @@ def test_the_brain_panel_shows_what_is_hers_and_what_is_inherited(tmp_path, monk
 def test_saving_her_brain_reaches_the_live_runtime_without_a_restart(tmp_path, monkeypatch):
     registry = CharacterRegistry(tmp_path)
     registry.add(record(tmp_path, "yuri"))
-    monkeypatch.setattr("yurios.world.host.create_app", fake_character_app)
+    monkeypatch.setattr("yurios.world.host.hosting.create_app", fake_character_app)
     base = Config(data_dir=tmp_path, _env_file=None, chat_model="lm_studio/house")
 
     with TestClient(create_host_app(base, registry)) as client:
@@ -868,7 +870,7 @@ def test_clearing_an_override_hands_her_back_to_the_env(tmp_path, monkeypatch):
     her.models.chat = "ollama/llama3"
     her.models.options = {"temperature": 0.4}
     registry.add(her)
-    monkeypatch.setattr("yurios.world.host.create_app", fake_character_app)
+    monkeypatch.setattr("yurios.world.host.hosting.create_app", fake_character_app)
     base = Config(data_dir=tmp_path, _env_file=None, chat_model="lm_studio/house",
                   temperature=0.9)
 
@@ -886,7 +888,7 @@ def test_clearing_an_override_hands_her_back_to_the_env(tmp_path, monkeypatch):
 def test_an_unparseable_knob_is_refused_before_anything_is_written(tmp_path, monkeypatch):
     registry = CharacterRegistry(tmp_path)
     registry.add(record(tmp_path, "yuri"))
-    monkeypatch.setattr("yurios.world.host.create_app", fake_character_app)
+    monkeypatch.setattr("yurios.world.host.hosting.create_app", fake_character_app)
 
     with TestClient(create_host_app(Config(data_dir=tmp_path, _env_file=None),
                                     registry)) as client:
@@ -943,7 +945,7 @@ def test_authenticated_profile_update_applies_endpoint_and_key_together(
     her.models.chat = "ollama/llama3"
     registry.add(her)
     monkeypatch.setenv("YURIOS_MODEL_API_KEY_GPU", "sk-gpu")
-    monkeypatch.setattr("yurios.world.host.create_app", fake_character_app)
+    monkeypatch.setattr("yurios.world.host.hosting.create_app", fake_character_app)
 
     with TestClient(create_host_app(Config(data_dir=tmp_path, _env_file=None), registry)) as client:
         runtime = client.app.state.host.runtime("yuri")
@@ -961,7 +963,7 @@ def test_authenticated_profile_update_applies_endpoint_and_key_together(
 def test_a_model_change_on_the_profile_form_also_skips_the_restart(tmp_path, monkeypatch):
     registry = CharacterRegistry(tmp_path)
     registry.add(record(tmp_path, "yuri"))
-    monkeypatch.setattr("yurios.world.host.create_app", fake_character_app)
+    monkeypatch.setattr("yurios.world.host.hosting.create_app", fake_character_app)
 
     with TestClient(create_host_app(Config(data_dir=tmp_path, _env_file=None),
                                     registry)) as client:
@@ -985,7 +987,7 @@ def test_the_primary_answers_the_unprefixed_brain_route(tmp_path, monkeypatch):
     """The single-companion install's pages carry no character in the URL."""
     registry = CharacterRegistry(tmp_path)
     registry.add(record(tmp_path, "yuri"))
-    monkeypatch.setattr("yurios.world.host.create_app", fake_character_app)
+    monkeypatch.setattr("yurios.world.host.hosting.create_app", fake_character_app)
 
     with TestClient(create_host_app(Config(data_dir=tmp_path, _env_file=None),
                                     registry)) as client:
@@ -1053,7 +1055,7 @@ def test_the_switchboard_can_mute_one_character(tmp_path, monkeypatch):
     registry = CharacterRegistry(tmp_path)
     registry.add(record(tmp_path, "yuri"))
     registry.add(record(tmp_path, "mika"))
-    monkeypatch.setattr("yurios.world.host.create_app", fake_character_app)
+    monkeypatch.setattr("yurios.world.host.hosting.create_app", fake_character_app)
     app = create_host_app(
         Config(data_dir=tmp_path, _env_file=None, notify_enabled=True), registry)
 
@@ -1079,7 +1081,7 @@ def test_the_board_says_when_the_house_switch_is_off(tmp_path, monkeypatch):
     say so rather than leaving you to wonder why nothing arrives."""
     registry = CharacterRegistry(tmp_path)
     registry.add(record(tmp_path, "yuri"))
-    monkeypatch.setattr("yurios.world.host.create_app", fake_character_app)
+    monkeypatch.setattr("yurios.world.host.hosting.create_app", fake_character_app)
     app = create_host_app(
         Config(data_dir=tmp_path, _env_file=None, notify_enabled=False), registry)
 
@@ -1093,7 +1095,7 @@ def test_the_board_says_when_the_house_switch_is_off(tmp_path, monkeypatch):
 def test_the_profile_form_saves_her_doorbell(tmp_path, monkeypatch):
     registry = CharacterRegistry(tmp_path)
     registry.add(record(tmp_path, "yuri"))
-    monkeypatch.setattr("yurios.world.host.create_app", fake_character_app)
+    monkeypatch.setattr("yurios.world.host.hosting.create_app", fake_character_app)
     app = create_host_app(
         Config(data_dir=tmp_path, _env_file=None, notify_enabled=True), registry)
 

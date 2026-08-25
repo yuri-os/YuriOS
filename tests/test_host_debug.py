@@ -94,7 +94,7 @@ def host(tmp_path, monkeypatch, *, running: bool):
     registry = CharacterRegistry(tmp_path)
     rec = record(tmp_path, "yuri", enabled=running)
     registry.add(rec)
-    monkeypatch.setattr("yurios.world.host.create_app", fake_character_app)
+    monkeypatch.setattr("yurios.world.host.hosting.create_app", fake_character_app)
     app = create_host_app(Config(data_dir=tmp_path), registry)
     client = TestClient(app)
     client.record = rec

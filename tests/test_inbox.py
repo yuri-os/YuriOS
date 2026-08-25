@@ -354,7 +354,7 @@ def test_the_board_badges_a_character_whose_runtime_is_down(tmp_path, monkeypatc
     box.add({"id": "a1", "ts": "2026-08-14T03:00:00", "text": "about the cat names"})
     box.add({"id": "a2", "ts": "2026-08-14T03:02:00", "image_url": "/selfies/x.png"})
 
-    monkeypatch.setattr("yurios.world.host.create_app",
+    monkeypatch.setattr("yurios.world.host.hosting.create_app",
                         lambda cfg, **kw: FastAPI())
     app = create_host_app(Config(data_dir=tmp_path), registry)
     with TestClient(app) as client:

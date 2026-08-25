@@ -944,7 +944,7 @@ credential would be opened once per character — and an inbox is single-tenant:
 but the last `getUpdates` poller with "Conflict: terminated by other getUpdates request", leaving
 her reachable nowhere. Each character therefore **MUST** have her own credentials, named with her
 registry id: `TELEGRAM_BOT_TOKEN_<ID>` / `TELEGRAM_CHAT_ID_<ID>`, resolved per runtime by
-`world/host.py`'s `telegram_for_character`, and pairing mode names *her* variable. Because the ids
+`world/host/hosting.py`'s `telegram_for_character`, and pairing mode names *her* variable. Because the ids
 exist only at runtime these keys cannot be `Config` fields, so the resolver **MUST** read the
 `.env` file as well as the environment. The settings panel (§11) offers the pair the *open room's*
 character reads her bot from, so an edit there can never take over another character's chat. The

@@ -373,7 +373,7 @@ async def test_the_daemon_brings_the_tray_up_on_its_own(tmp_path, monkeypatch):
 
     watcher_bus = await MessageBus(bus_type=BusType.SESSION).connect()
     registered = await _stub_watcher(watcher_bus)
-    monkeypatch.setattr("yurios.world.host.create_app", fake_character_app)
+    monkeypatch.setattr("yurios.world.host.hosting.create_app", fake_character_app)
 
     registry = CharacterRegistry(tmp_path)
     registry.add(record(tmp_path, "yuri"))
@@ -400,7 +400,7 @@ async def test_the_tray_can_be_turned_off(tmp_path, monkeypatch):
     from yurios.world.host import create_host_app
     from tests.test_host import fake_character_app, record
 
-    monkeypatch.setattr("yurios.world.host.create_app", fake_character_app)
+    monkeypatch.setattr("yurios.world.host.hosting.create_app", fake_character_app)
     registry = CharacterRegistry(tmp_path)
     registry.add(record(tmp_path, "yuri"))
     app = create_host_app(

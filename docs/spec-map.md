@@ -12,7 +12,7 @@ a section are folded into it.
 | Section | Implemented in | Also cited by |
 |---|---|---|
 | **§1** — Goal and properties | `yurios/world/channels/telegram.py`<br>`yurios/desktop/config.py`<br>`yurios/world/main.py` | — |
-| **§2** — The brain, the voice, and the seam | `yurios/world/main.py`<br>`web/js/chat.js`<br>`yurios/characters/setting.py`<br>`yurios/desktop/brain.py`<br>*+18 more* | `tests/test_voice_ws_fork.py`<br>`tests/test_conversation.py`<br>`tests/test_integration.py`<br>*+1 more* |
+| **§2** — The brain, the voice, and the seam | `yurios/world/main.py`<br>`web/js/chat.js`<br>`yurios/characters/setting.py`<br>`yurios/desktop/brain.py`<br>*+17 more* | `tests/test_voice_ws_fork.py`<br>`tests/test_conversation.py`<br>`tests/test_integration.py`<br>*+1 more* |
 | **§3** — The body: the VRM stage | `yurios/desktop/voice/protocols.py`<br>`web/js/stage/EmoteController.js`<br>`yurios/desktop/config.py`<br>`web/js/stage/Blink.js`<br>*+22 more* | `tests/test_doctor.py`<br>`tests/test_lmstudio_preload.py`<br>`tests/test_palette_map.py`<br>*+2 more* |
 | **§4** — The control channel (`avatar` events on the bus) | `yurios/world/avatar/controller.py`<br>`web/js/bridge.js`<br>`yurios/desktop/routes/voice_ws.py`<br>`yurios/desktop/voice/turn.py`<br>*+12 more* | `tests/test_avatar_controller.py`<br>`tests/test_events.py` |
 | **§5** — Visemes: real lip-sync | `yurios/desktop/voice/fillers.py`<br>`web/js/stage/VrmStage.js`<br>`web/js/voice.js`<br>`scripts/seed_vault.py`<br>*+6 more* | `tests/test_bootstrap_greeting.py`<br>`tests/test_mind_goals.py`<br>`tests/test_studio_routes.py` |
@@ -28,23 +28,23 @@ a section are folded into it.
 | **§15** — The cognitive tick loop | `yurios/mind/loop.py`<br>`yurios/world/routes/voice_ws.py`<br>`yurios/world/main.py`<br>`yurios/mind/signals.py`<br>*+6 more* | `tests/test_config.py`<br>`tests/test_mind_loop.py`<br>`tests/test_mind_routes.py`<br>*+1 more* |
 | **§16** — The signal bus (inbound) | `yurios/mind/loop.py`<br>`yurios/mind/signals.py`<br>`yurios/world/main.py`<br>`yurios/world/routes/events.py`<br>*+1 more* | `tests/test_mind_goals.py` |
 | **§17** — Activity states and the budget governor | `yurios/mind/policy.py`<br>`web/mind/mind.js`<br>`yurios/mind/budget.py`<br>`yurios/mind/loop.py` | `tests/test_policy.py` |
-| **§18** — The salience and interrupt model | `web/js/chat.js`<br>`yurios/mind/loop.py`<br>`yurios/mind/policy.py`<br>`yurios/world/host.py`<br>*+12 more* | `tests/test_inbox.py`<br>`tests/test_tray.py`<br>`tests/test_host.py`<br>*+1 more* |
+| **§18** — The salience and interrupt model | `web/js/chat.js`<br>`yurios/mind/loop.py`<br>`yurios/mind/policy.py`<br>`yurios/world/host/hosting.py`<br>*+12 more* | `tests/test_inbox.py`<br>`tests/test_tray.py`<br>`tests/test_host.py`<br>*+1 more* |
 | **§19** — The world model (the present tense) | `yurios/mind/world.py`<br>`yurios/world/brain.py`<br>`yurios/world/situation.py` | `tests/test_world_model.py` |
 | **§20** — The knowledge layer (drop-folder RAG) | `yurios/mind/knowledge.py` | `tests/test_knowledge.py` |
 | **§21** — DREAM consolidation | `yurios/mind/dreamjobs/filedsl.py`<br>`yurios/mind/dream.py`<br>`yurios/mind/dreamjobs/__init__.py`<br>`yurios/mind/dreamjobs/builtins.py`<br>*+4 more* | `tests/test_dreamjobs.py`<br>`tests/test_mind_routes.py`<br>`tests/test_dream.py` |
 | **§22** — Goals and intentions | `yurios/mind/loop.py`<br>`yurios/mind/goals.py`<br>`yurios/world/config.py` | `tests/test_mind_goals.py`<br>`tests/test_mind_routes.py`<br>`tests/test_mind_soul.py`<br>*+1 more* |
 | **§23** — The SOUL split and gated self-edits | `yurios/mind/selfedit.py`<br>`yurios/world/tools/server.py` | `tests/test_selfedit.py`<br>`tests/test_mind_goals.py` |
-| **§24** — The journal, the trace, and the inner-life surface | `yurios/world/debug.py`<br>`yurios/world/host.py`<br>`yurios/world/main.py`<br>`yurios/world/routes/mind.py`<br>*+13 more* | `tests/test_host_debug.py`<br>`tests/test_mind_routes.py` |
+| **§24** — The journal, the trace, and the inner-life surface | `yurios/world/debug.py`<br>`yurios/world/main.py`<br>`yurios/world/routes/mind.py`<br>`web/dashboard/dashboard.js`<br>*+14 more* | `tests/test_host_debug.py`<br>`tests/test_mind_routes.py` |
 | **§25** — Config (the mind's knobs) | — | — |
-| **§26** — Omissions (normative) | `yurios/mind/loop.py`<br>`yurios/mind/hands.py`<br>`yurios/world/host.py`<br>`web/dashboard/dashboard.js`<br>*+4 more* | `tests/test_characters_registry.py`<br>`tests/test_host.py`<br>`tests/test_mind_hands.py` |
+| **§26** — Omissions (normative) | `yurios/mind/loop.py`<br>`yurios/mind/hands.py`<br>`yurios/world/host/hosting.py`<br>`web/dashboard/dashboard.js`<br>*+4 more* | `tests/test_characters_registry.py`<br>`tests/test_host.py`<br>`tests/test_mind_hands.py` |
 | **§27** — Tests (the hard gate) | `web/js/stage/sanctuary/Cat.js`<br>`yurios/kernel/clock.py`<br>`yurios/world/tools/client.py`<br>`yurios/world/tools/fakes.py`<br>*+3 more* | `tests/conftest.py`<br>`tests/test_forge_diffusers.py`<br>`tests/test_forge_krea2.py`<br>*+2 more* |
-| **§28** — Extends to | `yurios/world/host.py`<br>`web/dashboard/dashboard.js`<br>`web/dashboard/model.js`<br>`web/vite.config.js`<br>*+5 more* | `tests/test_card_roundtrip.py`<br>`tests/test_host.py` |
-| **§29** — The host and the character registry | — | — |
-| **§30** — Character cards: import, review, edit, export | `scripts/bench_cards.py`<br>`web/studio/optimize.js`<br>`yurios/characters/optimize.py`<br>`yurios/world/host.py` | — |
-| **§31** — Connections and per-character bindings | `yurios/world/host.py`<br>`yurios/world/main.py`<br>`web/dashboard/dashboard.js`<br>`web/shared/settings.js`<br>*+3 more* | `tests/test_host.py`<br>`tests/test_character_overrides.py`<br>`tests/test_rewire.py` |
-| **§32** — The switchboard | `yurios/world/host.py`<br>`web/dashboard/dashboard.js`<br>`web/dashboard/model.js` | `tests/test_host.py` |
+| **§28** — Extends to | `web/dashboard/dashboard.js`<br>`web/dashboard/model.js`<br>`web/vite.config.js`<br>`yurios/app/__main__.py`<br>*+6 more* | `tests/test_card_roundtrip.py`<br>`tests/test_host.py` |
+| **§29** — The host and the character registry | `yurios/world/host/app.py`<br>`yurios/world/host/pages.py`<br>`yurios/world/host/switchboard.py` | — |
+| **§30** — Character cards: import, review, edit, export | `scripts/bench_cards.py`<br>`web/studio/optimize.js`<br>`yurios/characters/optimize.py`<br>`yurios/world/host/studio.py` | — |
+| **§31** — Connections and per-character bindings | `yurios/world/host/hosting.py`<br>`yurios/world/main.py`<br>`web/dashboard/dashboard.js`<br>`web/shared/settings.js`<br>*+5 more* | `tests/test_host.py`<br>`tests/test_character_overrides.py`<br>`tests/test_rewire.py` |
+| **§32** — The switchboard | `yurios/world/host/hosting.py`<br>`web/dashboard/dashboard.js`<br>`web/dashboard/model.js` | `tests/test_host.py` |
 | **§33** — The 0.1 → 0.2 migration | — | — |
 | **§34** — Her desk and her skills | `yurios/characters/importer.py`<br>`yurios/desktop/brain.py`<br>`yurios/mind/workspace.py`<br>`yurios/world/tools/server.py` | `tests/test_mcp_contract.py`<br>`tests/test_workspace.py` |
 | **§35** — Pictures you send her | `yurios/world/main.py`<br>`yurios/world/channels/telegram.py`<br>`yurios/world/routes/chat.py`<br>`web/js/chat.js`<br>*+11 more* | `tests/test_channels.py`<br>`tests/test_context_meter.py`<br>`tests/test_integration.py`<br>*+1 more* |
 
-*638 citation sites over 99 sections.*
+*641 citation sites over 102 sections.*

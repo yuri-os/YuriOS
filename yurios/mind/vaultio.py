@@ -95,13 +95,18 @@ class MindVault:
     def mark_dirty(self) -> None:
         self._dirty = True
 
-    def commit_if_dirty(self, message: str) -> None:
+    def commit_if_dirty(self, message: str, *, now: bool = False) -> None:
         """One commit per dirty tick (SPEC §15.1). Uses the Build #1
-        git spine; a Vault that isn't a repo (bare tests) is tolerated."""
+        git spine; a Vault that isn't a repo (bare tests) is tolerated.
+
+        `now=True` for a change *you* made through a route rather than one a
+        tick made: those must not wait out the Vault's daily window, because
+        waiting means being swept into the next tick's commit and labelled with
+        it (§2.1)."""
         if not self._dirty:
             return
         self._dirty = False
         try:
-            vaultgit.commit(self.vault, message)
+            vaultgit.commit(self.vault, message, now=now)
         except Exception:  # noqa: BLE001 — never let bookkeeping kill the loop
             log.debug("vault commit skipped (not a repo?)", exc_info=True)

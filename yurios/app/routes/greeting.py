@@ -33,13 +33,18 @@ def _has_history(state) -> bool:
     return episodic.exists() and any(episodic.glob("*.md"))
 
 
-def _retire_bootstrap(state) -> None:
+async def _retire_bootstrap(state) -> None:
     """Consumed once (§5.4): git mv soul/BOOTSTRAP.md soul/onboarded/… and
-    commit. From now on, file-absence means 'she has met you'."""
-    try:
+    commit. From now on, file-absence means 'she has met you'.
+
+    Both halves are git, so both go on a worker thread — a greeting is the
+    first thing a page asks for, and this is a host serving every character."""
+    def retire() -> None:
         vaultgit.mv(state.cfg.vault_dir, "soul/BOOTSTRAP.md",
                     "soul/onboarded/BOOTSTRAP.done.md", force=True)
-        vaultgit.commit(state.cfg.vault_dir, "first session complete")
+        vaultgit.commit(state.cfg.vault_dir, "first session complete", now=True)
+    try:
+        await asyncio.to_thread(retire)
     except Exception:
         log.exception("bootstrap retirement failed (will retry next greeting)")
 
@@ -73,7 +78,7 @@ async def greeting(session_id: str, request: Request):
 
     # she has met you: retire the bootstrap if it is still around (§5.4)…
     if soul.bootstrap is not None and _has_history(state):
-        _retire_bootstrap(state)
+        await _retire_bootstrap(state)
 
     # …and open from memory (§9.3): persona + USER.md + summary + a top recall.
     user_md = state.store.read_user_md()
@@ -120,8 +125,8 @@ async def greeting(session_id: str, request: Request):
 
         async def commit_later():
             async with state.vault_lock:
-                vaultgit.commit(state.cfg.vault_dir,
-                                f"greeting {session_id[:8]}")
+                await asyncio.to_thread(vaultgit.commit, state.cfg.vault_dir,
+                                        f"greeting {session_id[:8]}")
         task = asyncio.create_task(commit_later())
         state.pending_tasks.add(task)
         task.add_done_callback(state.pending_tasks.discard)

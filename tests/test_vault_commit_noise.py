@@ -240,3 +240,68 @@ def test_the_window_belongs_to_the_vault_not_to_the_process(seeded_vault):
     # a "restart" is just another call: nothing in this module holds state
     assert vaultgit.commit(seeded_vault, "turn: after a restart") == sha
     assert vaultgit.commit(seeded_vault, "turn: and another") == sha
+
+
+# ------------------------------------------------ …and what the window is not for
+
+def test_an_edit_you_made_does_not_wait_out_the_window(seeded_vault):
+    """The window paces the machine, not you.
+
+    For a tick or a turn, waiting costs nothing: the writes are on disk, and
+    tomorrow's snapshot carries them. For an edit *you* made it costs the entry
+    itself — `git add -A` on the far side files your rewritten constitution
+    under whichever tick trips the window next, and the diary then records that
+    day as "tick 91: rest". So a commit whose message names a person's edit
+    goes in at once.
+    """
+    from yurios.app import vaultgit
+
+    before = _log(seeded_vault)
+    (seeded_vault / "soul" / "CONSTITUTION.md").write_text("who she is, edited\n")
+
+    assert vaultgit.commit(seeded_vault, "studio: edit constitution",
+                           now=True) is not None
+    after = _log(seeded_vault)
+    assert after == ["studio: edit constitution", *before], \
+        "your edit waited for the window, and will be filed under a tick"
+
+
+def test_forcing_one_commit_does_not_open_the_window_for_the_rest(seeded_vault):
+    """`now=True` is a door for one caller, not a switch. The commit it makes
+    becomes the new HEAD, so the machine's next write is inside a *fresh*
+    window — a studio edit must not turn the diary back into a heartbeat."""
+    from yurios.app import vaultgit
+
+    (seeded_vault / "soul" / "PERSONA.md").write_text("edited by hand\n")
+    vaultgit.commit(seeded_vault, "studio: edit character card", now=True)
+    before = _log(seeded_vault)
+
+    (seeded_vault / "goals.md").write_text("- water the plant\n")
+    vaultgit.commit(seeded_vault, "tick 91: rest")
+    assert _log(seeded_vault) == before, "a forced commit reopened the window"
+
+
+def test_a_forced_commit_with_nothing_staged_still_writes_nothing(seeded_vault):
+    """Skipping the window is not a reason to make an entry — an edit that
+    changed no bytes (you retyped what was already there) leaves no commit."""
+    from yurios.app import vaultgit
+
+    before = _log(seeded_vault)
+    vaultgit.commit(seeded_vault, "studio: edit character card", now=True)
+    assert _log(seeded_vault) == before
+
+
+def test_the_mind_vault_passes_the_door_through(seeded_vault):
+    """`MindVault.commit_if_dirty` is the only way the mind's routes reach git,
+    so the door has to exist there too — the dream-job editor is you."""
+    v = MindVault(seeded_vault)
+    before = _log(seeded_vault)
+
+    v.write("dreams/nightly.md", "---\nkind: reflect\n---\nrewritten by you\n")
+    v.commit_if_dirty("dreams: edited nightly", now=True)
+    assert _log(seeded_vault) == ["dreams: edited nightly", *before]
+
+    v.write("goals.md", "- a tick's idea\n")
+    v.commit_if_dirty("tick 92: file a goal")
+    assert _log(seeded_vault)[0] == "dreams: edited nightly", \
+        "a tick jumped the window"

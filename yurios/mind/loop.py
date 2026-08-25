@@ -30,6 +30,7 @@ mind at two cadences; the loop owns everything between turns.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import random
 from typing import Awaitable, Callable
@@ -568,7 +569,10 @@ class MindLoop:
         self.offset = new_offset
         self.last_tick_ts = now
         self._persist()
-        self.vault.commit_if_dirty(
+        # git is a subprocess: on the loop it stalls every room this host is
+        # holding open, including the other characters' (SPEC §2.2)
+        await asyncio.to_thread(
+            self.vault.commit_if_dirty,
             f"tick {self._tick_id}: {decided['intention'][:60]}")
         self.hub.publish("mind", {"state": self.activity.state,
                                   "tick": self._tick_id,
@@ -644,7 +648,8 @@ class MindLoop:
             return report          # a rehearsal leaves no journal and no commit
         for note in report.notes:
             self.journal.write(note)
-        self.vault.commit_if_dirty(f"dream (by hand): {report.summary[:60]}")
+        await asyncio.to_thread(self.vault.commit_if_dirty,
+                                f"dream (by hand): {report.summary[:60]}")
         return report
 
     # ---- initiative: gate 2 lives here (SPEC §18.2–§18.3) -----------------------

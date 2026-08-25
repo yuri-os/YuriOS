@@ -90,6 +90,20 @@ def _git(vault: Path, *args: str) -> subprocess.CompletedProcess:
                           capture_output=True, text=True, env=_git_env(vault))
 
 
+#: Every function here that shells out to git, by name. Each one is a
+#: subprocess — tens of milliseconds on a warm repo, seconds on a cold NTFS
+#: mount or a Vault with a year of history — and a host is one process holding
+#: every character on the node, so running one on the event loop stops all of
+#: them: the other rooms' turns, their voice sockets, the SSE bus.
+#:
+#: So none of these may be called directly from an `async def`. Call them
+#: through `await asyncio.to_thread(...)`, the way `desktop/brain.py` retires a
+#: bootstrap. `tests/test_vault_off_loop.py` reads this tuple and fails on a
+#: direct call, which is why it is a declaration and not a docstring.
+BLOCKING = ("commit", "count_commits", "ensure_repo", "head", "head_at",
+            "log", "log_records", "mv", "read_at", "show")
+
+
 def ensure_repo(vault: Path) -> None:
     """`git init` the Vault if it isn't one yet (seed step, §4.1)."""
     if not (Path(vault) / ".git").exists():
@@ -123,7 +137,7 @@ def head_at(vault: Path) -> tuple[str | None, int]:
     return (sha or None), (int(when) if when.isdigit() else 0)
 
 
-def commit(vault: Path, message: str) -> str | None:
+def commit(vault: Path, message: str, *, now: bool = False) -> str | None:
     """`git add -A && git commit`, at most once per `COMMIT_INTERVAL_S` (§2.1).
 
     Returns the resulting HEAD sha, or None if there is nothing to return one
@@ -135,9 +149,23 @@ def commit(vault: Path, message: str) -> str | None:
     Vault, and cannot be reset by bouncing the daemon. A Vault with no commits
     yet — a fresh seed, a freshly imported card — has no window and commits at
     once; that first entry is what starts the clock.
+
+    `now=True` skips the window, and the line for when to pass it is what the
+    message names. A message that names a *person's* edit — the studio, the
+    switchboard, a forget she was asked for — must commit at once, because the
+    window does not merely delay that entry, it destroys it: `git add -A` on
+    the far side sweeps the edit into whatever tick or turn happens to trip the
+    window next, and the diary then records the day you rewrote her
+    constitution as "tick 91: rest". A message that names a tick, a turn or a
+    night is the machine talking, is one of hundreds, and waits.
+
+    A forced commit still takes the whole tree with it, and still restarts the
+    window — everything pending lands under the human message, which is the
+    honest trade: the subject names the headline change and the diff shows the
+    rest. That is much better than the reverse.
     """
     sha, when = head_at(vault)
-    if sha is not None and (time.time() - when) < COMMIT_INTERVAL_S:
+    if not now and sha is not None and (time.time() - when) < COMMIT_INTERVAL_S:
         return sha                      # inside the window: the writes stand, the
                                         # history entry waits for the next one
     _git(vault, "add", "-A")

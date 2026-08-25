@@ -426,3 +426,46 @@ def test_an_empty_selfie_library_is_refused_and_delete_is_the_way_back(node):
     assert not record.paths.selfie_templates.exists()
     assert client.get("/api/characters/subject/selfie-templates").json()["source"] \
         == "shipped"
+
+
+# ---------------------------------------------- and what the diary says about it
+
+def _subjects(vault: Path) -> list[str]:
+    out = subprocess.run(["git", "-C", str(vault), "log", "--format=%s"],
+                         capture_output=True, text=True)
+    return [line for line in out.stdout.splitlines() if line]
+
+
+def test_an_edit_you_made_lands_in_the_diary_as_itself(node):
+    """A studio save commits at once, under its own message (SPEC §2.1).
+
+    The Vault's daily window exists to stop a commit per tick burying the
+    diary. Applied to *your* edit it does the opposite of pacing: `git add -A`
+    on the far side files it under whichever tick or turn trips the window
+    next, so the day you rewrote her constitution reads as "tick 91: rest".
+    Two routes, because the switchboard's card editor and the studio's are
+    different code paths onto the same Vault.
+    """
+    client, registry = node
+    vault = Path(registry.require("subject").paths.vault)
+    before = _subjects(vault)
+    assert before, "the importer left no commit to close the window with"
+
+    draft = client.get("/api/characters/subject/studio").json()["draft"]
+    draft["manner"] = "She waits by the window."
+    saved = client.patch("/api/characters/subject/studio", json={"draft": draft})
+    assert saved.status_code == 200
+    # a full draft round-trip rewrites the card block too, so this one is named
+    # for the constitution — the point is that it is named for the edit at all
+    assert "CONSTITUTION.md" in saved.json()["touched"]
+    assert _subjects(vault) == ["studio: edit constitution", *before]
+
+    saved = client.put("/api/characters/subject/setting",
+                       json={"setting": "a narrow room above a bakery"})
+    assert saved.status_code == 200
+    assert _subjects(vault)[:2] == ["studio: edit where she is",
+                                    "studio: edit constitution"]
+
+    assert client.patch("/api/characters/subject/profile",
+                        json={"name": "Someone Else"}).status_code == 200
+    assert _subjects(vault)[0] == "user: edit character card"

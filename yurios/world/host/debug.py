@@ -10,6 +10,7 @@ character who just crashed is the one you can still take apart.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 
@@ -81,7 +82,11 @@ def register(app: FastAPI, host: CharacterHost, require) -> None:
 
     @app.get("/api/characters/{character_id}/debug/overview")
     async def debug_overview(character_id: str):
-        return debug.overview(require(character_id), host.runtime(character_id))
+        # …and the five below: these read the Vault's git history, which is a
+        # subprocess per call. A debug page is not worth stalling every
+        # character on the node for, so they answer from a worker thread.
+        return await asyncio.to_thread(
+            debug.overview, require(character_id), host.runtime(character_id))
 
     @app.get("/api/characters/{character_id}/debug/activity")
     async def debug_activity(character_id: str, page: int = 0, limit: int = 100):
@@ -111,7 +116,7 @@ def register(app: FastAPI, host: CharacterHost, require) -> None:
 
     @app.get("/api/characters/{character_id}/debug/self-edits")
     async def debug_self_edits(character_id: str):
-        return debug.self_edits(require(character_id))
+        return await asyncio.to_thread(debug.self_edits, require(character_id))
 
     @app.get("/api/characters/{character_id}/debug/calls")
     async def debug_calls(character_id: str, page: int = 0, limit: int = 50,
@@ -145,15 +150,16 @@ def register(app: FastAPI, host: CharacterHost, require) -> None:
     @app.get("/api/characters/{character_id}/debug/vault/commits")
     async def debug_commits(character_id: str, page: int = 0, limit: int = 25,
                             path: str | None = None):
-        return debug.vault_commits(require(character_id), page=page,
-                                   limit=limit, path=path)
+        return await asyncio.to_thread(
+            debug.vault_commits, require(character_id), page=page,
+            limit=limit, path=path)
 
     @app.get("/api/characters/{character_id}/debug/vault/commits/{sha}")
     async def debug_commit(character_id: str, sha: str):
         record = require(character_id)
         if not vaultgit.is_rev(sha):
             raise HTTPException(400, "not a commit id")
-        found = vaultgit.show(Path(record.paths.vault), sha)
+        found = await asyncio.to_thread(vaultgit.show, Path(record.paths.vault), sha)
         if found is None:
             raise HTTPException(404, "no such commit")
         return found
@@ -169,7 +175,8 @@ def register(app: FastAPI, host: CharacterHost, require) -> None:
     @app.get("/api/characters/{character_id}/debug/vault/file")
     async def debug_file(character_id: str, path: str, rev: str | None = None):
         record = require(character_id)
-        found = vaultgit.read_at(Path(record.paths.vault), path, rev=rev)
+        found = await asyncio.to_thread(vaultgit.read_at,
+                                        Path(record.paths.vault), path, rev=rev)
         if found is None:
             raise HTTPException(400, "not a readable file inside this vault")
         return found
@@ -179,10 +186,10 @@ def register(app: FastAPI, host: CharacterHost, require) -> None:
         record = require(character_id)
         if vaultgit.in_vault(Path(record.paths.vault), path) is None:
             raise HTTPException(400, "not a path inside this vault")
-        return {"path": path,
-                "items": vaultgit.log_records(Path(record.paths.vault),
-                                              limit=max(1, min(limit, 200)),
-                                              path=path)}
+        items = await asyncio.to_thread(vaultgit.log_records,
+                                        Path(record.paths.vault),
+                                        limit=max(1, min(limit, 200)), path=path)
+        return {"path": path, "items": items}
 
     @app.get("/api/characters/{character_id}/debug/memory")
     async def debug_memory(character_id: str):

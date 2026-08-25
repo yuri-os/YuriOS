@@ -9,6 +9,7 @@ tick, exactly like everything else that happens to her.
 """
 from __future__ import annotations
 
+import asyncio
 import datetime
 from pathlib import Path
 
@@ -363,7 +364,8 @@ async def dream_job_write(name: str, request: Request) -> dict:
     mind = getattr(rt, "mind", None)
     if mind is not None:
         mind.vault.write(f"{DreamRunner.JOBS_DIR}/{name}.md", text)
-        mind.vault.commit_if_dirty(f"dreams: edited {name}")
+        await asyncio.to_thread(mind.vault.commit_if_dirty,
+                                f"dreams: edited {name}", now=True)
     else:
         path.write_text(text, encoding="utf-8")
     _reload(request)
@@ -385,7 +387,8 @@ async def dream_job_delete(name: str, request: Request) -> dict:
     mind = getattr(request.app.state.rt, "mind", None)
     if mind is not None:
         mind.vault.mark_dirty()
-        mind.vault.commit_if_dirty(f"dreams: removed {name}")
+        await asyncio.to_thread(mind.vault.commit_if_dirty,
+                                f"dreams: removed {name}", now=True)
     _reload(request)
     return {"name": name, "deleted": True,
             "reverted": name in BUILTIN_NAMES}

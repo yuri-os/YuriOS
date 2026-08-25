@@ -338,7 +338,8 @@ class BrainAdapter:
             def retire() -> None:
                 vaultgit.mv(self.state.cfg.vault_dir, "soul/BOOTSTRAP.md",
                             "soul/onboarded/BOOTSTRAP.done.md", force=True)
-                vaultgit.commit(self.state.cfg.vault_dir, "first session complete")
+                vaultgit.commit(self.state.cfg.vault_dir,
+                                "first session complete", now=True)
             try:
                 await asyncio.to_thread(retire)
             except Exception:

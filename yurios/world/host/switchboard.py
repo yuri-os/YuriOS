@@ -12,6 +12,7 @@ something, and purge is deliberately a two-step with a challenge that expires.
 """
 from __future__ import annotations
 
+import asyncio
 import copy
 import datetime
 import json
@@ -198,7 +199,8 @@ def register(app: FastAPI, host: CharacterHost, require) -> None:
             _update_soul(record, card_fields)
             try:
                 from yurios.app import vaultgit
-                vaultgit.commit(record.paths.vault, "user: edit character card")
+                await asyncio.to_thread(vaultgit.commit, record.paths.vault,
+                                        "user: edit character card", now=True)
             except Exception:
                 log.exception("could not commit character-card edit")
         was_running = host.runtime(character_id) is not None

@@ -44,8 +44,9 @@ async def post_turn(state, record: Record, session_id: str, turn_count: int) -> 
             bootstrap = state.cfg.vault_dir / "soul" / "BOOTSTRAP.md"
             if bootstrap.is_file():
                 try:
-                    vaultgit.mv(state.cfg.vault_dir, "soul/BOOTSTRAP.md",
-                                "soul/onboarded/BOOTSTRAP.done.md", force=True)
+                    await asyncio.to_thread(
+                        vaultgit.mv, state.cfg.vault_dir, "soul/BOOTSTRAP.md",
+                        "soul/onboarded/BOOTSTRAP.done.md", force=True)
                     retired_bootstrap = True
                 except Exception:
                     log.exception("bootstrap retirement failed (will retry next greeting)")
@@ -73,8 +74,11 @@ async def post_turn(state, record: Record, session_id: str, turn_count: int) -> 
             message = f"turn {session_id[:8]}:{record.turn_index}"
             if retired_bootstrap:
                 message += "; first session complete"
-            vaultgit.commit(state.cfg.vault_dir,
-                            message)
+            # off the loop: git is a subprocess, and this host is holding every
+            # other character's room open while it runs (§2.2). A turn waits out
+            # the daily window; the once-ever retirement does not (§2.1).
+            await asyncio.to_thread(vaultgit.commit, state.cfg.vault_dir, message,
+                                    now=retired_bootstrap)
 
 
 @router.post("/api/chat")

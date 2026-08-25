@@ -142,6 +142,15 @@ the two entries that mattered under three hundred that did not. A commit **MUST*
 carry everything changed since the last one (`git add -A`), under the message of whichever
 write finally tripped the window, and a Vault with no commits yet — a fresh seed, a freshly
 imported card — **MUST** commit at once, since that first entry is what starts the clock.
+A change *you* made — a studio or switchboard edit to her card, her constitution or where
+she is, a dream job you rewrote, a memory you asked her to forget, the once-ever bootstrap
+retirement — **MUST** commit at once regardless of the window (`commit(..., now=True)`),
+because the window does not delay such an entry, it destroys it: the sweep on the far side
+files your edit under whichever tick or turn trips the window next, so the diary records the
+day you rewrote her constitution as "tick 91: rest". The line is what the message names — a
+person's edit commits at once, a tick, a turn or a night waits. Such a commit still carries
+the whole tree and still restarts the window; the subject names the headline change and the
+diff shows the rest.
 `soul/` is seeded once
 from `soul-src` and then lives in the Vault; `CONSTITUTION.md` is never edited by the
 reactive body (Part II gates who may edit it, §23).

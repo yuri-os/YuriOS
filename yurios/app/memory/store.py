@@ -290,7 +290,9 @@ class FileMemoryStore:
         vaultgit.atomic_append(
             self.forgotten_path,
             f"### {today}  forgot: {selector}  — {why}\n")
-        vaultgit.commit(self.vault, f"forget: {selector}")
+        # you asked for this one, by name: it goes into the diary as itself
+        # rather than waiting to be swept under the next tick's message (§2.1)
+        vaultgit.commit(self.vault, f"forget: {selector}", now=True)
         return removed + suppressed
 
     # -- inspect (§6.1 — what she knows, and why) -----------------------------------

@@ -16,7 +16,7 @@ and that is the case this file exists for.
 | `yurios/app/core/assemble.py` | `tests/test_mind_goals.py`<br>`tests/test_knowledge_slot.py`<br>`tests/test_mind_hands.py`<br>`tests/test_mind_loop.py`<br>`tests/test_mind_soul.py`<br>`tests/test_promptlog.py` | 13 |
 | `yurios/app/core/soul.py` | `tests/test_mind_loop.py`<br>`tests/test_mind_goals.py`<br>`tests/test_mind_hands.py`<br>`tests/test_mind_soul.py`<br>`tests/test_promptlog.py`<br>`tests/test_mind_scenarios.py` | 16 |
 | `yurios/app/corpus.py` | `tests/test_mind_loop.py`<br>`tests/test_integration.py`<br>`tests/test_mind_goals.py`<br>`tests/test_mind_hands.py`<br>`tests/test_promptlog.py`<br>`tests/test_bootstrap_greeting.py` | 12 |
-| `yurios/app/main.py` | `tests/test_mind_loop.py`<br>`tests/test_mind_goals.py`<br>`tests/test_mind_hands.py`<br>`tests/test_mind_scenarios.py`<br>`tests/test_promptlog.py`<br>`tests/test_studio_routes.py` | 20 |
+| `yurios/app/main.py` | `tests/test_mind_loop.py`<br>`tests/test_mind_goals.py`<br>`tests/test_mind_hands.py`<br>`tests/test_studio_routes.py`<br>`tests/test_mind_scenarios.py`<br>`tests/test_promptlog.py` | 20 |
 | `yurios/app/memory/index.py` | `tests/test_mind_loop.py`<br>`tests/test_mind_goals.py`<br>`tests/test_mind_hands.py`<br>`tests/test_dreamjobs.py`<br>`tests/test_mind_scenarios.py`<br>`tests/test_self_goals.py` | 17 |
 | `yurios/app/memory/partner.py` | `tests/test_dreamjobs.py`<br>`tests/test_integration.py`<br>`tests/test_mind_loop.py`<br>`tests/test_mind_goals.py`<br>`tests/test_mind_hands.py`<br>`tests/test_self_goals.py` | 16 |
 | `yurios/app/memory/reindex.py` | `tests/test_mind_loop.py`<br>`tests/test_mind_goals.py`<br>`tests/test_mind_hands.py`<br>`tests/test_bootstrap_greeting.py`<br>`tests/test_mind_scenarios.py`<br>`tests/test_promptlog.py` | 12 |
@@ -28,10 +28,10 @@ and that is the case this file exists for.
 | `yurios/app/providers/openrouter.py` | `tests/test_openrouter_attribution.py`<br>`tests/test_inference_admission.py`<br>`tests/test_card_optimize.py`<br>`tests/test_host.py`<br>`tests/test_rewire.py` | 7 |
 | `yurios/app/providers/sentence_tf.py` | `tests/test_embedder_fallback.py` | 1 |
 | `yurios/app/providers/usage.py` | `tests/test_context_meter.py`<br>`tests/test_inference_admission.py` | 2 |
-| `yurios/app/providers/vision.py` | `tests/test_pictures.py`<br>`tests/test_channels.py`<br>`tests/test_voice_stack.py`<br>`tests/test_studio_routes.py` | 13 |
+| `yurios/app/providers/vision.py` | `tests/test_pictures.py`<br>`tests/test_channels.py`<br>`tests/test_studio_routes.py`<br>`tests/test_voice_stack.py` | 13 |
 | `yurios/app/routes/chat.py` | `tests/test_integration.py`<br>`tests/test_bootstrap_greeting.py`<br>`tests/test_promptlog.py` | 3 |
 | `yurios/app/sessions.py` | `tests/test_conversation.py`<br>`tests/test_mind_loop.py`<br>`tests/test_integration.py`<br>`tests/test_mind_goals.py`<br>`tests/test_mind_hands.py`<br>`tests/test_bootstrap_greeting.py` | 13 |
-| `yurios/app/vaultgit.py` | `tests/test_mind_goals.py`<br>`tests/test_mind_loop.py`<br>`tests/test_mind_hands.py`<br>`tests/test_dreamjobs.py`<br>`tests/test_host_debug.py`<br>`tests/test_mind_routes.py` | 33 |
+| `yurios/app/vaultgit.py` | `tests/test_dreamjobs.py`<br>`tests/test_vault_commit_noise.py`<br>`tests/test_host_debug.py`<br>`tests/test_mind_loop.py`<br>`tests/test_mind_goals.py`<br>`tests/test_mind_routes.py` | 34 |
 | `yurios/attribution.py` | `tests/test_openrouter_attribution.py`<br>`tests/test_inference_admission.py` | 3 |
 | `yurios/characters/appearance.py` | `tests/test_host.py`<br>`tests/test_characters_exporter.py`<br>**`tests/test_appearance.py`**<br>`tests/test_export_privacy.py`<br>`tests/test_card_roundtrip.py`<br>`tests/test_characters_importer.py` | 14 |
 | `yurios/characters/card.py` | `tests/test_characters_exporter.py`<br>`tests/test_export_privacy.py`<br>`tests/test_card_roundtrip.py`<br>`tests/test_characters_importer.py`<br>`tests/test_characters_card.py`<br>`tests/test_studio_routes.py` | 10 |
@@ -68,7 +68,7 @@ and that is the case this file exists for.
 | `yurios/desktop/voice/transcript.py` | `tests/test_channels.py`<br>`tests/test_voice_ws_fork.py`<br>`tests/test_boot.py`<br>`tests/test_voice_replay.py`<br>`tests/test_voice_limits.py`<br>`tests/test_voice_stack.py` | 6 |
 | `yurios/desktop/voice/turn.py` | `tests/test_voice_ws_fork.py`<br>`tests/test_voice_replay.py`<br>`tests/test_voice_stack.py`<br>`tests/test_voice_handshake.py`<br>`tests/test_integration.py`<br>`tests/test_voice_limits.py` | 8 |
 | `yurios/desktop/voice/ws_limits.py` | `tests/test_voice_ws_fork.py`<br>`tests/test_voice_handshake.py`<br>`tests/test_voice_replay.py`<br>`tests/test_voice_stack.py`<br>`tests/test_voice_limits.py`<br>`tests/test_host.py` | 19 |
-| `yurios/desktop/voice/ws_session.py` | `tests/test_voice_ws_fork.py`<br>`tests/test_voice_replay.py`<br>`tests/test_voice_handshake.py`<br>`tests/test_voice_stack.py`<br>`tests/test_voice_limits.py`<br>`tests/test_pictures.py` | 7 |
+| `yurios/desktop/voice/ws_session.py` | `tests/test_voice_ws_fork.py`<br>`tests/test_voice_replay.py`<br>`tests/test_voice_stack.py`<br>`tests/test_voice_handshake.py`<br>`tests/test_voice_limits.py`<br>`tests/test_pictures.py` | 7 |
 | `yurios/desktop/window.py` | **`tests/test_window.py`** | 1 |
 | `yurios/doctor.py` | **`tests/test_doctor.py`** | 1 |
 | `yurios/envfile.py` | **`tests/test_envfile.py`**<br>`tests/test_pairing.py`<br>`tests/test_host.py` | 5 |
@@ -107,7 +107,7 @@ and that is the case this file exists for.
 | `yurios/mind/signals.py` | `tests/test_mind_loop.py`<br>`tests/test_mind_goals.py`<br>`tests/test_channels.py`<br>`tests/test_mind_hands.py`<br>`tests/test_mind_scenarios.py`<br>`tests/test_pictures.py` | 24 |
 | `yurios/mind/trace.py` | `tests/test_mind_loop.py`<br>`tests/test_mind_goals.py`<br>`tests/test_mind_hands.py`<br>`tests/test_mind_scenarios.py`<br>`tests/test_mind_soul.py`<br>`tests/test_promptlog.py` | 9 |
 | `yurios/mind/util.py` | `tests/test_host_debug.py`<br>`tests/test_mind_util.py`<br>`tests/test_knowledge.py`<br>`tests/test_mind_loop.py`<br>`tests/test_mind_goals.py`<br>`tests/test_dreamjobs.py` | 31 |
-| `yurios/mind/vaultio.py` | `tests/test_mind_goals.py`<br>`tests/test_mind_loop.py`<br>`tests/test_mind_hands.py`<br>`tests/test_mind_scenarios.py`<br>`tests/test_mind_routes.py`<br>`tests/test_dreamjobs.py` | 18 |
+| `yurios/mind/vaultio.py` | `tests/test_mind_loop.py`<br>`tests/test_mind_goals.py`<br>`tests/test_mind_hands.py`<br>`tests/test_mind_routes.py`<br>`tests/test_mind_scenarios.py`<br>`tests/test_dreamjobs.py` | 18 |
 | `yurios/mind/workspace.py` | `tests/test_dreamjobs.py`<br>**`tests/test_workspace.py`**<br>`tests/test_mind_hands.py`<br>`tests/test_self_goals.py`<br>`tests/test_mind_goals.py`<br>`tests/test_mind_loop.py` | 13 |
 | `yurios/mind/world.py` | `tests/test_mind_loop.py`<br>`tests/test_mind_goals.py`<br>`tests/test_mind_hands.py`<br>`tests/test_mind_scenarios.py`<br>`tests/test_world_model.py`<br>`tests/test_promptlog.py` | 11 |
 | `yurios/models.py` | `tests/test_model_setup.py`<br>`tests/test_character_overrides.py` | 5 |
@@ -116,9 +116,9 @@ and that is the case this file exists for.
 | `yurios/searxng.py` | **`tests/test_searxng.py`**<br>`tests/test_doctor.py` | 2 |
 | `yurios/security.py` | `tests/test_host.py`<br>`tests/test_host_debug.py`<br>`tests/test_mind_routes.py`<br>`tests/test_channels.py`<br>`tests/test_studio_routes.py`<br>`tests/test_pairing.py` | 36 |
 | `yurios/world/avatar/controller.py` | `tests/test_channels.py`<br>`tests/test_avatar_controller.py`<br>`tests/test_mind_hands.py`<br>`tests/test_mind_goals.py`<br>`tests/test_pictures.py`<br>`tests/test_voice_stack.py` | 31 |
-| `yurios/world/boot.py` | `tests/test_voice_stack.py`<br>**`tests/test_boot.py`**<br>`tests/test_voice_ws_fork.py`<br>`tests/test_channels.py`<br>`tests/test_voice_replay.py`<br>`tests/test_studio_routes.py` | 17 |
+| `yurios/world/boot.py` | `tests/test_voice_stack.py`<br>**`tests/test_boot.py`**<br>`tests/test_voice_ws_fork.py`<br>`tests/test_channels.py`<br>`tests/test_studio_routes.py`<br>`tests/test_voice_replay.py` | 17 |
 | `yurios/world/brain.py` | `tests/test_tool_loop.py`<br>`tests/test_selfie.py`<br>`tests/test_mind_loop.py`<br>`tests/test_mind_hands.py`<br>`tests/test_mind_goals.py`<br>`tests/test_promptlog.py` | 16 |
-| `yurios/world/channels/manager.py` | `tests/test_channels.py`<br>`tests/test_inbox.py`<br>`tests/test_pictures.py`<br>`tests/test_voice_stack.py`<br>`tests/test_context_meter.py`<br>`tests/test_studio_routes.py` | 16 |
+| `yurios/world/channels/manager.py` | `tests/test_channels.py`<br>`tests/test_inbox.py`<br>`tests/test_pictures.py`<br>`tests/test_voice_stack.py`<br>`tests/test_studio_routes.py`<br>`tests/test_context_meter.py` | 16 |
 | `yurios/world/channels/notify.py` | `tests/test_inbox.py` | 1 |
 | `yurios/world/channels/telegram.py` | `tests/test_channels.py` | 2 |
 | `yurios/world/context.py` | `tests/test_context_meter.py`<br>`tests/test_channels.py`<br>`tests/test_inbox.py`<br>`tests/test_pictures.py`<br>`tests/test_studio_routes.py`<br>`tests/test_voice_stack.py` | 15 |
@@ -130,7 +130,7 @@ and that is the case this file exists for.
 | `yurios/world/host/hosting.py` | `tests/test_host.py`<br>`tests/test_studio_routes.py` | 10 |
 | `yurios/world/host/pages.py` | `tests/test_host.py` | 5 |
 | `yurios/world/host/studio.py` | `tests/test_host.py`<br>`tests/test_studio_routes.py` | 8 |
-| `yurios/world/host/switchboard.py` | `tests/test_host.py` | 5 |
+| `yurios/world/host/switchboard.py` | `tests/test_host.py` | 6 |
 | `yurios/world/inbox.py` | **`tests/test_inbox.py`**<br>`tests/test_host.py` | 17 |
 | `yurios/world/main.py` | `tests/test_channels.py`<br>`tests/test_inbox.py`<br>`tests/test_pictures.py`<br>`tests/test_voice_stack.py`<br>`tests/test_studio_routes.py`<br>`tests/test_conversation.py` | 20 |
 | `yurios/world/research.py` | **`tests/test_research.py`** | 4 |
@@ -146,10 +146,10 @@ and that is the case this file exists for.
 | `yurios/world/routes/onboarding.py` | `tests/test_model_setup.py`<br>`tests/test_boot.py` | 2 |
 | `yurios/world/routes/uploads.py` | `tests/test_pictures.py`<br>`tests/test_boot.py` | 2 |
 | `yurios/world/routes/voice_ws.py` | `tests/test_voice_ws_fork.py`<br>`tests/test_voice_replay.py`<br>`tests/test_voice_stack.py`<br>`tests/test_voice_handshake.py`<br>`tests/test_pictures.py`<br>`tests/test_voice_limits.py` | 7 |
-| `yurios/world/runtime.py` | `tests/test_channels.py`<br>`tests/test_inbox.py`<br>`tests/test_pictures.py`<br>`tests/test_voice_stack.py`<br>`tests/test_studio_routes.py`<br>`tests/test_context_meter.py` | 16 |
+| `yurios/world/runtime.py` | `tests/test_channels.py`<br>`tests/test_inbox.py`<br>`tests/test_pictures.py`<br>`tests/test_studio_routes.py`<br>`tests/test_voice_stack.py`<br>`tests/test_context_meter.py` | 16 |
 | `yurios/world/selfies.py` | `tests/test_selfie.py`<br>`tests/test_channels.py`<br>`tests/test_inbox.py`<br>`tests/test_pictures.py`<br>`tests/test_voice_stack.py`<br>`tests/test_context_meter.py` | 22 |
 | `yurios/world/situation.py` | `tests/test_mind_hands.py`<br>`tests/test_mind_goals.py`<br>**`tests/test_situation.py`**<br>`tests/test_mind_loop.py`<br>`tests/test_promptlog.py`<br>`tests/test_world_model.py` | 12 |
-| `yurios/world/tools/client.py` | `tests/test_tool_loop.py`<br>`tests/test_mind_hands.py`<br>`tests/test_studio_routes.py`<br>`tests/test_multi_server.py`<br>`tests/test_mcp_contract.py`<br>`tests/test_selfie.py` | 8 |
+| `yurios/world/tools/client.py` | `tests/test_tool_loop.py`<br>`tests/test_studio_routes.py`<br>`tests/test_mind_hands.py`<br>`tests/test_multi_server.py`<br>`tests/test_mcp_contract.py`<br>`tests/test_selfie.py` | 8 |
 | `yurios/world/tools/fakes.py` | `tests/test_tool_loop.py`<br>`tests/test_mind_hands.py`<br>`tests/test_selfie.py`<br>`tests/test_multi_server.py` | 11 |
 | `yurios/world/tools/fetch.py` | **`tests/test_fetch.py`**<br>`tests/test_dreamjobs.py` | 6 |
 | `yurios/world/tools/guard.py` | `tests/test_tool_loop.py`<br>`tests/test_mind_hands.py`<br>**`tests/test_guard.py`**<br>`tests/test_mind_loop.py`<br>`tests/test_mind_goals.py`<br>`tests/test_selfie.py` | 27 |

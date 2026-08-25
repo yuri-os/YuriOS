@@ -11,6 +11,7 @@ her memory of you and her journal stay on the machine.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from pathlib import Path
@@ -268,7 +269,8 @@ def register(app: FastAPI, host: CharacterHost, require) -> None:
             raise HTTPException(500, f"could not write her setting: {exc}") from exc
         try:
             from yurios.app import vaultgit
-            vaultgit.commit(record.paths.vault, "studio: edit where she is")
+            await asyncio.to_thread(vaultgit.commit, record.paths.vault,
+                                    "studio: edit where she is", now=True)
         except Exception:
             log.exception("could not commit the setting edit")
         # No restart: `WorldModelStore.situation()` reads the file every turn,
@@ -319,9 +321,10 @@ def register(app: FastAPI, host: CharacterHost, require) -> None:
         touched_constitution = "CONSTITUTION.md" in touched
         try:
             from yurios.app import vaultgit
-            vaultgit.commit(record.paths.vault,
-                            "studio: edit constitution" if touched_constitution
-                            else "studio: edit character card")
+            await asyncio.to_thread(
+                vaultgit.commit, record.paths.vault,
+                "studio: edit constitution" if touched_constitution
+                else "studio: edit character card", now=True)
         except Exception:
             log.exception("could not commit studio edit")
         if host.runtime(character_id) is not None:

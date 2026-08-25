@@ -1443,6 +1443,164 @@ def load_job_files(root: Path) -> list[JobFile]:
     return out
 
 
+
+#: The night's roster, as files (§21.2) — what `load_job_files` above reads,
+#: written out. A fresh vault therefore behaves exactly as it did before the
+#: folder existed, and the first edit shows up as a real diff: a character whose
+#: diary should ask a different question edits one file, and one who should not
+#: keep a diary at all sets one flag.
+#:
+#: It renders the compiled jobs rather than a second copy of their prose, so the
+#: two can never drift — improve the built-in diary prompt and every vault
+#: seeded afterwards gets the improvement. That is also why this lives here
+#: rather than beside the rest of the vault seeding in `characters/importer.py`,
+#: where it began: reading these constants from over there meant the importer
+#: imported the mind and the mind imported the importer back, a cycle that only
+#: held together because both sides did it from inside a function.
+def seed_job_files() -> dict[str, str]:
+    def front(name, title, desc, priority, per_day, soul, body):
+        # `yaml.safe_dump` for the free-text fields, not an f-string: a
+        # description is prose and prose contains colons. One of these written by
+        # hand with a colon in it is a job that silently stops loading, which is
+        # exactly the failure the loader's warning exists to make visible — no
+        # reason to seed one.
+        meta = yaml.safe_dump(
+            {"name": name, "title": title, "description": desc,
+             "priority": priority, "per_day": per_day,
+             "enabled": True, "soul": soul},
+            sort_keys=False, allow_unicode=True, default_flow_style=False)
+        return f"---\n{meta}---\n\n{body.strip()}\n"
+
+    return {
+        "diary.md": front(
+            "diary", "Diary", DiaryJob.description, DiaryJob.priority,
+            DiaryJob.per_day, DiaryJob.soul, DIARY_SYSTEM),
+        "strategy.md": front(
+            "strategy", "Strategy", StrategyJob.description,
+            StrategyJob.priority, StrategyJob.per_day,
+            StrategyJob.soul, STRATEGY_SYSTEM),
+        "selfie.md": front(
+            "selfie", "Selfie", SelfieJob.description, SelfieJob.priority,
+            SelfieJob.per_day, SelfieJob.soul, SELFIE_SYSTEM),
+    }
+
+
+DREAMS_README = """# Dreams
+
+What she does at night, one file per job. Each is YAML frontmatter over a body
+that **is** the system prompt she is given:
+
+    ---
+    name: diary
+    title: Diary
+    description: A private entry per day, in her own voice.
+    priority: 0.6
+    per_day: true
+    enabled: true
+    soul: full
+    ---
+
+    Write YOUR private diary entry about that day...
+
+A file named after a built-in job (`consolidate`, `diary`, `strategy`, `selfie`)
+**retunes** it — the prompt, the priority, whether it runs at all — and leaves
+its behaviour alone, so the diary still knows which half of the journal is hers
+however you rewrite the question. A file with any other name is a **new job**,
+and `kind:` says what sort:
+
+`kind: prompt` (the default) reads the day's journal, asks what you asked, and
+writes the answer to her desk at `output:` (default `<name>/{day}.md`).
+
+`kind: research` sends her to the web instead. She plans her own searches,
+reads what looks worth reading, and writes the report your body asks for — so
+for this kind the body is the brief for the *report*, not for the search. It
+needs `SEARCH_BACKEND` to be on, and it is bounded: `max_searches`, `max_pages`
+and `max_steps` (each capped by the house `MIND_DREAM_RESEARCH_*` settings),
+`topics:` for where to start, and `shelve: false` if you would rather what she
+read did not go into her knowledge store.
+
+    ---
+    name: market-brief
+    title: Overnight market brief
+    kind: research
+    standing: true
+    deliver: chat
+    topics: ["US equities momentum", "macro calendar"]
+    max_searches: 10
+    output: reports/market-brief/{day}.md
+    ---
+
+    You are {char}. Write {user} their morning brief...
+
+`deliver: chat` puts the finished report where you will find it the next time
+you open her chat, the way a dream selfie arrives. Only the newest one waits —
+come back after a week and you get this morning's, not seven of them; the rest
+are still on her desk.
+
+The numbers to keep an eye on are all about the call that writes the report.
+`context_chars` (default 24000) is how much of what she gathered is handed to
+it. The night will not overrun her model's context window — what is left of it
+after the corpus is exactly what the writing call asks for — but a corpus that
+fills the window leaves nothing to think in, so if reports come back empty or
+cut off, halve this first. `report_max_tokens` (default 2500) is what
+the *report* is worth — one page is about 800 — and room to think is added on
+top of it rather than taken out of it. A ceiling bounds the call and not the
+pass inside it, so a number sized for the answer is a number the thinking eats
+before she writes a word: 2,500 tokens once went 2,500 to reasoning and none to
+the report, where the same model given room spent 10,049 on the thinking and
+698 on the page. Asking high is free — nothing bills for a ceiling, only for
+what gets written.
+
+The report is the only call in the night that thinks. The rounds in between
+never do, and that is what pays for it: asking a reasoning model which page to
+open next cost 1200 reasoning tokens and 200 seconds a round on a local 27B,
+and twelve of those is a night that never ends. Deciding what she makes of what
+she read is worth the pass; deciding which link to click is not.
+
+`report_timeout_s` (default 3600) is how long that call may take, and on a
+local model it is the number that bites first: a reasoning pass over a night of
+reading takes minutes, and the ordinary ten-minute client deadline killed a
+report that was still being written. The one that finally finished took
+thirty-six minutes: ten thousand tokens of thinking, then a page. Nobody is
+waiting at 4am, and a faster model never notices the number. What keeps the
+night finite is `max_steps` and the caps, not the clock on one call.
+
+`report_effort` — `low`, `medium` or `high` — asks for a shorter pass on a
+model that takes the hint. It reaches LM Studio as of 0.4.8, and reaching it is
+not the same as being obeyed: a 27B Qwen that advertises only `on` and `off`
+spent 236 reasoning tokens at `low` against 220 for saying nothing. Ask for it
+by all means, but if a report has to be quick the knob that always works is
+`report_thinking: false`, and the model's own card decides the rest.
+
+If a report comes back empty it is because the thinking ran out of room, not
+because it thought too much — so it is asked again with whatever the context
+window has left, and the shortest pass it can ask for, rather than with the
+pass taken away. `report_thinking: false` turns it off entirely if you would
+rather have speed.
+
+`standing: true` runs a job every night whether or not you spoke to her.
+Anything that looks at the world rather than at the conversation needs it,
+because a day nobody talked is not a day the journal has.
+
+`soul:` decides whether her character card leads the prompt. `full` for anything
+written in her voice — that is what stops every character's diary reading the
+same. `off` for mechanical work; `consolidate` ships that way, because the facts
+it distils are read by everyone afterwards.
+
+`enabled: false` switches a job off. It cannot switch one *on* that the house has
+no backend for — `selfie` still needs a camera, `research` still needs search.
+
+The mind debug page's **Dreams** section edits all of this, and gives every job
+two buttons: **Dry run** makes all the model calls against any day you like and
+shows you the prompt it sent and what came back, writing nothing; **Run for
+real** does the same work and keeps it — the file, the delivery, the day marked
+done.
+
+This folder is versioned, like `skills/` and unlike `workspace/`: how she spends
+the hours nobody sees is worth being able to read back.
+"""
+
+
 class FileJob(DreamJob):
     """The half of a job-file job that is just reading the frontmatter.
 
@@ -2284,10 +2442,9 @@ class DreamRunner:
         """
         if root.exists():
             return
-        from yurios.characters.importer import DREAMS_README, _seed_job_files
         root.mkdir(parents=True, exist_ok=True)
         (root / "README.md").write_text(DREAMS_README, encoding="utf-8")
-        for fname, body in _seed_job_files().items():
+        for fname, body in seed_job_files().items():
             (root / fname).write_text(body, encoding="utf-8")
         log.info("seeded the dream roster into %s", root)
 

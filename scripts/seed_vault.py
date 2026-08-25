@@ -29,7 +29,8 @@ import yaml  # noqa: E402
 from yurios.app import vaultgit  # noqa: E402
 from yurios.app.core.soul import parse_md, split_sections  # noqa: E402
 from yurios.characters.importer import (  # noqa: E402
-    DREAMS_README, SKILLS_README, WORKSPACE_README, _seed_job_files)
+    SKILLS_README, WORKSPACE_README)
+from yurios.mind.dreamjobs import DREAMS_README, seed_job_files  # noqa: E402
 from yurios.mind.workspace import WORKSPACE_GITIGNORE  # noqa: E402
 from yurios.world.inbox import GITIGNORE as INBOX_GITIGNORE  # noqa: E402
 
@@ -107,7 +108,7 @@ def seed(soul_src: Path, vault: Path) -> None:
     # this folder existed — and the first time somebody edits one, `git log`
     # shows what changed and what it used to say.
     vaultgit.atomic_write(vault / "dreams" / "README.md", DREAMS_README)
-    for fname, body in _seed_job_files().items():
+    for fname, body in seed_job_files().items():
         vaultgit.atomic_write(vault / "dreams" / fname, body)
     vaultgit.atomic_write(vault / ".gitignore", VAULT_GITIGNORE)
 

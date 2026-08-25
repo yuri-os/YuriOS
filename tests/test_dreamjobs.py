@@ -602,10 +602,10 @@ def test_the_seeded_roster_reproduces_the_builtin_night(tmp_path, cfg):
     """A fresh vault must dream exactly as it did before this folder existed, or
     the first `git log` entry for a job file is unreadable — you cannot see what
     somebody changed if the baseline was never written down."""
-    from yurios.characters.importer import _seed_job_files
+    from yurios.mind.dreamjobs import seed_job_files
     v = tmp_path / "vault"
     (v / "dreams").mkdir(parents=True)
-    for fname, body in _seed_job_files().items():
+    for fname, body in seed_job_files().items():
         (v / "dreams" / fname).write_text(body, encoding="utf-8")
     from yurios.mind.dreamjobs import (DIARY_SYSTEM, SELFIE_SYSTEM,
                                        STRATEGY_SYSTEM)

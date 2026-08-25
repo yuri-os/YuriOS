@@ -121,7 +121,8 @@ async def test_a_live_model_choice_retires_the_first_run_chooser(cfg, monkeypatc
     she already has (and a cleared override must bring the chooser back)."""
     from types import SimpleNamespace
 
-    from yurios.world.main import Runtime, ToolBrain
+    from yurios.world.brain import ToolBrain
+    from yurios.world.main import Runtime
 
     monkeypatch.setattr(ToolBrain, "build",
                         staticmethod(lambda cfg, **kw: SimpleNamespace(state=None)))

@@ -37,29 +37,25 @@ from yurios.desktop.voice.ws_limits import VoiceConnectionLimiter, uvicorn_ws_op
 from yurios.mind.loop import MindLoop
 from yurios.mind.promptlog import PromptLog
 from yurios.mind.signals import SignalBus
-from yurios.mind.workspace import DESK_TOOLS, SKILL_TOOLS
 from yurios.models import is_configured
 
 from .avatar.controller import VrmController
 from .boot import BootBoard
-from .brain import ToolBrain
 from .brain_protocol import AutonomousBrain
 from .channels.manager import ChannelManager
 from yurios.app.conversation import ConversationLog
 from ..kernel.clock import Clock
 from .config import Config
-from .context import ContextMeter, short_tokens
+from . import runtime
+from .context import ContextMeter
 from ..kernel.hub import EventHub
 from .inbox import Inbox
 from .turns import TextTurns
-from .research import Researcher
-from .selfies import SelfieLab, build_forge
+from .selfies import SelfieLab
 from .uploads import Uploads
 from .situation import render_visual_situation
 from .tools.client import MultiToolRunner, load_servers
-from .tools.fetch import build_fetcher
 from .tools.guard import Guard
-from .tools.search import build_provider
 from .tools.timers import TimerBoard
 from .voicestack import VoiceStack
 
@@ -124,31 +120,8 @@ class Runtime:
         # are declared here and resolved on the warm-up thread; tools/mind on
         # the event loop (start_async); selfies is known now. /api/boot serves it.
         self.boot = BootBoard(who=cfg.character_id)
-        rates = {"set_timer": cfg.tool_rate_timer,
-                 "play_music": cfg.tool_rate_music}
-        if cfg.selfie_backend != "off":        # absent from the allowlist = no hand (§7.3)
-            rates["take_selfie"] = cfg.tool_rate_selfie
-            rates["show_picture"] = cfg.tool_rate_picture
-        if cfg.search_backend != "off":        # …and the same rule for the web (§7.7)
-            rates["web_search"] = cfg.tool_rate_search
-            rates["read_page"] = cfg.tool_rate_read
-            rates["research"] = cfg.tool_rate_research
-        # her desk (§34.2), the same allowlist rule once more. The rate is
-        # generous because these are local file writes with no cost and no
-        # outside party — the bucket is here to catch a loop, not to ration.
-        if cfg.workspace_enabled:
-            for tool in DESK_TOOLS:
-                rates[tool] = cfg.tool_rate_desk
-        if cfg.skills_enabled:
-            for tool in SKILL_TOOLS:
-                rates[tool] = cfg.tool_rate_desk
-        # the self-edit door (§23). Advertised only where the mind runs, because
-        # the queue it writes into is only read there — and rationed hard: this
-        # is the one hand that reaches at who she is, and a proposal a minute
-        # is not deliberation, it is a loop with a git history.
-        if cfg.mind_enabled:
-            rates["propose_edit"] = cfg.tool_rate_selfedit
-        self.guard = Guard(rates_per_min=rates,
+        # absent from the allowlist = no hand (§7.3) — runtime.tool_rates
+        self.guard = Guard(rates_per_min=runtime.tool_rates(cfg),
                            log_dir=cfg.tool_log_dir, clock=self.clock,
                            max_bytes=cfg.tool_log_max_bytes)
         self.timers = TimerBoard(self.clock)
@@ -163,11 +136,6 @@ class Runtime:
                                keep=cfg.upload_keep)
         self.image_input = False
         self.image_input_status = "not probed yet"
-        # her camera (SPEC §7.6): the forge behind the SelfieLab. Built
-        # even when tools are faked (tests inject a fake runner but still want
-        # the realisation path); "off" leaves her without one.
-        self.selfies: SelfieLab | None = None
-        self.selfies_status = "off"
         # The park window's door (§7.6, world/vram.py): shut while a render has
         # borrowed her brain's VRAM, so a turn arriving mid-render queues here
         # instead of loading the chat model back onto the card the render is
@@ -181,85 +149,24 @@ class Runtime:
         # holding, and both parks logged success while doing it.
         from .vram import shared_gate
         self.park_gate = shared_gate()
-        if cfg.selfie_backend != "off":
-            forge, self.selfies_status = build_forge(cfg)
-            from .vram import LLMParker
-            # The floor comes off the backend that was actually built, not off
-            # the config: SELFIE_BACKEND=diffusers resolves to either local
-            # camera depending on the checkpoint, and a degrade-to-mock says
-            # None — nothing resident, nothing to park for.
-            self.selfies = SelfieLab(forge, clock=self.clock,
-                                     post=self.post_message,
-                                     speak=self.speak_ambient,
-                                     notify=self.hub.publish,
-                                     parker=LLMParker(
-                                         cfg,
-                                         resident_free_gib=forge.backend.RESIDENT_FREE_GIB,
-                                         gate=self.park_gate),
-                                     quiet=self.wait_turns_idle,
-                                     situation=self.visual_situation,
-                                     signal=self.post_signal)
-        # Her reading desk (SPEC §7.7): the same start-don't-await shape as the
-        # camera, and the place a fetched page turns into a shelved document.
-        # The knowledge store is passed as a GETTER because it belongs to the
-        # MindLoop, which is built later (start_async) and not at all when she
-        # is mindless — see world/research.py.
-        self.research: Researcher | None = None
-        self.research_status = "off"
+        # her camera (SPEC §7.6) — runtime.build_camera
+        self.selfies: SelfieLab | None
+        self.selfies, self.selfies_status = runtime.build_camera(self)
         #: server name -> calls/minute for the tools it turns out to offer,
         #: filled from mcp-servers.json and spent at discovery (start_async).
         self._external_rates: dict[str, int] = {}
-        if cfg.search_backend != "off":
-            search = build_provider(cfg.search_backend, base_url=cfg.searxng_url,
-                                    language=cfg.search_language,
-                                    safesearch=cfg.search_safesearch)
-            fetcher = build_fetcher(
-                "fake" if cfg.search_backend == "fake" else "http",
-                timeout=cfg.fetch_timeout_s, max_bytes=cfg.fetch_max_bytes)
-            self.research = Researcher(
-                search, fetcher, clock=self.clock,
-                post=self.post_message, speak=self.speak_ambient,
-                knowledge=lambda: self.mind.knowledge if self.mind else None,
-                notify=self.hub.publish, signal=self.post_signal)
-            self.research_status = cfg.search_backend
+        # Her reading desk (SPEC §7.7) — runtime.build_reading.
+        self.research, self.research_status = runtime.build_reading(self)
         # Whether the providers behind her voice are ours to rebuild (SPEC §31.4).
         # An injected brain or an injected model belongs to the caller — a live
         # model swap moves the Config knobs and leaves the object alone.
         self._owns_models = brain is None and chat_model is None
         # `brain` is injectable for the same reason as B2's: the route tests run
-        # against a FakeBrain (no Vault, no SQLite). The real one is a ToolBrain —
-        # the BrainAdapter with the §7 tool loop wrapped around it. Building it
-        # loads the embedding model that indexes her memory (SPEC §3) — with the
-        # sentence-transformers default that's a cold torch model on the CPU, as
-        # slow to wake as the voice stack — so surface it in the boot panel first
-        # (it loads here, before the voice warm-up thread even starts). A
-        # server-backed embedder (ollama / lm_studio) has no local weights to
-        # load; it still gets a line so the panel names what indexes her.
-        if brain is not None:
-            self.brain = brain                 # injected (tests): no embedder loads
-        else:
-            self._pin_lmstudio_models(cfg, chat_model, utility_model, embedder)
-            if not self.model_configured:
-                self.boot.declare("models", "mind · language model", state="skipped",
-                                  detail="choose a model to connect")
-            self.boot.declare("embed", "memory · embedding model")
-            if embedder is None:
-                from yurios.app.main import _default_embedder
-                self.boot.start("embed", detail=cfg.embed_model)
-                try:
-                    embedder = _default_embedder(cfg)
-                except Exception as e:
-                    self.boot.done("embed", state="failed", detail=str(e)[:80])
-                    raise
-                self.boot.done("embed",
-                               detail=f"{cfg.embed_model} · {cfg.embed_dim}d")
-            else:
-                self.boot.done("embed", detail="injected")
-            self.brain = ToolBrain.build(
-                cfg, guard=self.guard, timers=self.timers,
-                controller=self.controller, selfies=self.selfies,
-                research=self.research, chat_model=chat_model,
-                utility_model=utility_model, embedder=embedder)
+        # against a FakeBrain (no Vault, no SQLite). The real one is a ToolBrain,
+        # and building it loads models — runtime.build_brain.
+        self.brain = brain if brain is not None else runtime.build_brain(
+            self, chat_model=chat_model, utility_model=utility_model,
+            embedder=embedder)
         #: Whether this brain can carry a mind, asked once instead of one
         #: attribute at a time (world/brain_protocol.py). A `ToolBrain` can; the
         #: conversational fake a route test injects cannot, and everything the
@@ -300,31 +207,13 @@ class Runtime:
         # survive both the empty room and the restart that follows it.
         self.inbox = Inbox(cfg.vault_dir)
 
-        # declare the boot services in the order they should read down the panel.
-        # The voice stack declares its own three (plus fillers) as it is built;
-        # tools/mind are resolved in start_async; selfies is settled already, so
-        # it lands terminal now.
-        #
         # Her voice is the heaviest thing this process holds and only `/ws/voice`
         # wants it, so it loads when someone enters one of her rooms and goes when
         # the last of them leaves (SPEC §9.9, world/voicestack.py). On a node with
         # a registry that is the difference between one resident voice stack and
         # one per autostarted character.
         self.voice = VoiceStack(cfg, self.boot)
-        self.boot.declare(
-            "tools", "hands · tool server",
-            state="skipped" if cfg.tools_backend == "off" else "pending")
-        self.boot.declare(
-            "selfies", "camera · selfie forge",
-            state="skipped" if cfg.selfie_backend == "off" else "ready",
-            detail="off" if cfg.selfie_backend == "off" else self.selfies_status)
-        self.boot.declare(
-            "mind", "mind · autonomy engine",
-            state="pending" if cfg.mind_enabled else "skipped")
-        self.boot.declare(
-            "channels", "channels · outside mediums",
-            state="pending" if self.channels.configured else "skipped",
-            detail="" if self.channels.configured else "none configured")
+        runtime.declare_services(self)
         # per-connection ambient injectors (SPEC §15.5): session_id → coroutine fn.
         # The mind speaks *through a live voice connection* so barge-in and the
         # OutEvent stream work exactly as they do for a real turn.
@@ -394,86 +283,6 @@ class Runtime:
             direct_limit = getattr(chat, "context_limit", 0)
             if direct_limit:
                 self.context.set_limit(direct_limit, "direct gguf")
-
-    def _probe_context_window(self, cfg) -> str:
-        """Ask LM Studio how big the window her chat model is loaded with is.
-
-        Worth a call even when CONTEXT_LENGTH said: what .env asked for and what
-        the server seated are not the same claim — a model somebody loaded by
-        hand keeps the window they gave it, and one too big for the card comes
-        back smaller. Only an lm_studio/… route has a local server to ask. Returns a short label for the boot panel, "" when nothing was
-        learned."""
-        if not cfg.chat_model.startswith("lm_studio/"):
-            return f"{short_tokens(cfg.context_length)} ctx" if cfg.context_length else ""
-        from yurios.app.providers.lmstudio import probe_context
-        found = probe_context(cfg.lmstudio_base_url,
-                              cfg.chat_model.split("/", 1)[1])
-        # A window smaller than CONTEXT_LENGTH is news, not a fault: someone
-        # loaded that model in LM Studio themselves and we run in what they
-        # loaded (providers/lmstudio.ensure_resident — reloading 16 GB of
-        # weights to widen a window is not ours to decide). The pinning path
-        # says so already and knows whose load it was, so this only speaks for
-        # the case nobody covered: preload off, LM Studio JIT-loading in
-        # whatever its own config says. Once, at info — this runs per character
-        # and on every model swap, and a warning that fires four times a boot
-        # for a working setup teaches people to read past warnings.
-        if not cfg.lmstudio_preload and found["loaded"] and cfg.context_length \
-                and found["loaded"] != cfg.context_length:
-            log.info("LM Studio has %s in a %d-token window, not the "
-                     "CONTEXT_LENGTH=%d in .env — the gauge shows what she "
-                     "actually has; LM Studio's own load config is what sets "
-                     "it while LMSTUDIO_PRELOAD is off",
-                     cfg.chat_model, found["loaded"], cfg.context_length)
-        if not found["loaded"]:
-            if cfg.context_length:                # asked for one; trust it
-                return f"{short_tokens(cfg.context_length)} ctx"
-            # Only the window she is actually LOADED in can go on the gauge. The
-            # model's maximum is a different number entirely — often 30× bigger —
-            # and showing it would promise room that isn't there. Say so instead.
-            if found["max"]:
-                log.info("LM Studio has not said what window %s is loaded in; it "
-                         "can do up to %s tokens — set CONTEXT_LENGTH in .env to "
-                         "pick one and put it on the gauge",
-                         cfg.chat_model, found["max"])
-            return ""
-        self.context.set_limit(found["loaded"], "lm studio")
-        return f"{short_tokens(found['loaded'])} ctx"
-
-    def _pin_lmstudio_models(self, cfg, chat_model, utility_model, embedder) -> None:
-        """Load her LM Studio models and pin them there, before the first turn.
-
-        The brain does this too (app.main._preload_lmstudio) — it has to, since
-        Build #1 and the desktop boot without this panel. Doing it here as well
-        buys the panel: a cold 6 GB model off disk is a minute of silence, and the
-        enter gate should say which model it is waiting for rather than hang. The
-        second call is a no-op by then (already resident costs one GET).
-
-        Why pin at all: chat and embeddings share one LM Studio server, whose JIT
-        loader evicts the previously JIT-loaded model to serve the next request —
-        so every turn used to unload one to load the other (see
-        providers/lmstudio.ensure_resident)."""
-        from yurios.app.main import _lmstudio_ids, _preload_lmstudio
-
-        chat = chat_model is None or utility_model is None
-        if not cfg.lmstudio_preload:
-            if chat:
-                self._probe_context_window(cfg)   # the readout still wants a ceiling
-            return
-        ids = _lmstudio_ids(cfg, chat=chat, embed=embedder is None)
-        if not ids:
-            return
-        self.boot.declare("models", "mind · language models")
-        self.boot.start("models", detail=f"{len(ids)} on LM Studio")
-        pinned = _preload_lmstudio(cfg, chat=chat, embed=embedder is None)
-        # the window they were loaded with — the number the masthead gauge and
-        # every "context size exceeded" both hang off (SPEC §11)
-        window = self._probe_context_window(cfg) if chat else ""
-        if pinned:
-            detail = f"{len(pinned)} resident · no idle unload"
-            self.boot.done("models", detail=f"{detail} · {window}" if window else detail)
-        else:
-            # she still runs: LM Studio JIT-loads per request, slowly (§3.1)
-            self.boot.done("models", state="failed", detail="none pinned — see the log")
 
     # ---- pictures you send her (SPEC §35) ----
 
@@ -973,7 +782,7 @@ class Runtime:
                 from yurios.app.main import _preload_lmstudio
                 await asyncio.to_thread(_preload_lmstudio, self.cfg,
                                         chat=True, embed=False)
-            await asyncio.to_thread(self._probe_context_window, self.cfg)
+            await asyncio.to_thread(runtime.probe_context_window, self, self.cfg)
         except asyncio.CancelledError:
             raise
         except Exception:

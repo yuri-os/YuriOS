@@ -60,7 +60,7 @@ def vault(tmp_path):
     return dst
 
 
-async def test_tool_turn_over_the_real_brain(vault, cfg, clock):
+async def test_tool_turn_over_the_real_brain(vault, cfg, clock, open_vault_window):
     cfg = cfg.model_copy(update={
         "vault_dir": vault, "embed_dim": 8,
         "corpus_dir": vault.parent / "corpus",

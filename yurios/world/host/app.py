@@ -30,10 +30,11 @@ from .hosting import CharacterHost, _RuntimeDispatcher, _turn_away
 log = logging.getLogger("world.host")
 
 
-def create_host_app(base: Config, registry: CharacterRegistry | None = None) -> FastAPI:
+def create_host_app(base: Config, registry: CharacterRegistry | None = None, *,
+                    embedder=None) -> FastAPI:
     if registry is None:
         registry = CharacterRegistry(base.data_dir)
-    host = CharacterHost(base, registry)
+    host = CharacterHost(base, registry, embedder=embedder)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):

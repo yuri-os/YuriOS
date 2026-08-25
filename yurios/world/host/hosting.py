@@ -445,8 +445,15 @@ def save_brain_overrides(record: CharacterRecord, body: Mapping[str, Any],
 
 
 class CharacterHost:
-    def __init__(self, base: Config, registry: CharacterRegistry):
+    def __init__(self, base: Config, registry: CharacterRegistry, *, embedder=None):
         self.base = base
+        #: The embedding model every character on this node indexes her memory
+        #: with, or None to let each build her own. The same seam `create_app`
+        #: has had all along (SPEC §3) — the host is simply the one caller that
+        #: could not reach it, so a test wanting a node had no way to avoid a
+        #: cold torch model. Not a house setting: characters share the *model*
+        #: only because they share a process, and nothing here is per-character.
+        self._embedder = embedder
         # The one owner secret in this process (SPEC §32.4). Installed on the
         # host app, handed to every character app below it, so a token rotated
         # from the gear in her room is the token the host's boundary checks.
@@ -545,9 +552,28 @@ class CharacterHost:
             ensure_appearance(record)   # her own face, before her camera (§7.6)
             ensure_setting(record)      # …and her own room, before her prompt (§2.5)
             try:
-                app = create_app(self.effective_config(record),
-                                 manage_lifespan=False, mount_frontend=False,
-                                 protect_access=False, limit_http_body=False)
+                # Off the event loop. Building a character is not a quick
+                # object graph: it loads the embedding model that indexes her
+                # memory (the sentence-transformers default is a cold torch
+                # model, ~20 s the first time in a process) and, with
+                # LMSTUDIO_PRELOAD on — the default — it waits on LM Studio
+                # seating her chat model, which for a cold 6 GB file is about a
+                # minute. Done inline, that is a minute in which this process
+                # answers nothing: not the switchboard that asked for it, not
+                # the SSE stream in somebody else's room, not the voice socket
+                # of a character who was mid-sentence. A host is one process
+                # holding every character on the node, so a start has to be
+                # something the others can be served *through*.
+                #
+                # Safe in a thread because nothing here needs a running loop:
+                # the `asyncio.Event`s a Runtime builds have been loop-agnostic
+                # since 3.10, and everything that does bind one waits for
+                # `start_async` below. The lock above still serialises starts.
+                app = await asyncio.to_thread(
+                    create_app, self.effective_config(record),
+                    embedder=self._embedder,
+                    manage_lifespan=False, mount_frontend=False,
+                    protect_access=False, limit_http_body=False)
                 # The settings route edits the house .env, not this character's
                 # registry-derived effective paths and backend overrides.
                 app.state.house_config = self.base

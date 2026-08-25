@@ -88,7 +88,7 @@ async def test_new_document_gets_read_and_journaled(cfg, seeded_vault):
     assert any("read and shelved manual.md" in p.read_text() for p in day_files)
 
 
-async def test_every_dirty_tick_is_one_commit(cfg, seeded_vault):
+async def test_every_dirty_tick_is_one_commit(cfg, seeded_vault, open_vault_window):
     rig = make_mind(cfg, seeded_vault)
 
     def commits():

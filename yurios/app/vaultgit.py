@@ -1,9 +1,11 @@
-"""Vault write + git helpers (SPEC §6.5).
+"""Vault write + git helpers (SPEC §2.1, B1 §6.5).
 
-Every durable change to the mind is a commit — `git -C vault log` reads as the
-diary of how she grew (§4.2). Vault writes are atomic (write-temp-then-rename)
-so a crash leaves the last *commit* intact, never a half-written file
-(→ ch. 19, crash recovery). `memory/index/` is gitignored and excluded.
+Every durable change to the mind reaches a commit — `git -C vault log` reads as
+the diary of how she grew, one entry a day rather than one per turn (§2.1).
+Vault writes are atomic (write-temp-then-rename) and land immediately, so a
+crash leaves whole files, never a half-written one; what waits out the day is
+the history entry, not the data (→ ch. 19, crash recovery). `memory/index/` is
+gitignored and excluded.
 """
 from __future__ import annotations
 
@@ -12,6 +14,7 @@ import os
 import re
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 
 VAULT_GITIGNORE = """\
@@ -96,14 +99,51 @@ def ensure_repo(vault: Path) -> None:
         _git(vault, "config", "user.email", "vault@localhost")
 
 
+#: How long the Vault waits between commits (SPEC §2.1). A commit per turn and
+#: per dirty tick made `git log` unreadable as the thing it is for — the diary
+#: of how she grew — because a day of ordinary conversation buried the
+#: two entries that mattered under three hundred that did not. So the Vault
+#: takes one snapshot a day: everything that changed since the last one, in one
+#: commit, under the message of whatever finally tripped the window.
+#:
+#: Nothing is at risk in between. Vault writes are atomic and land immediately;
+#: what waits is only the *history entry*, and `git add -A` on the far side
+#: picks up every change since regardless of which write asked for it.
+COMMIT_INTERVAL_S = 24 * 60 * 60
+
+
+def head_at(vault: Path) -> tuple[str | None, int]:
+    """HEAD's sha and its commit time (epoch seconds), or `(None, 0)` on a repo
+    with no commits yet. One subprocess, because the throttle below runs on
+    every turn and the answer is two fields of the same log line."""
+    result = _git(vault, "log", "-1", "--format=%H %ct")
+    if result.returncode != 0:
+        return None, 0
+    sha, _, when = result.stdout.strip().partition(" ")
+    return (sha or None), (int(when) if when.isdigit() else 0)
+
+
 def commit(vault: Path, message: str) -> str | None:
-    """`git add -A && git commit` (§6.5). Returns the new HEAD sha, or None if
-    nothing changed. Never raises on 'nothing to commit' — an uneventful turn
-    is not an error."""
+    """`git add -A && git commit`, at most once per `COMMIT_INTERVAL_S` (§2.1).
+
+    Returns the resulting HEAD sha, or None if there is nothing to return one
+    for. Never raises on 'nothing to commit' — an uneventful turn is not an
+    error, and neither is one that arrives inside the window.
+
+    The window is measured against the Vault's own HEAD rather than a timer in
+    this process, so it survives a restart, is shared by every writer of this
+    Vault, and cannot be reset by bouncing the daemon. A Vault with no commits
+    yet — a fresh seed, a freshly imported card — has no window and commits at
+    once; that first entry is what starts the clock.
+    """
+    sha, when = head_at(vault)
+    if sha is not None and (time.time() - when) < COMMIT_INTERVAL_S:
+        return sha                      # inside the window: the writes stand, the
+                                        # history entry waits for the next one
     _git(vault, "add", "-A")
     staged = _git(vault, "diff", "--cached", "--quiet")
     if staged.returncode == 0:  # nothing staged
-        return head(vault)
+        return sha
     result = _git(vault, "commit", "-q", "-m", message)
     if result.returncode != 0:
         raise RuntimeError(f"vault commit failed: {result.stderr.strip()}")

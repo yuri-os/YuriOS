@@ -20,6 +20,7 @@ from yurios.world.config import Config
 from yurios.world.host import (
     config_for_character, create_host_app, telegram_for_character,
 )
+from yurios.world.host.hosting import CharacterHost
 
 
 class FakeRuntime:
@@ -1104,3 +1105,52 @@ def test_the_profile_form_saves_her_doorbell(tmp_path, monkeypatch):
         assert saved.status_code == 200
         assert saved.json()["character"]["notify"]["enabled"] is False
         assert client.get("/api/characters/yuri/profile").json()["settings"]["notify"] is False
+
+
+async def test_starting_a_character_does_not_freeze_the_rest_of_the_node(
+        tmp_path, monkeypatch):
+    """A host is one process holding every character on the node, so building
+    one of them cannot be something the others wait *behind*.
+
+    Building a character is not a quick object graph. It loads the embedding
+    model that indexes her memory — the sentence-transformers default is a cold
+    torch model, about twenty seconds the first time in a process — and with
+    LMSTUDIO_PRELOAD on, which is the default, it also waits on LM Studio
+    seating her chat model: roughly a minute for a cold 6 GB file. Run inline
+    on the event loop, that is a minute in which this process answers nothing —
+    not the switchboard that asked for the start, not the SSE stream in
+    somebody else's room, not the voice socket of a character who was
+    mid-sentence.
+
+    So: a start that blocks for a beat, and a heartbeat coroutine that has to
+    keep beating through it.
+    """
+    import asyncio
+    import time
+
+    def slow_character_app(cfg, **kwargs):
+        time.sleep(0.25)                   # what the embedder and LM Studio are
+        return fake_character_app(cfg, **kwargs)
+
+    registry = CharacterRegistry(tmp_path)
+    registry.add(record(tmp_path, "yuri"))
+    monkeypatch.setattr("yurios.world.host.hosting.create_app", slow_character_app)
+    host = CharacterHost(Config(data_dir=tmp_path, _env_file=None), registry)
+
+    beats = 0
+
+    async def heartbeat():
+        nonlocal beats
+        while True:
+            await asyncio.sleep(0.005)
+            beats += 1
+
+    pulse = asyncio.create_task(heartbeat())
+    await asyncio.sleep(0)                 # let it take its first beat
+    await host.start("yuri")
+    pulse.cancel()
+
+    assert host.runtime("yuri") is not None and host.runtime("yuri").started
+    assert beats > 5, (
+        f"the event loop took {beats} beats during a 0.25 s start — a character "
+        "is being built inline, and every other room on this node is holding")

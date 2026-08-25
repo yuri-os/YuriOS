@@ -311,6 +311,21 @@ def _vault_template(tmp_path_factory):
 
 
 @pytest.fixture
+def open_vault_window(monkeypatch):
+    """Let the Vault commit now rather than waiting out its day (SPEC §6.5).
+
+    The Vault takes one history snapshot per `COMMIT_INTERVAL_S` — a day — so a
+    freshly seeded one is inside its own window and a turn's writes land on
+    disk without landing in `git log`. That is the shipped behaviour, and it is
+    pinned in test_vault_commit_noise.py. A test that is about what *reaches
+    history* asks for this fixture, and says by asking that the window is not
+    the thing it is testing.
+    """
+    from yurios.app import vaultgit
+    monkeypatch.setattr(vaultgit, "COMMIT_INTERVAL_S", 0)
+
+
+@pytest.fixture
 def seeded_vault(_vault_template, tmp_path):
     """A throwaway Vault seeded from the SOUL — the new-user path.
 

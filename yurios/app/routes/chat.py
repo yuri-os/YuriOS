@@ -68,7 +68,8 @@ async def post_turn(state, record: Record, session_id: str, turn_count: int) -> 
         except Exception:
             log.exception("post-turn pipeline error (turn already served)")
         finally:
-            # every durable change is a commit — the diary of how she grew (§6.5)
+            # every durable change reaches a commit — the diary of how she grew,
+            # one entry a day rather than one a turn (§2.1)
             message = f"turn {session_id[:8]}:{record.turn_index}"
             if retired_bootstrap:
                 message += "; first session complete"

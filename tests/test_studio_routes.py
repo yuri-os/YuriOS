@@ -12,6 +12,7 @@ import pytest
 from PIL import Image
 from starlette.testclient import TestClient
 
+from tests.conftest import FakeEmbedder
 from tests.support.cards import card_data, png_card, preferred, wrapper
 from yurios.characters import CharacterImporter, CharacterRegistry
 from yurios.characters.creator import template_draft
@@ -28,7 +29,11 @@ def node(tmp_path):
     registry = CharacterRegistry(tmp_path / "data")
     CharacterImporter(registry, initialize_git=True).import_card(
         png_card(wrapper(card_data(), native=True)), character_id="subject")
-    with TestClient(create_host_app(cfg, registry)) as client:
+    # Her own embedder, not a cold torch model: these tests are about the
+    # studio's HTTP surface, and building a character on this node otherwise
+    # loads sentence-transformers for real — twenty seconds, once per worker,
+    # to index memory nothing here reads back.
+    with TestClient(create_host_app(cfg, registry, embedder=FakeEmbedder())) as client:
         yield client, registry
 
 

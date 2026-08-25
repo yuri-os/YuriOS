@@ -132,7 +132,8 @@ async def test_idle_ticks_do_not_commit(cfg, seeded_vault):
         "an uneventful stretch committed to the Vault")
 
 
-async def test_scheduler_bookkeeping_is_never_versioned(cfg, seeded_vault):
+async def test_scheduler_bookkeeping_is_never_versioned(cfg, seeded_vault,
+                                                        open_vault_window):
     """engine.json and activity.json are rewritten every tick; versioning them
     buries the diary under one commit per heartbeat.
 
@@ -153,3 +154,89 @@ async def test_scheduler_bookkeeping_is_never_versioned(cfg, seeded_vault):
     assert "state/activity.json" not in tracked
     # ...but the durable half of state/ is still versioned
     assert "state/sessions.json" in tracked
+
+
+# ---- the day's window (SPEC §6.5) -------------------------------------------
+
+def _commit(vault, message):
+    from yurios.app import vaultgit
+    return vaultgit.commit(vault, message)
+
+
+def test_the_vault_takes_one_snapshot_a_day_not_one_per_turn(seeded_vault):
+    """The diary is a diary. A day of ordinary conversation used to bury the two
+    entries that mattered under three hundred that did not, so the writes go
+    down immediately and the *history entry* waits out a day."""
+    before = _log(seeded_vault)
+
+    (seeded_vault / "memory" / "semantic" / "facts.md").write_text("the kettle\n")
+    assert _commit(seeded_vault, "turn: one") is not None
+    (seeded_vault / "goals.md").write_text("- water the plant\n")
+    _commit(seeded_vault, "turn: two")
+
+    assert _log(seeded_vault) == before, "a turn inside the window wrote history"
+    # …and nothing was lost doing it: both writes are on disk, now
+    assert "the kettle" in (seeded_vault / "memory" / "semantic" / "facts.md").read_text()
+    assert "water the plant" in (seeded_vault / "goals.md").read_text()
+
+
+def test_the_day_after_sweeps_up_everything_since(seeded_vault, monkeypatch):
+    """One commit, holding every change the window held back — `git add -A` on
+    the far side does not care which write asked for it."""
+    from yurios.app import vaultgit
+
+    (seeded_vault / "memory" / "semantic" / "facts.md").write_text("the kettle\n")
+    _commit(seeded_vault, "turn: one")
+    (seeded_vault / "goals.md").write_text("- water the plant\n")
+    _commit(seeded_vault, "turn: two")
+    before = _log(seeded_vault)
+
+    monkeypatch.setattr(vaultgit, "COMMIT_INTERVAL_S", 0)     # …a day later
+    _commit(seeded_vault, "turn: three")
+
+    after = _log(seeded_vault)
+    assert len(after) == len(before) + 1, "one commit, not one per held-back write"
+    assert after[0] == "turn: three"          # named for what tripped the window
+    changed = subprocess.run(
+        ["git", "-C", str(seeded_vault), "show", "--name-only", "--format=", "HEAD"],
+        capture_output=True, text=True).stdout.split()
+    assert "goals.md" in changed and "memory/semantic/facts.md" in changed
+
+
+def test_a_quiet_day_still_commits_nothing(seeded_vault, open_vault_window):
+    """The window is a ceiling on commits, never a reason to make one: an
+    uneventful turn has nothing staged and leaves no entry (§4.4)."""
+    before = _log(seeded_vault)
+    _commit(seeded_vault, "turn: nothing happened")
+    assert _log(seeded_vault) == before
+
+
+def test_a_vault_with_no_commits_yet_does_not_wait_a_day(tmp_path):
+    """A fresh seed or a freshly imported card has no window to be inside — and
+    that first entry is what starts the clock. Waiting a day here would leave a
+    new character's whole SOUL untracked until tomorrow."""
+    from yurios.app import vaultgit
+
+    vault = tmp_path / "fresh"
+    vault.mkdir()
+    vaultgit.ensure_repo(vault)
+    (vault / "USER.md").write_text("her first day\n")
+
+    assert _log(vault) == []
+    assert vaultgit.commit(vault, "seed: initial vault") is not None
+    assert _log(vault) == ["seed: initial vault"]
+
+
+def test_the_window_belongs_to_the_vault_not_to_the_process(seeded_vault):
+    """Measured against the Vault's own HEAD, so it survives a restart, is
+    shared by every writer of this Vault, and cannot be reset by bouncing the
+    daemon — which an in-process timer would be, on both counts."""
+    from yurios.app import vaultgit
+
+    sha, when = vaultgit.head_at(seeded_vault)
+    assert sha is not None and when > 0
+
+    (seeded_vault / "goals.md").write_text("- something\n")
+    # a "restart" is just another call: nothing in this module holds state
+    assert vaultgit.commit(seeded_vault, "turn: after a restart") == sha
+    assert vaultgit.commit(seeded_vault, "turn: and another") == sha

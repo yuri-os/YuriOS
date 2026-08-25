@@ -134,7 +134,15 @@ vault/
 ```
 
 `USER.md` and everything under `memory/` (except the gitignored `index/`) are **committed**
-— the mind's growth is a `git log` you can read and `git revert`. `soul/` is seeded once
+— the mind's growth is a `git log` you can read and `git revert`. Writes land on disk the
+moment they are made (atomically); what is paced is the *history entry*. The Vault **MUST
+NOT** commit more than once per `COMMIT_INTERVAL_S` (a day, `yurios/app/vaultgit.py`): a
+commit per turn and per dirty tick made `git log` unreadable as the diary it is for, burying
+the two entries that mattered under three hundred that did not. A commit **MUST** therefore
+carry everything changed since the last one (`git add -A`), under the message of whichever
+write finally tripped the window, and a Vault with no commits yet — a fresh seed, a freshly
+imported card — **MUST** commit at once, since that first entry is what starts the clock.
+`soul/` is seeded once
 from `soul-src` and then lives in the Vault; `CONSTITUTION.md` is never edited by the
 reactive body (Part II gates who may edit it, §23).
 
@@ -1090,9 +1098,11 @@ surface between turns.
   that does one thing per heartbeat reads like a diary and cannot fan out. (2) **APPRAISE is
   cheap by construction**: pure heuristics (`yurios/mind/policy.py`), runnable every tick,
   **MUST NOT** call a model — the model is invoked only inside ACT, for work already judged
-  worth it. (3) **Everything is journaled** (§24.1) and **traced** (§24.2), and every tick
-  that changed the Vault ends in **exactly one git commit** (`tick <id>: <intention>`); an
-  uneventful tick commits nothing, and that is not an error. Time is **injected**
+  worth it. (3) **Everything is journaled** (§24.1) and **traced** (§24.2), and a tick that
+  changed the Vault asks it to commit (`tick <id>: <intention>`); an uneventful tick asks for
+  nothing, and that is not an error. Whether the ask *becomes* a commit is the Vault's daily
+  window (§2.1), not the tick's business — the writes are already down either way, and at
+  most one tick a day ends in an entry. Time is **injected**
   (`yurios/kernel/clock.py`): no wall-clock reads, no bare sleeps, anywhere in the mind — this
   is the entire test story (§27).
 - §15.2 **The mind's home is the same Vault.** No second database: the mind reads and writes

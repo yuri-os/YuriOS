@@ -1,7 +1,8 @@
 # personal + derived — never committed (SPEC §11–§13)
 .env
 .venv/
-.wvenv/          # legacy WSL environment from older installs
+# legacy WSL environment from older installs
+.wvenv/
 __pycache__/
 *.egg-info/
 .pytest_cache/

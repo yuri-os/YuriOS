@@ -15,10 +15,13 @@ from yurios.app.memory.store import FileMemoryStore
 from yurios.mind.dream import DreamConsolidator
 from yurios.mind.dreamjobs import (JOB_NAME_RE, PROMPT_OVERHEAD_CHARS,
                                    REPORT_REASONING_ALLOWANCE, REPORT_TIMEOUT_S,
-                                   ROUND_MAX_TOKENS, _already_asked, _lede,
-                                   _query_key, _shorter_effort,
-                                   DreamJob, DreamRunner, JobReport, PromptJob,
-                                   ResearchJob, validate_job_file)
+                                   ROUND_MAX_TOKENS, DreamJob, DreamRunner,
+                                   JobReport, PromptJob, ResearchJob,
+                                   validate_job_file)
+# The internals are addressed at the module that owns them rather than through
+# the package's public face, so a test that pokes at one says which it means.
+from yurios.mind.dreamjobs.filedsl import _shorter_effort
+from yurios.mind.dreamjobs.research import _already_asked, _lede, _query_key
 from yurios.mind.vaultio import MindVault
 from yurios.mind.workspace import SkillStore, Workspace
 from yurios.kernel import correlate

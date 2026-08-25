@@ -12,7 +12,8 @@ import json
 
 from yurios.app.memory.store import FileMemoryStore
 from yurios.mind.dream import DreamConsolidator
-from yurios.mind.dreamjobs import SELF_GOAL, DreamRunner, echoes
+from yurios.mind.dreamjobs import SELF_GOAL, DreamRunner
+from yurios.mind.goals import echoes
 from yurios.mind.goals import GoalStore
 from yurios.mind.policy import appraise_goal
 from yurios.mind.util import ts_of_iso

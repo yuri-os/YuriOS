@@ -1359,7 +1359,7 @@ turn** — separate files, separate indexes, separate `inspect()`.
 
 ### §21.2 — The pipeline (more than one job)
 
-`yurios/mind/dreamjobs.py` — consolidation is the first job of the night, not the only one. Sleep
+`yurios/mind/dreamjobs/` — consolidation is the first job of the night, not the only one. Sleep
 is where the expensive, unhurried, nobody-is-waiting work goes; §21 is the most obvious member of
 that set and a poor place to stop.
 
@@ -1391,7 +1391,7 @@ that set and a poor place to stop.
   NOT** switch one on that the house has no backend for (the §26.1 two-switch rule, applied to the
   night). A folder README and any file without frontmatter are **not** jobs, and a mangled file
   **MUST** cost that one job and never the night (§34.3's `SKILL.md` rule). The folder is
-  versioned and seeded (§34.1) with the prompts compiled into `dreamjobs.py`, so a fresh vault
+  versioned and seeded (§34.1) with the prompts compiled into `dreamjobs/builtins.py`, so a fresh vault
   dreams identically and the first edit to one reads as a diff. The runner **MUST** write the
   folder on first sight when it is absent — the seeders run once at creation, so a folder invented
   today exists in no vault made yesterday, and a roster nobody can see is a roster nobody will
@@ -1444,7 +1444,7 @@ that set and a poor place to stop.
 
 ### §21.2a — `kind: research`, the night that looks outward
 
-`ResearchJob` in `yurios/mind/dreamjobs.py`. Every other job reads the vault; this one reads the
+`ResearchJob` in `yurios/mind/dreamjobs/research.py`. Every other job reads the vault; this one reads the
 web and writes one document from what it found. A market brief, a literature scan, a
 what-changed-in-my-field digest are the same job with a different brief, and none of them can be
 written from a vault alone.

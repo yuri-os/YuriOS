@@ -98,7 +98,7 @@ def _to_vault(contract: dict) -> bool:
 
     The DREAM selfie is the one grandfathered exception and does NOT carry the
     stamp — a picture she dreamt and left in the chat is shipped behaviour, one
-    object, and a gift (mind/dreamjobs.py). The inconsistency is deliberate:
+    object, and a gift (mind/dreamjobs/builtins.py). The inconsistency is deliberate:
     a research digest is not a gift.
     """
     return str(contract.get("_deliver") or "") == "vault"

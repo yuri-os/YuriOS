@@ -29,6 +29,8 @@ import json
 import re
 from dataclasses import dataclass, field
 
+from typing import Iterable
+
 from yurios.kernel.clock import Clock
 
 from .util import iso_of, new_id, ts_of_iso
@@ -101,7 +103,7 @@ def _echo_words(text: str) -> set[str]:
             if len(word) >= 3 and word not in _ECHO_STOP}
 
 
-def echoes(text: str, existing) -> object | None:
+def echoes(text: str, existing: Iterable[Goal]) -> Goal | None:
     """Return the open goal that expresses the same content, if one exists."""
     words = _echo_words(text)
     for goal in existing:

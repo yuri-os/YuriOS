@@ -247,7 +247,7 @@ folded … into what I keep".
 
 ### More than one thing happens at night
 
-Consolidation is the first job, not the only one. DREAM is a **pipeline** (`mind/dreamjobs.py`):
+Consolidation is the first job, not the only one. DREAM is a **pipeline** (`mind/dreamjobs/`):
 each tick runs the enabled jobs in priority order, sharing one token budget, and yields.
 
 A job reads the journal through `relabel()`, which rewrites the two speakers as **ME** and
@@ -343,8 +343,9 @@ output: reports/market-brief/{day}.md
 You are {char}. Write {user} their morning brief...
 ```
 
-Adding a whole new *kind* of night is one class in `mind/dreamjobs.py` and one name in
-`JOB_KINDS`; adding a built-in job is one class and one name in `BUILTIN_JOBS`. Everything else —
+Adding a whole new *kind* of night is one class beside `ResearchJob` and one name in
+`JOB_KINDS`; adding a built-in job is one class in `mind/dreamjobs/builtins.py` and one
+name in `BUILTIN_JOBS`. Everything else —
 the ladder, the trace, the budget, the debug page, the manual trigger — picks either up untold.
 
 ### Trying one without waiting for 3am

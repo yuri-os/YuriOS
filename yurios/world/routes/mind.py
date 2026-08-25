@@ -276,7 +276,7 @@ async def dream_run(request: Request, body: DreamRunRequest | None = None) -> di
 # The Dreams section could always run a job and never write one, which made the
 # night editable in principle (drop a file in the Vault) and not in practice.
 # These four routes are the file operations, and nothing more: the format, the
-# validation rules and the reload are all `dreamjobs.py`'s.
+# validation rules and the reload are all `dreamjobs/`'s.
 
 
 def _jobs_dir(request: Request) -> Path:
@@ -374,7 +374,7 @@ async def dream_job_write(name: str, request: Request) -> dict:
 async def dream_job_delete(name: str, request: Request) -> dict:
     """Remove one job file.
 
-    A builtin reverts to the prompt compiled into `dreamjobs.py`; anything else
+    A builtin reverts to the prompt compiled into `dreamjobs/builtins.py`; anything else
     stops being a job at all. Deliberately not undone by the seeder, which only
     ever fires on an absent *folder* — a job you deleted stays deleted (§21.2).
     """

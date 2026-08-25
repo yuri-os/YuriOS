@@ -1,12 +1,17 @@
 /* The client half of the voice loop (SPEC §9; B2 §4, §10) — Build #2's voice.js
- * ported to an ES module, with two changes and no others:
+ * ported to an ES module, with three changes and no others:
  *
  *   - playback routes through the VisemeDriver's analyser graph (SPEC §5), so
  *     the mouth is driven by the audio itself in the stage's render loop; this
  *     file never touches the mouth;
  *   - the wire is audio-only now (SPEC §10): expressions and chat text ride
  *     /api/events, so this file never touches the body either — it is ears,
- *     playback, and barge-in.
+ *     playback, and barge-in;
+ *   - and it reads a line back out on request (SPEC §9.11): chat.js draws the
+ *     button on her bubbles, this owns what a press does. The ask rides this
+ *     socket because a replay wants exactly what the socket already has —
+ *     playback through the viseme graph, barge-in, and the §9.9 listener count
+ *     — and the wire carries the message id, never the words.
  *
  * Everything latency-critical about barge-in still lives here at the edge
  * (→ ch. 24): this file decides when the user is speaking, kills local playback
@@ -52,6 +57,13 @@ export function initVoice({ viseme, els }) {
   // ---- playback (her voice) through the viseme graph (SPEC §5) -------------
   let sinks = [], playing = false, playT = 0;
 
+  // ---- reading one of her lines back out (SPEC §9.11) -----------------------
+  let replayId = null;          // the line the socket is (about to be) reading
+  let replaySent = false;       // …the ask is on the wire (not just queued behind a warm)
+  let replayDrained = false;    // …the server has sent it all; audio may still play
+  let replayHeard = null;       // the mute hold, while a muted room reads one out
+  let replayTimer = null;       // …and the "did the server even hear me?" net
+
   function enqueueAudio(pcm, sr) {
     const ctx = viseme.context();
     const buf = ctx.createBuffer(1, pcm.length, sr);
@@ -75,8 +87,82 @@ export function initVoice({ viseme, els }) {
     sinks = []; playT = 0; setSpeaking(false);
   }
 
+  /* "read it out" on one of her chat bubbles (SPEC §9.11). chat.js draws the
+   * button and this owns what happens: the ask rides the voice socket rather
+   * than an endpoint of its own, because the socket already has the three
+   * things a replay wants and an endpoint would have to grow copies of —
+   * playback through the viseme graph (so her mouth moves on a replay too),
+   * barge-in (talking over her silences it, exactly as over a reply), and the
+   * §9.9 listener count that keeps her voice loaded only while somebody wants
+   * it. The wire carries the message id, never the text: what comes back is
+   * resolved out of her own transcript server-side, so this can ask her to say
+   * something again and cannot ask her to say something new.
+   *
+   * A muted room still reads a line out. Muting is "not by default"; pressing
+   * this is asking for *this line*, so the gain is held open for the length of
+   * it (WorldControls.hearThrough) and the switch never moves. */
+  function speak(messageId) {
+    if (!messageId) return;
+    const again = messageId === replayId;
+    // A switch keeps the socket it is about to use. Letting go of it first
+    // would dip through "nothing wants her voice", close the connection, and
+    // then open a second one between two presses — and the old one's `onclose`
+    // would arrive to put out a button that now belongs to the new line.
+    endReplay({ keepSocket: !again });
+    if (again) return;                  // a second press on the same line stops it
+    replayId = messageId;
+    replayHeard = window.WorldControls?.hearThrough?.() || null;
+    window.WorldChat?.markSpeaking?.(replayId, 'waiting');
+    if (ws?.readyState === 1) sendReplay();
+    else connect();                     // …and `ready` sends it once she can talk
+  }
+
+  function sendReplay() {
+    if (!replayId || replaySent || ws?.readyState !== 1) return;
+    replaySent = true;
+    if (playing) stopPlayback();        // this line takes the floor from the last
+    ws.send(JSON.stringify({ type: 'speak', message_id: replayId }));
+    // The net under a server that does not know this frame (an older host, the
+    // B2 desktop route): nothing would ever come back and the button would spin
+    // for the rest of the session. `speaking` clears it, and it is generous
+    // because a cold voice may still have been warming when we sent.
+    clearTimeout(replayTimer);
+    replayTimer = setTimeout(() => {
+      notice('she didn\u2019t pick that up');
+      endReplay();
+    }, 30000);
+  }
+
+  /** The line is over — read, stopped, barged in on, or never started. Puts the
+   *  button out, gives the mute back, and lets go of her voice if this was the
+   *  only thing that wanted it (§9.9). Idempotent. `keepSocket` is for the two
+   *  callers that own the connection themselves: a switch to another line, and
+   *  `disconnectVoice`, which is already closing it. */
+  function endReplay({ keepSocket = false } = {}) {
+    if (!replayId) return;
+    const id = replayId;
+    replayId = null;
+    replaySent = false;
+    replayDrained = false;
+    clearTimeout(replayTimer);
+    replayTimer = null;
+    replayHeard?.();
+    replayHeard = null;
+    window.WorldChat?.markSpeaking?.(id, '');
+    // Stop the audio only when the reader asked us to — a line that simply
+    // finished is already silent, and the last chunks are queued in the
+    // AudioContext, which does not need the socket any more.
+    if (ws?.readyState === 1 && playing) ws.send(JSON.stringify({ type: 'bargein' }));
+    if (playing) stopPlayback();
+    if (keepSocket) return;
+    if (!wantsVoice() && !(processing && transport === 'voice')) disconnectVoice();
+  }
+
   // ---- the websocket --------------------------------------------------------
-  const wantsVoice = () => !muted || listening;
+  // A replay counts: pressing "read it out" in a muted room is somebody
+  // asking to hear her, so it opens the socket (and warms her voice) the
+  // same way unmuting does — and lets go again when the line is done.
+  const wantsVoice = () => !muted || listening || replayId !== null;
 
   function connect() {
     if (!wantsVoice()) return;
@@ -85,7 +171,8 @@ export function initVoice({ viseme, els }) {
     // a live/opening one (CONNECTING=0, OPEN=1). (B2's hard-won rule.)
     if (ws && (ws.readyState === 0 || ws.readyState === 1)) return;
     setWarming(true, 'loading her voice…');
-    ws = new WebSocket(WS_URL);
+    const socket = new WebSocket(WS_URL);
+    ws = socket;
     ws.binaryType = 'arraybuffer';
     ws.onopen = () => {
       stopPlayback();                   // a fresh connection may greet; no overlap
@@ -96,6 +183,11 @@ export function initVoice({ viseme, els }) {
     // wall does not move on its own, so stop throwing a reconnect at it twice a
     // second and leave the reason on screen.
     ws.onclose = (e) => {
+      // A socket we have already replaced is history: `disconnectVoice` nulls
+      // `ws` and a new connection can be open before the old one's close lands,
+      // and this handler writes the room's shared state (the warm notice, the
+      // status pill, the replay button). Only the current one may.
+      if (ws !== socket) return;
       const parked = e.code === 4404;
       const capacity = e.code === 4429;
       setWarming(false);
@@ -106,6 +198,7 @@ export function initVoice({ viseme, els }) {
       // 123 bytes for a reason, so only fall back to it if nothing arrived.
       if (parked && e.reason && !els.caption.textContent) els.caption.textContent = e.reason;
       if (processing && transport === 'voice') finishProcessing();
+      endReplay();                      // a dropped socket mid-line is a stopped line
       clearTimeout(reconnectTimer);
       if (wantsVoice()) reconnectTimer = setTimeout(connect,
         parked || capacity ? 15000 : 1500);
@@ -138,6 +231,10 @@ export function initVoice({ viseme, els }) {
         // Say it in the room rather than leaving "why is she not answering?"
         // to a WARNING in the log nobody is looking at.
         if (m.tts === 'fake') sayMute();
+        // A replay pressed in a muted room is what opened this socket; her
+        // voice is only now loaded, so this is the first moment it can be asked
+        // for. (Also the reconnect path: a warm stack answers `ready` at once.)
+        sendReplay();
         break;                          // otherwise handled above
       case 'ping':
         if (ws?.readyState === 1) ws.send(JSON.stringify({ type: 'pong' }));
@@ -161,6 +258,23 @@ export function initVoice({ viseme, els }) {
         showLatency(m.latency);
         if (m.message) window.WorldChat?.receiveMessage?.(m.message);
         completeLlm(m.client_id, m.active_selfies || []);
+        break;
+      // she took the ask (SPEC §9.11) — `audio` frames follow on the same wire
+      // and through the same playback, so a replay moves her mouth too
+      case 'speaking':
+        if (m.message_id !== replayId) break;
+        clearTimeout(replayTimer);
+        replayTimer = null;
+        window.WorldChat?.markSpeaking?.(replayId, 'speaking');
+        break;
+      // …and it is over, however it ended. `message` is why it did not happen —
+      // a line off the end of the ring, or her mid-reply. Ignored when it names
+      // a line this page has already moved on from (press A, then press B).
+      case 'spoken':
+        if (m.message_id !== replayId) break;
+        if (m.message) notice(m.message);
+        replayDrained = true;
+        if (!playing) endReplay();      // …otherwise when the last sample plays
         break;
       case 'cancelled':
         els.caption.textContent = '';   // she yielded — the floor is yours
@@ -228,6 +342,7 @@ export function initVoice({ viseme, els }) {
       const need = playing ? BARGEIN_FRAMES : ONSET_FRAMES;
       if (speechRun >= need) {
         if (playing) { stopPlayback(); ws.send(JSON.stringify({ type: 'bargein' })); }
+        endReplay();                    // talking over a replay ends it too (§9.11)
         speechRequestId = newRequestId();
         speaking = true; silenceMs = 0; speechRun = 0; setStatus('listening', 'listening');
         for (const f of ring) ws.send(f.buffer); ring = [];   // flush pre-roll
@@ -345,6 +460,7 @@ export function initVoice({ viseme, els }) {
   }
 
   function disconnectVoice() {
+    endReplay({ keepSocket: true });    // …before the playback it is holding open
     clearTimeout(reconnectTimer);
     reconnectTimer = null;
     stopPlayback();
@@ -356,6 +472,10 @@ export function initVoice({ viseme, els }) {
 
   window.addEventListener('voice-mute-change', (e) => {
     muted = Boolean(e.detail?.muted);
+    // The switch outranks the hold a replay is keeping on the gain (§9.10):
+    // reaching for mute while she is reading a line out means silence *now*,
+    // not "after this one". Ending the replay is what releases that hold.
+    if (muted) endReplay();
     if (wantsVoice()) connect();
     else if (!(processing && transport === 'voice')) disconnectVoice();
   });
@@ -399,6 +519,10 @@ export function initVoice({ viseme, els }) {
     playing = v;
     if (v) setStatus('speaking', 'speaking');
     else if (listening) setStatus('live', 'online');
+    // A replay is over when the last sample has *played*, not when the last
+    // frame arrived: `spoken` lands while the tail is still queued in the
+    // AudioContext, and putting the button out there would cut her off.
+    if (!v && replayId && replayDrained) endReplay();
   }
   function showLatency(lat) {
     if (!lat || lat.first_audio_ms == null) { els.latency.textContent = ''; return; }
@@ -645,6 +769,7 @@ export function initVoice({ viseme, els }) {
 
   function sendText() {
     if (processing) return;
+    endReplay();                        // answering her outranks re-reading her
     const text = els.text.value.trim();
     // A picture is a turn on its own — words are optional once one is armed.
     // A picture still going up is not: sending would name an id that does not
@@ -675,6 +800,12 @@ export function initVoice({ viseme, els }) {
     if (e.key === 'Enter') { e.preventDefault(); sendText(); }
   });
   els.send?.addEventListener('click', () => processing ? stopProcessing() : sendText());
+
+  // chat.js draws the per-message "read it out" button; this owns the socket
+  // that answers it. A global handle, like WorldChat and WorldControls, for the
+  // reason those are: one room runs one voice client, and the three pages that
+  // load this file must not each grow their own way of reaching it.
+  window.WorldVoice = { speak };
 
   if (wantsVoice()) connect();
   else {

@@ -365,10 +365,21 @@ initiative), and inline images when a message carries `image_url` (§7.6). The h
 transcript: an in-memory ring (~200 entries) appended by `post_message` and published as
 `message` events on the bus (§10); `GET /api/history` backfills a fresh page.
 
+**The column survives a restart.** Every committed entry is *also* written to
+`<vault>/state/transcript.jsonl` (`world/chatlog.py`) and the ring is seeded from its tail at
+boot, so a daemon that restarted overnight opens onto the end of the last conversation rather
+than a blank column. The file is untracked and capped (~2000 entries, oldest let go), written
+best-effort and never fsynced: it is the draw buffer for a chat column, and the ring — not the
+file — is what a turn depends on. `GET /api/history?before=<message id>&limit=` walks back
+through it, which the chat surface **MUST** offer as a single control at the top of the column
+loading **six** older lines a press, holding the reader's scroll position across the insert.
+
 The chat is the *visible* conversation, not her memory — the Vault stays the only durable
-record, and the rules match: a barged-in turn drops its draft and commits nothing; ambient
-lines appear in the chat but never persist (§9). Typing in the chat composer rides the shared
-text-turn runner (§10.5), keeping full turn semantics. Desktop-pet windows (§6.5) hide the
+record of what she *knows*, nothing in the transcript file is ever read back into a prompt, and
+the rules match: a barged-in turn drops its draft and commits nothing; ambient lines appear in
+the chat but never persist as memory (§9). Typing in the chat composer rides the shared
+text-turn runner (§10.5), keeping full turn semantics. Each of her committed lines carries a
+control that reads it back out in her voice (§9.11). Desktop-pet windows (§6.5) hide the
 chat column; the composer moves to the hover bar.
 
 ## §3 — The body: the VRM stage
@@ -828,6 +839,23 @@ STT/TTS/VAD SDK, and fakes implement each seam so the whole loop runs offline (�
   mouth, still shows her captions and still fills the transcript: she is talking, you simply
   cannot hear her. It is remembered per character (`web/js/controls.js`) and re-applied before
   her first syllable, because a mute you must re-press on every load is a chore, not a setting.
+- §9.11 **Say it again.** Every committed line of *hers* in the chat (§2.6) **MUST** carry a
+  control that reads it back out in her voice. It rides the audio socket as a `speak` frame and
+  **MUST** carry the message **id, never the text**: the words come back out of the host's own
+  transcript (the ring, or her inbox for a line that outlived it), so the wire can ask her to
+  repeat herself and cannot put new words in her mouth. What comes back is `speaking`, the same
+  `audio` frames a turn produces — so a replay drives lip-sync like anything else she says — and
+  `spoken` however it ends, carrying the reason when it did not happen.
+  A replay is **not a turn**: it runs on the connection's `TurnController` but generates nothing,
+  commits nothing, tees nothing to the mind and never touches her memory — pressing it twice
+  leaves the transcript byte-for-byte as it was. Sharing that controller is what gives it a turn's
+  *manners*: barge-in silences it, a real turn takes the floor from it, and the mind will not
+  speak over it. It **MUST NOT** cost a live turn — a barged-in turn commits nothing (§4.4), so a
+  press while she is mid-reply waits and says so rather than throwing her answer away. It **MUST**
+  strip what she must never read aloud (expression tags, `*narration*` — §6), because the lines
+  the mind's other surfaces post carry no such promise. Muting (§9.10) is "not by default", not
+  "no": a press in a muted room **SHOULD** open the gain for the length of that one line and put
+  it back, leaving the switch exactly where the user left it.
 
 ## §10 — Topology: one event bus + one audio socket
 
@@ -846,9 +874,10 @@ keeps a socket of its own is sound.
   flag polled every second — an open tab must never hold Ctrl+C hostage) and ping while idle.
   The attach/detach of subscribers **MUST** post `user_present` / `user_absent` signals to the
   mind — presence is a signal, not a guess (§16.2). `GET /api/history` backfills the chat (§2.6).
-- **`/ws/voice`** — the audio-only socket: binary mic PCM up, `hello`/`endpoint`/`bargein`/`text`
-  control up; `session`, `warming` (her voice is loading for this connection — §9.9),
-  `filler`/`audio` (base64 PCM + the sentence text for §5), `done`, `cancelled`, `error` down.
+- **`/ws/voice`** — the audio-only socket: binary mic PCM up,
+  `hello`/`endpoint`/`bargein`/`text`/`speak` control up; `session`, `warming` (her voice is
+  loading for this connection — §9.9), `filler`/`audio` (base64 PCM + the sentence text for §5),
+  `done`, `cancelled`, `speaking`/`spoken` (a line read back out — §9.11), `error` down.
   Turn expressions are re-routed onto the bus (§4), so the face has one lane. An open socket is
   also what keeps the voice stack resident (§9.9). PCM keeps a websocket because audio is the one flow that is bidirectional, binary, and
   latency-critical; everything else is a broadcastable fact, and facts ride the bus.

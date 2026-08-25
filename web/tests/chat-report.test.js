@@ -96,3 +96,27 @@ describe('a report delivered into the chat', () => {
       .toContain("isn't on her desk"));
   });
 });
+
+/* …and the rule that makes it readable in every room it renders in.
+ *
+ * The bug: `web/text/text.css` carried no `.msg-report` block at all, so the
+ * fold-out control fell back to the user agent — which draws a button for a
+ * light page. Against the room's near-white ink that was white on white, and
+ * the morning brief could only be opened by guessing where it was. A control
+ * in a dark room states its own background and its own colour. */
+describe('the fold-out control, in all three rooms', () => {
+  const ROOMS = ['sanctuary.css', 'live2d/sanctuary.css', 'text/text.css'];
+
+  it.each(ROOMS)('%s dresses the report card rather than inheriting it', (room) => {
+    const css = readFileSync(resolve(process.cwd(), room), 'utf8');
+    const rule = css.match(/\.msg-report \.report-open\{[^}]*\}/);
+    expect(rule, `${room} has no .report-open rule`).not.toBeNull();
+    expect(rule[0]).toMatch(/background:/);
+    expect(rule[0]).toMatch(/color:/);
+  });
+
+  it.each(ROOMS)('%s says it is a dark room, so no control guesses', (room) => {
+    const css = readFileSync(resolve(process.cwd(), room), 'utf8');
+    expect(css).toMatch(/color-scheme:\s*dark/);
+  });
+});

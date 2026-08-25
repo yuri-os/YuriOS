@@ -12,7 +12,8 @@ flag and end cleanly (well inside uvicorn's force-close cap), pinging every
 ~10 s so proxies keep the pipe open.
 
 Sidecars:
-  - GET /api/history        — the transcript ring, for chat backfill on load
+  - GET /api/history        — the transcript, for chat backfill on load and
+                              for the walk back through it (`before=`, §2.6)
   - GET /selfies/{name}     — the saved selfie PNGs (SPEC §7.6)
 """
 from __future__ import annotations
@@ -20,8 +21,10 @@ from __future__ import annotations
 import asyncio
 import json
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+
+from ..main import HISTORY_MAX, HISTORY_PAGE
 
 router = APIRouter()
 
@@ -73,8 +76,20 @@ async def events(request: Request):
 
 
 @router.get("/api/history")
-async def history(request: Request):
-    return {"messages": request.app.state.rt.transcript[-100:]}
+async def history(request: Request,
+                  limit: int = Query(default=HISTORY_PAGE, ge=1, le=HISTORY_MAX),
+                  before: str | None = Query(default=None, max_length=64,
+                                             pattern=r"^[A-Za-z0-9_-]+$")):
+    """The chat backfill, and the walk back through it (SPEC §2.6).
+
+    No arguments is the end of the conversation — what a page draws on load,
+    and since the ring is seeded from disk that is still the last thing either
+    of you said after a restart. `before=<message id>` is the entries just
+    *older* than that one, `limit` of them: the "load the previous six" button
+    at the top of the column, which walks back through the archive one press at
+    a time rather than dumping a thousand lines into a page that wanted six.
+    """
+    return request.app.state.rt.history(limit=limit, before=before)
 
 
 @router.get("/selfies/{name}")

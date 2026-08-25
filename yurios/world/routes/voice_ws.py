@@ -25,7 +25,12 @@ On top of that spine:
      mind's REFLECT share: world model, promise extraction) onto the
      SignalBus. The reply itself still streams on this reactive path — the
      loop observes the conversation, it never sits in front of it (SPEC §15.3);
-  7. the voice stack's lifetime (SPEC §9.9): this socket is the only thing in
+  7. the replay button (SPEC §9.11): a `speak` frame reads one line out of the
+     transcript back out in her voice. It is not a turn and gets none of a
+     turn's machinery — no brain, no draft, no commit, no memory — but it runs
+     on this connection's TurnController, so barge-in silences it, a real turn
+     takes the floor from it, and the mind will not talk over it;
+  8. the voice stack's lifetime (SPEC §9.9): this socket is the only thing in
      the process that wants her ears and voice, so it holds them. The first
      connection warms the stack (and says `warming` while it does), every later
      one joins it, and the last one out drops it — otherwise a host running six
@@ -37,6 +42,8 @@ Client → server messages (JSON, except audio which is binary frames):
     {"type":"endpoint"}          the user's turn is done → transcribe + reply
     {"type":"bargein"}           the user talked over her → cancel the current turn
     {"type":"text", "text":...}  typed input (the chat composer; skips STT)
+    {"type":"speak", "message_id":...}
+                                 read one line she already said back out (§9.11)
 
 Server → client messages (JSON; audio PCM is base64 in `pcm`):
     {"type":"session", "session_id":...}
@@ -47,6 +54,9 @@ Server → client messages (JSON; audio PCM is base64 in `pcm`):
                                         load, which the room has to caption
     {"type":"filler"|"audio", "text":..., "sr":..., "pcm": <base64 float32>}
     {"type":"done", "latency":..., "message":...} | {"type":"cancelled"}
+    {"type":"speaking", "message_id":...}   a replay was accepted; audio follows
+    {"type":"spoken", "message_id":..., "message": <why not, if it didn't>}
+                                            …and it is over, however it ended
     {"type":"error", "message":...}
 (expressions and chat text now ride /api/events — SPEC §10)
 """
@@ -295,6 +305,51 @@ async def _in_the_room(ws: WebSocket, rt, session_id: str, safe_send,
             # and for greeting/ambient lines (they never append one).
             brain.abandon(session_id)
 
+    replay_task: asyncio.Task | None = None
+
+    async def replay(text: str, message_id: str) -> None:
+        """Pump a re-voiced line to the client until it ends or they go.
+
+        Deliberately not `run`: a replay is not a turn. Nothing was generated,
+        so there is no draft to grow, nothing to commit, no signal to tee and
+        nothing for her memory to hear about — the line being read is already
+        in all four places. All it borrows is the TurnController, which is what
+        makes barge-in silence it (SPEC §9.11).
+        """
+        try:
+            async for ev in controller.speak(text):
+                if ev.kind in ("done", "cancelled"):
+                    break                      # `spoken` is this pump's ending
+                if not await safe_send(_encode(ev)):
+                    controller.cancel()        # client vanished → stop synthesizing
+                    return
+        except Exception:
+            log.exception("replay failed")
+            await safe_send({"type": "error", "message": "she couldn\u2019t say that again"})
+        finally:
+            # Always, by every exit: this frame is what puts the button on the
+            # message back out. A replay that ends in silence and leaves a
+            # spinner turning is worse than one that fails out loud.
+            await safe_send({"type": "spoken", "message_id": message_id})
+
+    async def stop_replay() -> None:
+        """Take the floor back from a replay, and wait until it has let go.
+
+        Awaited before anything that arms a new cancel token — `run_turn` and
+        `speak` each replace `controller._cancel`, so a replay left running
+        across one of those would be holding a token nobody can set any more.
+        """
+        nonlocal replay_task
+        if replay_task and not replay_task.done():
+            controller.cancel()
+            await asyncio.gather(replay_task, return_exceptions=True)
+        replay_task = None
+
+    def busy() -> bool:
+        """Is she mid-sentence — either answering, or reading a line back out?"""
+        return bool((turn_task and not turn_task.done())
+                    or (replay_task and not replay_task.done()))
+
     # the ambient injector (SPEC §15.5). The mind calls this to
     # speak a self-initiated line — a murmur, a timer announcement, a reach-out
     # — THROUGH this connection: same TurnController, so a barge-in cancels her
@@ -302,7 +357,7 @@ async def _in_the_room(ws: WebSocket, rt, session_id: str, safe_send,
     # is already in flight — the mind treats that as "she's busy".
     async def inject(cue: str) -> bool:
         nonlocal turn_task
-        if turn_task and not turn_task.done():
+        if busy():                             # …a replay counts: one mouth
             return False
         turn_task = asyncio.create_task(run(
             controller.run_turn(session_id, "", persist=False,
@@ -379,8 +434,41 @@ async def _in_the_room(ws: WebSocket, rt, session_id: str, safe_send,
                                  "client_id": data.get("client_id")})
                 continue
 
+            if kind == "speak":
+                # Read one of her lines back out (SPEC §9.11) — the button on
+                # her chat bubbles. The id, never the words: what comes back is
+                # resolved out of her own transcript, so this frame can ask her
+                # to repeat herself and cannot put anything else in her mouth.
+                message_id = data.get("message_id")
+                if not isinstance(message_id, str) or not 0 < len(message_id) <= 64:
+                    await guard.reject_limit("message_id required")
+                    return
+                line = rt.spoken_line(message_id)
+                if line is None:
+                    # The ring is ~200 lines deep and the process's memory: a
+                    # page that has been open a long time can still be showing
+                    # one that has fallen off it. Say that, rather than nothing.
+                    await safe_send({"type": "spoken", "message_id": message_id,
+                                     "message": "that line has fallen out of "
+                                                "the transcript"})
+                    continue
+                if turn_task and not turn_task.done():
+                    # She is mid-reply. A barge-in commits nothing (§4.4), so a
+                    # replay must never be the thing that throws a live turn
+                    # away — pressing the button waits its turn, and says so.
+                    await safe_send({"type": "spoken", "message_id": message_id,
+                                     "message": "she\u2019s still talking"})
+                    continue
+                await stop_replay()            # a second press takes the floor
+                await safe_send({"type": "speaking", "message_id": message_id})
+                replay_task = asyncio.create_task(replay(line, message_id))
+                continue
+
             if kind == "endpoint" or kind == "text":
-                # a new turn starts: make sure the previous one is torn down first
+                # a new turn starts: make sure the previous one is torn down
+                # first — a replay reading out loud included, and that one
+                # first, since `run_turn` is about to arm a new cancel token
+                await stop_replay()
                 if turn_task and not turn_task.done():
                     controller.cancel()
                     await asyncio.gather(turn_task, return_exceptions=True)
@@ -442,6 +530,9 @@ async def _in_the_room(ws: WebSocket, rt, session_id: str, safe_send,
         pass
     finally:
         rt.detach_ambient(session_id)
+        if replay_task and not replay_task.done():
+            controller.cancel()
+            await asyncio.gather(replay_task, return_exceptions=True)
         if turn_task and not turn_task.done():
             controller.cancel()
             await asyncio.gather(turn_task, return_exceptions=True)

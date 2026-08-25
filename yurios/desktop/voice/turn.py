@@ -209,6 +209,49 @@ class TurnController:
         yield OutEvent("done", detail={"latency": rep,
                                        "expression": parser.current_expression()})
 
+    def speak(self, text: str) -> AsyncIterator[OutEvent]:
+        """Say a line that is already written — a replay of something she said.
+
+        Not a turn (SPEC §9.11). Nothing is generated, nothing is persisted,
+        no latency is traced and no filler covers the gap, because there is no
+        model to wait for. What it *does* share with a turn is this
+        controller's cancel token, and that is the point: barge-in silences a
+        replay exactly the way it silences a reply, and a real turn starting
+        takes the floor from one.
+
+        The text goes through the EmotionParser for its *stripping* only. A
+        committed line is already tag- and narration-free (world/turns.py keeps
+        the shown sentences, not the raw stream), but the other things that
+        reach the transcript — the mind's reach-outs, a delivered report — carry
+        no such promise, and she must never read a stage direction aloud. The
+        expression events it collects are dropped rather than emitted: the face
+        belongs to the turn that was actually taken, and reading an old line
+        back out should not drag its mood back over the present one.
+
+        A plain method wrapping the generator, for the reason `run_turn` gives:
+        arming the token here and not in the generator body closes the window
+        where a `cancel()` between `create_task` and the pump's first step set
+        an event this replay was about to throw away."""
+        self._cancel = asyncio.Event()      # fresh cancel token per replay
+        return self._speak(text)
+
+    async def _speak(self, text: str) -> AsyncIterator[OutEvent]:
+        parser = EmotionParser(default=self.expression_default)
+        clean = parser.push(text) + parser.finish()
+        sentences, tail = cut_sentences(clean)
+        if tail.strip():                    # the last one has no terminator
+            sentences.append(tail.strip())
+        for sentence in sentences:
+            if self._cancel.is_set():
+                break
+            # …one sentence at a time, off the event loop, exactly as a turn
+            # does it: the first words play while the rest is still rendering.
+            for chunk in await asyncio.to_thread(self._synth, sentence):
+                if self._cancel.is_set():
+                    break
+                yield OutEvent.say(chunk)
+        yield OutEvent("cancelled") if self._cancel.is_set() else OutEvent("done")
+
     def _synth(self, sentence: str) -> list[AudioChunk]:
         """Synthesize one sentence to audio chunks (runs in a worker thread)."""
         try:

@@ -9,6 +9,12 @@
    chrome is a thin bar and a column at the edges, translucent over her. */
 
 :root{
+  /* Dark rooms, declared as such: the dashboard, the mind page and the studio
+     have always said so and these three had not, so any control that fell back
+     to a user-agent default here rendered for a light page — a light grey
+     background under the room's near-white ink. Saying it once fixes the whole
+     class, and the scrollbars and native controls come out in the right key. */
+  color-scheme: dark;
   /* switchboard tokens — keep in step with dashboard.css */
   --void:#070a09; --ground:#0c1110; --panel:#111816; --panel-2:#17201d;
   --ink:#edf2e8; --soft:#a5afa6; --dim:#69736d; --rule:#27312c;
@@ -274,6 +280,21 @@ svg{ width:1.1em; height:1.1em; fill:none; stroke:currentColor; stroke-width:1.7
 .while-away::before, .while-away::after{
   content:""; flex:1; height:1px; background:var(--rule);
 }
+/* The walk back through the column (SPEC §2.6) — one press, six lines older.
+   Drawn like the rule above it and not like a control: it sits at the top of a
+   transcript, and what belongs to the eye there is the conversation. Explicit
+   background and colour, like every button in these rooms: a UA-default button
+   in a dark room comes out light-on-light. */
+.load-earlier{
+  flex:none; align-self:stretch; margin:2px 0 8px; padding:6px 0;
+  border:1px dashed var(--rule); border-radius:2px;
+  background:transparent; color:var(--dim); cursor:pointer;
+  font:9px var(--font-mono); letter-spacing:.14em; text-transform:uppercase;
+  transition:color .18s ease, border-color .18s ease;
+}
+.load-earlier:hover:not(:disabled),
+.load-earlier:focus-visible{ border-color:var(--soft); color:var(--ink); }
+.load-earlier:disabled{ cursor:progress; }
 .msg .who{
   display:flex; align-items:baseline; gap:8px; margin-bottom:6px;
   color:var(--dim); font:9px var(--font-mono);
@@ -288,6 +309,27 @@ svg{ width:1.1em; height:1.1em; fill:none; stroke:currentColor; stroke-width:1.7
 /* the stamp sits at the far edge of the header row, never wrapping */
 .msg .who .when{ margin-left:auto; white-space:nowrap; color:var(--dim);
                  font-variant-numeric:tabular-nums; }
+/* "read it out" (SPEC §9.11) — her line, in her voice, on demand. `.when` keeps
+   the auto margin, so this rides along at the far end of the header row rather
+   than fighting it for the space. Ghosted until the bubble is hovered, because
+   a column of her replies should not read as a column of buttons — but always
+   there for a keyboard, always there where there is nothing to hover with, and
+   always there once it is the one doing the talking. */
+.msg-speak{
+  flex:none; align-self:center; display:inline-flex; padding:0; margin-left:2px;
+  border:0; background:transparent; color:var(--dim); cursor:pointer;
+  opacity:0; transition:opacity .18s ease, color .18s ease;
+}
+.msg-speak svg{ width:13px; height:13px; }
+.msg:hover .msg-speak, .msg-speak:focus-visible,
+.msg-speak.waiting, .msg-speak.speaking{ opacity:1; }
+.msg-speak:hover{ color:var(--ink); }
+/* her voice may be loading (§9.9) — the same pulse the composer uses to say so */
+.msg-speak.waiting{ color:var(--soft); animation:pulse 1.6s ease-in-out infinite; }
+.msg-speak.speaking{ color:var(--acid, var(--amber)); }
+@media (hover:none){ .msg-speak{ opacity:1; } }
+@media (prefers-reduced-motion:reduce){ .msg-speak.waiting{ animation:none; } }
+
 .msg-img{
   display:block; max-width:100%; border-radius:2px; margin:2px 0 6px;
   border:1px solid var(--rule);

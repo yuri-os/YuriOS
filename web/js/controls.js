@@ -43,15 +43,28 @@
     catch (_) { /* full, or storage denied: the switch still works this session */ }
   }
 
+  /* The page's own audio graph, and the holds currently asking to be heard
+   * through a mute. Kept out here rather than inside wireVoice because the
+   * replay button (js/voice.js) needs the gain, and it is not the switch. */
+  let audioGraph = null;
+  let currentMuted = true;
+  let holds = 0;
+
+  function pushGain() {
+    audioGraph?.(currentMuted && holds === 0);
+  }
+
   /** @param setMuted  (muted: boolean) => void — the page's own audio graph.
    *  Called once at wiring time with the remembered value, before she has said
    *  anything, so a muted page is muted from her first syllable. */
   function wireVoice(setMuted) {
     const btn = document.getElementById('voice-mute');
     if (!btn) return;
+    audioGraph = setMuted;
     let muted = readPref('voiceMuted') ?? true;
     const apply = () => {
-      setMuted(muted);
+      currentMuted = muted;
+      pushGain();
       btn.classList.toggle('muted', muted);
       btn.setAttribute('aria-pressed', String(muted));
       btn.title = muted ? 'unmute her voice' : 'mute her voice';
@@ -70,6 +83,26 @@
 
   window.WorldControls = {
     isVoiceMuted: () => readPref('voiceMuted') ?? true,
+    /* Let one thing be heard while the room is muted — the per-message replay
+     * button (SPEC §9.11, js/voice.js). Pressing "read it out" is somebody
+     * asking to hear *that line*, which is not the same as asking to hear
+     * everything she says next; so this holds the gain open rather than
+     * flipping the switch, and the switch keeps its glyph, its aria state and
+     * its stored value throughout. Returns the release, idempotent — call it
+     * however the line ends and the gain goes back to whatever the switch
+     * says it should be. Nesting counts, so two overlapping holds don't
+     * un-mute the room when the first one lets go. */
+    hearThrough() {
+      holds += 1;
+      pushGain();
+      let released = false;
+      return () => {
+        if (released) return;
+        released = true;
+        holds = Math.max(0, holds - 1);
+        pushGain();
+      };
+    },
     /** @param setMuted the page's audio-graph hook. */
     async init({ setMuted = null } = {}) {
       await runtimeReady;

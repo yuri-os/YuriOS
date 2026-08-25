@@ -43,6 +43,7 @@ from .avatar.controller import VrmController
 from .boot import BootBoard
 from .brain import ToolBrain
 from .channels.manager import ChannelManager
+from .chatlog import ChatLog
 from .clock import Clock
 from .config import Config
 from .context import ContextMeter, short_tokens
@@ -63,6 +64,12 @@ from .voicestack import VoiceStack
 log = logging.getLogger("world.main")
 WEB_DIR = Path(__file__).resolve().parent.parent.parent / "web"
 DIST_DIR = WEB_DIR / "dist"   # Vite build output (cd web && npm run build); served at / (§3)
+#: How much of the conversation the in-memory ring holds (SPEC §2.6).
+RING_SIZE = 200
+#: What one `GET /api/history` hands a page that asks for no particular window.
+HISTORY_PAGE = 100
+#: The most one call may ask for — a client cannot turn this route into a dump.
+HISTORY_MAX = 200
 
 
 class Runtime:
@@ -87,9 +94,16 @@ class Runtime:
         self.controller = controller or VrmController(hub=self.hub)
         self.controller.hub = self.hub
         # the transcript ring (SPEC §2.6 — YuriOS parity): what /api/history
-        # backfills and every `message` event appends to. In-memory on purpose;
-        # her *memory* is the Vault, this is just the visible chat.
-        self.transcript: list[dict] = []
+        # backfills and every `message` event appends to. Still just the visible
+        # chat — her *memory* is the Vault, and nothing here is ever read back
+        # into a prompt — but no longer only in memory: `world/chatlog.py` keeps
+        # the same entries on disk, so the ring wakes up holding the end of the
+        # last conversation instead of opening her room onto a blank column.
+        # The ring stays the live copy and the archive stays the deep one; the
+        # log is what /api/history pages back through, a screenful on load and
+        # a handful at a time behind the button at the top of the column.
+        self.chatlog = ChatLog(cfg.vault_dir)
+        self.transcript: list[dict] = self.chatlog.tail(RING_SIZE)
         # how full her context window is (SPEC §11): the masthead readout, fed by
         # the chat provider on every model pass and published as a sticky
         # `context` event. CONTEXT_LENGTH names the initial ceiling; a direct GGUF
@@ -530,13 +544,90 @@ class Runtime:
             # just rendered — being in the room is what "seen" means (§32.5).
             entry["unheard"] = True
         self.transcript.append(entry)
-        del self.transcript[:-200]
+        del self.transcript[:-RING_SIZE]
+        # …and the same entry to disk, so the column survives the next restart
+        # (world/chatlog.py). Verbatim and unconditional: a line that is only in
+        # the ring is a line the next boot draws as nothing.
+        self.chatlog.add(entry)
         if unheard:
             # before the publish: the notification channel and an open page both
             # react to the event, and both want a badge that already exists.
             self.inbox.add(entry)
         self.hub.publish("message", entry)
         return entry
+
+    def history(self, *, limit: int = HISTORY_PAGE,
+                before: str | None = None) -> dict:
+        """One window of the visible conversation, oldest first (SPEC §2.6).
+
+        What `GET /api/history` answers. Two shapes, one method: with no
+        `before` it is the *end* of the conversation — what a page opening
+        backfills, and after a restart that is the disk copy rather than an
+        empty ring. With `before` it is the entries immediately **older** than
+        that message id, which is what the button at the top of the column asks
+        for, six at a time.
+
+        `has_more` says whether the walk can continue, so the client can retire
+        the button when the archive runs out instead of offering a press that
+        returns nothing. An unknown `before` — an id compacted off the end of
+        the log — is the same answer as reaching the floor: nothing older, and
+        no more to ask for.
+        """
+        entries = self._visible()
+        if before:
+            cut = next((i for i, e in enumerate(entries)
+                        if e.get("id") == before), None)
+            if cut is None:
+                return {"messages": [], "has_more": False}
+            entries = entries[:cut]
+        limit = max(1, min(int(limit), HISTORY_MAX))
+        window = entries[-limit:]
+        return {"messages": window, "has_more": len(window) < len(entries)}
+
+    def _visible(self) -> list[dict]:
+        """The whole conversation a page may draw, oldest first: the archive,
+        then whatever the ring holds that never reached it.
+
+        The two are normally the archive being a superset of the ring, and this
+        merges them by id anyway, for the case where they are not — a Vault on
+        a read-only mount, or no Vault at all (the bare-runtime tests). The log
+        is best-effort by design (world/chatlog.py); the ring is not, and a
+        failed write must not take a line off the screen it is already on.
+        """
+        entries = self.chatlog.entries()
+        if not entries:
+            return list(self.transcript)
+        known = {e.get("id") for e in entries}
+        # Both are oldest-first, and anything the ring holds that the archive
+        # does not is newer than all of it — the log only ever fails forward.
+        return entries + [e for e in self.transcript if e.get("id") not in known]
+
+    def spoken_line(self, message_id: str) -> str | None:
+        """The words of one line **she** said, by transcript id (SPEC §9.11).
+
+        What the replay button resolves to. The voice socket carries the id and
+        never the words, and this is why: the only thing that can come back out
+        of it is something she already said, in this room, to this person. A
+        wire that took text would be a text-to-speech endpoint wearing her
+        voice, which is a different feature and not the one anybody asked for.
+
+        Two places to look, because a page shows lines from both. The ring is
+        memory and holds the last couple of hundred; the inbox is the disk copy
+        of what she said into an empty room (§18.4), and after a restart it is
+        the only copy still on screen. Newest first in each — an id is unique,
+        so the order is only about finding it sooner. Her lines only: `role` is
+        the ring's field and inbox rows have no role at all, since everything
+        in that file is hers.
+        """
+        for entries in (self.transcript, self.inbox.entries()):
+            for entry in reversed(entries):
+                if entry.get("id") != message_id:
+                    continue
+                if entry.get("role", "assistant") == "user":
+                    return None
+                text = (entry.get("text") or "").strip()
+                return text or None
+        return None
 
     # ---- ambient speech seam (SPEC §8.4) ----
 

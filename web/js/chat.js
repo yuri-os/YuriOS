@@ -3,17 +3,24 @@
  * (/, an ES-module app) and the vendored Live2D client (/live2d/, plain
  * scripts) — so the chat renderer and the SSE plumbing exist exactly once.
  *
- * It does two jobs, the YuriOS frontend split (frontends/sanctuary/app.js):
+ * It does three jobs, the YuriOS frontend split (frontends/sanctuary/app.js):
  *
  *   1. subscribe to /api/events and re-dispatch EVERY event as a
  *      `world-ev` CustomEvent on window — the page's stage adapter (bridge.js
  *      on the VRM page, events.js on the Live2D page) picks the `avatar` ones
  *      off that; this file never touches a body;
- *   2. render the chat: history backfill, you/her bubbles, the accumulating
- *      draft while she speaks, the `proactive` tag when she spoke first, and
- *      an <img> when a message carries `image_url` — a selfie of hers (SPEC
- *      §7.6) or a picture you sent her (§35), which are one lane and one
- *      renderer because they are one conversation.
+ *   2. render the chat: history backfill, the button at the top of the column
+ *      that walks back through what came before it six lines at a time (§2.6),
+ *      you/her bubbles, the accumulating draft while she speaks, the
+ *      `proactive` tag when she spoke first, and an <img> when a message
+ *      carries `image_url` — a selfie of hers (SPEC §7.6) or a picture you sent
+ *      her (§35), which are one lane and one renderer because they are one
+ *      conversation.
+ *
+ *   3. draw the "read it out" button on her committed lines (SPEC §9.11) and
+ *      report which one is lit. Only the affordance: pressing it hands a
+ *      message id to js/voice.js, which owns the socket her voice comes back
+ *      on, and the same file says through `markSpeaking` how far along it is.
  *
  * Sending is not here: typed input rides the voice socket exactly as before
  * (voice.js owns #text), so a typed turn keeps TurnController semantics —
@@ -100,11 +107,52 @@
 
   const seen = new Set();               // a message can arrive live AND in the
                                         // history backfill — the id resolves it
+
+  /* "read it out" (SPEC §9.11) — her line, in her voice, on demand. On hers
+   * only, and only on a *committed* one: the socket resolves a replay out of
+   * the transcript by id, so a bubble without one (your line, the accumulating
+   * draft, an optimistic send) has nothing to ask for. This file draws it and
+   * nothing else — js/voice.js owns the socket that answers, and says which
+   * button is lit through `markSpeaking` below. */
+  function speakButton(m, her) {
+    if (!her || !m.id || !m.text) return '';
+    return `<button type="button" class="msg-speak" data-message-id="${esc(m.id)}"` +
+           ' title="read it out" aria-label="read it out">' +
+           '<svg aria-hidden="true" viewBox="0 0 24 24">' +
+           '<path d="M4 10v4h3l4 3V7l-4 3H4zM15.4 9.3a4 4 0 0 1 0 5.4"/>' +
+           '</svg></button>';
+  }
+
+  /** Which line the voice socket is reading, and how far along it is:
+   *  `waiting` while her voice loads and the ask is in flight, `speaking` once
+   *  audio is arriving, `''` when it is over. One at a time by construction —
+   *  she has one mouth — so this clears every other button before lighting one. */
+  function markSpeaking(messageId, state) {
+    if (!messages) return;
+    // One pass over the buttons rather than an attribute selector: `CSS.escape`
+    // is the only correct way to build one out of an id, and `CSS` is not a
+    // global everywhere this runs (WebKitGTK under pywebview — the same reason
+    // js/controls.js never touches a bare `localStorage`).
+    for (const el of messages.querySelectorAll('.msg-speak')) {
+      const lit = state && el.dataset.messageId === messageId;
+      el.classList.toggle('waiting', lit && state === 'waiting');
+      el.classList.toggle('speaking', lit && state === 'speaking');
+      el.title = !lit ? 'read it out'
+        : (state === 'waiting' ? 'getting her voice…' : 'stop reading it');
+      el.setAttribute('aria-label', el.title);
+    }
+  }
+
+  messages?.addEventListener('click', (ev) => {
+    const button = ev.target.closest?.('.msg-speak');
+    if (button) window.WorldVoice?.speak?.(button.dataset.messageId);
+  });
+
   function body(m, her, receipt = '') {
     let html = `<span class="who">${her ? esc(charName || 'her') : 'you'}` +
                (m.proactive ? '<em>· she spoke first</em>' : '') +
                (receipt ? `<em class="receipt">${esc(receipt)}</em>` : '') +
-               stamp(m.ts) + '</span>';
+               stamp(m.ts) + speakButton(m, her) + '</span>';
     if (m.image_url) {
       // Hers is a selfie (SPEC §7.6); yours is a picture you sent her (§35) —
       // same element, same lane, and only the alt text knows the difference.
@@ -167,6 +215,22 @@
     scroll();
   });
 
+  /* One bubble's classes and contents, wherever it is going to live: the live
+   * append below, the optimistic line it lands on, and a restored one prepended
+   * above the column all draw the same thing.
+   *
+   * `.unheard` marks a line you were *not* here for, which is why it is keyed on
+   * the inbox snapshot taken at page load rather than on the event's own
+   * `unheard` flag: a line arriving live is one you are watching arrive, and
+   * captioning that "while you were away" would be a lie about the last second. */
+  function paint(div, m, her, receipt = '') {
+    div.className = 'msg ' + (her ? 'her' : 'you') + (m.proactive ? ' proactive' : '')
+      + (m.id && unheard.has(m.id) ? ' unheard' : '');
+    delete div.dataset.clientId;
+    div.innerHTML = body(m, her, receipt);
+    return div;
+  }
+
   function addMsg(m) {
     if (!messages) return;
     if (m.id) {
@@ -183,14 +247,7 @@
       clearTimeout(pendingExpiry.get(m.client_id));
       pendingExpiry.delete(m.client_id);
     }
-    // `.unheard` marks a line you were *not* here for, which is why it is keyed
-    // on the inbox snapshot taken at page load rather than on the event's own
-    // `unheard` flag: a line arriving live is one you are watching arrive, and
-    // captioning that "while you were away" would be a lie about the last second.
-    div.className = 'msg ' + (her ? 'her' : 'you') + (m.proactive ? ' proactive' : '')
-      + (m.id && unheard.has(m.id) ? ' unheard' : '');
-    delete div.dataset.clientId;
-    div.innerHTML = body(m, her, !her && m.client_id ? 'received' : '');
+    paint(div, m, her, !her && m.client_id ? 'received' : '');
     if (!optimistic) messages.appendChild(div);
     if (optimistic) {
       window.dispatchEvent(new CustomEvent('chat-received', { detail: m }));
@@ -337,7 +394,85 @@
     messages.insertBefore(rule, first);
   }
 
-  function flushBackfill(history) {
+  /* The walk back through the conversation (SPEC §2.6).
+   *
+   * A page opens on the last screenful, and — now that the ring is seeded from
+   * `world/chatlog.py` — that is still the end of the last conversation after a
+   * restart, not a blank column. Everything before it waits behind one button at
+   * the top, six lines a press.
+   *
+   * Six, and not "all of it", because this is for *finding* something: you are
+   * looking for what she called the thing, and a click that answers with two
+   * hundred lines has scrolled you past it. It is also why the reader's place is
+   * held across the insert — a column that jumps has lost the line you were
+   * reading, which is the whole reason you pressed the button. */
+  const EARLIER_PAGE = 6;
+  let oldestId = null;         // top of what is drawn: where the next walk resumes
+  let earlierEl = null;        // the button, or null once the archive runs out
+  let loadingEarlier = false;
+
+  function showEarlier(hasMore) {
+    if (!messages) return;
+    if (!hasMore || !oldestId) {           // nothing older to offer: retire it
+      earlierEl?.remove();
+      earlierEl = null;
+      return;
+    }
+    if (!earlierEl) {
+      earlierEl = document.createElement('button');
+      earlierEl.type = 'button';
+      earlierEl.className = 'load-earlier';
+      earlierEl.addEventListener('click', loadEarlier);
+    }
+    earlierEl.textContent = `load ${EARLIER_PAGE} earlier messages`;
+    earlierEl.disabled = false;
+    if (messages.firstChild !== earlierEl) {
+      messages.insertBefore(earlierEl, messages.firstChild);
+    }
+  }
+
+  /** One restored line, above everything already drawn. Never optimistic and
+   *  never a draft — these are committed entries the host has had all along —
+   *  so this shares the painter with the live path and nothing else. */
+  function addOlder(m, anchor) {
+    if (!messages) return;
+    if (m.id) {
+      if (seen.has(m.id)) return;
+      seen.add(m.id);
+    }
+    messages.insertBefore(
+      paint(document.createElement('div'), m, m.role !== 'user'), anchor);
+  }
+
+  async function loadEarlier() {
+    if (loadingEarlier || !oldestId || !earlierEl) return;
+    loadingEarlier = true;
+    earlierEl.disabled = true;
+    earlierEl.textContent = 'reading back…';
+    const el = scroller();
+    const fromBottom = el.scrollHeight - el.scrollTop;
+    try {
+      const resp = await fetch(apiPath('/api/history?limit=' + EARLIER_PAGE +
+                                       '&before=' + encodeURIComponent(oldestId)));
+      if (!resp.ok) throw new Error(String(resp.status));
+      const data = await resp.json();
+      const older = data.messages || [];
+      const anchor = earlierEl.nextSibling;
+      older.forEach((m) => addOlder(m, anchor));   // oldest first, so: in order
+      if (older.length && older[0].id) oldestId = older[0].id;
+      showEarlier(Boolean(data.has_more) && older.length > 0);
+      el.scrollTop = el.scrollHeight - fromBottom;
+    } catch {
+      // Nothing was prepended, so the only thing to repair is the label. Left
+      // pressable: the usual cause is a daemon that is restarting under you.
+      earlierEl.textContent = "couldn't reach further back — try again";
+      earlierEl.disabled = false;
+    } finally {
+      loadingEarlier = false;
+    }
+  }
+
+  function flushBackfill(history, hasMore = false) {
     if (backfilled) return;               // the failsafe already fired
     // Optimistic lines must stay after older history even when the user submits
     // before the initial fetch returns.
@@ -354,6 +489,13 @@
       queued = [];
     }
     markWhileYouWereAway();
+    // Anchored on the first line actually drawn, which is normally the oldest
+    // the archive holds anyway. An inbox row too old to be in the log (it
+    // predates the file, or its write failed) simply answers "nothing older"
+    // and retires the button, rather than paging entries in above a line that
+    // sorted before them.
+    oldestId = history.find((m) => m.id)?.id || null;
+    showEarlier(hasMore);
     if (unheard.size) markInboxRead();
   }
 
@@ -473,9 +615,10 @@
     // hold up the transcript: a failed one is an empty run, not a blank chat.
     Promise.all([
       fetch(apiPath('/api/history')).then((r) => r.json())
-        .then((d) => d.messages || []).catch(() => []),
+        .catch(() => ({})),
       loadInbox(),
-    ]).then(([history, waiting]) => flushBackfill(merge(history, waiting)));
+    ]).then(([d, waiting]) => flushBackfill(merge(d.messages || [], waiting),
+                                            Boolean(d.has_more)));
     // …and a hung fetch must never cost her a live word: give up waiting and
     // show what's arriving, out of order but present.
     setTimeout(() => flushBackfill([]), 5000);
@@ -494,5 +637,6 @@
     receiveMessage,
     failPending,
     stopPending,
+    markSpeaking,
   };
 })();

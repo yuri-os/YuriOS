@@ -15,6 +15,25 @@ bottom-left) to grant the page your microphone. Then just talk. You can interrup
 — barge-in kills whatever she's saying, scripted or replied, and a barged-in turn persists
 nothing: no memory line, no commit.
 
+### Reading a line back out
+
+Every line **she** said in the chat carries a small speaker button in its header, beside the
+timestamp. Press it and she reads that line out loud again — her mouth moves with it on both
+bodies, talking over her stops it, and pressing it a second time stops it too. It is not a turn:
+nothing is generated, nothing is committed, and her memory never hears about it. Pressing it
+while she is mid-reply waits instead — a turn cut short commits nothing, and re-reading an old
+line is never worth throwing a live answer away.
+
+It works in a muted room. Muting is "not by default", not "no": pressing the button opens the
+speakers for the length of that one line and closes them again, and the mute switch itself never
+moves. If her voice is not loaded yet the button pulses while it warms (the same ~20 s the room's
+"loading her voice…" notice covers), and on a `fake` TTS it simply reports that she has no voice
+to read with.
+
+The wire carries the *message id*, never the text, so what comes back is always something out of
+her own transcript. A line old enough to have fallen off the ring (~200 entries) says so rather
+than reading out silence.
+
 ### Muting her
 
 The speaker button beside the mic is on every page (sanctuary, Live2D, text room). It starts muted

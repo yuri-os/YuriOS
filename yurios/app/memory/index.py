@@ -12,6 +12,7 @@ the index (`scripts/reindex.py`).
 from __future__ import annotations
 
 import sqlite3
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -52,30 +53,47 @@ class Chunk:
 
 
 class ChunkIndex:
+    """One connection, shared across threads under `_lock`.
+
+    A character is not built on the thread that goes on to use her: since
+    `CharacterHost.start` runs `create_app` through `asyncio.to_thread`, the
+    index is opened on a pool worker and then read from the event loop on every
+    turn, and from other workers on the paths that write memory. sqlite3's
+    default same-thread check turns that into a `ProgrammingError` on the first
+    recall, so the check is off and this lock is what replaces it — it keeps the
+    execute/commit pairs below atomic, which the check never did anyway.
+    """
+
     def __init__(self, db_path: Path, dim: int):
         self.db_path = Path(db_path)
         self.dim = dim
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._db = sqlite3.connect(self.db_path)
-        self._db.executescript(SCHEMA)
-        self._db.commit()
-        # snapshot at open, BEFORE any upsert re-stamps it — the startup freshness
-        # check (app/main.py) compares this to the configured embedder (§4.3).
-        self.stored_embedder_id = self.get_embedder_id()
+        # re-entrant: __init__ takes the lock and then calls get_embedder_id,
+        # which takes it again.
+        self._lock = threading.RLock()
+        self._db = sqlite3.connect(self.db_path, check_same_thread=False)
+        with self._lock:
+            self._db.executescript(SCHEMA)
+            self._db.commit()
+            # snapshot at open, BEFORE any upsert re-stamps it — the startup freshness
+            # check (app/main.py) compares this to the configured embedder (§4.3).
+            self.stored_embedder_id = self.get_embedder_id()
 
     def get_embedder_id(self) -> str | None:
         """The embedder fingerprint that built these vectors, or None if unknown
         (a legacy index from before provenance was tracked)."""
-        row = self._db.execute(
-            "SELECT value FROM meta WHERE key = 'embedder_id'").fetchone()
+        with self._lock:
+            row = self._db.execute(
+                "SELECT value FROM meta WHERE key = 'embedder_id'").fetchone()
         return row[0] if row else None
 
     def set_embedder_id(self, value: str) -> None:
         """Stamp the fingerprint of the embedder these vectors were built with."""
-        self._db.execute(
-            "INSERT OR REPLACE INTO meta(key, value) VALUES ('embedder_id', ?)",
-            (value,))
-        self._db.commit()
+        with self._lock:
+            self._db.execute(
+                "INSERT OR REPLACE INTO meta(key, value) VALUES ('embedder_id', ?)",
+                (value,))
+            self._db.commit()
 
     def upsert(self, *, id: str, kind: str, source_path: str, source_span: str,
                text: str, embedding: list[float], created_at: str,
@@ -83,15 +101,17 @@ class ChunkIndex:
         vec = np.asarray(embedding, dtype=np.float32)
         assert vec.shape == (self.dim,), \
             f"embedding is {vec.shape[0]}-d, index is {self.dim}-d (EMBED_DIM, §3.1)"
-        self._db.execute(
-            "INSERT OR REPLACE INTO chunk VALUES (?,?,?,?,?,?,?,?)",
-            (id, kind, source_path, source_span, text, vec.tobytes(),
-             created_at, salience))
-        self._db.commit()
+        with self._lock:
+            self._db.execute(
+                "INSERT OR REPLACE INTO chunk VALUES (?,?,?,?,?,?,?,?)",
+                (id, kind, source_path, source_span, text, vec.tobytes(),
+                 created_at, salience))
+            self._db.commit()
 
     def search(self, query_vec: list[float], limit: int) -> list[Chunk]:
         """Cosine similarity over every row (flat scan), top `limit`."""
-        rows = self._db.execute("SELECT * FROM chunk").fetchall()
+        with self._lock:
+            rows = self._db.execute("SELECT * FROM chunk").fetchall()
         if not rows:
             return []
         q = np.asarray(query_vec, dtype=np.float32)
@@ -107,18 +127,22 @@ class ChunkIndex:
         return chunks[:limit]
 
     def all(self) -> list[Chunk]:
-        rows = self._db.execute("SELECT * FROM chunk").fetchall()
+        with self._lock:
+            rows = self._db.execute("SELECT * FROM chunk").fetchall()
         return [Chunk(cid, kind, spath, span, text,
                       np.frombuffer(blob, dtype=np.float32), created, salience)
                 for (cid, kind, spath, span, text, blob, created, salience) in rows]
 
     def count(self) -> int:
-        return self._db.execute("SELECT COUNT(*) FROM chunk").fetchone()[0]
+        with self._lock:
+            return self._db.execute("SELECT COUNT(*) FROM chunk").fetchone()[0]
 
     def wipe(self) -> None:
         """Drop every row — reindex.py rebuilds from the .md files (§4.3)."""
-        self._db.execute("DELETE FROM chunk")
-        self._db.commit()
+        with self._lock:
+            self._db.execute("DELETE FROM chunk")
+            self._db.commit()
 
     def close(self) -> None:
-        self._db.close()
+        with self._lock:
+            self._db.close()

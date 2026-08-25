@@ -28,8 +28,13 @@ const conversation = (n) => Array.from({ length: n }, (_, i) => ({
   ts: `2026-08-2${1 + Math.floor(i / 10)}T09:0${i % 10}:00`,
 }));
 
-/** The host: the last six of `all`, then six at a time behind `before`. */
-function host(all, { pageSize = 6 } = {}) {
+/** The host: the last six of `all`, then six at a time behind `before`.
+ *
+ *  `inbox` is what she reached out with while the room was empty — the same
+ *  shape the durable file keeps, and deliberately allowed to hold rows the
+ *  archive does not: inbox.json predates transcript.jsonl on every vault that
+ *  existed before it, so its oldest rows are older than the whole log. */
+function host(all, { pageSize = 6, inbox = [] } = {}) {
   return vi.fn(async (url) => {
     if (String(url).startsWith('/api/history')) {
       const query = new URL(url, 'http://x').searchParams;
@@ -42,7 +47,7 @@ function host(all, { pageSize = 6 } = {}) {
         json: async () => ({ messages: window, has_more: cut - window.length > 0 }),
       };
     }
-    if (String(url) === '/api/inbox') return { ok: true, json: async () => ({ entries: [] }) };
+    if (String(url) === '/api/inbox') return { ok: true, json: async () => ({ entries: inbox }) };
     if (String(url) === '/api/inbox/read') return { ok: true, json: async () => ({}) };
     throw new Error(`unexpected request: ${url}`);
   });
@@ -151,5 +156,34 @@ describe('the button at the top of the column', () => {
     await vi.waitFor(() => expect(button().textContent).toContain("couldn't reach"));
     expect(button().disabled).toBe(false);
     expect(drawn()).toHaveLength(6);        // nothing half-rendered
+  });
+
+  it('walks the archive even with an inbox row older than all of it', async () => {
+    /* The regression: `oldestId` was the oldest line *drawn*, and after a
+     * restart that is an inbox row — inbox.json predates transcript.jsonl on
+     * every vault upgraded into it, so its rows sort above the whole archive.
+     * The host cannot resolve an anchor it never wrote, so the first press
+     * answered "nothing older" and retired the button: the walk was dead on
+     * every existing vault. The anchor is an id the *archive* handed over. */
+    const all = conversation(20);
+    const older = {
+      id: 'nb1', kind: 'message', ts: '2026-08-20T22:00:00',
+      text: 'I left this here last night.',
+    };
+    const fetched = await open(all, { inbox: [older] });
+    await vi.waitFor(() => expect(drawn()).toHaveLength(7));
+    expect(drawn()[0]).toContain('I left this here last night.');
+    expect(button()).not.toBeNull();
+
+    button().click();
+    await vi.waitFor(() => expect(drawn()).toHaveLength(13));
+    const asked = fetched.mock.calls.map(([url]) => String(url))
+      .filter((url) => url.includes('before='));
+    expect(asked).toEqual(['/api/history?limit=6&before=m14']);
+    // the inbox row is still the oldest thing on screen, and the batch landed
+    // under it rather than on top of a line it predates
+    expect(drawn()[0]).toContain('I left this here last night.');
+    expect(drawn()[1]).toContain('line 8');
+    expect(drawn()[7]).toContain('line 14');
   });
 });

@@ -227,6 +227,9 @@
     div.className = 'msg ' + (her ? 'her' : 'you') + (m.proactive ? ' proactive' : '')
       + (m.id && unheard.has(m.id) ? ' unheard' : '');
     delete div.dataset.clientId;
+    // the transcript id on the bubble, so the walk back can find the one line
+    // it is anchored on without keeping a second map of the column
+    if (m.id) div.dataset.messageId = m.id;
     div.innerHTML = body(m, her, receipt);
     return div;
   }
@@ -407,9 +410,32 @@
    * held across the insert — a column that jumps has lost the line you were
    * reading, which is the whole reason you pressed the button. */
   const EARLIER_PAGE = 6;
-  let oldestId = null;         // top of what is drawn: where the next walk resumes
+  /* Where the next press resumes — and it is an id the *archive* handed over,
+   * never merely the oldest line on screen. Those differ after a restart: the
+   * inbox (§18.4) is a separate file that predates `transcript.jsonl` on every
+   * vault upgraded into it, so its rows sort above the whole log. Anchoring on
+   * one asked the host to walk back from a line it never wrote, which answers
+   * "nothing older" — the button retired on its first press and the walk was
+   * dead on exactly the vaults that had a conversation to walk back through. */
+  let oldestId = null;
   let earlierEl = null;        // the button, or null once the archive runs out
   let loadingEarlier = false;
+
+  /* The bubble `oldestId` names. Everything the walk inserts goes immediately
+   * above it, which is also where the button belongs: a row the archive does
+   * not hold is older than anything the walk can fetch, so it keeps its place
+   * at the top rather than being buried under lines it predates.
+   *
+   * A linear scan, not an attribute selector: building one out of an id needs
+   * `CSS.escape`, and `CSS` is not a global everywhere this runs (markSpeaking
+   * above says the same). */
+  function anchorNode() {
+    if (!messages || !oldestId) return null;
+    for (const el of messages.children) {
+      if (el.dataset?.messageId === oldestId) return el;
+    }
+    return null;
+  }
 
   function showEarlier(hasMore) {
     if (!messages) return;
@@ -426,9 +452,8 @@
     }
     earlierEl.textContent = `load ${EARLIER_PAGE} earlier messages`;
     earlierEl.disabled = false;
-    if (messages.firstChild !== earlierEl) {
-      messages.insertBefore(earlierEl, messages.firstChild);
-    }
+    const at = anchorNode() || messages.firstChild;
+    if (at && earlierEl.nextSibling !== at) messages.insertBefore(earlierEl, at);
   }
 
   /** One restored line, above everything already drawn. Never optimistic and
@@ -457,7 +482,9 @@
       if (!resp.ok) throw new Error(String(resp.status));
       const data = await resp.json();
       const older = data.messages || [];
-      const anchor = earlierEl.nextSibling;
+      // above the line the walk is anchored on — normally the top of the column,
+      // and after a restart just under the inbox rows the archive never held
+      const anchor = anchorNode() || earlierEl.nextSibling;
       older.forEach((m) => addOlder(m, anchor));   // oldest first, so: in order
       if (older.length && older[0].id) oldestId = older[0].id;
       showEarlier(Boolean(data.has_more) && older.length > 0);
@@ -472,7 +499,7 @@
     }
   }
 
-  function flushBackfill(history, hasMore = false) {
+  function flushBackfill(history, hasMore = false, anchorId = null) {
     if (backfilled) return;               // the failsafe already fired
     // Optimistic lines must stay after older history even when the user submits
     // before the initial fetch returns.
@@ -489,12 +516,10 @@
       queued = [];
     }
     markWhileYouWereAway();
-    // Anchored on the first line actually drawn, which is normally the oldest
-    // the archive holds anyway. An inbox row too old to be in the log (it
-    // predates the file, or its write failed) simply answers "nothing older"
-    // and retires the button, rather than paging entries in above a line that
-    // sorted before them.
-    oldestId = history.find((m) => m.id)?.id || null;
+    // Anchored on the oldest line `/api/history` returned — not the oldest one
+    // drawn, which after a restart is an inbox row the archive has no record of
+    // and cannot walk back from.
+    oldestId = anchorId;
     showEarlier(hasMore);
     if (unheard.size) markInboxRead();
   }
@@ -617,8 +642,11 @@
       fetch(apiPath('/api/history')).then((r) => r.json())
         .catch(() => ({})),
       loadInbox(),
-    ]).then(([d, waiting]) => flushBackfill(merge(d.messages || [], waiting),
-                                            Boolean(d.has_more)));
+    ]).then(([d, waiting]) => {
+      const history = d.messages || [];
+      flushBackfill(merge(history, waiting), Boolean(d.has_more),
+                    history.find((m) => m.id)?.id || null);
+    });
     // …and a hung fetch must never cost her a live word: give up waiting and
     // show what's arriving, out of order but present.
     setTimeout(() => flushBackfill([]), 5000);

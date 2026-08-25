@@ -71,27 +71,27 @@ def session_frame(ws) -> dict:
 
 
 def expect_rejected(ws, code: int = LIMIT_CLOSE) -> str:
-    """Drain to the guard's error frame, then assert the close code it used.
+    """The guard's error frame, and the close code the socket ends on.
 
-    Draining matters: she greets on arrival, so on the paths that reject *after*
-    the handshake there is a turn already streaming down the same wire.
+    Read to the close rather than expecting the error to be the last frame on
+    the wire. She greets on arrival, so on the paths that reject *after* the
+    handshake a turn is already streaming down this same socket, and the
+    refusal is interleaved with it — the pump can put another `audio` frame out
+    between the error and the close. What is guaranteed is that the error
+    arrives and the socket then closes with the guard's code; that the greeting
+    stops mid-word is the point, not a detail to assert the shape of.
     """
     message = None
-    for _ in range(80):
+    for _ in range(400):
         try:
             frame = ws.receive_json()
-        except WebSocketDisconnect as exc:                  # closed without a word
+        except WebSocketDisconnect as exc:
             assert exc.code == code
-            return message or ""
+            assert message is not None, "the socket closed without saying why"
+            return message
         if frame["type"] == "error":
             message = frame["message"]
-            break
-    else:
-        raise AssertionError("no error frame")
-    with pytest.raises(WebSocketDisconnect) as exc_info:
-        ws.receive_json()
-    assert exc_info.value.code == code
-    return message
+    raise AssertionError(f"the socket never closed (error so far: {message!r})")
 
 
 def test_the_first_frame_must_be_a_hello(rig):

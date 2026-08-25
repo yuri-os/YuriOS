@@ -96,6 +96,7 @@ key. Chat turns are the one deliberate split — `prompts.jsonl` holds an index 
 |---|---|
 | **The tick loop** | `mind/loop.py` — `MindLoop.tick()` |
 | **The inbound signal bus** | `mind/signals.py` + the `FORK` tee in `world/routes/voice_ws.py` |
+| **The voice wire, both bodies** | `desktop/voice/ws_session.py` (+ `ws_limits.py` for the numbers) |
 | **Activity states + budget** | `mind/policy.py` — `ActivityController` · `mind/budget.py` |
 | **The two salience gates** | `mind/policy.py` — `appraise_*`, `score_interrupt` |
 | **Gate 2 in action** | `mind/loop.py` — `_act_reach_out` |
@@ -166,8 +167,8 @@ runs even when an earlier one failed, and the summary names what broke.
 
 **The lint** is `ruff check`, and deliberately not `ruff format` — the formatting here is hand-set
 and a formatter would rewrite 36k lines to say nothing new. **The typecheck** is `mypy`, set where
-the codebase is rather than where a greenfield project would start: the 36 modules written before
-it existed are listed in `[tool.mypy]`'s overrides and skipped, the other 132 are checked, and
+the codebase is rather than where a greenfield project would start: the 30 modules written before
+it existed are listed in `[tool.mypy]`'s overrides and skipped, the other 164 are checked, and
 that list may only shrink. Both are configured in `pyproject.toml`, next to a note on why each
 rule is where it is.
 

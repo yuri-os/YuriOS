@@ -1,8 +1,13 @@
 """/ws/voice — the real-time voice loop (SPEC §2.2, §9, §10).
 
-The turn spine — the audio wire, the SpeechGate, the greeting-once logic, the
-barge-in path — pumps one turn's OutEvents at a time through a TurnController.
-On top of that spine:
+The wire this runs on — the connection cap, the hello exchange, the frame
+ceilings, the STT session, the turn teardown — is `desktop/voice/ws_session.py`,
+shared with the native window's route. Those are the invariants neither body is
+allowed to have its own version of; everything below is this body's own.
+
+The turn spine — the SpeechGate, the greeting-once logic, the barge-in path —
+pumps one turn's OutEvents at a time through a TurnController. On top of that
+spine:
 
   1. engagement notifications — `rt.turn_started()` / `rt.turn_ended()` around
      each turn's pump, so the mind knows when she's talking (the ENGAGED
@@ -63,94 +68,39 @@ Server → client messages (JSON; audio PCM is base64 in `pcm`):
 from __future__ import annotations
 
 import asyncio
-import base64
 import logging
 from contextlib import nullcontext
 
-import numpy as np
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
-from starlette.websockets import WebSocketState
 
 from yurios.desktop.voice.latency import TurnTrace
-from yurios.desktop.voice.speech_gate import SpeechGate
 from yurios.desktop.voice.transcript import is_meaningful_transcript
-from yurios.desktop.voice.turn import OutEvent, TurnController
 from yurios.desktop.voice.ws_limits import (
-    MAX_SESSION_ID_BYTES, MAX_TYPED_TEXT_BYTES, VoiceSocketClosed,
-    VoiceSocketGuard, bounded_text, reject_capacity,
+    MAX_TYPED_TEXT_BYTES, VoiceSocketClosed, VoiceSocketGuard, bounded_text,
+)
+from yurios.desktop.voice.ws_session import (
+    Utterance, encode_event, loads_frame, make_sender, open_session, serve,
+    stop_turn, turn_controller,
 )
 
 log = logging.getLogger("world.ws")
 router = APIRouter()
 
 
-def _encode(ev: OutEvent) -> dict:
-    """OutEvent → a JSON-able dict; PCM is base64 float32 (B2 §10).
-    (`expression` events never reach here — the pump reroutes them, fork #5.)"""
-    if ev.kind in ("filler", "audio") and ev.audio is not None:
-        return {"type": ev.kind, "text": ev.text,
-                "sr": ev.audio.sample_rate,
-                "pcm": base64.b64encode(
-                    ev.audio.audio.astype(np.float32).tobytes()).decode("ascii")}
-    if ev.kind == "done":
-        return {"type": "done", **(ev.detail or {})}
-    if ev.kind == "error":
-        return {"type": "error", **(ev.detail or {})}
-    return {"type": ev.kind}
-
-
 @router.websocket("/ws/voice")
 async def voice(ws: WebSocket):
-    rt = ws.app.state.rt
-    limiter = rt.voice_ws_limiter
-    if not limiter.try_acquire():
-        await reject_capacity(ws)
-        return
-    try:
-        await _connected(ws, rt)
-    finally:
-        limiter.release()
+    await serve(ws, _connected)
 
 
 async def _connected(ws: WebSocket, rt) -> None:
     await ws.accept()
     guard = VoiceSocketGuard(ws, rt.cfg)
     brain = rt.brain
+    safe_send = make_sender(ws)
 
-    async def safe_send(data: dict) -> bool:
-        """Send unless the client is already gone. Returns False if the socket is
-        closed/closing — the client can vanish mid-turn (a reload, a reconnect),
-        and a send after close raises; we treat that as 'stop', not an error."""
-        if ws.application_state != WebSocketState.CONNECTED:
-            return False
-        try:
-            await ws.send_json(data)
-            return True
-        except (WebSocketDisconnect, RuntimeError):
-            return False
-
-    # resolve the session (reuse the client's id if it's still known)
-    try:
-        message = await guard.receive_initial()
-    except VoiceSocketClosed:
-        return                                    # client left before saying hello
-    try:
-        guard.accept_text_frame(message.get("text"))
-    except OverflowError as exc:
-        await guard.reject_limit(str(exc))
+    session_id = await open_session(ws, guard, brain)
+    if session_id is None:
         return
-    hello = _loads(message.get("text"))
-    if message.get("type") != "websocket.receive" or hello.get("type") != "hello":
-        await guard.reject_limit("voice hello required")
-        return
-    try:
-        requested_session = bounded_text(
-            hello.get("session_id"), maximum=MAX_SESSION_ID_BYTES,
-            field="session_id", optional=True)
-    except ValueError as exc:
-        await guard.reject_limit(str(exc))
-        return
-    session_id = brain.resolve_session(requested_session)
 
     # This socket IS "the user entered the room" (SPEC §9.9): her voice loads
     # here, for as long as somebody is holding one open, and is freed a beat
@@ -205,18 +155,8 @@ async def _in_the_room(ws: WebSocket, rt, session_id: str, safe_send,
     which is the bug this whole seam exists to avoid.
     """
     brain = rt.brain
-    stt = rt.stt.create_session()
-    # Server-side debounced VAD (B2 §3.4, §4.2): an endpoint only becomes a turn
-    # if real speech was actually heard. `gate.confirmed` read at endpoint.
-    gate = SpeechGate(
-        onset_frames=rt.cfg.vad_onset_frames,
-        bargein_frames=rt.cfg.vad_bargein_frames,
-        hangover_frames=max(1, rt.cfg.vad_min_silence_ms // max(1, rt.cfg.frame_ms)))
-    controller = TurnController(
-        brain=brain, tts=rt.tts, filler_bank=rt.filler_bank,
-        mask_latency=rt.cfg.mask_latency,
-        expression_default=rt.cfg.expression_default,
-        trace_dir=rt.cfg.trace_dir)
+    heard = Utterance(rt, guard)
+    controller = turn_controller(rt, brain)
 
     turn_task: asyncio.Task | None = None
 
@@ -261,7 +201,7 @@ async def _in_the_room(ws: WebSocket, rt, session_id: str, safe_send,
                 async for ev in agen:
                     if ev.kind == "expression":        # one lane for the face (§10)
                         rt.controller.set_expression(ev.expression, 1.0, reset_ms=0)
-                        continue
+                        continue                       # …so it never reaches the wire
                     if ev.kind == "audio" and ev.text:  # the draft grows
                         spoken.append(ev.text)
                         if not commit_text:            # …unless the text is given
@@ -278,7 +218,7 @@ async def _in_the_room(ws: WebSocket, rt, session_id: str, safe_send,
                                             source="voice")
                     elif ev.kind in ("cancelled", "error"):   # no trace
                         rt.hub.publish("draft_cancel", {})
-                    payload = _encode(ev)
+                    payload = encode_event(ev)
                     if ev.kind == "done":
                         payload["client_id"] = client_id
                         if committed_message:
@@ -321,12 +261,12 @@ async def _in_the_room(ws: WebSocket, rt, session_id: str, safe_send,
             async for ev in controller.speak(text):
                 if ev.kind in ("done", "cancelled"):
                     break                      # `spoken` is this pump's ending
-                if not await safe_send(_encode(ev)):
+                if not await safe_send(encode_event(ev)):
                     controller.cancel()        # client vanished → stop synthesizing
                     return
         except Exception:
             log.exception("replay failed")
-            await safe_send({"type": "error", "message": "she couldn\u2019t say that again"})
+            await safe_send({"type": "error", "message": "she couldn’t say that again"})
         finally:
             # Always, by every exit: this frame is what puts the button on the
             # message back out. A replay that ends in silence and leaves a
@@ -334,16 +274,9 @@ async def _in_the_room(ws: WebSocket, rt, session_id: str, safe_send,
             await safe_send({"type": "spoken", "message_id": message_id})
 
     async def stop_replay() -> None:
-        """Take the floor back from a replay, and wait until it has let go.
-
-        Awaited before anything that arms a new cancel token — `run_turn` and
-        `speak` each replace `controller._cancel`, so a replay left running
-        across one of those would be holding a token nobody can set any more.
-        """
+        """Take the floor back from a replay, and wait until it has let go."""
         nonlocal replay_task
-        if replay_task and not replay_task.done():
-            controller.cancel()
-            await asyncio.gather(replay_task, return_exceptions=True)
+        await stop_turn(controller, replay_task)
         replay_task = None
 
     def busy() -> bool:
@@ -394,19 +327,14 @@ async def _in_the_room(ws: WebSocket, rt, session_id: str, safe_send,
             if "bytes" in msg and msg["bytes"] is not None:
                 # a mic frame during the user's turn → feed STT (endpointing on
                 # the client); the VAD verdict feeds the gate (B2 §3.4).
-                payload = msg["bytes"]
                 try:
-                    guard.accept_audio(payload)
+                    heard.feed(msg["bytes"])
                 except (ValueError, OverflowError) as exc:
                     await guard.reject_limit(str(exc))
                     return
-                frame = np.frombuffer(payload, dtype=np.float32)
-                stt.feed(frame, 16000)
-                if rt.cfg.vad_confirm and rt.vad is not None:
-                    gate.push(rt.vad.is_speech(frame, 16000))
                 continue
 
-            data = _loads(msg.get("text"))
+            data = loads_frame(msg.get("text"))
             kind = data.get("type")
 
             if kind == "pong":
@@ -417,9 +345,7 @@ async def _in_the_room(ws: WebSocket, rt, session_id: str, safe_send,
                 continue
 
             if kind == "reset_audio":
-                stt.reset()
-                gate.reset()
-                guard.reset_utterance()
+                heard.reset()
                 continue
 
             if kind == "cancel":
@@ -458,7 +384,7 @@ async def _in_the_room(ws: WebSocket, rt, session_id: str, safe_send,
                     # replay must never be the thing that throws a live turn
                     # away — pressing the button waits its turn, and says so.
                     await safe_send({"type": "spoken", "message_id": message_id,
-                                     "message": "she\u2019s still talking"})
+                                     "message": "she’s still talking"})
                     continue
                 await stop_replay()            # a second press takes the floor
                 await safe_send({"type": "speaking", "message_id": message_id})
@@ -470,9 +396,7 @@ async def _in_the_room(ws: WebSocket, rt, session_id: str, safe_send,
                 # first — a replay reading out loud included, and that one
                 # first, since `run_turn` is about to arm a new cancel token
                 await stop_replay()
-                if turn_task and not turn_task.done():
-                    controller.cancel()
-                    await asyncio.gather(turn_task, return_exceptions=True)
+                await stop_turn(controller, turn_task)
                 picture = None
                 if kind == "text":
                     try:
@@ -494,13 +418,8 @@ async def _in_the_room(ws: WebSocket, rt, session_id: str, safe_send,
                                              "message": "that picture is gone"})
                             continue
                 else:
-                    # endpoint: transcribe — only if the server's VAD confirmed
-                    # real speech in the utterance (B2 §4.2).
-                    text = await asyncio.to_thread(stt.final) \
-                        if (not rt.cfg.vad_confirm or gate.confirmed) else ""
-                stt.reset()
-                gate.reset()
-                guard.reset_utterance()
+                    text = await heard.transcribe()
+                heard.reset()
                 # last net: a punctuation-only hallucination is not a turn (B2 §3.2)
                 # — unless a picture came with it, which nobody hallucinates.
                 if picture is None and not is_meaningful_transcript(text):
@@ -532,18 +451,5 @@ async def _in_the_room(ws: WebSocket, rt, session_id: str, safe_send,
         pass
     finally:
         rt.detach_ambient(session_id)
-        if replay_task and not replay_task.done():
-            controller.cancel()
-            await asyncio.gather(replay_task, return_exceptions=True)
-        if turn_task and not turn_task.done():
-            controller.cancel()
-            await asyncio.gather(turn_task, return_exceptions=True)
-
-
-def _loads(text: str | None) -> dict:
-    import json
-    try:
-        data = json.loads(text) if text else {}
-        return data if isinstance(data, dict) else {}
-    except (ValueError, TypeError):
-        return {}
+        await stop_turn(controller, replay_task)
+        await stop_turn(controller, turn_task)

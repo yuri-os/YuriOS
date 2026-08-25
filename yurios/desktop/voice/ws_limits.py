@@ -4,8 +4,10 @@ from __future__ import annotations
 import asyncio
 import threading
 from collections.abc import Awaitable, Callable
+from typing import Literal, overload
 
 from fastapi import WebSocket, WebSocketDisconnect
+from starlette.types import Message
 
 
 CAPACITY_CLOSE = 4429
@@ -53,14 +55,14 @@ class VoiceSocketGuard:
             1, int(16000 * float(cfg.voice_ws_max_utterance_s)))
         self.utterance_samples = 0
 
-    async def receive_initial(self) -> dict:
+    async def receive_initial(self) -> Message:
         try:
             return await asyncio.wait_for(self.ws.receive(), self.initial_timeout)
         except (TimeoutError, WebSocketDisconnect) as exc:
             await self._close(TIMEOUT_CLOSE, "voice hello timed out")
             raise VoiceSocketClosed from exc
 
-    async def receive(self, send: Callable[[dict], Awaitable[bool]]) -> dict:
+    async def receive(self, send: Callable[[dict], Awaitable[bool]]) -> Message:
         """Receive with heartbeats while bounding time since the last client frame."""
         loop = asyncio.get_running_loop()
         deadline = loop.time() + self.idle_timeout
@@ -132,8 +134,17 @@ def uvicorn_ws_options(cfg) -> dict:
     }
 
 
+@overload
+def bounded_text(value: object, *, maximum: int, field: str,
+                 optional: Literal[False] = False) -> str: ...
+@overload
+def bounded_text(value: object, *, maximum: int, field: str,
+                 optional: Literal[True]) -> str | None: ...
 def bounded_text(value: object, *, maximum: int, field: str,
                  optional: bool = False) -> str | None:
+    """A client-supplied string, or a raise. `None` comes back only when the
+    field was declared optional — which is why this is overloaded: every other
+    caller gets a `str`, and had to check for a None that could never arrive."""
     if value is None and optional:
         return None
     if not isinstance(value, str) or len(value.encode("utf-8")) > maximum:

@@ -69,7 +69,14 @@ async def events(request: Request):
                 yield "data: " + json.dumps(item, ensure_ascii=False) + "\n\n"
         finally:
             rt.hub.unsubscribe(q)
-            if rt.hub.subscribers == 0:        # the last page left the room
+            # …but not on the way down. `stopping` is one of the two things that
+            # ends the loop above, so this `finally` runs on every shutdown —
+            # and posting there writes `traces/signals.jsonl` *after* the
+            # runtime stopped, for a mind that is already cancelled and will
+            # never read it. Archive moves the character's directory the moment
+            # `host.stop` returns, so the write landed in the old path and left
+            # a phantom folder for a character no longer in the registry.
+            if rt.hub.subscribers == 0 and not rt.stopping.is_set():
                 rt.signals.post("user_absent", {}, source="frontend")
 
     return StreamingResponse(stream(), media_type="text/event-stream")

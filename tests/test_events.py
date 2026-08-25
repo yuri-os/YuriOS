@@ -152,3 +152,52 @@ def test_transcript_ring_is_bounded(client):
 def test_selfie_route_404s_outside_the_flat_dir(client):
     assert client.get("/selfies/nope.png").status_code == 404
     assert client.get("/selfies/..%2F.env").status_code in (400, 404)
+
+
+def _types(rt) -> list[str]:
+    return [s.type for s in rt.signals.next(0, 1000)[0]]
+
+
+class _Req:
+    """All `/api/events` reads off a request: the runtime, and the uvicorn
+    server that TestClient does not have."""
+
+    def __init__(self, app):
+        self.app = app
+
+
+def test_shutdown_does_not_post_user_absent(client):
+    """`stopping` is what ends the stream loop, so the `finally` under it runs on
+    every shutdown. Posting there wrote `traces/signals.jsonl` after the runtime
+    had stopped, for a mind already cancelled — and since archive moves the
+    character's directory the moment `host.stop` returns, the write recreated it
+    and left a phantom folder for a character no longer in the registry.
+    """
+    rt = client.app.state.rt
+    rt.loop.call_soon_threadsafe(rt.stopping.set)
+    client.get("/api/events")
+    assert rt.hub.subscribers == 0            # it still tidied up after itself
+    assert "user_present" in _types(rt)       # …and the arrival still counted
+    assert "user_absent" not in _types(rt)
+
+
+async def test_the_last_page_leaving_still_posts_user_absent(client):
+    """The signal the guard must not cost. A page closing is not a shutdown: the
+    generator is closed under it, which is a different way out of the same
+    `finally`, and her world model still needs to hear the room emptied (§16.2).
+
+    Driven directly rather than over HTTP — under TestClient the stream only
+    ends when `stopping` is set, which is the case this one is not about.
+    """
+    from yurios.world.routes.events import events as events_route
+
+    rt = client.app.state.rt
+    response = await events_route(_Req(client.app))
+    stream = response.body_iterator
+    assert "hello" in await stream.__anext__()
+    assert rt.hub.subscribers == 1
+    await stream.aclose()                     # the page went away
+
+    assert rt.hub.subscribers == 0
+    assert not rt.stopping.is_set()
+    assert "user_absent" in _types(rt)

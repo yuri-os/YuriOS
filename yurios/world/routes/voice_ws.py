@@ -269,7 +269,8 @@ async def _in_the_room(ws: WebSocket, rt, session_id: str, safe_send,
                     elif ev.kind == "done" and (spoken or commit_text):  # commit
                         committed_message = rt.post_message(
                             "assistant", commit_text or " ".join(spoken),
-                            proactive=proactive, channel="voice")
+                            proactive=proactive, channel="voice",
+                            session_id=session_id)
                         if user_text:                  # the SignalBus tee
                             rt.signals.post("turn_committed",
                                             {"text": user_text,
@@ -515,6 +516,7 @@ async def _in_the_room(ws: WebSocket, rt, session_id: str, safe_send,
                     client_id = None
                 entry = rt.post_message("user", text, channel="voice",
                                         client_id=client_id,
+                                        session_id=session_id,
                                         image_url=picture.url if picture else None)
                 await safe_send({"type": "accepted", "message": entry,
                                  "client_id": client_id})

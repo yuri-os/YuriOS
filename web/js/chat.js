@@ -380,8 +380,11 @@
     const known = new Set(history.map((m) => m.id).filter(Boolean));
     const extra = pendingEntries.filter((e) => e.id && !known.has(e.id));
     if (!extra.length) return history;
-    return [...history, ...extra].sort((a, b) =>
-      String(a.ts || '').localeCompare(String(b.ts || '')));
+    // An undated row sorts *last*, not first: `''` would put it above the
+    // whole conversation and make it the walk-back anchor — an id the archive
+    // has never heard of, which answers "nothing older" and retires the button.
+    const when = (m) => String(m.ts || '\uffff');
+    return [...history, ...extra].sort((a, b) => when(a).localeCompare(when(b)));
   }
 
   /* One rule, marked once: everything from here down arrived while you were

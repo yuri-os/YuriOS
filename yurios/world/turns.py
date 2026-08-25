@@ -120,7 +120,8 @@ class TextTurns:
             text = cold or (" ".join(shown) if shown else "")
             if text:
                 entry = rt.post_message("assistant", text,
-                                        proactive=True, channel=channel)
+                                        proactive=True, channel=channel,
+                                        session_id=session_id)
             return {"session_id": session_id, "message": entry}
 
     async def run(self, text: str, *, channel: str,
@@ -148,6 +149,7 @@ class TextTurns:
             session_id = rt.brain.resolve_session(session_id)
             user_entry = rt.post_message("user", text, channel=channel,
                                          client_id=client_id,
+                                         session_id=session_id,
                                          image_url=attachment.url
                                          if attachment else None)
             rt.signals.post("user_message", {"text": text}, source=channel)
@@ -216,7 +218,8 @@ class TextTurns:
                 rt.brain.abandon(session_id)   # nothing to commit — same rollback
             if shown:
                 reply = " ".join(shown)
-                entry = rt.post_message("assistant", reply, channel=channel)
+                entry = rt.post_message("assistant", reply, channel=channel,
+                                        session_id=session_id)
                 # Persisting is another model call — the memory extractor's —
                 # and it runs *after* `turn_ended`, so as far as the parker is
                 # concerned the room has already gone quiet. Held, so a render

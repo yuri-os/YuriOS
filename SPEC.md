@@ -366,11 +366,21 @@ transcript: an in-memory ring (~200 entries) appended by `post_message` and publ
 `message` events on the bus (§10); `GET /api/history` backfills a fresh page.
 
 **The column survives a restart.** Every committed entry is *also* written to
-`<vault>/state/transcript.jsonl` (`world/chatlog.py`) and the ring is seeded from its tail at
-boot, so a daemon that restarted overnight opens onto the end of the last conversation rather
+`<vault>/state/conversation.jsonl` (`app/conversation.py`) and the ring is seeded from its tail
+at boot, so a daemon that restarted overnight opens onto the end of the last conversation rather
 than a blank column. The file is untracked and capped (~2000 entries, oldest let go), written
 best-effort and never fsynced: it is the draw buffer for a chat column, and the ring — not the
-file — is what a turn depends on. `GET /api/history?before=<message id>&limit=` walks back
+file — is what a turn depends on.
+
+**It is the same file the §7.1 window is built from, and there **MUST NOT** be a second.** A line
+is one append-only row carrying both of its versions: `text`, the sentences the page drew, and
+`raw`, what the model actually produced — tags and `*narration*` intact — because those differ and
+both are needed. Either half may be written first (a reply is drawn before it is admitted; a
+greeting the other way round), so each patches the row the other made. A row reaches the window
+only when `SessionStore.append_message` admits it: far more is drawn than is prompted with, and
+inferring membership from "has a session" would silently widen the next prompt. The §4.4 rollback
+takes a line *out of the window* and leaves it on the page — you said it, and a chat that deletes
+what you typed is lying about what happened. `GET /api/history?before=<message id>&limit=` walks back
 through it, which the chat surface **MUST** offer as a single control at the top of the column
 loading **six** older lines a press, holding the reader's scroll position across the insert.
 A page **MUST** open on that same six and no more: the control can only appear when something
@@ -800,7 +810,8 @@ STT/TTS/VAD SDK, and fakes implement each seam so the whole loop runs offline (�
   hers, so a turn torn down in between leaves a half-written exchange behind. Every path that
   ends a turn without committing — barge-in, brain error, a client that vanished mid-turn, an
   empty reply — **MUST** call `abandon()`, `persist()`'s opposite number, which drops the
-  pending turn and rolls the user's line back out of `sessions.json`. Without it the next
+  pending turn and rolls the user's line back out of the §7.1 window
+  (`app/conversation.py`; it stays on the page). Without it the next
   prompt reads that line as a question still owed an answer and she answers it a second time,
   folded into the new turn.
 - §9.7 **Emotion → expression.** The model is asked (appended system blocks, voice-only) to

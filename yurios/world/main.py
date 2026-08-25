@@ -43,7 +43,7 @@ from .avatar.controller import VrmController
 from .boot import BootBoard
 from .brain import ToolBrain
 from .channels.manager import ChannelManager
-from .chatlog import ChatLog
+from yurios.app.conversation import ConversationLog
 from .clock import Clock
 from .config import Config
 from .context import ContextMeter, short_tokens
@@ -96,13 +96,18 @@ class Runtime:
         # the transcript ring (SPEC §2.6 — YuriOS parity): what /api/history
         # backfills and every `message` event appends to. Still just the visible
         # chat — her *memory* is the Vault, and nothing here is ever read back
-        # into a prompt — but no longer only in memory: `world/chatlog.py` keeps
-        # the same entries on disk, so the ring wakes up holding the end of the
-        # last conversation instead of opening her room onto a blank column.
-        # The ring stays the live copy and the archive stays the deep one; the
-        # log is what /api/history pages back through, a screenful on load and
-        # a handful at a time behind the button at the top of the column.
-        self.chatlog = ChatLog(cfg.vault_dir)
+        # into a prompt — but no longer only in memory: `app/conversation.py`
+        # keeps the same entries on disk, so the ring wakes up holding the end
+        # of the last conversation instead of opening her room onto a blank
+        # column. The ring stays the live copy and the archive stays the deep
+        # one; the log is what /api/history pages back through, a screenful on
+        # load and a handful at a time behind the button at the top.
+        #
+        # One file, two readers: the same log is where the §7.1 window comes
+        # from (`app/sessions.py`). A line is one row carrying both columns —
+        # what the page drew and what the model produced — because they are one
+        # line, and keeping two files in step was a bug waiting to happen.
+        self.chatlog = ConversationLog(cfg.vault_dir)
         self.transcript: list[dict] = self.chatlog.tail(RING_SIZE)
         # how full her context window is (SPEC §11): the masthead readout, fed by
         # the chat provider on every model pass and published as a sticky
@@ -496,7 +501,8 @@ class Runtime:
                      report_path: str | None = None,
                      report_title: str | None = None,
                      report_job: str | None = None,
-                     unheard: bool = False) -> dict:
+                     unheard: bool = False,
+                     session_id: str | None = None) -> dict:
         """Commit one chat entry: append the ring, publish the `message` event.
         `proactive` marks lines she spoke unprompted (greeting, ambient, a
         finished selfie) — the YuriOS flag, same meaning. `channel` names the
@@ -518,9 +524,15 @@ class Runtime:
         deliver (§18.2a). The line is the whole message; the path is what the
         chat view turns into a card you can open, the same way `image_url` is
         what it turns into a picture."""
-        entry: dict = {"id": uuid.uuid4().hex[:8],   # dedup key: a page may see a
-                       # message live AND in its /api/history backfill (a race
-                       # the client resolves by id, not by guessing)
+        # `session_id` is what lets this line and the model's own version of it
+        # be one row (app/conversation.py) rather than two files' worth of the
+        # same sentence. Only the turn paths pass one: a selfie, a digest or a
+        # mind reach-out belongs on the page and in no prompt's window (§9.9).
+        drawn = self.chatlog.undrawn(session_id, role) if session_id else None
+        entry: dict = {"id": (drawn or {}).get("id") or uuid.uuid4().hex[:8],
+                       # dedup key: a page may see a message live AND in its
+                       # /api/history backfill (a race the client resolves by
+                       # id, not by guessing)
                        "role": role, "text": text,
                        "ts": datetime.datetime.fromtimestamp(
                            self.clock.now()).isoformat(timespec="seconds")}
@@ -543,12 +555,20 @@ class Runtime:
             # it, and an open chat view uses it to clear the badge for a line it
             # just rendered — being in the room is what "seen" means (§32.5).
             entry["unheard"] = True
+        if session_id:
+            entry["session_id"] = session_id
         self.transcript.append(entry)
         del self.transcript[:-RING_SIZE]
         # …and the same entry to disk, so the column survives the next restart
-        # (world/chatlog.py). Verbatim and unconditional: a line that is only in
-        # the ring is a line the next boot draws as nothing.
-        self.chatlog.add(entry)
+        # (app/conversation.py). Verbatim and unconditional: a line that is only
+        # in the ring is a line the next boot draws as nothing. `drawn` means the
+        # window already has this line — the greeting, whose text the brain
+        # appends before this posts it — so the page's half patches that row
+        # instead of adding a second copy of the same sentence.
+        if drawn is not None:
+            self.chatlog.attach_drawn(drawn["id"], entry)
+        else:
+            self.chatlog.add(entry)
         if unheard:
             # before the publish: the notification channel and an open page both
             # react to the event, and both want a badge that already exists.
@@ -591,7 +611,7 @@ class Runtime:
         The two are normally the archive being a superset of the ring, and this
         merges them by id anyway, for the case where they are not — a Vault on
         a read-only mount, or no Vault at all (the bare-runtime tests). The log
-        is best-effort by design (world/chatlog.py); the ring is not, and a
+        is best-effort by design (app/conversation.py); the ring is not, and a
         failed write must not take a line off the screen it is already on.
         """
         entries = self.chatlog.entries()
@@ -611,15 +631,20 @@ class Runtime:
         wire that took text would be a text-to-speech endpoint wearing her
         voice, which is a different feature and not the one anybody asked for.
 
-        Two places to look, because a page shows lines from both. The ring is
-        memory and holds the last couple of hundred; the inbox is the disk copy
-        of what she said into an empty room (§18.4), and after a restart it is
-        the only copy still on screen. Newest first in each — an id is unique,
-        so the order is only about finding it sooner. Her lines only: `role` is
-        the ring's field and inbox rows have no role at all, since everything
-        in that file is hers.
+        Three places to look, because a page shows lines from all of them. The
+        ring is memory and holds the last couple of hundred; the inbox is the
+        disk copy of what she said into an empty room (§18.4), and after a
+        restart it is the only copy still on screen. The log is the deep one,
+        and it has to be here: the walk back at the top of the column (§2.6)
+        pages through it, so without it every line older than the ring came back
+        with a speaker button that answered "that line has fallen out of the
+        transcript" — a control that is drawn precisely where it cannot work.
+        Newest first in each — an id is unique, so the order is only about
+        finding it sooner. Her lines only: `role` is the ring's field and inbox
+        rows have no role at all, since everything in that file is hers.
         """
-        for entries in (self.transcript, self.inbox.entries()):
+        for entries in (self.transcript, self.inbox.entries(),
+                        self.chatlog.entries()):
             for entry in reversed(entries):
                 if entry.get("id") != message_id:
                     continue

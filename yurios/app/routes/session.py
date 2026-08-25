@@ -18,4 +18,7 @@ async def history(session_id: str, request: Request):
     session = state.sessions.get(session_id)
     if session is None:
         raise HTTPException(404, "unknown session")
-    return {"messages": session["transcript"]}
+    # The messages live in the conversation log now (app/conversation.py), not
+    # in the session record. Same answer, same shape — a large ceiling rather
+    # than a slice, because this route has always meant "the whole session".
+    return {"messages": state.sessions.window(session_id, 100_000)}

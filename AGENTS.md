@@ -1,9 +1,15 @@
 # YuriOS Agent Guide
 
+## Specification
+
+- `SPEC.md` is the normative specification: RFC-2119 language, cited from code as `SPEC §n` comments (hundreds of them). When changing specified behavior, update `SPEC.md` in the same change; when code and spec disagree, the spec is authoritative by convention — treat the mismatch as a bug.
+- Section numbers are stable and never renumbered — code, tests, and scripts cite them, so only ever append or revise within a section.
+- `docs/` is the plain-language companion; `SPEC.md` wins on any disagreement. Don't treat `docs/` as a source of truth for behavior.
+
 ## Toolchain and verification
 
 - Support Python `>=3.11,<3.14`; Python 3.12 is the installer target. Use the project interpreter when present: `.venv/bin/python`.
-- Run the offline suite with `.venv/bin/python -m pytest -q`. Focus a change with `.venv/bin/python -m pytest -q tests/test_file.py::test_name`.
+- Run the offline suite with `.venv/bin/python -m pytest -q`. Focus a change with `.venv/bin/python -m pytest -q tests/test_file.py::test_name`. The full suite takes ~9 minutes — prefer focused runs while iterating.
 - Tests deliberately replace dotenv loading and use fake voice, tools, image, model, and clock seams. Do not require a configured model, API key, GPU, or live service for test coverage.
 - `./scripts/check.sh` is the gate: `ruff check`, `mypy`, pytest, and the web suite, each stage running even when an earlier one failed. Use `--fast` to skip pytest while iterating, `--release` to add the install smoke test. It needs `pip install -e ".[dev]"`. There is no CI; this is the whole gate.
 - Lint and typecheck are configured in `pyproject.toml` and are green — keep them that way. Ruff is `check` only, never `format` (the formatting is hand-set). Mypy skips the 36 modules listed in its overrides, which predate it: that list may only shrink, and new modules are checked from the start.
@@ -27,3 +33,7 @@
 - Optional heavyweight backends are lazy, replaceable seams with fakes. Preserve that property: avoid importing model, voice, camera, or GPU dependencies at module import time, and retain a testable fake/degraded path when changing a seam.
 - The mind relies on injected time. Do not add direct wall-clock reads or bare sleeps in `yurios/mind`; use the runtime clock so VirtualClock tests remain deterministic.
 - The browser is a thin client: host-to-client updates use the shared SSE `EventHub`. Add cross-surface state as typed events rather than a frontend-specific polling path.
+
+## Commits
+
+- Commit subjects use scope prefixes (`mind:`, `world:`, `forge:`, `studio:`, …) — match that style. No AI-attribution trailers.

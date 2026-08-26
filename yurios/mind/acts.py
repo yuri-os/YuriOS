@@ -26,7 +26,7 @@ from .goals import (Goal, trim, PROMISE_REVIEW_RESPONSE_FORMAT, PromiseCandidate
                     parse_promise_review, promise_decision_grounded,
                     promise_kind, promise_review_messages)
 from .policy import DREAM, score_interrupt
-from .signals import Signal
+from .signals import Signal, failure_of
 from .util import day_of, iso_of, ts_of_iso
 
 log = logging.getLogger("mind.acts")
@@ -338,6 +338,12 @@ def land_dispatched(loop, sig: Signal) -> str:
     loop.considered.pop(goal.id, None)     # workable again on this very tick
     loop.wakeups.pop(goal.id, None)        # the safety net is not needed now
     what = sig.payload.get("kind") or "work"
+    # The goal comes back to `active` either way — that is what posting the
+    # failure down this path buys — but the note must not promise a product
+    # that isn't there. "It's in the chat" sends her (and you) looking.
+    if (err := failure_of(sig)):
+        return (f"the {what} I started for “{goal.text}” failed "
+                f"({err}) — nothing landed")
     where = ("it's in the vault, not in the chat"
              if sig.payload.get("deliver") == "vault" else "it's in the chat")
     return (f"the {what} I started for “{goal.text}” came back — {where}")

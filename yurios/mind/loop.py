@@ -56,7 +56,7 @@ from . import acts, goalwork, housekeeping, prompts
 from .policy import (DREAM, ENGAGED, IDLE, ActivityController, Appraisal,
                      appraise_goal, appraise_signal)
 from .selfedit import SelfEdit
-from .signals import Signal, SignalBus
+from .signals import Signal, SignalBus, failure_of
 from .trace import TickTrace
 from .util import new_id, read_json, ts_of_iso, write_json
 from .vaultio import MindVault
@@ -607,10 +607,18 @@ class MindLoop:
         if chosen.kind == "signal":
             sig: Signal = chosen.subject
             if sig.type == "task_completion":
-                return ({"what": "noted", "result": f"task done: "
-                         f"{sig.payload.get('task', '?')}"}, {},
-                        [f"finished something I'd started: "
-                         f"{sig.payload.get('task', 'a task')}"])
+                task = sig.payload.get("task", "a task")
+                # The completion is where the work *ended*, which is not the
+                # same as where it succeeded (§16.3). Journalling the failure
+                # as a finish is worse than not journalling it at all: the
+                # line is what she reads back tomorrow, so a night the camera
+                # OOM'd becomes a night she remembers taking a picture.
+                if (err := failure_of(sig)):
+                    return ({"what": "noted",
+                             "result": f"task failed: {task} ({err})"}, {},
+                            [f"it didn't come out: {task} ({err})"])
+                return ({"what": "noted", "result": f"task done: {task}"}, {},
+                        [f"finished something I'd started: {task}"])
             return ({"what": "noted", "result": f"noted {sig.type}"}, {}, [])
         if chosen.kind in ("goal", "tool_step"):
             goal: Goal = chosen.subject

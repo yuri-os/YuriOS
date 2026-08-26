@@ -730,6 +730,24 @@ to every new subscriber before its first live event. Malformed JSON is logged an
   that thing was made. It is the camera's missing feedback loop — backend, checkpoint, sampler and
   library rows are a dozen knobs with no record of which ones ever took a good photograph, and a
   score beside the seed makes that a question the ledger can answer.
+- §7.6a **One card, one pipeline** (normative). A host runs every character in one process
+  against one GPU, and each of them builds a camera of its own — so the card, not the character,
+  owns what is resident on it. A local backend **MUST** be shared by every character that asked
+  for the same checkpoint on the same device with the same settings
+  (`forge.backends.make_backend(shared=True)`): a pile of weights has nothing per-character about
+  it, and what does differ — her template library, her name on the provenance — lives in
+  `ImageForge` above the backend. At most **one** resident render pipeline **MUST** be warm on the
+  card at a time (`world/vram.claim_card`, keyed on the backend so cameras sharing one hold a
+  single claim between them), and a render **MUST** claim the card before it loads, so a
+  neighbour's weights are gone by the time this one measures what is free. Renders on a
+  card-holding backend **MUST** serialise process-wide; a hosted backend holds no card, shares
+  nothing and **MUST NOT** queue behind another character's render.
+
+  This is the same rule §16's park window and the `ParkGate` already follow, arriving late for the
+  third thing on the card. The gap it closes: the "may my pipeline stay warm" test asks whether
+  her *brain* still has room beside it, so a character whose brain is hosted — no local model on
+  this card at all — answers yes forever, and every camera keeps its own copy of the same
+  checkpoint resident until one of them cannot load.
 - §7.7 **The web: `web_search` / `read_page` / `research`, and what she reads she keeps.** The
   three hands arrive together or not at all — searching with no way to open what you found is half
   a capability — behind one `SEARCH_BACKEND` knob whose default is `off`.
@@ -1160,6 +1178,13 @@ what they mean — no producer may call into the mind.
   board, the self-edit API. Unknown types are legal and appraise low. `user_present`/`user_absent`
   are bookkeeping — observed by the world model, never chosen as intentions (the greeting is the
   voice route's job).
+- §16.3 **A completion is not a success** (normative). `task_completion` means the dispatched work
+  is *over*, not that it worked: a producer **MUST** post it for a failed run as well, carrying an
+  `error` key and no product, so a goal in `waiting` is released by the failure rather than by the
+  `wakeup` safety net minutes later (§22.5). Every consumer **MUST** therefore read that key before
+  treating the signal as a finish. Journalling a failure as one is worse than journalling nothing:
+  the line is what she reads back tomorrow, so a night her camera ran out of VRAM becomes a night
+  she remembers taking a picture, and the photo it names does not exist.
 
 ## §17 — Activity states and the budget governor
 

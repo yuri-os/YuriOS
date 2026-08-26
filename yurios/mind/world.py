@@ -36,7 +36,7 @@ from yurios.kernel.clock import Clock
 from yurios.world.situation import render_situation
 from yurios.world.tools.timers import TimerBoard
 
-from .signals import Signal
+from .signals import Signal, failure_of
 from .util import iso_of, jsonl_append, jsonl_read, read_json, ts_of_iso
 from .vaultio import MindVault
 
@@ -100,8 +100,15 @@ class WorldModelStore:
             st["user_present"] = False
         elif signal.type == "task_completion":
             name = signal.payload.get("task", "a task")
+            # The thread closes on either outcome: nothing is still running,
+            # and an "In progress:" line for a render that died is a present
+            # tense that never becomes past. What she believes about it is
+            # the part that differs.
             st["threads"] = [t for t in st["threads"] if t.get("task") != name]
-            self._belief("work", f"finished: {name}", 1.0)
+            if (err := failure_of(signal)):
+                self._belief("work", f"failed: {name} ({err})", 1.0)
+            else:
+                self._belief("work", f"finished: {name}", 1.0)
         elif signal.type == "suspend_gap":
             hours = signal.payload.get("hours", 0)
             self._belief("machine", f"the machine slept ~{hours:.1f}h", 1.0)

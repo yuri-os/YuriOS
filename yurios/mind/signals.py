@@ -47,6 +47,27 @@ class Signal:
     source: str = "host"
 
 
+def failure_of(sig: Signal) -> str:
+    """The error a `task_completion` came back with, or `""` if it worked.
+
+    SPEC §16.3 — a completion is not a success.
+
+    A producer posts the failure down the *same* return path as the product,
+    on purpose (`SelfieLab._completed`): a goal waiting on a render that ran
+    out of VRAM must not wait for the safety-net wakeup to unstrand it. So
+    `task_completion` means "the work is over", never "the work worked", and
+    the whole of the difference is this key.
+
+    It is a function rather than three `payload.get("error")` calls because
+    the three consumers — the journal line in ACT, the goal's landing note,
+    the world model's belief — each read the signal separately, and the night
+    all three of them called an OOM a finished selfie is what put "finished
+    something I'd started: a selfie she took" in her memory for a photo that
+    was never made.
+    """
+    return str(sig.payload.get("error") or "")
+
+
 class SignalBus:
     """Append-only inbox, drained by offset. Thread-safe on the publish side
     the same way the EventHub is: `post()` may be called from the event loop

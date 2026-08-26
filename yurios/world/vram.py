@@ -153,6 +153,92 @@ def reset_shared_gate() -> None:
     _SHARED_GATE = None
 
 
+#: The card's one warm-pipeline slot, and the render lock in front of it
+#: (SPEC §7.6a).
+#:
+#: The park window was made process-wide (above) and the door was made
+#: process-wide, and a night still died of OOM — because the *pipeline* was
+#: not. A local camera keeps its pipeline resident between renders on purpose
+#: (25 seconds a selfie), and `can_keep_pipeline_warm` decides whether it may
+#: by asking whether her brain still has room to come home beside it. On a
+#: hosted brain — GLM over OpenRouter, say — there is no brain on this card at
+#: all, so that question answers "yes, nothing else is competing for it" and
+#: the pipeline stays warm forever. Which was true of the character asking and
+#: false of the card: the neighbour's camera was competing for it.
+#:
+#: Observed, on a 16 GiB card with an OpenRouter brain: Yuri renders at 17:05
+#: and holds ~11 GiB warm for nine hours; YuriQuant's DREAM selfie loads a
+#: second copy of the same checkpoint at 02:03 and dies of OOM; Yuri's dream
+#: selfie succeeds 54 seconds later, because hers needed no load.
+#:
+#: So the card grants one warm pipeline at a time, and the claim is keyed on
+#: the BACKEND rather than the camera: two characters sharing one backend
+#: (`forge.backends.make_backend(shared=True)`) hold one claim between them
+#: and nothing is torn down. Two on different checkpoints hand the card over.
+_WARM_LOCK = threading.Lock()
+_WARM: Optional[tuple[object, Callable[[], None]]] = None
+#: One card, one render at a time, across characters. The lab's own lock kept
+#: one of ITS jobs from reopening the gate under another's; this keeps one
+#: character's camera out of another's render — needed by the claim above,
+#: which would otherwise be free to hand the card away mid-render.
+_RENDER_LOCK: Optional[asyncio.Lock] = None
+
+
+def claim_card(holder: object, release: Callable[[], None]) -> None:
+    """Take the card's warm-pipeline slot for `holder`, handing back whoever
+    had it. Called before a render loads, so the VRAM is actually free by the
+    time this backend measures the card and decides whether it can be
+    resident.
+
+    `release` is the previous holder's teardown, run outside the lock's
+    critical decision but before this returns: a claim that came back before
+    the weights were gone would be a claim in name only.
+    """
+    global _WARM
+    with _WARM_LOCK:
+        previous = _WARM
+        if previous is not None and previous[0] is holder:
+            return                       # already ours — the warm case, and free
+        _WARM = (holder, release)
+    if previous is None:
+        return
+    log.info("card: another camera's pipeline was still resident — handing it "
+             "back before this render loads")
+    try:
+        previous[1]()
+    except Exception:
+        # Never fatal: the worst case is the OOM we already had, and a render
+        # that refuses to start because a *neighbour's* cleanup raised is worse
+        # than one that tries and fails with a traceback naming the real cause.
+        log.exception("card: couldn't release the previous camera's pipeline")
+
+
+def release_card(holder: object) -> None:
+    """`holder` has torn its own pipeline down — the slot is free. Keeps the
+    next claim from logging a hand-back that already happened."""
+    global _WARM
+    with _WARM_LOCK:
+        if _WARM is not None and _WARM[0] is holder:
+            _WARM = None
+
+
+def shared_render_lock() -> asyncio.Lock:
+    """The process-wide render lock (see `_RENDER_LOCK`)."""
+    global _RENDER_LOCK
+    if _RENDER_LOCK is None:
+        _RENDER_LOCK = asyncio.Lock()
+    return _RENDER_LOCK
+
+
+def reset_card() -> None:
+    """Drop the claim and the lock — for tests, for the same reason
+    `reset_shared_gate` exists."""
+    global _WARM, _RENDER_LOCK
+    with _WARM_LOCK:
+        _WARM = None
+    _RENDER_LOCK = None
+
+
 class ParkGate:
     """The park window, made waitable — the missing half of the quiet gate.
 
@@ -396,7 +482,11 @@ class LLMParker:
         while there is still room for her brain to come home beside it.
         """
         if not self.applicable():
-            return True                  # nothing else is competing for this card
+            # No local brain to make room for, so nothing this parker can
+            # measure says otherwise. It is NOT "nothing competes for the
+            # card" — another character's camera does, and that is the
+            # card-claim's job (`claim_card`), not this measurement's.
+            return True
         free = self._free()
         if free is None:
             return True                  # can't measure → don't take the speed away

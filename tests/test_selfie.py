@@ -981,3 +981,97 @@ async def test_an_old_parker_without_the_question_keeps_the_old_behaviour(cfg, c
     lab.start({"id": "p1", "scene": "window", "status": "started"})
     await settle(lab)
     assert lab.forge.torn_down == 0
+
+
+# ---- one card, one pipeline: the cameras that share a checkpoint ------------
+
+@pytest.fixture
+def local_cfg(cfg, tmp_path, monkeypatch):
+    """A camera that believes it is the local one. `diffusers` is an optional
+    extra and this suite runs without it, so health is what gets faked — the
+    pipeline is never loaded here, only the object that would load it."""
+    from yurios.forge.backends.diffusers import DiffusersBackend
+    monkeypatch.setattr(DiffusersBackend, "health", lambda self: True)
+    ckpt = tmp_path / "oneObsession.safetensors"
+    ckpt.write_bytes(b"header enough to be a path")
+    monkeypatch.setattr(
+        "yurios.forge.backends.sniff.sniff_local_checkpoint_architecture",
+        lambda path: "sdxl")
+    return cfg.model_copy(update={"selfie_backend": "diffusers",
+                                  "selfie_local_model": str(ckpt)})
+
+
+def test_two_characters_on_one_checkpoint_build_one_backend(local_cfg):
+    """The OOM of 2026-08-26. Every character builds its own camera, so two
+    of them pointed at the same file loaded that file twice — one resident
+    pipeline each, on a card with room for one. Nothing about a pile of
+    weights is per-character; her book and her name sit above the backend."""
+    hers, _ = build_forge(local_cfg.model_copy(update={"companion_name": "Yuri"}))
+    theirs, _ = build_forge(
+        local_cfg.model_copy(update={"companion_name": "YuriQuant"}))
+    assert hers.backend.name == "diffusers"        # not a degrade-to-mock pass
+    assert hers is not theirs                      # two cameras
+    assert hers.backend is theirs.backend          # …one pipeline
+
+
+def test_a_different_checkpoint_gets_its_own_backend(local_cfg, tmp_path):
+    """Sharing is by what was asked for, not by hopefulness: two cameras share
+    a pipeline only if they would have built the same one. The card-claim is
+    what keeps these two from being resident at the same moment."""
+    other = tmp_path / "somethingElse.safetensors"
+    other.write_bytes(b"different weights entirely")
+    a, _ = build_forge(local_cfg)
+    b, _ = build_forge(local_cfg.model_copy(
+        update={"selfie_local_model": str(other)}))
+    assert a.backend is not b.backend
+
+
+def test_a_hosted_camera_is_not_shared_and_does_not_queue(cfg, clock):
+    """A mock/hosted backend holds no card. Sharing it would buy nothing and
+    serialising it would queue one character's API render behind another's."""
+    from yurios.world.vram import shared_render_lock
+
+    rec = Recorder()
+    a, _ = build_forge(cfg)
+    b, _ = build_forge(cfg)
+    assert a.backend.RESIDENT_FREE_GIB is None
+    assert a.backend is not b.backend
+    lab = SelfieLab(a, clock=clock, post=rec.post, speak=rec.speak)
+    assert lab._render_lock is not shared_render_lock()
+
+
+def test_a_local_camera_renders_on_the_cards_lock(local_cfg, clock):
+    """Two resident pipelines fit no better than a pipeline and a brain, so
+    the lock in front of them is the card's, not the character's."""
+    from yurios.world.vram import shared_render_lock
+
+    forge, _ = build_forge(local_cfg)
+    lab = SelfieLab(forge, clock=clock, post=Recorder().post,
+                    speak=Recorder().speak)
+    assert lab._render_lock is shared_render_lock()
+
+
+def test_the_lab_claims_the_card_before_it_renders(local_cfg, clock):
+    """`_render` takes the slot before `_compose` loads anything, so the
+    neighbour's weights are actually gone by the time this backend measures
+    the card and decides whether it can be resident."""
+    forge, _ = build_forge(local_cfg)
+    lab = SelfieLab(forge, clock=clock, post=Recorder().post,
+                    speak=Recorder().speak)
+    handed_back: list[str] = []
+    from yurios.world.vram import claim_card
+    claim_card(object(), lambda: handed_back.append("the neighbour"))
+    lab._claim_card()
+    assert handed_back == ["the neighbour"]
+
+
+def test_a_hosted_camera_claims_nothing(cfg, clock):
+    """It holds no card, so it may not take the card away from one that does."""
+    forge, _ = build_forge(cfg)
+    lab = SelfieLab(forge, clock=clock, post=Recorder().post,
+                    speak=Recorder().speak)
+    handed_back: list[str] = []
+    from yurios.world.vram import claim_card
+    claim_card(object(), lambda: handed_back.append("the local camera"))
+    lab._claim_card()
+    assert handed_back == []

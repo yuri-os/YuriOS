@@ -31,16 +31,24 @@ def _empty_installation(tmp_path_factory):
 
 @pytest.fixture(autouse=True)
 def fresh_park_gate():
-    """One process-wide park door is right for a host and wrong for a test run.
+    """Everything the card owns process-wide, reset per test.
 
-    `world/vram.shared_gate` is a module singleton because four characters
-    share one card; pytest is one process running hundreds of runtimes, so a
-    gate a failed test left shut would silently hold every later one at the
-    door. Each test gets a clean one."""
-    from yurios.world.vram import reset_shared_gate
-    reset_shared_gate()
+    The door, the warm-pipeline claim and the shared backends are module
+    singletons because four characters share one card; pytest is one process
+    running hundreds of runtimes, so a gate a failed test left shut would
+    silently hold every later one at the door, and a backend one test built
+    would be handed to the next. Each test gets a clean card."""
+    from yurios.forge.backends import reset_shared_backends
+    from yurios.world.vram import reset_card, reset_shared_gate
+
+    def _fresh() -> None:
+        reset_shared_gate()
+        reset_card()               # the card's warm-pipeline claim and its lock
+        reset_shared_backends()    # …and the backends that would hold one
+
+    _fresh()
     yield
-    reset_shared_gate()
+    _fresh()
 
 
 @pytest.fixture(autouse=True)

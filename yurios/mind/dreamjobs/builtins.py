@@ -533,7 +533,11 @@ class SelfieJob(DreamJob):
             ctx.note_call("take_selfie", {"look": look, "id": f"dream-{day}"},
                           result="started")
             out.result = "described it and sent it to the camera"
-            out.note = f"dreamt a picture of {day} and had it made"
+            # What the note may claim is what start-don't-await can know at
+            # dispatch: the render lands minutes later and may not land at all
+            # (SPEC §16.3). "Had it made" is a line she reads back tomorrow as
+            # a photo that exists, on the mornings after her camera OOM'd.
+            out.note = f"dreamt a picture of {day} and sent it to the camera"
         else:
             out.result = "described it (no camera wired)"
             out.note = f"dreamt a picture of {day}"

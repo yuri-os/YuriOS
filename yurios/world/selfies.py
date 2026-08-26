@@ -40,6 +40,7 @@ from pathlib import Path
 from typing import Awaitable, Callable, Optional
 
 from ..kernel.clock import Clock
+from .vram import claim_card, release_card, shared_render_lock
 
 log = logging.getLogger("world.selfies")
 
@@ -194,8 +195,11 @@ def build_forge(cfg) -> tuple["ImageForge", str]:
                 name = status = "krea2"
 
         if name == "krea2":
+            # shared=True: one checkpoint, one pipeline, however many
+            # characters point at it (forge/backends/__init__.py). Her book
+            # and her name are per-character and live above the backend.
             backend = make_backend(
-                "krea2", model_path=cfg.selfie_local_model,
+                "krea2", shared=True, model_path=cfg.selfie_local_model,
                 device=cfg.selfie_local_device, steps=cfg.selfie_krea2_steps,
                 cfg=cfg.selfie_krea2_cfg,
                 cpu_offload=cfg.selfie_local_cpu_offload)
@@ -204,7 +208,7 @@ def build_forge(cfg) -> tuple["ImageForge", str]:
                     "checkpoint (see .env.example).")
         else:
             backend = make_backend(
-                "diffusers", model_path=cfg.selfie_local_model,
+                "diffusers", shared=True, model_path=cfg.selfie_local_model,
                 device=cfg.selfie_local_device, steps=cfg.selfie_local_steps,
                 cfg=cfg.selfie_local_cfg, hires=cfg.selfie_local_hires,
                 hires_scale=cfg.selfie_local_hires_scale,
@@ -254,8 +258,18 @@ class SelfieLab:
         self._task_ids: dict[asyncio.Task, str] = {}
         self._contracts: dict[asyncio.Task, dict] = {}
         # One camera, one VRAM loan and one boolean ParkGate. Serialisation keeps
-        # one job from reopening the gate under another job's active render.
-        self._render_lock = asyncio.Lock()
+        # one job from reopening the gate under another job's active render —
+        # and for a camera that holds the GPU the lock is the CARD's, not this
+        # character's, because a host runs every character in one process
+        # against one card and two resident pipelines fit no better than a
+        # pipeline and a brain. A hosted backend (mock, openrouter) keeps its
+        # own: nothing of its is resident, and queueing one character's API
+        # render behind another's would be a cost with nobody to pay it.
+        self._render_lock = (
+            shared_render_lock()
+            if getattr(getattr(forge, "backend", None), "RESIDENT_FREE_GIB",
+                       None) is not None
+            else asyncio.Lock())
 
     def _compose(self, kind: str, kw: dict):
         """Which of the two cameras this contract asked for (§7.6).
@@ -306,6 +320,7 @@ class SelfieLab:
         dies with the `except` clause, the release actually frees, and only then
         does `parked()` bring her brain home. What reaches the caller is a light
         copy that still answers to the same name."""
+        self._claim_card()
         if self.parker is None:
             return self._compose(kind, kw)
         result = error = None
@@ -360,6 +375,20 @@ class SelfieLab:
         same duck-typed tolerance `_release` gives the backend seam."""
         return getattr(self.parker, "gate", None)
 
+    def _claim_card(self) -> None:
+        """Take the card's warm-pipeline slot before this render loads.
+
+        Keyed on the backend, so two characters sharing one (the same
+        checkpoint, the same settings) claim it once between them and nothing
+        is torn down; two on different checkpoints hand the card over rather
+        than both being resident, which is the OOM this exists to stop.
+
+        A camera with nothing resident holds no card and claims nothing."""
+        backend = getattr(self.forge, "backend", None)
+        if getattr(backend, "RESIDENT_FREE_GIB", None) is None:
+            return
+        claim_card(backend, self._release)
+
     def _release(self) -> None:
         """Hand back whatever VRAM the backend is holding between renders.
 
@@ -367,10 +396,11 @@ class SelfieLab:
         pipeline is the difference between a 15-second selfie and a 40-second
         one — so this is deliberate, not routine cleanup. Backends with nothing
         resident (mock, hosted) have no `_teardown` and this does nothing."""
-        teardown = getattr(getattr(self.forge, "backend", None),
-                           "_teardown", None)
+        backend = getattr(self.forge, "backend", None)
+        teardown = getattr(backend, "_teardown", None)
         if callable(teardown):
             teardown()
+        release_card(backend)          # the slot is free; nothing to hand back
 
     def start(self, contract: dict) -> None:
         """Spawn one render from the tool's validated contract. Never blocks,

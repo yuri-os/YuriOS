@@ -491,8 +491,11 @@ def test_the_headroom_follows_the_configured_brain(cfg):
     assert p.can_keep_pipeline_warm() is False   # 6.5 < 8.0
 
 
-def test_nothing_competing_for_the_card_keeps_the_pipeline_warm(cfg):
-    """A hosted or mock camera has no brain on this card to make room for."""
+def test_no_local_brain_leaves_the_pipeline_warm(cfg):
+    """A hosted or mock camera has no brain on this card to make room for, so
+    this measurement has nothing to say. It is NOT "nothing competes for the
+    card" — another character's camera does, and `claim_card` is what settles
+    that. Reading it the other way is what cost the night of 2026-08-26."""
     p = make_parker(cfg, 0.2, selfie_backend="mock")
     assert p.applicable() is False
     assert p.can_keep_pipeline_warm() is True
@@ -526,3 +529,67 @@ def test_await_free_reports_that_it_gave_up_short(cfg, monkeypatch, caplog):
     with caplog.at_level("WARNING"):
         assert p._await_free(before=8.6) is False
     assert "below the" in caplog.text and "floor" in caplog.text
+
+
+# ---- the card's one warm pipeline, across characters ------------------------
+
+def test_two_cameras_cannot_both_hold_the_card():
+    """The night this exists for: an OpenRouter brain means no local model to
+    park, so `can_keep_pipeline_warm` says yes to everyone and every
+    character's camera keeps its own copy of the same checkpoint resident.
+    Yuri's sat warm for nine hours; YuriQuant's load OOM'd behind it."""
+    from yurios.world.vram import claim_card
+
+    handed_back: list[str] = []
+    first, second = object(), object()
+
+    claim_card(first, lambda: handed_back.append("first"))
+    assert handed_back == []                    # nobody had it
+    claim_card(second, lambda: handed_back.append("second"))
+    assert handed_back == ["first"]             # …and now it's been handed over
+
+
+def test_re_claiming_the_card_you_hold_tears_nothing_down():
+    """The warm case, and the whole point of keying on the backend rather than
+    the camera: two characters sharing one pipeline share one claim, and a
+    second render on it must not pay a reload to take what it already has."""
+    from yurios.world.vram import claim_card
+
+    handed_back: list[str] = []
+    holder = object()
+    claim_card(holder, lambda: handed_back.append("holder"))
+    claim_card(holder, lambda: handed_back.append("holder"))
+    assert handed_back == []
+
+
+def test_a_neighbours_failed_teardown_does_not_stop_this_render(caplog):
+    """A render that refuses to start because someone *else's* cleanup raised
+    is worse than one that tries: the worst case is the OOM we already had."""
+    from yurios.world.vram import claim_card
+
+    def boom() -> None:
+        raise RuntimeError("cuda is having a day")
+
+    claim_card(object(), boom)
+    with caplog.at_level("ERROR"):
+        claim_card(object(), lambda: None)      # must not raise
+    assert "couldn't release" in caplog.text
+
+
+def test_releasing_the_card_leaves_nothing_to_hand_back(caplog):
+    from yurios.world.vram import claim_card, release_card
+
+    handed_back: list[str] = []
+    holder = object()
+    claim_card(holder, lambda: handed_back.append("holder"))
+    release_card(holder)
+    with caplog.at_level("INFO"):
+        claim_card(object(), lambda: None)
+    assert handed_back == []
+    assert "still resident" not in caplog.text
+
+
+def test_the_render_lock_belongs_to_the_card():
+    from yurios.world.vram import shared_render_lock
+
+    assert shared_render_lock() is shared_render_lock()

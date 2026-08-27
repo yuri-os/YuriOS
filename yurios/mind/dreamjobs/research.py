@@ -73,6 +73,24 @@ RESEARCH_BUDGET = ("\n\nYou have {steps} move(s) left, {searches} search(es) and
                    "A line that is only a thought still costs a move and brings "
                    "nothing back.")
 
+#: Appended only while she has not yet opened `min_pages`. Measured off a live
+#: night (2026-08-27): six topics, ten searches and ten pages allowed, and she
+#: spent two searches, opened nothing, and declared "nothing further" — the
+#: search-result snippets already carried a plausible spot price and a
+#: sentiment reading each, so nothing *felt* missing. `RESEARCH_CATALOG` never
+#: says a snippet is not a source, so declining to open anything read as a
+#: reasonable "I have enough" from inside the loop, even though `REPORT_CORPUS`
+#: exists precisely because a figure lifted from a blurb and never checked
+#: against the page it came from is worse than no figure at all. This is that
+#: rule, said to her instead of only enforced on her afterwards.
+RESEARCH_MIN_PAGES = ("\n\nYou have actually opened and read {done} of the "
+                      "{min} page(s) you need before you may call it done. A "
+                      "headline or a search-result snippet is not something "
+                      "you have read — it can be wrong, stale, or written to "
+                      "look like an answer without being one. Open one of the "
+                      "pages above, or search for one you have not tried, "
+                      "before you decide you have enough.")
+
 #: What the writing call is handed, around everything she gathered. Two things
 #: it has to say and the job file cannot, because the file is the brief and this
 #: is the material: that the corpus is the whole of what she has — a market
@@ -181,6 +199,7 @@ class ResearchJob(FileJob):
         self._max_searches = front.get("max_searches")
         self._max_pages = front.get("max_pages")
         self._max_steps = front.get("max_steps")
+        self._min_pages = front.get("min_pages")
         self.step_chars = max(500, _as_int(front.get("step_chars"), 4000,
                                            ceiling=20000))
         self.context_chars = max(2000, _as_int(front.get("context_chars"),
@@ -301,6 +320,10 @@ class ResearchJob(FileJob):
     async def work(self, ctx: DreamContext, day: str) -> JobReport:
         out = JobReport(name=self.name, days=[day])
         searches, pages, steps = self.caps(ctx.cfg or _CAPS_DEFAULTS)
+        # Never zero, and never above what she is even allowed to open — a
+        # file cannot opt out of having read something, only say how much
+        # (§26.1's one-way rule, applied to a floor instead of a ceiling).
+        min_pages = max(1, min(pages, _as_int(self._min_pages, 2, ceiling=pages)))
         brief = self.system("").format(char=ctx.char_name, user=ctx.user_name)
         gathered = _Gathering()
         if self.topics:
@@ -323,7 +346,10 @@ class ResearchJob(FileJob):
                     + ("" if searched or opened else RESEARCH_FIRST_MOVE)
                     + RESEARCH_BUDGET.format(steps=steps - move,
                                              searches=searches - searched,
-                                             pages=pages - opened),
+                                             pages=pages - opened)
+                    + (RESEARCH_MIN_PAGES.format(done=gathered.pages(),
+                                                 min=min_pages)
+                       if gathered.pages() < min_pages else ""),
                     # No reasoning pass, and a short leash. The answer is one
                     # line naming a search or a page; there is no version of
                     # thinking harder that improves it, and on a local
@@ -335,8 +361,20 @@ class ResearchJob(FileJob):
                     if intent.text:
                         gathered.add("note", f"You thought: {intent.text}")
                     if RESEARCH_DONE in intent.text.lower():
-                        broke = "she had enough"
-                        break
+                        if gathered.pages() >= min_pages:
+                            broke = "she had enough"
+                            break
+                        # Declared done without having read enough. Refused
+                        # rather than honoured — same shape as the "you
+                        # already searched that" nudge above: naming the gap
+                        # and pointing at what to do about it, not just saying
+                        # no.
+                        gathered.add("note", f"(not yet — {gathered.pages()} "
+                                     f"of {min_pages} page(s) actually read. "
+                                     "A snippet is not a source. Open one of "
+                                     "the results above, or a different one "
+                                     "if what you tried came back empty, "
+                                     "before you decide you have enough.)")
                     # `quiet` counts rounds where SHE stopped reaching — not
                     # rounds where the web failed to cooperate. Both of those
                     # used to increment it, and against the real web that ended

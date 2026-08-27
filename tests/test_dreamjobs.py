@@ -830,11 +830,14 @@ def research_rig_with(tmp_path, cfg):
 
 @pytest.fixture
 def research_rig(research_rig_with):
+    # One page satisfies this rig on purpose: most of what uses it is testing
+    # the loop's shape (thinking, retries, delivery), not the `min_pages`
+    # floor, which has its own tests below.
     return research_rig_with([
         'use web_search {"query": "semis"}',
         'use read_page {"url": "https://example.invalid/overview"}',
         "think nothing further",
-        REPORT])
+        REPORT], front={"min_pages": 1})
 
 
 # ------------------------------------------------------- a roster she can edit
@@ -1027,7 +1030,8 @@ async def test_a_research_round_asks_for_no_reasoning_pass(research_rig_with):
     """
     runner, _vault, model, _fetcher = research_rig_with(
         ['use read_page {"url": "https://example.invalid/overview"}',
-         "think nothing further", REPORT])
+         "think nothing further", REPORT],
+        front={"min_pages": 1})
     runner.utility = _recording(model)
     await runner.run(only="market-brief")
     rounds, write = model.params[:-1], model.params[-1]
@@ -1204,7 +1208,8 @@ async def test_the_report_never_comes_back_empty_after_thinking(research_rig_wit
         ['use read_page {"url": "https://example.invalid/overview"}',
          "think nothing further",
          "",            # thought past the ceiling and never spoke
-         REPORT])       # …and says it plainly with room to finish
+         REPORT],       # …and says it plainly with room to finish
+        front={"min_pages": 1})
     runner.utility = _recording(model)
     report = await runner.run(only="market-brief")
     assert report.jobs[0].changed
@@ -1358,9 +1363,53 @@ async def test_nothing_further_ends_it_at_once(research_rig_with):
     runner, _vault, _model, _fetcher = research_rig_with(
         ["use read_page {\"url\": \"https://example.invalid/overview\"}",
          "think nothing further",
+         REPORT],
+        front={"min_pages": 1})
+    report = await runner.run(only="market-brief")
+    assert "she had enough" in report.jobs[0].result
+
+
+async def test_declaring_done_on_searches_alone_is_refused(research_rig_with):
+    """The 2026-08-27 live night, pinned. Six topics of rich search snippets
+    (a spot price, a sentiment reading — everything a real financial-news
+    aggregator hands back in the blurb) and she never opened a single page
+    before deciding she had enough. `min_pages` (default 2) means that
+    declaration is refused rather than honoured, and pointed at the results
+    she has not opened — not silently discarded after the fact."""
+    runner, vault, model, fetcher = research_rig_with(
+        ['use web_search {"query": "sentiment"}',
+         "think nothing further",   # refused: 0 of 2 pages actually read
+         'use read_page {"url": "https://example.invalid/overview"}',
+         'use read_page {"url": "https://example.invalid/deep"}',
+         "think nothing further",   # honoured: 2 of 2
          REPORT])
     report = await runner.run(only="market-brief")
     assert "she had enough" in report.jobs[0].result
+    assert len(fetcher.fetched) == 2, "the refusal has to land her on a page"
+    assert any("not yet" in call[1] and "page(s) actually read" in call[1]
+              for call in model.calls), "the refusal has to reach the prompt"
+    written = (vault / "workspace" / "reports" / "market-brief"
+               / "2026-07-05.md")
+    assert written.is_file()
+
+
+async def test_a_snippet_only_night_still_gets_a_shorter_report_not_none(
+        research_rig_with):
+    """Refusing the declaration is not the same as an infinite loop: two
+    refusals in a row are still two quiet rounds, and §21.2's rule holds — a
+    job that gathered something writes from what it has rather than nothing at
+    all, even short of `min_pages`."""
+    runner, vault, _model, fetcher = research_rig_with(
+        ['use read_page {"url": "https://example.invalid/overview"}',
+         "think nothing further",   # refused: only 1 of 2 required
+         "Yes, that about covers it.",
+         REPORT])
+    report = await runner.run(only="market-brief")
+    assert report.jobs[0].changed
+    assert "two quiet rounds" in report.jobs[0].result
+    assert len(fetcher.fetched) == 1
+    assert (vault / "workspace" / "reports" / "market-brief"
+            / "2026-07-05.md").is_file()
 
 
 async def test_a_page_that_will_not_open_is_skipped_not_fatal(research_rig_with):

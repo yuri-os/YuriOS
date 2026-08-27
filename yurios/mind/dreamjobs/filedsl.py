@@ -250,6 +250,15 @@ and `max_steps` (each capped by the house `MIND_DREAM_RESEARCH_*` settings),
 `topics:` for where to start, and `shelve: false` if you would rather what she
 read did not go into her knowledge store.
 
+`min_pages` (default 2, floored at 1, never above `max_pages`) is how many
+pages she must actually open — with something in them — before "nothing
+further" is honoured. A search-result snippet can already carry a plausible
+figure (a spot price, a sentiment reading), which is exactly why this floor
+exists rather than trusting her to reach for a page unasked: a report cannot
+tell a number she checked from one she copied off a blurb, so the loop refuses
+the declaration and points her at the results until she does. This is a floor,
+not a switch — a job file can raise it, never set it to 0.
+
     ---
     name: market-brief
     title: Overnight market brief

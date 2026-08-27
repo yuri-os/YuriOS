@@ -263,6 +263,7 @@ Served at `/characters/{id}/mind` (`web/mind/`), over a read-only API on the **h
 |---|---|
 | `GET …/debug/overview` | activity, budget, vault head, row counts, and a manifest of every log with a `rotated` flag |
 | `GET …/debug/activity?page=` | the activity-state timeline — one row per real transition, with the reason that fired it |
+| `GET …/debug/events?hours=&kinds=&limit=` | the merged "what has she been up to" window — vault commits, signals, non-REST ticks, tool audits, prompts — one newest-first list |
 | `GET …/debug/ticks?page=&state=&q=` | full tick records; `…/ticks/{tick_id}` joins the calls, prompts and signals it caused |
 | `GET …/debug/signals?page=&type=` · `…/debug/goals` · `…/debug/self-edits` | the inbox, her intentions, the queue waiting on your ruling |
 | `GET …/debug/calls?page=&tool=&verdict=&corr_id=` | the tool audit, with the rendered photo joined on `corr_id` |

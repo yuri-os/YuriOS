@@ -20,6 +20,8 @@ const get = (path, params, { signal } = {}) =>
 export const debugApi = Object.freeze({
   overview: (opts) => get("/overview", {}, opts),
   activity: (page, opts) => get("/activity", { page, limit: 100 }, opts),
+  events: ({ hours, kinds, limit } = {}, opts) =>
+    get("/events", { hours, kinds: (kinds || []).join(","), limit }, opts),
 
   ticks: (page, { state, q } = {}, opts) => get("/ticks", { page, limit: 25, state, q }, opts),
   tick: (id, opts) => get(`/ticks/${encodeURIComponent(id)}`, {}, opts),

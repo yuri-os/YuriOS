@@ -92,6 +92,15 @@ def register(app: FastAPI, host: CharacterHost, require) -> None:
     async def debug_activity(character_id: str, page: int = 0, limit: int = 100):
         return debug.activity(require(character_id), page=page, limit=limit)
 
+    @app.get("/api/characters/{character_id}/debug/events")
+    async def debug_events(character_id: str, hours: float = 24,
+                           kinds: str | None = None, limit: int = 100):
+        """The merged "what has she been up to" window. The vault half shells
+        git, so it answers from a worker thread like the other vault views."""
+        chosen = [k for k in (kinds or "").split(",") if k] or None
+        return await asyncio.to_thread(debug.events, require(character_id),
+                                       hours=hours, kinds=chosen, limit=limit)
+
     @app.get("/api/characters/{character_id}/debug/ticks")
     async def debug_ticks(character_id: str, page: int = 0, limit: int = 25,
                           state: str | None = None, q: str | None = None):

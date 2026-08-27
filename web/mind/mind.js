@@ -216,6 +216,7 @@ function meter(value, max, tone = "") {
 const SECTIONS = {
   overview: { title: "Overview", note: "What is on disk for this character, read without starting her.", render: renderOverview },
   timeline: { title: "State timeline", note: "Her activity ladder over time — every transition she actually made, and why.", render: renderTimeline },
+  events: { title: "What she did", note: "One merged chronology: files written, signals, jobs she performed, her hands, and every model call.", render: renderEvents },
   ticks: { title: "Tick traces", note: "One record per tick: what she sensed, how she appraised it, what she chose, and what it did.", render: renderTicks },
   dreams: { title: "Dreams", note: "The jobs that run at night, what each still owes, and a way to try one now.", render: renderDreams },
   context: { title: "Context windows", note: "Every prompt she was given — conversation, self-talk, goal work, dreams. Pick a day, then a call.", render: renderContext },
@@ -318,6 +319,82 @@ async function renderTimeline(ctx) {
   out.push(panel("Transitions", element("div", {}, list,
     pager(data, (page) => go(`#/timeline/${page}`)))));
   return element("div", { className: "stage-body" }, ...out);
+}
+
+// --- events
+
+/* Every section above sits on one log; this one folds them into the answer to
+ * "what has she been up to": the Vault's commits, the signals she was handed,
+ * the ticks that chose something (a REST tick is not an event and the backend
+ * leaves it out), the tool audit, the model calls. The window and the kinds are
+ * in the hash, so "the last three days of just her hands" is a pasteable link.
+ */
+const EVENT_KINDS = Object.freeze(["vault", "signal", "tick", "call", "prompt"]);
+const EVENT_LABEL = Object.freeze({
+  vault: "files written", signal: "signals", tick: "her moves",
+  call: "tool calls", prompt: "model calls",
+});
+const WINDOWS = Object.freeze([[24, "24 hours"], [72, "3 days"], [168, "a week"],
+                               [744, "31 days"]]);
+
+function eventRow(event) {
+  const node = element("div", {
+      className: `row${event.ref?.hash ? " clickable" : ""}` },
+    element("div", { className: "row-top" },
+      element("span", { className: "row-title", text: event.title || event.kind }),
+      chip(EVENT_LABEL[event.kind] || event.kind),
+      ...(event.chips || []).filter(Boolean).map((c) => chip(c)),
+      element("span", { className: "row-time", text: clock(event.at) })),
+    event.detail ? element("div", { className: "row-body", text: event.detail }) : null);
+  if (event.ref?.hash) node.addEventListener("click", () => go(event.ref.hash));
+  return node;
+}
+
+async function renderEvents(ctx) {
+  const hours = Number(ctx.hours) || 24;
+  const picked = (ctx.kinds || "").split(",").filter(Boolean);
+  const data = await debugApi.events({ hours, kinds: picked });
+  const tail = queryTail({ kinds: (picked || []).join(",") });
+  const wrap = element("div", { className: "stage-body" });
+
+  // The window presets. Routed through the hash like everything else.
+  const windowButton = ([h, label]) => {
+    const node = element("button", {
+      className: `button button-quiet${h === hours ? " on" : ""}`,
+      text: label, attrs: { type: "button" },
+    });
+    node.addEventListener("click", () => go(`#/events/${h}${tail}`));
+    return node;
+  };
+  wrap.append(element("div", { className: "filters" }, ...WINDOWS.map(windowButton)));
+
+  // One toggle per kind. All-on (the default) encodes as no `kinds=` at all,
+  // so the link stays short when nothing is narrowed.
+  const counts = data.counts || {};
+  const kindButton = (kind) => {
+    const on = !picked.length || picked.includes(kind);
+    const next = on ? picked.filter((k) => k !== kind) : [...picked, kind];
+    const node = element("button", {
+      className: `button button-quiet${on ? " on" : ""}`,
+      text: `${EVENT_LABEL[kind]} (${counts[kind] ?? 0})`,
+      attrs: { type: "button" },
+    });
+    node.addEventListener("click", () =>
+      go(`#/events/${hours}${queryTail({ kinds: next.join(",") })}`));
+    return node;
+  };
+  wrap.append(element("div", { className: "filters" }, ...EVENT_KINDS.map(kindButton)));
+
+  const truncated = EVENT_KINDS.filter((kind) => data.truncated?.[kind]);
+  if (truncated.length) {
+    wrap.append(element("div", { className: "notice", text:
+      `${truncated.map((k) => EVENT_LABEL[k]).join(" and ")} hit the per-kind limit ` +
+      "in this window, so their newest rows are clipped. Narrow the window or the kinds." }));
+  }
+  const label = WINDOWS.find(([h]) => h === hours)?.[1] || `${hours}h`;
+  wrap.append(panel(`${number((data.items || []).length)} event(s) · last ${label}`,
+    element("div", {}, rows(data.items || [], eventRow))));
+  return wrap;
 }
 
 // --- dreams
@@ -1413,7 +1490,11 @@ function parseRoute(hash) {
   const ctx = { section, page: 0, ...params };
 
   const rest = parts.slice(1);
-  if (section === "ticks") {
+  if (section === "events") {
+    // `#/events/<hours>?kinds=vault,tick` — the window is in the path, like
+    // page numbers are for the other section lists.
+    ctx.hours = Number(rest[0]) || 24;
+  } else if (section === "ticks") {
     if (rest[0] === "detail") ctx.id = rest[1];
     else ctx.page = Number(rest[0]) || 0;
   } else if (section === "context") {
@@ -1508,7 +1589,7 @@ function subscribe() {
       // Only when the ladder actually moved: `mind` fires every tick, and
       // re-rendering the page two seconds apart forever is exactly the polling
       // this is supposed to replace.
-      if (changed && ["overview", "timeline"].includes(state.route?.section)
+      if (changed && ["overview", "timeline", "events"].includes(state.route?.section)
           && !state.route?.page) render();
     }
     if (payload?.type === "journal" && state.route?.section === "context"

@@ -21,12 +21,13 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import time
 from pathlib import Path
 from typing import Any, Callable
 
 from yurios.app import vaultgit
 from yurios.mind.journal import canonical_day, is_canonical_day, parse_day_entries
-from yurios.mind.util import jsonl_page, read_json
+from yurios.mind.util import jsonl_page, read_json, ts_of_iso
 
 #: Per-view page ceilings. Generous, but bounded — a debug page asking for
 #: 100000 rows is a bug, and answering it would be a worse one.
@@ -180,6 +181,148 @@ def signals(record, *, page: int = 0, limit: int = 100,
             type: str | None = None) -> dict:
     return paged(source(record, "signals"), page=page, limit=limit,
                  match=_matcher(type=type))
+
+
+# --- one merged chronology ----------------------------------------------------
+#
+# The sections each sit on one log; this view folds several into the single
+# list "what has she been up to" needs: files committed to the Vault, signals
+# she was handed, non-REST ticks (jobs she performed), her tool audit, and the
+# model calls on the prompts index. No new fact is derived — these are the same
+# files shaped down to a common row.
+
+#: The sources that can count, in rail-toggle order.
+EVENT_KINDS = ("vault", "signal", "tick", "call", "prompt")
+
+#: A day is not all her doing is, nor is a month; bound the window either way.
+MAX_WINDOW_H = 24 * 31
+MIN_WINDOW_H = 0.5
+
+
+def _epoch(row: dict) -> float:
+    """The logs disagree on time units: activity and commits stamp `at`, tool
+    audits stamp `ts` as an epoch float, and everything else stamps `ts` as the
+    mind's local ISO string. One helper, or the merged list reads as five files
+    piled on each other (the same hazard `_log_sort_key` exists to avoid)."""
+    value = row.get("at", row.get("ts"))
+    if isinstance(value, (int, float)):
+        return float(value)
+    try:
+        return ts_of_iso(str(value))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _clip(text, length: int = 160) -> str:
+    text = str(text)
+    return text if len(text) <= length else f"{text[:length]}…"
+
+
+def _signal_event(row: dict) -> dict:
+    payload = json.dumps(row.get("payload", {}), ensure_ascii=False, default=str)
+    return {"kind": "signal", "at": _epoch(row), "title": row.get("type") or "signal",
+            "chips": [row.get("source") or "host"], "detail": _clip(payload),
+            "ref": None}
+
+
+def _tick_event(row: dict) -> dict:
+    decided = row.get("decided") or {}
+    acted = row.get("acted") or {}
+    return {"kind": "tick", "at": _epoch(row),
+            "title": decided.get("intention") or "ACT",
+            "chips": [row.get("activity_state") or "?"],
+            "detail": _clip(acted.get("result") or ""),
+            "ref": {"hash": f"#/ticks/detail/{row.get('tick_id')}"}
+            if row.get("tick_id") else None}
+
+
+def _call_event(row: dict) -> dict:
+    args = json.dumps(row.get("args", {}), ensure_ascii=False, default=str)
+    chips = [row.get("verdict") or "?"]
+    if row.get("origin"):
+        chips.append(row["origin"])
+    return {"kind": "call", "at": _epoch(row), "title": row.get("tool") or "tool",
+            "chips": chips,
+            "detail": _clip(row.get("result") or args),
+            "ref": {"hash": f"#/tools/0?corr_id={row.get('corr_id')}"}
+            if row.get("corr_id") else None}
+
+
+def _prompt_event(row: dict) -> dict:
+    chips = [row.get("kind") or "call"]
+    if row.get("model"):
+        chips.append(row["model"])
+    tokens = [f"~{row.get('tokens_in')} in" if row.get("tokens_in") is not None else None,
+              f"~{row.get('tokens_out')} out" if row.get("tokens_out") is not None else None]
+    return {"kind": "prompt", "at": _epoch(row), "title": row.get("kind") or "call",
+            "chips": chips,
+            "detail": " · ".join(t for t in tokens if t),
+            "ref": {"hash": f"#/context/prompt/{row.get('id')}"}
+            if row.get("id") else None}
+
+
+def _commit_event(commit: dict) -> dict:
+    files = commit.get("files") or []
+    shown = ", ".join(f.get("path") for f in files[:4])
+    if len(files) > 4:
+        shown = f"{shown} +{len(files) - 4} more"
+    return {"kind": "vault", "at": float(commit.get("at") or 0),
+            "title": commit.get("subject") or "commit",
+            "chips": [f"{len(files)} file(s)"], "detail": shown,
+            "ref": {"hash": f"#/vault/commit/{commit.get('sha')}"}
+            if commit.get("sha") else None}
+
+
+def events(record, *, hours: float = 24, kinds: list[str] | None = None,
+           limit: int = 100) -> dict:
+    """One newest-first window over several of the section logs (above).
+
+    Of the five sources, only one gets a cull rather than a blank window check:
+    a REST tick is just "the loop fired", which says nothing and would crowd
+    out anything that did something. `truncated` names the sources that had
+    more in-window than `limit`, so a busy day is told rather than silently
+    clipped. `counts` is a per-kind tally of the same list, so the chips in the
+    rail above it stay honest.
+    """
+    hours = max(MIN_WINDOW_H, min(hours, MAX_WINDOW_H))
+    limit = max(1, min(limit, MAX_LIMIT))
+    enabled = [k for k in (kinds or EVENT_KINDS) if k in EVENT_KINDS]
+    cutoff = time.time() - hours * 3600
+    in_window = lambda row: _epoch(row) >= cutoff          # noqa: E731
+
+    folded: list[tuple[str, Path, Callable[[dict], dict],
+                       Callable[[dict], bool] | None]] = [
+        ("signal", source(record, "signals"), _signal_event, in_window),
+        ("tick", source(record, "ticks"), _tick_event,
+         lambda r: in_window(r) and (r.get("decided") or {}).get("intention") not in (None, "REST")),
+        ("call", source(record, "calls"), _call_event, in_window),
+        ("prompt", source(record, "prompts"), _prompt_event, in_window),
+    ]
+
+    items: list[dict] = []
+    truncated: dict[str, bool] = {}
+    for kind, path, shape, match in folded:
+        if kind not in enabled:
+            truncated[kind] = False
+            continue
+        found, has_more, _ = jsonl_page(path, limit=limit, match=match, shape=shape)
+        items += found
+        truncated[kind] = has_more
+
+    if "vault" in enabled:
+        # Git filtered post-hoc: `log_records` has no --since, and adding one for
+        # a debug view is a bad trade (vaultgit stays dumb; the page reads it).
+        commits = vaultgit.log_records(Path(record.paths.vault), limit=limit)
+        in_scope = [c for c in commits if float(c.get("at") or 0) >= cutoff]
+        items += [_commit_event(c) for c in in_scope]
+        truncated["vault"] = len(in_scope) == limit
+
+    items.sort(key=lambda event: -(event.get("at") or 0))
+    return {"items": items, "hours": hours,
+            "kinds": [k for k in EVENT_KINDS if k in enabled],
+            "counts": {k: sum(1 for e in items if e.get("kind") == k)
+                       for k in EVENT_KINDS},
+            "truncated": truncated}
 
 
 # --- her hands ----------------------------------------------------------------

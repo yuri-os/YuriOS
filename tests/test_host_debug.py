@@ -11,6 +11,7 @@ dashboard has shipped against since the drawer existed and which had no tests.
 """
 from __future__ import annotations
 
+import datetime as dt
 import json
 import subprocess
 
@@ -125,7 +126,7 @@ def get(client, route, **params):
 
 # --- the two properties that matter --------------------------------------------
 
-ALL = ["/overview", "/activity", "/ticks", "/signals", "/goals", "/self-edits",
+ALL = ["/overview", "/activity", "/events", "/ticks", "/signals", "/goals", "/self-edits",
        "/calls", "/selfies", "/prompts", "/prompts/days", "/economics",
        "/utility", "/memory", "/memory/chunks", "/vault/commits"]
 
@@ -169,6 +170,79 @@ def test_the_activity_timeline_reads_her_own_log(client):
     assert [(r["from"], r["to"]) for r in body["items"]] \
         == [("IDLE", "ENGAGED"), (None, "IDLE")], "newest first"
     assert body["current"]["state"] == "IDLE"
+
+
+# --- the merged event timeline --------------------------------------------------
+
+# She did things — five logs folded into one windowed chronology. The tests
+# seed with the logs' true time formats (ISO for most, epoch for tool audits)
+# so an old straggler and a REST tick can prove the window and the cull.
+
+def seed_events(rec):
+    """Rows now and rows just outside a 24h window, across the merged sources."""
+    import time
+    now = time.time()
+    iso = lambda offset_s: dt.datetime.fromtimestamp(             # noqa: E731
+        now - offset_s).isoformat(timespec="seconds")
+    write_jsonl(rec.paths.traces / "signals.jsonl", [
+        {"id": "sig-fresh", "type": "user_message", "ts": iso(600),
+         "payload": {"text": "hi"}, "source": "voice"},
+        {"id": "sig-old", "type": "timer", "ts": iso(90_000), "payload": {},
+         "source": "host"}])
+    write_jsonl(rec.paths.traces / "ticks.jsonl", [
+        {"tick_id": "t-rest", "ts": iso(120), "activity_state": "IDLE",
+         "sensed": [], "appraised": [], "decided": {"intention": "REST"},
+         "acted": {"what": None, "result": "rest"}, "interrupt": {}},
+        {"tick_id": "t-goal", "ts": iso(300), "activity_state": "ENGAGED",
+         "sensed": [], "appraised": [],
+         "decided": {"intention": "goal: tidy the shelf"},
+         "acted": {"what": "goalwork", "result": "filed a note"},
+         "interrupt": {}}])
+    write_jsonl(rec.paths.tool_logs / "calls.jsonl", [
+        {"ts": now - 60, "tool": "list_notes", "verdict": "ok",
+         "args": {"limit": 5}, "result": "[]", "corr_id": "c-1"}])
+    write_jsonl(rec.paths.traces / "prompts.jsonl", [
+        {"id": "pr-1", "ts": iso(30), "kind": "dream", "model": "m",
+         "tokens_in": 9, "tokens_out": 20}])
+    return now
+
+
+def test_events_fold_the_logs_into_one_newest_first_window(client):
+    seed_events(client.record)
+    body = get(client, "/events", hours=24)
+    assert [e["kind"] for e in body["items"]] == ["prompt", "call", "tick", "signal"], \
+        "merged and sorted newest first"
+    titles = [e["title"] for e in body["items"]]
+    assert "dream" in titles and "goal: tidy the shelf" in titles
+    assert all(t != "REST" for t in titles), "a REST tick is the loop firing, not an event"
+    assert {e["title"] for e in body["items"] if e["kind"] == "signal"} == {"user_message"}
+    assert body["counts"]["signal"] == 1, "the 25h-old signal stays outside the window"
+    assert body["truncated"]["signal"] is False
+    assert body["hours"] == 24
+
+
+def test_events_narrow_the_kinds_through_the_query(client):
+    seed_events(client.record)
+    body = get(client, "/events", kinds="signal,tick")
+    assert {e["kind"] for e in body["items"]} <= {"signal", "tick"}
+    assert body["counts"]["call"] == 0 and body["counts"]["prompt"] == 0
+    assert "sig-old" not in {e.get("title") for e in body["items"] if e["kind"] == "signal"}
+
+
+def test_vault_commits_fold_in_as_files_written(client):
+    git_vault(client.record)
+    body = get(client, "/events", hours=24, kinds="vault")
+    auth = [e for e in body["items"] if e["kind"] == "vault"]
+    assert [e["title"] for e in auth] == [
+        "tick t-9: noticed the rain", "turn abcd1234:0"], "newest first"
+    assert auth[0]["ref"]["hash"].startswith("#/vault/commit/")
+    assert body["counts"]["vault"] == 2
+
+
+def test_a_window_clamp_keeps_a_silly_hours_ask_in_bounds(client):
+    seed_events(client.record)
+    body = get(client, "/events", hours=10_000)
+    assert body["hours"] == 24 * 31, "a month is the widest the page goes"
 
 
 # --- ticks ----------------------------------------------------------------------

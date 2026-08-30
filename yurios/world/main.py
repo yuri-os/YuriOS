@@ -31,12 +31,14 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from starlette.datastructures import MutableHeaders
 
+from yurios.desktop.voice.emotion import speakable
 from yurios.desktop.voice.fillers import FillerBank
 from yurios.desktop.voice.ws_limits import VoiceConnectionLimiter, uvicorn_ws_options
 
 from yurios.mind.loop import MindLoop
 from yurios.mind.promptlog import PromptLog
 from yurios.mind.signals import SignalBus
+from yurios.mind.workspace import OutsideTheDesk, Workspace
 from yurios.models import is_configured
 
 from .avatar.controller import VrmController
@@ -458,6 +460,11 @@ class Runtime:
         Newest first in each — an id is unique, so the order is only about
         finding it sooner. Her lines only: `role` is the ring's field and inbox
         rows have no role at all, since everything in that file is hers.
+
+        A line carrying a `report_path` (§18.2a) is the one line whose words
+        are not its own: the pointer resolves to the document on her desk,
+        sanded for her mouth by `speakable` (desktop/voice/emotion.py), and
+        the line itself is what remains when the desk no longer holds it.
         """
         for entries in (self.transcript, self.inbox.entries(),
                         self.chatlog.entries()):
@@ -467,8 +474,36 @@ class Runtime:
                 if entry.get("role", "assistant") == "user":
                     return None
                 text = (entry.get("text") or "").strip()
-                return text or None
+                # A report line is a pointer, and the lede is the pointer's
+                # label — press the button on the overnight brief and she
+                # reads the brief, not its first 280 characters (§18.2a). The
+                # line itself is the fallback for a file that has left the
+                # desk since.
+                return self._report_aloud(entry) or text or None
         return None
+
+    def _report_aloud(self, entry: dict) -> str:
+        """The document a report line points at, as words she can say (§9.11).
+
+        Empty when the line is no report, the file is gone, or what the desk
+        holds sands down to nothing — the caller falls back to the line
+        itself, so a report that left the desk is read as the lede it shipped
+        with rather than answered with silence. Resolved through the desk's
+        own sandbox (`mind/workspace.py`), the same way the chat card's
+        "read it" button resolves it, so a `report_path` can name a place on
+        her desk and never a place outside it.
+        """
+        rel = str(entry.get("report_path") or "")
+        if not rel:
+            return ""
+        mind = self.mind
+        workspace = (mind.workspace
+                     if mind is not None and mind.workspace is not None
+                     else Workspace(self.cfg.vault_dir / "workspace"))
+        try:
+            return speakable(workspace.read(rel, default=""))
+        except (OutsideTheDesk, OSError):
+            return ""
 
     # ---- ambient speech seam (B4 §8.4; today's obligations are SPEC §8, §9) ----
 

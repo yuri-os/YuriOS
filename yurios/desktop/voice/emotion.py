@@ -302,3 +302,62 @@ class EmotionParser:
             if not self.events or self.events[-1].expression != name:
                 self.events.append(ExpressionEvent(name, len(self.clean)))
         # unknown tag → dropped silently (SPEC §6.2)
+
+
+# ---------------------------------------------------------------------------
+# Reading a written document aloud (SPEC §9.11)
+#
+# The parser above strips the markup a *reply stream* carries. A report off
+# her desk is a different animal: markdown, all of it silent on the page, and
+# every convention has to be sanded down to the words before it reaches TTS —
+# a heading's `##`, a bullet's `-`, a table's pipes are not things she says.
+# One rule is stronger than cosmetic: a bare `*` left standing would reach the
+# EmotionParser as *narration* and eat the sentence after it, so emphasis goes
+# here, not there.
+
+_HEADING_MARKS = re.compile(r"^\s{0,3}#{1,6}\s+")
+_LIST_MARKER = re.compile(r"^\s*(?:[-*•+]|\d+[.)])\s+")
+_LINK = re.compile(r"\[([^\]]+)\]\([^)\s]*\)")
+_RULE_CHARS = re.compile(r"[-–—_=~.\s]*")
+_TABLE_RULE = re.compile(r"^[\s|:\-]+$")           # the |---|---| separator row
+_STRAY_UNDERSCORE = re.compile(r"(?<!\w)_|_(?!\w)")
+
+
+def speakable(document: str) -> str:
+    """A written document as the words she can say out loud (SPEC §9.11).
+
+    Line-wise, on purpose: a newline is already a sentence boundary downstream
+    (`sentences.cut_sentences`), so each kept line is one thing she says — a
+    heading becomes its own beat, a bullet its own sentence. Structure with no
+    words in it (rules, fences, table separators, the fenced block itself) is
+    dropped; emphasis and link markup is unwrapped; a table row becomes its
+    cells in order. What she must never read aloud — a stray `[tag]` or a
+    surviving `*…*` span — is the EmotionParser's job on the far side, exactly
+    as it is for any replayed line.
+    """
+    out: list[str] = []
+    in_fence = False
+    for raw in document.splitlines():
+        line = raw.strip()
+        if line.startswith("```"):
+            in_fence = not in_fence               # code is for reading, not saying
+            continue
+        if in_fence:
+            continue
+        line = _HEADING_MARKS.sub("", line)
+        line = _LIST_MARKER.sub("", line, count=1)
+        if line.startswith(">"):
+            line = line[1:].strip()               # a quote mark, not a word
+        line = _LINK.sub(r"\1", line)
+        if "|" in line:
+            if _TABLE_RULE.fullmatch(line):
+                continue                          # ink on the page, not words
+            line = ", ".join(cell.strip()
+                             for cell in line.strip("|").split("|")
+                             if cell.strip())
+        line = line.replace("**", "").replace("__", "").replace("*", "")
+        line = _STRAY_UNDERSCORE.sub("", line).replace("`", "")
+        line = " ".join(line.split())
+        if line and not _RULE_CHARS.fullmatch(line):
+            out.append(line)
+    return "\n".join(out)

@@ -903,7 +903,13 @@ STT/TTS/VAD SDK, and fakes implement each seam so the whole loop runs offline (�
   speak over it. It **MUST NOT** cost a live turn — a barged-in turn commits nothing (§4.4), so a
   press while she is mid-reply waits and says so rather than throwing her answer away. It **MUST**
   strip what she must never read aloud (expression tags, `*narration*` — §6), because the lines
-  the mind's other surfaces post carry no such promise. Muting (§9.10) is "not by default", not
+  the mind's other surfaces post carry no such promise. A line that carries a report pointer
+  (§18.2a) is the one line whose words are not its own: the pointer **MUST** resolve to the
+  document on her desk — she reads the brief, not the lede the bubble shows — sanded down to
+  speakable prose before it reaches her mouth, since the markdown that is silent on the page
+  (headings, bullets, tables, emphasis) **MUST** be silent out loud, and a bare `*` left
+  standing is narration to the stripper. When the desk no longer holds the file the control
+  **MUST** fall back to the line itself rather than answer with silence. Muting (§9.10) is "not by default", not
   "no": a press in a muted room **SHOULD** open the gain for the length of that one line and put
   it back, leaving the switch exactly where the user left it.
 

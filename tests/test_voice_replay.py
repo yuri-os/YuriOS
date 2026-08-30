@@ -259,3 +259,99 @@ def test_a_line_that_outlived_the_ring_is_still_hers_to_read(rig):
         texts, spoken = read_out(ws)
         assert " ".join(texts) == "I left the light on for you."
         assert "message" not in spoken                   # it happened
+
+
+def test_a_report_line_reads_the_document_not_the_lede(rig):
+    """§9.11 meets §18.2a: the bubble shows the lede behind a card, and the
+    button reads the document the card names — the whole brief, sanded down
+    to plain sentences, because what is silent on the page is silent out
+    loud."""
+    from yurios.mind.workspace import Workspace
+    client, rt, _ = rig
+    desk = Workspace(rt.cfg.vault_dir / "workspace")
+    desk.write("reports/market-brief/2026-08-28.md",
+               "## The tape\n\n"
+               "Friday closed quiet and slightly red.\n\n"
+               "- S&P at **7,715**, down 0.10%\n"
+               "- Warsh was hawkish on inflation\n\n"
+               "| Index | Close |\n"
+               "|-------|-------|\n"
+               "| Russell 2000 | −1.34% |\n")
+    entry = rt.post_message(
+        "assistant", "Friday closed quiet and slightly red.", proactive=True,
+        report_path="reports/market-brief/2026-08-28.md",
+        report_title="Overnight market brief", report_job="market-brief")
+    with client.websocket_connect("/ws/voice") as ws:
+        ws.send_json({"type": "hello", "session_id": None})
+        handshake(ws)
+        drain(ws)                                        # the greeting
+
+        ws.send_json({"type": "speak", "message_id": entry["id"]})
+        assert ws.receive_json()["type"] == "speaking"
+        texts, spoken = read_out(ws, cap=120)
+        said = " ".join(texts)
+        # the whole document, not the lede the bubble shows…
+        assert "Warsh was hawkish on inflation" in said
+        assert "Russell 2000" in said
+        # …sanded for her mouth: no markdown reaches the TTS
+        assert "**" not in said and "|" not in said and "#" not in said
+        assert "message" not in spoken                   # it happened
+
+
+def test_a_report_whose_file_left_the_desk_falls_back_to_the_lede(rig):
+    """The card says "isn't on her desk any more"; the button reads the line
+    it shipped with. Silence is the one wrong answer."""
+    client, rt, _ = rig
+    entry = rt.post_message(
+        "assistant", "Friday closed quiet and slightly red.", proactive=True,
+        report_path="reports/market-brief/2020-01-01.md",
+        report_title="Overnight market brief", report_job="market-brief")
+    with client.websocket_connect("/ws/voice") as ws:
+        ws.send_json({"type": "hello", "session_id": None})
+        handshake(ws)
+        drain(ws)
+
+        ws.send_json({"type": "speak", "message_id": entry["id"]})
+        assert ws.receive_json()["type"] == "speaking"
+        texts, spoken = read_out(ws)
+        assert " ".join(texts) == "Friday closed quiet and slightly red."
+        assert "message" not in spoken
+
+
+def test_speakable_sands_a_document_down_to_words():
+    """The line-wise rules, without a socket: structure with no words is
+    dropped, emphasis is unwrapped, and no bare `*` survives to be read as
+    narration by the EmotionParser on the far side."""
+    from yurios.desktop.voice.emotion import speakable
+    document = ("## The tape\n"
+                "\n"
+                "Friday closed **quiet** and slightly red.\n"
+                "\n"
+                "- S&P at 7,715 (−0.10%)\n"
+                "1. Dow flat at 53,553\n"
+                "\n"
+                "> a line worth quoting\n"
+                "\n"
+                "| Index | Close |\n"
+                "|-------|------:|\n"
+                "| Nasdaq 100 | −0.41% |\n"
+                "\n"
+                "---\n"
+                "\n"
+                "```\n"
+                "this was never words\n"
+                "```\n"
+                "\n"
+                "See [the filing](https://example.com/filing) for the detail.\n")
+    said = speakable(document)
+    assert said.splitlines() == [
+        "The tape",
+        "Friday closed quiet and slightly red.",
+        "S&P at 7,715 (−0.10%)",
+        "Dow flat at 53,553",
+        "a line worth quoting",
+        "Index, Close",
+        "Nasdaq 100, −0.41%",
+        "See the filing for the detail.",
+    ]
+    assert speakable("") == ""

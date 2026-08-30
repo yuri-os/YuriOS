@@ -34,6 +34,12 @@ The wire carries the *message id*, never the text, so what comes back is always 
 her own transcript. A line old enough to have fallen off the ring (~200 entries) says so rather
 than reading out silence.
 
+One line is the exception to "she reads the line": a report she delivered overnight shows in the
+bubble as its lede with the document folded behind a card. Pressing the speaker button on one of
+those reads the whole report off her desk, not the lede — headings, bullets, tables and emphasis
+sanded down to plain sentences, since what is silent on the page should be silent out loud. If
+the report has since left her desk, she reads the line as it stands.
+
 ### Muting her
 
 The speaker button beside the mic is on every page (sanctuary, Live2D, text room). It starts muted

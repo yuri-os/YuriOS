@@ -19,14 +19,14 @@ a section are folded into it.
 | **§6** — The sanctuary scene | `web/js/stage/VrmStage.js`<br>`web/js/main.js`<br>`yurios/desktop/voice/emotion.py`<br>`web/js/stage/SanctuaryScene.js`<br>*+34 more* | `tests/test_boot.py`<br>`tests/test_window.py`<br>`tests/conftest.py`<br>*+2 more* |
 | **§7** — Tools via MCP: the hands | `yurios/world/tools/client.py`<br>`yurios/world/brain.py`<br>`yurios/world/config.py`<br>`yurios/world/main.py`<br>*+38 more* | `tests/test_mcp_contract.py`<br>`tests/test_tool_loop.py`<br>`tests/test_turn_tools.py`<br>*+16 more* |
 | **§8** — Ambient life is the mind's, not a scripted machine | `web/js/stage/GazeController.js`<br>`yurios/app/corpus.py`<br>`yurios/app/routes/rate.py`<br>`yurios/world/avatar/controller.py`<br>*+2 more* | `tests/test_voice_ws_fork.py` |
-| **§9** — The voice loop | `web/js/voice.js`<br>`yurios/world/routes/voice_ws.py`<br>`yurios/world/main.py`<br>`web/js/chat.js`<br>*+6 more* | `tests/test_voice_handshake.py`<br>`tests/test_voice_replay.py`<br>`tests/test_voice_stack.py` |
+| **§9** — The voice loop | `web/js/voice.js`<br>`yurios/world/routes/voice_ws.py`<br>`yurios/world/main.py`<br>`web/js/chat.js`<br>*+7 more* | `tests/test_voice_handshake.py`<br>`tests/test_voice_replay.py`<br>`tests/test_voice_stack.py` |
 | **§10** — Topology: one event bus + one audio socket | `yurios/world/main.py`<br>`yurios/envfile.py`<br>`yurios/world/channels/telegram.py`<br>`yurios/world/routes/voice_ws.py`<br>*+18 more* | `tests/test_channels.py`<br>`tests/test_host.py`<br>`tests/test_pictures.py` |
 | **§11** — Config | `yurios/security.py`<br>`web/shared/settings.js`<br>`yurios/cli.py`<br>`yurios/world/context.py`<br>*+15 more* | `tests/test_config.py`<br>`tests/test_context_meter.py`<br>`tests/test_envfile.py`<br>*+2 more* |
 | **§12** — Omissions → superseded by §26 | — | — |
 | **§13** — Tests → superseded by §27 | — | — |
 | **§14** — Extends to → superseded by §28 | — | — |
 | **§15** — The cognitive tick loop | `yurios/mind/loop.py`<br>`yurios/world/routes/voice_ws.py`<br>`yurios/world/main.py`<br>`yurios/mind/acts.py`<br>*+7 more* | `tests/test_config.py`<br>`tests/test_mind_loop.py`<br>`tests/test_mind_routes.py`<br>*+1 more* |
-| **§16** — The signal bus (inbound) | `yurios/mind/signals.py`<br>`yurios/mind/loop.py`<br>`yurios/world/main.py`<br>`yurios/world/routes/events.py`<br>*+1 more* | `tests/test_mind_goals.py` |
+| **§16** — The signal bus (inbound) | `yurios/mind/signals.py`<br>`yurios/mind/loop.py`<br>`yurios/world/main.py`<br>`yurios/mind/dreamjobs/builtins.py`<br>*+2 more* | `tests/test_mind_goals.py` |
 | **§17** — Activity states and the budget governor | `yurios/mind/policy.py`<br>`web/mind/mind.js`<br>`yurios/mind/budget.py`<br>`yurios/mind/prompts.py` | `tests/test_policy.py` |
 | **§18** — The salience and interrupt model | `web/js/chat.js`<br>`yurios/mind/loop.py`<br>`yurios/mind/policy.py`<br>`yurios/world/host/hosting.py`<br>*+12 more* | `tests/test_inbox.py`<br>`tests/test_tray.py`<br>`tests/test_host.py`<br>*+1 more* |
 | **§19** — The world model (the present tense) | `yurios/mind/world.py`<br>`yurios/world/brain.py`<br>`yurios/world/situation.py` | `tests/test_world_model.py` |
@@ -47,4 +47,4 @@ a section are folded into it.
 | **§34** — Her desk and her skills | `yurios/characters/importer.py`<br>`yurios/desktop/brain.py`<br>`yurios/mind/workspace.py`<br>`yurios/world/brain_protocol.py`<br>*+1 more* | `tests/test_mcp_contract.py`<br>`tests/test_workspace.py` |
 | **§35** — Pictures you send her | `yurios/world/main.py`<br>`yurios/world/channels/telegram.py`<br>`yurios/world/routes/chat.py`<br>`web/js/chat.js`<br>*+11 more* | `tests/test_channels.py`<br>`tests/test_context_meter.py`<br>`tests/test_integration.py`<br>*+1 more* |
 
-*668 citation sites over 103 sections.*
+*671 citation sites over 103 sections.*

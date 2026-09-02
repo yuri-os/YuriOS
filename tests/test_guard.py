@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 
 from yurios.kernel import correlate
-from yurios.world.tools.guard import RESULT_MAX_CHARS, Guard
+from yurios.world.tools.guard import RESULT_LIMITS, RESULT_MAX_CHARS, Guard
 
 
 def test_allowlist_denies_tools_she_does_not_have(guard):
@@ -65,6 +65,14 @@ def test_truncate_caps_result_length():
     out = Guard.truncate(long)
     assert len(out) == RESULT_MAX_CHARS and out.endswith("…")
     assert Guard.truncate("short") == "short"
+
+
+def test_catalog_tools_keep_a_higher_truncate_bound():
+    """list_notes / read_note are the result, not a fact to speak to."""
+    long = "x" * 8_000
+    assert len(Guard.truncate(long, tool="list_notes")) == RESULT_LIMITS["list_notes"]
+    assert len(Guard.truncate(long, tool="read_note")) == RESULT_LIMITS["read_note"]
+    assert len(Guard.truncate(long, tool="set_timer")) == RESULT_MAX_CHARS
 
 
 def test_audit_writes_one_jsonl_line_per_call_allowed_or_denied(guard, cfg):

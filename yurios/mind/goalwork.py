@@ -25,7 +25,7 @@ from yurios.app.core.assemble import age_tag
 from yurios.kernel import correlate
 
 from . import acts
-from .goals import Goal
+from .goals import Goal, night_owned
 from .hands import START_DONT_AWAIT, klass, parse_intent, stamp_contract
 from .util import iso_of
 
@@ -136,6 +136,12 @@ def context(loop, goal: Goal) -> str:
         if digest:
             parts.append("YOUR DESK (paths only — `read_note` opens one)"
                          "\n\n" + digest)
+    if night_owned(goal.text):
+        parts.append(
+            "THIS IS THE NIGHT'S JOB\n\n"
+            "Consolidation writes durable facts (the block below), not a "
+            "desk folder called kept-memory. `list_notes` only sees "
+            "workspace/. Park this and leave it for DREAM.")
     if loop.skills is not None:
         catalog = loop.skills.catalog(limit=12)
         if catalog:
@@ -270,7 +276,12 @@ async def tool_step(loop, goal: Goal, intent,
     dispatched: dict = {}
     if intent.tool in START_DONT_AWAIT and '"started"' in result:
         dispatched = {"tool": intent.tool, "at": iso_of(loop.clock.now())}
-    short = result[:160].replace("\n", " ")
+    # list_notes is a catalog: the listing IS the step. Clipping it to 160
+    # characters of pretty JSON is how she spent days retrying the same
+    # folder — the next tick only saw one file. The tool already bounds the
+    # payload (SPEC §34.2).
+    keep = len(result) if intent.tool == "list_notes" else 160
+    short = result[:keep].replace("\n", " ")
     note = f"reached for {intent.tool} on “{goal.text}” → {short}"
     # Her reason first, the result under it. A desk that records only what a
     # hand returned reads, three ticks later, as a list of things that

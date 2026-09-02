@@ -282,8 +282,8 @@ async def test_play_music_realised_on_the_controller(cfg, guard, timers, control
 
 async def test_result_truncated_before_the_continuation(cfg, guard, timers,
                                                         controller):
-    chat = ScriptedChat([["x [[list_notes {}]]"], ["ok"]])
-    runner = FakeToolRunner(results={"list_notes": "y" * 5000})
+    chat = ScriptedChat([["x [[set_timer {\"minutes\": 1}]]"], ["ok"]])
+    runner = FakeToolRunner(results={"set_timer": "y" * 5000})
     tb = make_toolbrain(cfg, guard, timers, controller, chat, runner=runner)
     await collect(tb._stream_with_tools([], []))
     assert len(chat.calls[1][-1]["content"]) < 800     # 600-char cap + the cue text

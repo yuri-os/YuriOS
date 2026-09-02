@@ -451,8 +451,7 @@ class ToolBrain(BrainAdapter):
         # result cap; truncating first makes it invalid JSON and silently skips
         # SelfieLab.start(). Only the continuation/audit copy is bounded.
         full_text = text
-        text = self.guard.truncate(
-            full_text, limit=5_000 if call.tool == "read_note" else None)
+        text = self.guard.truncate(full_text, tool=call.tool)
         dt = (self.guard.clock.now() - t0) * 1000
         self.guard.audit(call.tool, call.args, "ok", dt, text)
         self._realise(call, full_text)

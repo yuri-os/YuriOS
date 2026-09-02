@@ -319,8 +319,10 @@ standalone action","why":"why this follows from your drives and current evidence
 observable completion condition","first_action":"the first bounded step",\
 "capability":"the available capability it uses, or thought-only"}}
 Do not file a value, feeling, relationship posture, metaphorical physical act, or
-anything containing an unresolved reference such as 'the thing'. If no new action
-is both character-specific and executable with the capabilities shown, use null.
+anything containing an unresolved reference such as 'the thing'. Do not file \
+consolidation, kept-memory bookkeeping, or catching up on nights — the night \
+already does that. If no new action is both character-specific and executable \
+with the capabilities shown, use null.
 """
 
 
@@ -454,9 +456,12 @@ class StrategyJob(DreamJob):
             # that was capped or switched off, and a night that named something
             # she is already doing look identical in the log otherwise — and
             # they call for three different things from you.
-            out.result = (f"{reviewed}, already carrying that one"
-                          if ctx.goal_refusal == "echo"
-                          else f"{reviewed}, kept one to myself")
+            if ctx.goal_refusal == "echo":
+                out.result = f"{reviewed}, already carrying that one"
+            elif ctx.goal_refusal == "night":
+                out.result = f"{reviewed}, the night already does that"
+            else:
+                out.result = f"{reviewed}, kept one to myself"
             out.note = "stood back and looked at what I'm carrying"
         return out
 

@@ -103,6 +103,26 @@ def _echo_words(text: str) -> set[str]:
             if len(word) >= 3 and word not in _ECHO_STOP}
 
 
+def night_owned(text: str) -> bool:
+    """True when the text is DREAM's job, not a daytime desk task (SPEC §22.1b).
+
+    Strategy used to refile the `maintenance:dream` leftover as "list diary
+    vs kept-memory", and she then spent days on `list_notes` looking for a
+    folder that is not on the desk. Consolidation writes
+    `memory/semantic/facts.md`; `workspace/diary/` is a separate night job.
+    Neither is a hand.
+    """
+    t = " ".join((text or "").lower().split())
+    if "kept-memory" in t or "kept memory" in t:
+        return True
+    if "unconsolidated" in t:
+        return True
+    if "consolidat" in t and any(
+            w in t for w in ("night", "nights", "diary", "memory")):
+        return True
+    return False
+
+
 def echoes(text: str, existing: Iterable[Goal]) -> Goal | None:
     """Return the open goal that expresses the same content, if one exists."""
     words = _echo_words(text)

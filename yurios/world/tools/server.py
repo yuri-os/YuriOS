@@ -13,6 +13,7 @@ shape Build #5 keeps when these same tools move behind a broker (→ ch. 19).
 """
 from __future__ import annotations
 
+import json
 import time
 import uuid
 from typing import Literal, get_args
@@ -29,6 +30,9 @@ from .search import SearchProvider, build_provider
 from .spawn_env import ToolServerEnv
 
 NOTE_READ_MAX_CHARS = 4_000
+#: Compact listing budget. Guard allows 5k for `list_notes` so a pretty-printed
+#: MCP content block still has headroom; this is the structured payload cap.
+LIST_NOTES_MAX_CHARS = 4_000
 
 # The catalog lives in the *type*, not in prose: an annotated Literal becomes an
 # `enum` in the tool's JSON schema, which is the only form of the list a model
@@ -48,6 +52,44 @@ MUSIC_TRACKS: tuple[str, ...] = get_args(MusicTrack)
 #: by hand, and CONSTITUTION, which is not in the set at all.
 PROPOSABLE = tuple(sorted(
     MindVault.EDITABLE_SOUL - {"USER.md", "MEMORY.md", "BOOTSTRAP.md"}))
+
+
+def _notes_listing(files: list, desk_files: int, desk_bytes: int, *,
+                   missing: bool = False) -> dict:
+    """A `list_notes` payload that still names `count` if the Guard clips it.
+
+    `mtime`/`dir` on every row used to blow the 600-char fact budget two
+    files in, and because `files` led the object she never saw how many
+    there were. Count first, path+bytes only, clip from the end so a
+    truncated listing is still valid JSON (SPEC §7.3, §34.2).
+    """
+    rows = [{"path": e.path, "bytes": e.bytes} for e in files]
+    payload: dict = {
+        "count": len(files),
+        "shown": len(rows),
+        "truncated": False,
+        "desk_files": desk_files,
+        "desk_bytes": desk_bytes,
+        "files": rows,
+    }
+    if missing:
+        payload["note"] = (
+            "no folder by that name on your desk — paths look like "
+            "diary/ or notes/. list_notes only sees workspace/.")
+        return payload
+
+    def compact(shown: list) -> str:
+        body = {**payload, "shown": len(shown),
+                "truncated": len(shown) < len(rows), "files": shown}
+        return json.dumps(body, separators=(",", ":"), default=str)
+
+    shown = list(rows)
+    while shown and len(compact(shown)) > LIST_NOTES_MAX_CHARS:
+        shown.pop()
+    payload["shown"] = len(shown)
+    payload["truncated"] = len(shown) < len(rows)
+    payload["files"] = shown
+    return payload
 
 
 def build_server(*, max_minutes: float | None = None,
@@ -353,17 +395,26 @@ def build_server(*, max_minutes: float | None = None,
         @mcp.tool()
         def list_notes(folder: str = "") -> dict:
             """List what's on your desk — the notes and drafts you've written
-            for yourself. `folder` narrows it to one subfolder ("research"),
+            for yourself. `folder` narrows it to one subfolder ("diary"),
             or leave it out for everything. You get paths and sizes, not
-            contents; `read_note` opens one."""
-            try:
-                entries = workspace.list(folder) if folder else workspace.list()
-            except OutsideTheDesk as e:
-                raise _refusal(e) from None
-            files = [e.as_dict() for e in entries if not e.is_dir]
+            contents; `read_note` opens one. This is workspace/ only: kept
+            memory is not a desk folder."""
             count, total = workspace.usage()
-            return {"files": files, "count": len(files),
-                    "desk_files": count, "desk_bytes": total}
+            if folder:
+                try:
+                    target = workspace.resolve(folder)
+                except OutsideTheDesk as e:
+                    raise _refusal(e) from None
+                if not target.is_dir():
+                    return _notes_listing([], count, total, missing=True)
+                try:
+                    entries = workspace.list(folder)
+                except OutsideTheDesk as e:
+                    raise _refusal(e) from None
+            else:
+                entries = workspace.list()
+            files = [e for e in entries if not e.is_dir]
+            return _notes_listing(files, count, total)
 
         @mcp.tool()
         def read_note(path: str, start_line: int = 1, end_line: int = 0) -> dict:

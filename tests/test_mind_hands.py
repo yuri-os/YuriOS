@@ -147,6 +147,26 @@ async def test_the_step_that_writes_the_file_can_be_the_step_that_finishes(
     assert "that is the last of it" in desk, "the why survives, not just the result"
 
 
+async def test_a_list_notes_catalog_is_kept_whole_on_the_goal_desk(
+        cfg, seeded_vault):
+    """Found live: 160 characters of pretty JSON was one diary file, and the
+    next tick retried list_notes for days."""
+    listing = json.dumps({
+        "count": 19, "shown": 19, "truncated": False,
+        "files": [{"path": f"diary/2026-08-{i:02d}.md", "bytes": 900}
+                  for i in range(9, 28)]})
+    rig = rig_with_hands(
+        cfg, seeded_vault,
+        'use list_notes {"folder": "diary"}',
+        allow="list_notes",
+        tools=FakeToolRunner(results={"list_notes": listing}))
+    goal = rig.mind.goals.add("see the diary", kind="task", priority=0.95)
+    await work(rig)
+    desk = rig.mind.vault.read(f"workspace/goals/{goal.id}.md")
+    assert "diary/2026-08-27.md" in desk
+    assert "count" in desk
+
+
 async def test_the_same_call_is_not_re_dispatched_every_tick(cfg, seeded_vault):
     """`Guard.turn()` is one dedupe scope per reply, and the mind has ticks."""
     line = 'use write_note {"path": "n.md", "text": "the same thing"}'

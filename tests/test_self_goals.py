@@ -13,7 +13,7 @@ import json
 from yurios.app.memory.store import FileMemoryStore
 from yurios.mind.dream import DreamConsolidator
 from yurios.mind.dreamjobs import SELF_GOAL, DreamRunner
-from yurios.mind.goals import echoes
+from yurios.mind.goals import echoes, night_owned
 from yurios.mind.goals import GoalStore
 from yurios.mind.policy import appraise_goal
 from yurios.mind.util import ts_of_iso
@@ -108,7 +108,8 @@ async def test_structured_strategy_uses_character_context_and_keeps_rationale(
     prompt = runner.test_calls[-1][1]["content"]
     for expected in ("DURABLE DRIVES", "Research market catalysts",
                      "WHAT ACTUALLY HAPPENED", "Seoul time",
-                     source.provenance, "when is the next BTC event?"):
+                     source.provenance, "when is the next BTC event?",
+                     "THE NIGHT ALREADY DOES THIS"):
         assert expected in prompt
     filed = [goal for goal in goals.open_goals()
              if goal.provenance.startswith(SELF_GOAL)][0]
@@ -307,3 +308,58 @@ async def test_a_promise_counts_as_already_carrying_it_too(tmp_path, cfg):
     assert ctx.goal_refusal == "echo"
     assert not [g for g in goals.open_goals()
                 if g.provenance.startswith(SELF_GOAL)]
+
+
+NIGHT_OWNED = [
+    "List the diary folder and identify which nights have no corresponding "
+    "kept-memory entry",
+    "Consolidate the oldest unconsolidated night into kept memory",
+    "catch up on the nights I haven't consolidated yet",
+    "Check whether diary/2026-09-01 has a corresponding kept-memory entry, "
+    "and if not, create one",
+]
+
+NOT_NIGHT_OWNED = [
+    "write down what I actually think about the move",
+    "verify the next BTC catalyst and report it in Seoul time",
+    "Expand the escalation-vs-refinement lesson in about_grant.md",
+]
+
+
+def test_dreams_job_is_not_a_daytime_desk_task():
+    for text in NIGHT_OWNED:
+        assert night_owned(text), text
+    for text in NOT_NIGHT_OWNED:
+        assert not night_owned(text), text
+
+
+async def test_the_night_refuses_to_file_its_own_work(tmp_path, cfg):
+    """Found live: strategy refiled consolidation as list_notes vs kept-memory."""
+    answer = json.dumps({
+        "reflection": "I still haven't listed the diary against kept-memory.",
+        "next": {
+            "objective": NIGHT_OWNED[0],
+            "why": "the consolidation backlog is what actually matters",
+            "evidence": "the listing keeps truncating",
+            "success": "I can name the oldest unconsolidated diary entry",
+            "first_action": "Call list_notes on the diary/ folder",
+            "capability": "list_notes",
+        },
+    })
+    runner, _clock, goals = _rig(tmp_path, cfg, answer=answer)
+    out, ctx = await _stocktake(runner)
+    assert goals.open_goals() == []
+    assert ctx.goal_refusal == "night"
+    assert "the night already does that" in out.result
+
+
+async def test_strategy_context_labels_the_dream_maintenance_goal(tmp_path, cfg):
+    runner, _clock, goals = _rig(
+        tmp_path, cfg, answer='{"reflection":"ok","next":null}')
+    goals.add("catch up on the nights I haven't consolidated yet",
+              kind="maintenance", provenance="maintenance:dream",
+              meta={"auto": "dream"})
+    ctx = runner._context(day="2026-07-06")
+    prompt = ctx.strategy_context("2026-07-06", list(goals.open_goals()))
+    assert "the night owns this" in prompt
+    assert "THE NIGHT ALREADY DOES THIS" in prompt

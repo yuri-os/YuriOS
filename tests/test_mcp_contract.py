@@ -410,7 +410,43 @@ async def test_a_note_round_trips_through_the_tools(tmp_path):
         assert "three brands" in read["text"]
         listed = json.loads(result_text(await s.call_tool("list_notes", {})))
         assert [f["path"] for f in listed["files"]] == ["research/boards.md"]
+        assert listed["count"] == 1
+        assert listed["truncated"] is False
+        assert list(listed)[0] == "count"
+        assert "mtime" not in listed["files"][0]
     assert (tmp_path / "workspace" / "research" / "boards.md").is_file()
+
+
+async def test_list_notes_says_when_the_folder_is_not_on_the_desk(tmp_path):
+    """An empty listing of a phantom folder is how 'kept-memory is empty'
+    became a fact. Name the miss."""
+    async with create_connected_server_and_client_session(
+            desk_server(tmp_path)._mcp_server) as s:
+        listed = json.loads(result_text(await s.call_tool(
+            "list_notes", {"folder": "kept-memory"})))
+    assert listed["count"] == 0
+    assert listed["files"] == []
+    assert "no folder" in listed["note"]
+    assert "workspace" in listed["note"]
+
+
+def test_list_notes_payload_names_count_first_and_fits_its_budget():
+    from yurios.world.tools.server import LIST_NOTES_MAX_CHARS, _notes_listing
+
+    class _E:
+        def __init__(self, path, n):
+            self.path, self.bytes = path, n
+
+    files = [_E(f"diary/{i:04d}.md", 800 + i) for i in range(120)]
+    payload = _notes_listing(files, desk_files=120, desk_bytes=90_000)
+    assert list(payload)[0] == "count"
+    assert payload["count"] == 120
+    assert payload["shown"] == len(payload["files"])
+    compact = json.dumps(payload, separators=(",", ":"))
+    assert len(compact) <= LIST_NOTES_MAX_CHARS
+    assert payload["truncated"] is True
+    assert payload["shown"] < payload["count"]
+    assert "mtime" not in payload["files"][0]
 
 
 async def test_reading_a_normal_sized_note_reaches_the_model_intact(tmp_path):

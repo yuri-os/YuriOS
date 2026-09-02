@@ -21,6 +21,15 @@ log = logging.getLogger("world.guard")
 
 RESULT_MAX_CHARS = 600      # a tool result is a fact for her to speak to, not a payload
 
+#: Catalog tools: the listing or the note IS the result. Mid-JSON truncation
+#: of `list_notes` is how a diary folder became a days-long loop — she never
+#: saw `count`. `read_note` already had the higher bound in ToolBrain; this
+#: table is that exception in one place (SPEC §7.3).
+RESULT_LIMITS = {
+    "read_note": 5_000,
+    "list_notes": 5_000,
+}
+
 
 def _fingerprint(tool: str, args: dict | None) -> str:
     """What counts as "the same call". Exact, deliberately: `cozy` and `bare`
@@ -117,8 +126,10 @@ class Guard:
         return True, ""
 
     @staticmethod
-    def truncate(text: str, *, limit: int | None = None) -> str:
-        limit = RESULT_MAX_CHARS if limit is None else limit
+    def truncate(text: str, *, tool: str | None = None,
+                 limit: int | None = None) -> str:
+        if limit is None:
+            limit = RESULT_LIMITS.get(tool or "", RESULT_MAX_CHARS)
         if len(text) <= limit:
             return text
         return text[:limit - 1] + "…"

@@ -23,7 +23,7 @@ from yurios.kernel.clock import Clock
 from ..journal import canonical_day, is_canonical_day
 from ..util import day_of, iso_of, read_json, write_json
 from ..vaultio import MindVault
-from ..goals import Goal, GoalStore, echoes
+from ..goals import Goal, GoalStore, echoes, night_owned
 from ..workspace import SkillStore, Workspace
 
 log = logging.getLogger("mind.dreamjobs")
@@ -409,10 +409,22 @@ class DreamContext:
                     line += f" | due {goal.due}"
                 if about:
                     line += f" | source: {about}"
+                if str(getattr(goal, "meta", {}).get("auto") or "") == "dream":
+                    line += " | the night owns this — do not file a desk task for it"
                 lines.append(line)
             parts.append("OPEN GOALS\n" + "\n".join(lines))
         else:
             parts.append("OPEN GOALS\n- (nothing open right now)")
+
+        parts.append(
+            "THE NIGHT ALREADY DOES THIS\n"
+            "Consolidation of finished days is DREAM's job. It writes durable "
+            "facts to memory/semantic/facts.md — that is kept memory. There is "
+            "no kept-memory folder on your desk. diary/ entries are a separate "
+            "night job, already written when that night ran. A maintenance goal "
+            "about catching up on nights is a reminder for DREAM, not a task "
+            "for your hands. Do not file a desk task to list, match, or create "
+            "kept-memory entries.")
 
         journal = self.journal(day, limit=3500).strip()
         if journal:
@@ -493,13 +505,14 @@ class DreamContext:
         as a working product rather than a soul surface, applied and never
         queued; this agrees with it.
 
-        Four limits, in the order they are checked: the switch
+        Five limits, in the order they are checked: the switch
         (`MIND_GOAL_FILING_ENABLED`), the cap on how many of hers may be open at
         once (`MIND_SELF_GOALS_MAX`), whether she is already carrying this goal
-        under another wording (`echoes`), and `GoalStore.add`'s own exact-text
-        merge. Returns None when any of them refuses and leaves the reason in
-        `goal_refusal`, so a job can say which silence this was rather than
-        claiming a goal it did not get.
+        under another wording (`echoes`), whether the text is DREAM's job
+        (`night_owned` — consolidation, kept-memory, catching up on nights),
+        and `GoalStore.add`'s own exact-text merge. Returns None when any of
+        them refuses and leaves the reason in `goal_refusal`, so a job can say
+        which silence this was rather than claiming a goal it did not get.
         """
         self.goal_refusal = ""
         text = (text or "").strip()
@@ -524,6 +537,11 @@ class DreamContext:
             self.goal_refusal = "echo"
             self.note_call("file_goal", {"text": text[:200]},
                            result=f"already carrying it as {echo.id}")
+            return None
+        if night_owned(text):
+            self.goal_refusal = "night"
+            self.note_call("file_goal", {"text": text[:200]},
+                           result="the night already does that")
             return None
         if self.dry_run:
             self.goal_refusal = "dry"

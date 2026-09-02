@@ -243,7 +243,8 @@ higher salience so recall prefers the distilled fact over the raw exchange.
 
 It's oldest-first and resumable: a night that runs out of budget leaves a backlog, not an overrun,
 and the next DREAM tick picks up where it stopped. The night's work is journaled — "slept on it:
-folded … into what I keep".
+folded … into what I keep". That phrase is the facts file, not a `kept-memory/` folder on her
+desk. Strategy will not file a daytime task to list diary entries against one.
 
 ### More than one thing happens at night
 

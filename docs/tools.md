@@ -84,7 +84,10 @@ no-op; set `new_text` to an empty string to remove one unique obsolete or duplic
 can also replace or delete a 1-based inclusive line range using `start_line` and `end_line`.
 When that exact passage appears more than once, an empty replacement removes the later copy and
 preserves the first.
-`append_note` is only for text that belongs at the end. `list_notes` returns names and sizes, and
+`append_note` is only for text that belongs at the end. `list_notes` returns names and sizes,
+with `count` first so a clipped listing still says how many files there were; a folder that
+is not on the desk says so rather than looking empty. It lists `workspace/` only — kept
+memory is `memory/semantic/facts.md`, written by the night, not a desk folder.
 `read_note` returns up to 4,000 characters of content. Notes are scratch space, so they are not
 versioned in the Vault.
 

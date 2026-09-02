@@ -598,9 +598,16 @@ to every new subscriber before its first live event. Malformed JSON is logged an
 - §7.3 **Guardrails.** Every call **MUST** pass `yurios/world/tools/guard.py`: an **allowlist**
   (exactly the discovered tools; anything else denied), **per-tool rate limits** (token bucket
   on the injected clock), a **per-turn call cap** (`TOOL_MAX_CALLS_PER_TURN`), a **per-call
-  timeout**, and **result truncation**. Every call — allowed or denied — **MUST** append one
-  JSONL audit line (`ts, tool, args, verdict, duration_ms, result`) to `TOOL_LOG_DIR`. She can
-  be *asked* anything; the guard decides what her hands actually do.
+  timeout**, and **result truncation**. Catalog tools (`list_notes`, `read_note`) **MUST**
+  keep a higher bound than the default 600-character fact cap: a listing is the result, not a
+  fact to speak to, and cutting `list_notes` mid-JSON is how a diary folder became a days-long
+  loop (she never saw `count`). `list_notes` **MUST** put `count` first, drop `mtime`/`dir`
+  from each row, and clip from the end of the file list so a truncated payload is still valid
+  JSON that names how many files there were. A folder that is not on the desk **MUST** say so
+  rather than returning an empty listing that reads as "kept-memory is empty". Every call —
+  allowed or denied — **MUST** append one JSONL audit line
+  (`ts, tool, args, verdict, duration_ms, result`) to `TOOL_LOG_DIR`. She can be *asked*
+  anything; the guard decides what her hands actually do.
 
   **The mind gets a second Guard, not a share of this one** (§26). Its `rates_per_min` is built
   from `TOOL_RATE_MIND_*` over `MIND_TOOL_ALLOWLIST` alone, so a night of autonomous work cannot
@@ -1686,6 +1693,13 @@ optional due time, **provenance**, and a **commitment strategy**; lifecycle
   open goal, whatever filed it, because where the first copy came from does not change that she has
   it. Left unenforced this is not a rare edge: four consecutive nights against a real vault spent
   all three slots on one idea reworded four ways, which `goals.md`'s exact-text merge cannot see.
+  She **MUST NOT** file DREAM's own work as a daytime desk task. Consolidation writes
+  `memory/semantic/facts.md`; `workspace/diary/` is a separate night job; there is no
+  `kept-memory` folder on the desk. A stock-take that refiles "catch up on the nights" as
+  "list diary vs kept-memory" is how she spent days on `list_notes` looking for a ledger the
+  night already keeps. `night_owned()` is that refusal; strategy context **MUST** also say
+  the night owns it, because a prompt-only hint is the one existing vaults with a custom
+  `dreams/strategy.md` would otherwise never see.
   The counterweight to filing without asking is that any open goal can be let go of in one click,
   as a signal the loop consumes (§16.2) — so the user's rulings leave the same trail hers do.
 - §22.1a **A promise is work or it is news, and the two are filed differently.** The verb she leads
@@ -1709,7 +1723,9 @@ optional due time, **provenance**, and a **commitment strategy**; lifecycle
   it dispatched and will not await (§7.6); it becomes `done` only when a step says so in as many
   words. Each step's product **MUST** be written to `workspace/goals/<id>.md` as well as journalled,
   and the next step **MUST** read it back — a private step that starts from the goal's one-line text
-  every time is a goal that never advances. The horizon is bounded by `MIND_GOAL_MAX_STEPS`
+  every time is a goal that never advances. A `list_notes` result **MUST** be kept whole on that
+  desk file: clipping the catalog to a sentence is the same failure as truncating the tool, one
+  tick later. The horizon is bounded by `MIND_GOAL_MAX_STEPS`
   (`meta.steps`), after which the goal waits or the commitment strategy lets it go.
 - §22.4 **A working step gets the same context as a conversational turn.** The desk digest, the
   skills catalog, the situation, the durable facts, her other open goals — **and who she is**: the

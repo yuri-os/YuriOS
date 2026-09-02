@@ -158,6 +158,8 @@ prints.
 yurios settings                       # the common knobs, and whatever you have changed
 yurios settings --all                 # every one of them
 yurios settings CHAT_THINKING=false   # …and a restart applies it
+yurios character list                 # the house, from the same client
+yurios chat yuri -m "hello"           # one turn, then exit
 ```
 
 To reach her from a phone, bind her to the network and pair the device — the owner

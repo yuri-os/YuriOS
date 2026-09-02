@@ -73,7 +73,12 @@ Websockets follow the same shape: `/ws/voice` and `/ws/characters/<id>/voice`.
 | `GET /api/characters/{id}/journal?day=` | one day's entries, newest first: `{day, entries: [{time, hers, text}]}` |
 | `GET /api/characters/{id}/log` | the tail of her tick trace + tool audit, interleaved |
 | `GET /api/characters/{id}/context-history` | `{context, history}` |
-| `POST /api/characters/{id}/archive` | stop + move her root to `data/archives/` |
+| `POST /api/characters/{id}/archive` | stop + move her root to `data/archives/`; writes `archive.json` so she can be restored |
+| `GET /api/archives` | parked companions under `data/archives/` |
+| `POST /api/archives/{name}/restore` | `{id?, start?}` — move her back onto the board |
+| `POST /api/characters/{id}/clone` | duplicate the whole companion under a new id |
+| `POST /api/characters/{id}/start` | start a reviewed, enabled character |
+| `POST /api/characters/{id}/stop` | stop her runtime without archiving |
 | `POST /api/characters/{id}/purge/prepare` | issue a high-entropy, short-lived, single-use deletion challenge |
 | `DELETE /api/characters/{id}/purge` | permanently delete using `{"challenge":"…"}` in the JSON body; no query secret |
 | `GET /api/onboarding` | local or owner-authenticated first-run model state: `{configured, model, recommendations, download}` |
@@ -307,6 +312,8 @@ dispatches to the child app's `/api/mind` above, and a host route by that name w
 | Route | |
 |---|---|
 | `GET /selfies/{name}` | one saved photo from the runtime's `SELFIE_DIR` |
+| `POST /api/selfie` | owner-requested selfie: `{look?, scene?, framing?, lighting?, mood?, wardrobe?, avoid?}` → `{id, kind, status: "started"}`. Gallery only; does not post a chat bubble |
+| `POST /api/picture` | owner-requested picture of something else: `{subject, avoid?}` |
 | `GET /api/gallery?page=&limit=` | the shelf as newest-first pages over the render ledger: `{items: [{name, url, caption, created_at, backend, model, seed, prompt, negative, bytes, score, rated_at}], page, limit, has_more, total, rated}`. Limit caps at 60; a shelf with no ledger is an empty page, not a 404 |
 | `POST /api/gallery/rate` | `{name, score}` — a score of 1–10 for one picture, or `null` to clear it. Appends to `selfies/ratings.jsonl` and publishes a `gallery` event; `404` for a name that is not on the shelf |
 | `POST /api/uploads` | multipart `file=` → `{id, url, media_type, width, height, bytes}`. A picture to send her: decoded, oriented, capped at `CHAT_IMAGE_MAX_PX` and stripped of metadata. `409` when her model can't see, `413` over `UPLOAD_MAX_BYTES`, `415` when it isn't an image |

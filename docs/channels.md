@@ -21,10 +21,11 @@ The default: `http://localhost:8768/`. See [Bodies](bodies.md).
 ## The terminal
 
 ```bash
-python -m yurios.chat                              # against a running server
+yurios chat                                        # against this installation's daemon
+yurios chat mika                                   # enter a card directly
+yurios chat mika -m "hello"                        # one turn, then exit
 python -m yurios.chat --url http://192.168.1.5:8768
-python -m yurios.chat --character mika             # enter a card directly
-python -m yurios.chat --model ollama/qwen3:8b       # change her reply model
+python -m yurios.chat --character mika --model ollama/qwen3:8b
 python -m yurios.chat --new                        # start a fresh conversation window
 ```
 

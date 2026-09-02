@@ -714,6 +714,12 @@ to every new subscriber before its first live event. Malformed JSON is logged an
   from — **MUST** degrade to `mock` with one loud WARNING; a failed render **MUST** become a
   quiet chat message, never a crash and never silence.
 
+  The same lab is reachable from owner HTTP without going through a hand: `POST /api/selfie` and
+  `POST /api/picture` (and the per-character forms under `/api/characters/<id>/…`) start a render
+  with the same contract the tools produce. They **MUST NOT** spend a Guard token or a mind tick.
+  Owner shots **MUST** stamp `_deliver: "vault"` so they land on the gallery and **MUST NOT** post
+  a chat bubble — a CLI render is not a line she said.
+
   **The shelf is a page** (`web/js/gallery.js`, `yurios/world/gallery.py`): the chat column's
   fourth tab — **gallery** — is everything her camera has made, read newest-first *through the
   forge's own ledger* (`generations.jsonl`) so it can never disagree with the files, and answering
@@ -977,8 +983,9 @@ down host — `/api/health` and the boot board say which):
   inbound, no presence, no `claim`. The transport of last resort for a reach-out with nowhere else
   to go. Off by default and carrying only `unheard` lines; see §18.4 for the whole contract.
 
-- **the terminal** — `python -m yurios.chat`: a remote thin client on `POST /api/chat` +
-  `/api/events`. Its SSE attach counts as presence, exactly like an open page.
+- **the terminal** — `yurios chat` (equivalent: `python -m yurios.chat`): a remote thin client on
+  `POST /api/chat` + `/api/events`. Its SSE attach counts as presence, exactly like an open page.
+  A one-shot turn (`yurios chat <id> -m …`) **MUST NOT** attach the event stream.
 - **Telegram** — `yurios/world/channels/telegram.py`, raw Bot API long-polling. One configured
   chat only (`TELEGRAM_CHAT_ID`; unset = pairing mode: the bot answers with the id to configure and
   processes nothing). Telegram is *reachable, not present*: it posts no presence signals; selfies
@@ -2069,7 +2076,13 @@ changes; a runtime does not know it has neighbours.
   the host starts every character that is `enabled` **and** `autostart` **and** not under review,
   and a failure there is skipped, not fatal. Shutdown stops runtimes in reverse start order.
 - §29.6 **Archive and purge are different acts.** `archive` stops the runtime and *renames* her
-  root under `archives/<id>-<timestamp>` — her files survive, she leaves the board. `purge`
+  root under `archives/<id>-<timestamp>` — her files survive, she leaves the board. The archive
+  folder **MUST** carry `archive.json`, a snapshot of the registry row (bindings, loops,
+  lifecycle) taken before the row is dropped, so unarchive can restore her rather than invent a
+  new one. `POST /api/archives/<name>/restore` is the inverse: move the tree back to
+  `characters/<id>`, restore the row, refuse if the id is taken. An archive written before this
+  snapshot **MUST** still restore from `card.json` with a disabled lifecycle rather than be
+  unrecoverable. `purge`
   deletes the root and **MUST** require a confirmation string matching her id or display name.
   Nothing else may delete a character root.
 - §29.7 **Routing.** The host serves the switchboard at `/`, a character's page at
@@ -2236,7 +2249,9 @@ changes; a runtime does not know it has neighbours.
   `GET|PATCH /api/characters/<id>/brain` (§31.4 — also unprefixed, for the primary),
   `PATCH /api/characters/<id>/loop`, `PATCH /api/characters/<id>/controls`,
   `GET /api/characters/<id>/{portrait,export,journal,log,context-history}`,
-  `POST /api/characters/<id>/archive`, `DELETE /api/characters/<id>/purge?confirm=…`,
+  `POST /api/characters/<id>/{archive,start,stop,clone,approve}`,
+  `GET /api/archives`, `POST /api/archives/<name>/restore`,
+  `DELETE /api/characters/<id>/purge?confirm=…`,
   and the house's own `GET|POST /api/settings` with `GET /api/pairing` +
   `POST /api/pairing/token` beside it (§11, §11.1). The portrait
   route **MUST** send `Cache-Control: no-cache`: one stable URL whose bytes genuinely change
@@ -2386,3 +2401,30 @@ committed-message path as every other line she says.
 - §35.5 **This is conversation, not sensing.** §26 stands: the mind's SENSE still reads text, time
   and files. She is shown a picture because somebody handed her one, in a turn; she cannot look at
   anything on her own, and nothing here gives the tick loop eyes.
+
+---
+
+## §36 — Command-line control
+
+The terminal is a first-class client of the host, not a second implementation of the registry.
+
+- §36.1 **`yurios` is two planes.** House commands (`start`, `stop`, `status`, `configure`,
+  `settings`, `pair`, `tray`, `doctor`) address the installation on disk. Character, chat, camera
+  and dream commands address the **running host** over HTTP, with the same owner token the board
+  uses. A mutation **MUST NOT** write `data/characters.json` or a character root from the CLI
+  process while the daemon is up — that races the host's lifecycle lock. If the daemon is not
+  answering, the CLI **MUST** say so in one sentence and tell the user to `yurios start`.
+- §36.2 **The terminal channel is `yurios chat`.** `python -m yurios.chat` remains an equivalent
+  entry point (§10.5). A one-shot turn (`-m`) POSTs `/api/chat` with `channel: "cli"` and **MUST
+  NOT** attach `/api/events`.
+- §36.3 **Clone copies the whole companion.** `POST /api/characters/<id>/clone` duplicates the
+  character directory (Vault, memory, journal, dreams, selfies, traces) under a new id. Export +
+  import remains the identity-only duplicate. The copy is transactional: stage, rename, then the
+  registry row. A clone of an approved companion **MUST NOT** be placed under review; a clone
+  still under review stays under review.
+- §36.4 **The optimiser still proposes.** `yurios character optimize` (and `improve-setting`)
+  **MUST NOT** write unless `--apply` is given. That is §30.6, applied to the terminal: a model
+  pass on a card from the internet is a proposal a person then accepts.
+- §36.5 **Owner camera routes.** `POST /api/selfie` and `POST /api/picture` start a render on the
+  running character's lab (§7.6) without a hand. They stamp `_deliver: "vault"`. The CLI may wait
+  on `selfie_status` events or exit with the id (`--no-wait`).

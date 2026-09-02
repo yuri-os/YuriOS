@@ -195,6 +195,38 @@ def test_rating_over_the_route_lands_on_the_next_page_and_the_bus(
     assert client.get("/api/gallery").json()["items"][0]["score"] is None
 
 
+def test_owner_selfie_starts_the_lab_and_skips_chat(client, cfg):
+    import time
+
+    response = client.post("/api/selfie", json={"scene": "window"})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["kind"] == "selfie" and body["status"] == "started"
+    for _ in range(40):
+        page = client.get("/api/gallery").json()
+        if page["items"]:
+            break
+        time.sleep(0.05)
+    else:
+        raise AssertionError("owner selfie never reached the gallery")
+    assert page["items"][0]["name"].endswith(".png")
+
+
+def test_owner_picture_refuses_an_empty_subject(client):
+    response = client.post("/api/picture", json={"subject": "   "})
+    assert response.status_code == 422
+
+
+def test_owner_camera_is_gone_when_the_backend_is_off(cfg):
+    app = create_app(cfg.model_copy(update={"selfie_backend": "off",
+                                            "tools_backend": "off"}),
+                     brain=FakeBrain())
+    with TestClient(app) as served:
+        denied = served.post("/api/selfie", json={"scene": "window"})
+        assert denied.status_code == 409
+        assert "off" in denied.json()["detail"]
+
+
 def test_the_route_refuses_a_score_for_a_picture_that_is_not_there(client, cfg):
     cfg.selfie_dir.mkdir(parents=True, exist_ok=True)
     gone = client.post("/api/gallery/rate", json={"name": "ghost.png", "score": 5})

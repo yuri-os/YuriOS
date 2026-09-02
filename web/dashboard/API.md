@@ -78,6 +78,13 @@ and avoids downloading every journal on registry load.
 - `GET /api/characters/{id}/log`
 - `GET /api/characters/{id}/context-history`
 
+`POST /api/characters/{id}/approve` accepts the review and starts her.
+`POST /api/characters/{id}/start` / `stop` bring a reviewed character up or down
+without archiving. `POST /api/characters/{id}/clone` duplicates the whole tree
+under a new id. `POST /api/characters/{id}/archive` parks her under
+`data/archives/` with an `archive.json` snapshot; `GET /api/archives` lists
+those folders and `POST /api/archives/{name}/restore` puts one back.
+
 The log route may return an array, `{ "entries": [...] }`, or `{ "logs": [...] }`.
 Entry fields are normalized from `title`, `event`, `type`, `body`, `content`,
 `message`, `text`, `timestamp`, `created_at`, or `time`.

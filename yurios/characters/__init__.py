@@ -15,6 +15,8 @@ from .importer import (
 )
 from .connections import ConnectionProfile, ConnectionProfiles
 from .overrides import CharacterConnection, Override
+from .archive import list_archives, parse_archive_name
+from .clone import CharacterCloneError, clone_character
 from .creator import create_character, create_from_dict, template_draft
 from .exporter import (
     ExportOptions,
@@ -62,8 +64,12 @@ __all__ = [
     "SoulReader",
     "apply_draft",
     "build_export",
+    "CharacterCloneError",
+    "clone_character",
     "create_character",
     "create_from_dict",
+    "list_archives",
+    "parse_archive_name",
     "parse_md",
     "preview_export",
     "read_draft",

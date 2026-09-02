@@ -380,7 +380,17 @@ can never take over another companion's chat. Full detail in [Channels](channels
 Two different acts, deliberately:
 
 - **Archive** stops her runtime and renames her root to `data/archives/<id>-<timestamp>`. Her
-  files survive; she leaves the board. If the registry commit fails, the rename is rolled back.
+  files survive; she leaves the board. The folder carries `archive.json` — a snapshot of her
+  registry row — so `POST /api/archives/<name>/restore` (or `yurios character unarchive`) can put
+  her back with the same models, loops and lifecycle. If the registry commit fails, the rename is
+  rolled back.
+
+**Clone** (`POST /api/characters/<id>/clone`, `yurios character clone`) copies the whole companion
+— Vault, memory, journal, dreams, selfies — under a new id. Export + import is the identity-only
+duplicate.
+
+The terminal is a first-class client of these same routes — create, import, approve, export,
+clone, archive, unarchive, get/set — with working examples in [Command line](cli.md).
 - **Purge** is two-phase: prepare a short-lived high-entropy challenge, then send it once in the
   JSON body of the DELETE. The root is first atomically renamed under `data/.purging/`; only then
   is the registry committed and the tombstone removed. A registry failure restores both the root

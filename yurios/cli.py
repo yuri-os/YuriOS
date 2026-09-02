@@ -1356,6 +1356,8 @@ def main(argv: list[str] | None = None) -> int:
     stop.set_defaults(func=command_stop)
     restart = sub.add_parser("restart", help="restart the YuriOS daemon")
     restart.set_defaults(func=command_restart, foreground=False)
+    from yurios.ctl import register as register_ctl
+    register_ctl(sub)
     args = parser.parse_args(argv)
     if not getattr(args, "command", None):
         args = parser.parse_args(["start"])

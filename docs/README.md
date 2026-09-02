@@ -38,6 +38,7 @@ as well. For the first few days, watch the numbers on the inner-life tab.
 |---|---|
 | [Getting started](getting-started.md) | Install, first run, and the first ten minutes with her |
 | [Installation](installation.md) | Every install path, the extras table, the doctor, and WSL |
+| [Command line](cli.md) | `yurios` as a first-class client: settings, characters, chat, camera, dreams |
 | [Models & connections](models.md) | Direct GGUF, LM Studio, Ollama, OpenRouter, supported LiteLLM routes, embeddings, context |
 | [Configuration](configuration.md) | The complete `.env` reference, group by group, and the settings panel |
 

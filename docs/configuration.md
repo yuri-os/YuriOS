@@ -13,12 +13,32 @@ Every knob has a default, and **the default stack needs no cloud key**. After lo
 have downloaded and cached, it can run offline; a fresh install still needs network access for
 first-use Hugging Face and model downloads.
 
-Config is read once, so a change takes effect on the next restart. The settings panel says so out
-loud after a save rather than pretending to hot-apply.
+Config is read once, so a change takes effect on the next restart. The settings panel and
+`yurios settings` both say so out loud after a save rather than pretending to hot-apply.
 
 A knob here is the **house default**: every character inherits it unless her own record overrides
 that field. Her brain settings are the exception to the restart rule — see
 [her own brain](#her-own-brain) below.
+
+## From the terminal
+
+The same table, no browser. Every knob this build declares is on it (secrets print as
+`configured` / `not configured`, never the value):
+
+```bash
+yurios settings                       # common knobs + whatever this install changed
+yurios settings --all                 # every one
+yurios settings --group room          # one group (any part of its name)
+yurios settings RAIN_INTENSITY        # one key, with help
+yurios settings RAIN_INTENSITY=0.4
+yurios settings --unset RAIN_INTENSITY
+yurios restart                        # she reads .env at boot
+```
+
+A closed vocabulary (`MIND_TOOL_ALLOWLIST`, backend enums) prints the legal names under the
+value. Per-character model and loop overrides are **not** `.env` — `yurios character set yuri
+model …` and `yurios character set yuri mind false` write her registry row and apply live.
+Full command reference: [Command line](cli.md).
 
 ## The settings panel
 

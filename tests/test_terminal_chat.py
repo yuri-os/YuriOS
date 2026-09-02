@@ -8,6 +8,40 @@ import httpx
 from yurios.chat import __main__ as terminal
 
 
+def test_one_shot_posts_the_cli_channel_and_skips_events():
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.url.path == "/api/characters":
+            return httpx.Response(200, json={
+                "primary": "yuri",
+                "characters": [{"id": "yuri", "name": "Yuri"}]})
+        if request.url.path == "/api/characters/yuri/health":
+            return httpx.Response(200, json={"character": "Yuri"})
+        if request.url.path == "/api/characters/yuri/chat":
+            return httpx.Response(200, json={
+                "session_id": "s1",
+                "message": {"id": "m1", "text": "hello back", "role": "assistant"}})
+        return httpx.Response(404)
+
+    async def run() -> int:
+        transport = httpx.MockTransport(handler)
+        # main() builds its own client; drive send_turn the way one-shot does.
+        async with httpx.AsyncClient(base_url="http://host", transport=transport) as client:
+            state = {"character_id": "yuri", "session_id": None, "name": "Yuri",
+                     "awaiting": True, "printed": set(), "url": "http://host"}
+            entry = await terminal.send_turn(client, state, {}, "hello")
+            assert entry["text"] == "hello back"
+            return 0
+
+    assert asyncio.run(run()) == 0
+    chat = next(req for req in requests if req.url.path.endswith("/chat"))
+    assert json.loads(chat.content)["channel"] == "cli"
+    assert json.loads(chat.content)["text"] == "hello"
+    assert not any(req.url.path.endswith("/events") for req in requests)
+
+
 def test_character_endpoints_do_not_fall_back_to_the_host_primary():
     assert terminal.endpoint({"character_id": "mika"}, "chat") == "/api/characters/mika/chat"
     assert terminal.endpoint({"character_id": "mika"}, "events") == "/api/characters/mika/events"

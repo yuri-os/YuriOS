@@ -276,6 +276,22 @@ The record carries backend, model, the full prompt and negative, the seed and ev
 setting, so any image is reproducible. Provenance metadata is stripped from the PNG itself before
 it's saved.
 
+## Asking from the terminal
+
+`take_selfie` and `show_picture` are how *she* asks. You can ask the same camera without a turn:
+
+```bash
+yurios selfie yuri --scene window          # waits for the PNG on a TTY
+yurios selfie yuri --look "in the rain" --no-wait
+yurios picture yuri --subject "rain on the glass"
+yurios gallery list yuri
+yurios gallery fetch yuri 1763…-a1b2.png -o shot.png
+```
+
+Those hit `POST /api/selfie` and `POST /api/picture` on her runtime. They use the same lab, stamp
+`_deliver: "vault"` so the shot lands on the shelf and not as a chat bubble, and do not spend a
+hand.
+
 ## The gallery tab
 
 The chat column's fourth tab is the shelf as a page: every picture she has taken, newest first,

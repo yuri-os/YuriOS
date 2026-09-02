@@ -47,6 +47,19 @@ def forge(cfg):
     return forge
 
 
+async def test_a_vault_shot_skips_the_chat_and_still_lands_on_disk(cfg, clock, forge):
+    rec = Recorder()
+    lab = SelfieLab(forge, clock=clock, post=rec.post, speak=rec.speak)
+    lab.start({"id": "vaulted", "kind": "selfie", "_deliver": "vault",
+               "status": "started"})
+    await settle(lab)
+
+    assert rec.posts == []
+    assert rec.cues == []
+    pngs = list(cfg.selfie_dir.glob("*.png"))
+    assert pngs and pngs[0].read_bytes()[:4] == b"\x89PNG"
+
+
 async def test_the_shot_lands_in_the_chat_and_on_disk(cfg, clock, forge):
     rec = Recorder()
     lab = SelfieLab(forge, clock=clock, post=rec.post, speak=rec.speak)

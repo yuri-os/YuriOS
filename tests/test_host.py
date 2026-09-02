@@ -363,8 +363,65 @@ def test_archive_removes_registry_but_preserves_tree(tmp_path):
     with TestClient(app) as client:
         response = client.post("/api/characters/yuri/archive")
         assert response.status_code == 200
+        assert response.json()["archive"]
     assert registry.get("yuri") is None
-    assert len(list((tmp_path / "archives").iterdir())) == 1
+    folders = list((tmp_path / "archives").iterdir())
+    assert len(folders) == 1
+    assert (folders[0] / "archive.json").is_file()
+
+
+def test_unarchive_restores_the_row_and_the_tree(tmp_path):
+    registry = CharacterRegistry(tmp_path)
+    item = record(tmp_path, enabled=False)
+    (item.paths.root / "kept.txt").write_text("still here", encoding="utf-8")
+    registry.add(item)
+    app = create_host_app(Config(data_dir=tmp_path), registry)
+
+    with TestClient(app) as client:
+        archived = client.post("/api/characters/yuri/archive").json()
+        name = archived["archive"]
+        assert client.get("/api/archives").json()["archives"][0]["name"] == name
+        restored = client.post(f"/api/archives/{name}/restore", json={})
+        assert restored.status_code == 200
+        assert restored.json()["character"]["id"] == "yuri"
+    assert registry.get("yuri") is not None
+    assert (tmp_path / "characters" / "yuri" / "kept.txt").read_text(
+        encoding="utf-8") == "still here"
+
+
+def test_clone_copies_the_tree_under_a_new_id(tmp_path, monkeypatch):
+    registry = CharacterRegistry(tmp_path)
+    item = record(tmp_path, enabled=False)
+    (item.paths.root / "kept.txt").write_text("memory", encoding="utf-8")
+    registry.add(item)
+    monkeypatch.setattr("yurios.world.host.hosting.create_app", fake_character_app)
+    app = create_host_app(Config(data_dir=tmp_path), registry)
+
+    with TestClient(app) as client:
+        response = client.post("/api/characters/yuri/clone", json={"name": "Yuri"})
+        assert response.status_code == 201
+        body = response.json()
+        assert body["character"]["id"] == "yuri_v2"
+        assert body["character"]["name"] == "Yuri"
+    assert registry.get("yuri") is not None
+    assert registry.get("yuri_v2") is not None
+    assert (tmp_path / "characters" / "yuri_v2" / "kept.txt").read_text(
+        encoding="utf-8") == "memory"
+    assert (tmp_path / "characters" / "yuri" / "kept.txt").is_file()
+
+
+def test_start_refuses_a_character_under_review(tmp_path, monkeypatch):
+    registry = CharacterRegistry(tmp_path)
+    parked = record(tmp_path, enabled=False)
+    parked.lifecycle.review_required = True
+    registry.add(parked)
+    monkeypatch.setattr("yurios.world.host.hosting.create_app", fake_character_app)
+    app = create_host_app(Config(data_dir=tmp_path), registry)
+
+    with TestClient(app) as client:
+        denied = client.post("/api/characters/yuri/start")
+        assert denied.status_code == 409
+        assert "review" in denied.json()["detail"]
 
 
 def test_journal_rejects_noncanonical_days_and_ignores_bad_stems(tmp_path):

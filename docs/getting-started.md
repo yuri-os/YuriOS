@@ -69,6 +69,20 @@ directories stay untouched as a backup. See [Characters](characters.md#migrating
 
 Wondering what's actually wired? `yurios doctor` reads your `.env` and says.
 
+The same house is reachable from the terminal. With the daemon up:
+
+```bash
+yurios character list
+yurios character create --name CliProbe --id cliprobe
+yurios chat cliprobe -m "hello"
+yurios character import ~/cards/mika.png
+yurios character approve mika
+```
+
+Every `.env` knob is `yurios settings KEY=VALUE` (then `yurios restart`). Export, clone,
+archive, her gallery, a selfie, and dream jobs are the same client — see
+[Command line](cli.md) for the examples that were run against a live node.
+
 ## 4. The first ten minutes
 
 Choose a character, click **Enter**, click **enter the sanctuary**, then click **start listening**

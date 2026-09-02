@@ -27,8 +27,11 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import (JSONResponse)
 
 from yurios.characters import (
+    CharacterCloneError,
     ConnectionProfile,
+    clone_character,
 )
+from yurios.characters import archive as archive_model
 
 from .hosting import (_OPTION_KEYS, PURGE_CHALLENGE_TTL_S,
                       CharacterHost, _env_values, _card_values, _construction_fingerprint,
@@ -185,6 +188,10 @@ def register(app: FastAPI, host: CharacterHost, require) -> None:
                 setattr(record.loops, key, bool(body[key]))
         if "notify" in body:
             record.notify.enabled = bool(body["notify"])
+        if "enabled" in body:
+            record.lifecycle.enabled = bool(body["enabled"])
+        if "autostart" in body:
+            record.lifecycle.autostart = bool(body["autostart"])
         card_fields = {key: body[key] for key in (
             "name", "description", "personality", "scenario", "first_mes",
             "system_prompt", "post_history_instructions", "creator_notes")
@@ -250,6 +257,57 @@ def register(app: FastAPI, host: CharacterHost, require) -> None:
                 started, detail = False, str(exc)
         return {"character": host.summary(record), "started": started, "error": detail}
 
+    @app.post("/api/characters/{character_id}/start")
+    async def start_character(character_id: str):
+        """Bring a reviewed, enabled character up without changing her review."""
+        record = require(character_id)
+        if record.lifecycle.review_required or not record.lifecycle.enabled:
+            raise HTTPException(
+                409, "character is disabled or still requires review")
+        started, detail = True, None
+        if host.runtime(character_id) is None:
+            try:
+                await host.start(character_id)
+            except Exception as exc:                       # already logged by start()
+                started, detail = False, str(exc)
+                raise HTTPException(500, detail) from exc
+        return {"character": host.summary(record), "started": started, "error": detail}
+
+    @app.post("/api/characters/{character_id}/stop")
+    async def stop_character(character_id: str):
+        """Take her runtime down without archiving the tree."""
+        record = require(character_id)
+        await host.stop(character_id)
+        return {"character": host.summary(record), "stopped": True}
+
+    @app.post("/api/characters/{character_id}/clone")
+    async def clone(character_id: str, request: Request):
+        """Duplicate the whole companion under a new id (SPEC §36.3)."""
+        require(character_id)
+        body = await request.json() if await request.body() else {}
+        if body and not isinstance(body, Mapping):
+            raise HTTPException(400, "clone request must be a JSON object")
+        body = body or {}
+        async with app.state.lifecycle_lock:
+            try:
+                record = clone_character(
+                    registry, character_id,
+                    name=str(body.get("name") or "") or None,
+                    character_id=str(body.get("character_id") or "") or None)
+            except CharacterCloneError as exc:
+                raise HTTPException(400, str(exc)) from exc
+            started, detail = False, None
+            if record.lifecycle.enabled and not record.lifecycle.review_required:
+                try:
+                    await host.start(record.id)
+                    started = True
+                except Exception as exc:                   # already logged by start()
+                    started, detail = False, str(exc)
+            return JSONResponse(
+                {"character": host.summary(record), "started": started,
+                 "error": detail},
+                status_code=201)
+
     @app.patch("/api/characters/{character_id}/loop")
     async def set_loop(character_id: str, request: Request):
         record = require(character_id)
@@ -312,12 +370,17 @@ def register(app: FastAPI, host: CharacterHost, require) -> None:
                 if was_running:
                     await host.start(character_id)
                 raise HTTPException(409, "archive target already exists")
+            snapshot = archive_model.snapshot_payload(record, registry.data_root)
             try:
                 os.replace(record.paths.root, target)
             except OSError as exc:
                 if was_running:
                     await host.start(character_id)
                 raise HTTPException(500, "could not move character into archive") from exc
+            try:
+                archive_model.write_snapshot(target, snapshot)
+            except OSError:
+                log.exception("could not write archive snapshot for %s", character_id)
             try:
                 registry.remove(character_id)
             except Exception as exc:
@@ -337,7 +400,79 @@ def register(app: FastAPI, host: CharacterHost, require) -> None:
             host.states.pop(character_id, None)
             if host.primary_id == character_id:
                 host.primary_id = next((r.id for r in registry if r.lifecycle.enabled), None)
-            return {"archived": True, "id": character_id}
+            return {"archived": True, "id": character_id, "archive": target.name}
+
+    @app.get("/api/archives")
+    async def archives():
+        """Every parked companion under `data/archives/` (SPEC §29.6, §36)."""
+        return {"archives": archive_model.list_archives(registry.data_root)}
+
+    @app.post("/api/archives/{name}/restore")
+    async def restore_archive(name: str, request: Request):
+        """Move an archived tree back onto the board (SPEC §29.6)."""
+        parsed = archive_model.parse_archive_name(name)
+        if parsed is None or "/" in name or "\\" in name or name in (".", ".."):
+            raise HTTPException(400, "not an archive name")
+        source = (registry.data_root / "archives" / name).resolve()
+        archives_root = (registry.data_root / "archives").resolve()
+        try:
+            source.relative_to(archives_root)
+        except ValueError:
+            raise HTTPException(400, "not an archive name") from None
+        if not source.is_dir():
+            raise HTTPException(404, f"no archive called {name}")
+        body = await request.json() if await request.body() else {}
+        if body and not isinstance(body, Mapping):
+            raise HTTPException(400, "restore request must be a JSON object")
+        body = body or {}
+        snapshot = archive_model.read_snapshot(source)
+        default_id = parsed[0]
+        if snapshot and isinstance(snapshot.get("record"), Mapping):
+            default_id = str(snapshot["record"].get("id") or default_id)
+        character_id = str(body.get("id") or default_id).strip() or default_id
+        start = bool(body.get("start"))
+        dest = registry.data_root / "characters" / character_id
+        async with app.state.lifecycle_lock:
+            if registry.get(character_id) is not None or dest.exists():
+                raise HTTPException(409, f"character already exists: {character_id}")
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                os.replace(source, dest)
+            except OSError as exc:
+                raise HTTPException(500, "could not move archive back onto the board") \
+                    from exc
+            try:
+                if snapshot is not None:
+                    record = archive_model.record_from_snapshot(
+                        snapshot, character_id=character_id, dest_root=dest,
+                        data_root=registry.data_root)
+                else:
+                    record = archive_model.record_from_tree(
+                        dest, character_id, dest)
+                registry.add(record)
+            except Exception as exc:
+                try:
+                    os.replace(dest, source)
+                except OSError as rollback:
+                    log.exception("unarchive rollback failed for %s", name)
+                    raise HTTPException(
+                        500, "unarchive registry update failed and data rollback failed") \
+                        from rollback
+                raise HTTPException(
+                    500, "unarchive registry update failed; archive restored") from exc
+            started, detail = False, None
+            if start:
+                record.lifecycle.review_required = False
+                record.lifecycle.enabled = True
+                record.lifecycle.autostart = True
+                registry.upsert(record)
+                try:
+                    await host.start(record.id)
+                    started = True
+                except Exception as exc:                   # already logged by start()
+                    started, detail = False, str(exc)
+            return {"character": host.summary(record), "started": started,
+                    "error": detail}
 
     @app.post("/api/characters/{character_id}/purge/prepare")
     async def prepare_purge(character_id: str):

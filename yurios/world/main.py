@@ -979,7 +979,7 @@ def create_app(cfg: Config | None = None, *, brain=None, chat_model=None,
     from yurios.desktop.routes import settings as b2_settings
 
     from .routes import channels, chat, events, health, live2d, mind, voice_ws
-    from .routes import gallery, inbox, onboarding, uploads
+    from .routes import camera, gallery, inbox, onboarding, uploads
     app.include_router(health.router)
     app.include_router(onboarding.router)
     app.include_router(events.router)
@@ -1003,6 +1003,9 @@ def create_app(cfg: Config | None = None, *, brain=None, chat_model=None,
     # column's third panel reads the forge's ledger through here, and writes
     # back the one thing the ledger cannot know — whether the shot was any good.
     app.include_router(gallery.router)
+    # Owner-requested shots (SPEC §36): the same lab as her hands, without a
+    # mind tick. Declared next to the gallery because that is where they land.
+    app.include_router(camera.router)
     # The second body (SPEC §6.6): Build #2's Live2D client, under
     # web/live2d/ and served as-is — it speaks the same B2 §10 /ws/voice wire
     # the forked route preserves bit-for-bit, so the previous build's whole

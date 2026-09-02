@@ -394,7 +394,20 @@ async def handle_command(command: str, client: httpx.AsyncClient, state: dict[st
     return True, listener
 
 
-async def main() -> int:
+async def send_turn(client: httpx.AsyncClient, state: dict[str, Any],
+                    sessions: dict[str, str], text: str) -> dict[str, Any] | None:
+    """One HTTP turn on the cli channel. Returns the committed assistant entry."""
+    response = await client.post(endpoint(state, "chat"), json={
+        "text": text, "session_id": state["session_id"], "channel": "cli"},
+                                 timeout=180)
+    if response.status_code != 200:
+        raise RuntimeError(response_detail(response))
+    data = response.json()
+    remember_session(state, sessions, data.get("session_id"))
+    return data.get("message")
+
+
+async def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="python -m yurios.chat",
         description="character-aware terminal chat for a running YuriOS host")
@@ -402,11 +415,16 @@ async def main() -> int:
                         help="the server origin (default: %(default)s)")
     parser.add_argument("--token", default=os.environ.get("YURIOS_OWNER_TOKEN", ""),
                         help="remote owner token (prefer YURIOS_OWNER_TOKEN to command history)")
+    parser.add_argument("character_id", nargs="?",
+                        help="character card to enter (same as --character)")
     parser.add_argument("--character", help="character card to enter")
+    parser.add_argument("-m", "--message",
+                        help="send one turn and exit instead of opening a room")
     parser.add_argument("--model", help="set the selected card's reply model before chatting")
     parser.add_argument("--utility-model", help="set the selected card's utility model before chatting")
     parser.add_argument("--new", action="store_true", help="start a fresh conversation for this card")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
+    requested = args.character_id or args.character
     url = args.url.rstrip("/")
     sessions = load_sessions(args.new)
     state: dict[str, Any] = {"name": "her", "sse": False, "printed": set(), "url": url,
@@ -421,22 +439,34 @@ async def main() -> int:
                 health = (await client.get("/api/health", timeout=5)).json()
                 state["name"] = health.get("character", state["name"])
             else:
-                character_id = await choose_character(cards, primary, args.character)
+                character_id = await choose_character(cards, primary, requested)
                 health = await check_character(client, character_id)
                 state["character_id"] = character_id
                 state["name"] = health.get("character", character_id)
         except (RuntimeError, httpx.HTTPError, ValueError) as exc:
             print(paint("error", f"No reachable YuriOS at {url}: {exc}"))
-            print("Start it with: python -m yurios.world")
+            print("Start it with: yurios start")
             return 1
 
         state["session_id"] = saved_session(sessions, state.get("character_id"), primary)
-        listener = await start_listener(client, state)
-        print_banner(state)
         if args.model:
             await set_model(client, state, "chat_model", args.model)
         if args.utility_model:
             await set_model(client, state, "utility_model", args.utility_model)
+
+        if args.message is not None:
+            state["awaiting"] = True
+            try:
+                entry = await send_turn(client, state, sessions, args.message)
+            except (RuntimeError, httpx.HTTPError) as exc:
+                print(paint("error", f"(turn failed: {exc})"))
+                return 1
+            if entry:
+                show(state, entry)
+            return 0
+
+        listener = await start_listener(client, state)
+        print_banner(state)
         await greet(client, state, sessions)
 
         try:
@@ -455,18 +485,14 @@ async def main() -> int:
                 state["awaiting"] = True
                 try:
                     try:
-                        response = await client.post(endpoint(state, "chat"), json={
-                            "text": text, "session_id": state["session_id"], "channel": "cli"},
-                                                     timeout=180)
+                        entry = await send_turn(client, state, sessions, text)
                     except httpx.HTTPError as exc:
                         print(paint("error", f"(send failed: {exc})"))
                         continue
-                    if response.status_code != 200:
-                        print(paint("error", f"(turn failed: {response_detail(response)})"))
+                    except RuntimeError as exc:
+                        print(paint("error", f"(turn failed: {exc})"))
                         continue
-                    data = response.json()
-                    remember_session(state, sessions, data.get("session_id"))
-                    await deliver(state, data.get("message"))
+                    await deliver(state, entry)
                 finally:
                     state["awaiting"] = False
         finally:

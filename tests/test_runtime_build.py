@@ -110,6 +110,18 @@ def test_a_camera_is_built_and_reports_the_backend_that_landed(cfg, clock):
     assert status and status != "off"
 
 
+def test_the_camera_inherits_the_idle_unload_timeout(cfg, clock):
+    """`build_camera` is the production constructor: a lab built by hand
+    defaults to never timing out, so tests of the warm pipeline don't arm a
+    one-hour asyncio task. The house knob has to actually reach the lab."""
+    lab, _ = runtime.build_camera(
+        _half_built(cfg.model_copy(update={"selfie_backend": "mock",
+                                           "selfie_unload_after_s": 900.0}),
+                    clock))
+    assert lab is not None
+    assert lab.unload_after_s == 900.0
+
+
 def test_no_search_is_no_desk_and_says_so(cfg, clock):
     desk, status = runtime.build_reading(
         _half_built(cfg.model_copy(update={"search_backend": "off"}), clock))

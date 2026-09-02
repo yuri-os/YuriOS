@@ -40,7 +40,13 @@ from pathlib import Path
 from typing import Awaitable, Callable, Optional
 
 from ..kernel.clock import Clock
-from .vram import claim_card, release_card, shared_render_lock
+from .vram import (
+    cancel_idle_unload,
+    claim_card,
+    release_card,
+    schedule_idle_unload,
+    shared_render_lock,
+)
 
 log = logging.getLogger("world.selfies")
 
@@ -241,7 +247,8 @@ class SelfieLab:
                  parker=None,
                  quiet: Optional[Callable[[], Awaitable[None]]] = None,
                  situation: Optional[Callable[[], str]] = None,
-                 signal: Optional[Callable[..., object]] = None):
+                 signal: Optional[Callable[..., object]] = None,
+                 unload_after_s: float = -1.0):
         self.forge = forge
         self.clock = clock
         self.post = post                       # Runtime.post_message
@@ -254,6 +261,12 @@ class SelfieLab:
         # `selfie_status` is for a page that is watching the render; this is for
         # the mind, which is not, and whose goal is sitting in `waiting` on it.
         self.signal = signal
+        # Idle unload of a warm local pipeline (SPEC §7.6a). Default -1 here
+        # so tests that construct a lab directly keep today's behaviour
+        # (never time out); `build_camera` passes `SELFIE_UNLOAD_AFTER_S`
+        # (3600). 0 = drop after every render; negative = keep it loaded.
+        self.unload_after_s = unload_after_s
+        self._kept_warm = False
         self._tasks: set[asyncio.Task] = set()
         self._task_ids: dict[asyncio.Task, str] = {}
         self._contracts: dict[asyncio.Task, dict] = {}
@@ -265,11 +278,11 @@ class SelfieLab:
         # pipeline and a brain. A hosted backend (mock, openrouter) keeps its
         # own: nothing of its is resident, and queueing one character's API
         # render behind another's would be a cost with nobody to pay it.
+        self._resident = (
+            getattr(getattr(forge, "backend", None), "RESIDENT_FREE_GIB",
+                    None) is not None)
         self._render_lock = (
-            shared_render_lock()
-            if getattr(getattr(forge, "backend", None), "RESIDENT_FREE_GIB",
-                       None) is not None
-            else asyncio.Lock())
+            shared_render_lock() if self._resident else asyncio.Lock())
 
     def _compose(self, kind: str, kw: dict):
         """Which of the two cameras this contract asked for (§7.6).
@@ -320,9 +333,15 @@ class SelfieLab:
         dies with the `except` clause, the release actually frees, and only then
         does `parked()` bring her brain home. What reaches the caller is a light
         copy that still answers to the same name."""
+        self._kept_warm = False
         self._claim_card()
         if self.parker is None:
-            return self._compose(kind, kw)
+            result = self._compose(kind, kw)
+            if self.unload_after_s == 0:
+                self._release()
+            else:
+                self._kept_warm = self._resident
+            return result
         result = error = None
         with self.parker.parked() as borrowed:
             try:
@@ -336,6 +355,8 @@ class SelfieLab:
                 # half-run pipeline is the last thing worth keeping warm.
                 if error is not None or borrowed or not self._can_stay_warm():
                     self._release()
+                else:
+                    self._kept_warm = True
         if error is not None:
             raise error
         return result
@@ -343,7 +364,14 @@ class SelfieLab:
     def _can_stay_warm(self) -> bool:
         """Ask the parker whether a warm pipeline still leaves room for her
         brain. A parker that doesn't answer (a stand-in, a test double) keeps
-        the old behaviour — the same duck typing `_release` uses."""
+        the old behaviour — the same duck typing `_release` uses.
+
+        `unload_after_s == 0` is "never keep it": the idle timer would fire
+        immediately anyway, so drop it here, inside the park window, where a
+        borrowed render already has to.
+        """
+        if self.unload_after_s == 0:
+            return False
         ask = getattr(self.parker, "can_keep_pipeline_warm", None)
         if not callable(ask):
             return True
@@ -458,8 +486,28 @@ class SelfieLab:
         return [selfie_id for selfie_id in cancelled if selfie_id]
 
     async def _job(self, c: dict) -> None:
+        # A new shot cancels a pending idle unload *before* taking the lock,
+        # so the unloader cannot hold the card while this render waits, and
+        # so a hosted camera (own lock, nothing resident) never cancels a
+        # neighbour's timer. SPEC §7.6a.
+        if self._resident:
+            cancel_idle_unload()
+        self._kept_warm = False
         async with self._render_lock:
-            await self._serial_job(c)
+            try:
+                await self._serial_job(c)
+            finally:
+                self._arm_idle_unload()
+
+    def _arm_idle_unload(self) -> None:
+        """If this render left a local pipeline warm, drop it after the idle
+        timeout (SPEC §7.6a). Hosted backends hold no weights and do nothing.
+        """
+        if (not self._resident or not self._kept_warm
+                or self.unload_after_s <= 0):
+            return
+        schedule_idle_unload(self.unload_after_s, self._release,
+                             self._render_lock)
 
     async def _serial_job(self, c: dict) -> None:
         kind = str(c.get("kind") or "selfie")
@@ -628,3 +676,10 @@ class SelfieLab:
             t.cancel()
         await asyncio.gather(*self._tasks, return_exceptions=True)
         self._tasks.clear()
+        # A warm local pipeline would otherwise sit until the idle timer
+        # (or process exit). Stopping the runtime is the last one out —
+        # same as VoiceStack.close. Hosted cameras hold nothing.
+        if self._resident:
+            async with self._render_lock:
+                cancel_idle_unload()
+                await asyncio.to_thread(self._release)

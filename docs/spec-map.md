@@ -17,7 +17,7 @@ a section are folded into it.
 | **§4** — The control channel (`avatar` events on the bus) | `yurios/world/avatar/controller.py`<br>`web/js/bridge.js`<br>`yurios/desktop/routes/voice_ws.py`<br>`yurios/desktop/voice/turn.py`<br>*+12 more* | `tests/test_avatar_controller.py`<br>`tests/test_events.py` |
 | **§5** — Visemes: real lip-sync | `yurios/desktop/voice/fillers.py`<br>`web/js/stage/VrmStage.js`<br>`web/js/voice.js`<br>`scripts/seed_vault.py`<br>*+6 more* | `tests/test_bootstrap_greeting.py`<br>`tests/test_mind_goals.py`<br>`tests/test_studio_routes.py` |
 | **§6** — The sanctuary scene | `web/js/stage/VrmStage.js`<br>`web/js/main.js`<br>`yurios/desktop/voice/emotion.py`<br>`web/js/stage/SanctuaryScene.js`<br>*+34 more* | `tests/test_boot.py`<br>`tests/test_window.py`<br>`tests/conftest.py`<br>*+2 more* |
-| **§7** — Tools via MCP: the hands | `yurios/world/tools/client.py`<br>`yurios/world/brain.py`<br>`yurios/world/config.py`<br>`yurios/world/main.py`<br>*+38 more* | `tests/test_mcp_contract.py`<br>`tests/test_tool_loop.py`<br>`tests/test_turn_tools.py`<br>*+16 more* |
+| **§7** — Tools via MCP: the hands | `yurios/world/tools/client.py`<br>`yurios/world/brain.py`<br>`yurios/world/selfies.py`<br>`yurios/world/config.py`<br>*+38 more* | `tests/test_mcp_contract.py`<br>`tests/test_selfie.py`<br>`tests/test_tool_loop.py`<br>*+16 more* |
 | **§8** — Ambient life is the mind's, not a scripted machine | `web/js/stage/GazeController.js`<br>`yurios/app/corpus.py`<br>`yurios/app/routes/rate.py`<br>`yurios/world/avatar/controller.py`<br>*+2 more* | `tests/test_voice_ws_fork.py` |
 | **§9** — The voice loop | `web/js/voice.js`<br>`yurios/world/routes/voice_ws.py`<br>`yurios/world/main.py`<br>`web/js/chat.js`<br>*+7 more* | `tests/test_voice_handshake.py`<br>`tests/test_voice_replay.py`<br>`tests/test_voice_stack.py` |
 | **§10** — Topology: one event bus + one audio socket | `yurios/world/main.py`<br>`yurios/envfile.py`<br>`yurios/world/channels/telegram.py`<br>`yurios/world/routes/voice_ws.py`<br>*+18 more* | `tests/test_channels.py`<br>`tests/test_host.py`<br>`tests/test_pictures.py` |
@@ -47,4 +47,4 @@ a section are folded into it.
 | **§34** — Her desk and her skills | `yurios/characters/importer.py`<br>`yurios/desktop/brain.py`<br>`yurios/mind/workspace.py`<br>`yurios/world/brain_protocol.py`<br>*+1 more* | `tests/test_mcp_contract.py`<br>`tests/test_workspace.py` |
 | **§35** — Pictures you send her | `yurios/world/main.py`<br>`yurios/world/channels/telegram.py`<br>`yurios/world/routes/chat.py`<br>`web/js/chat.js`<br>*+11 more* | `tests/test_channels.py`<br>`tests/test_context_meter.py`<br>`tests/test_integration.py`<br>*+1 more* |
 
-*671 citation sites over 103 sections.*
+*677 citation sites over 103 sections.*

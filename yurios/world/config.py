@@ -170,6 +170,14 @@ class Config(VoiceConfig):
     # reloads beside it, the card fills, and the *next* render OOMs. Raise it
     # if your chat model is bigger than ~6 GiB on the card.
     selfie_warm_headroom_gib: float = 6.0
+    # How long a warm local pipeline sits unused before it is dropped (SPEC
+    # §7.6a). The headroom test above asks whether her *brain* still fits
+    # beside it — a hosted brain (openrouter/… chat and utility) is not on
+    # this card at all, so that question answers yes forever and the
+    # pipeline would otherwise stay in VRAM until restart. 0 = drop after
+    # every render; negative = keep it loaded. Default one hour, matching
+    # the voice stack's "empty room" convention (`VOICE_UNLOAD_AFTER_S`).
+    selfie_unload_after_s: float = 3600.0
 
     # --- her voice, on demand (SPEC §9.9 — world/voicestack.py) ---
     # Kokoro + faster-whisper + silero are the heaviest thing a runtime holds,

@@ -748,6 +748,14 @@ to every new subscriber before its first live event. Malformed JSON is logged an
   her *brain* still has room beside it, so a character whose brain is hosted — no local model on
   this card at all — answers yes forever, and every camera keeps its own copy of the same
   checkpoint resident until one of them cannot load.
+
+  A pipeline that did stay warm **MUST** still be dropped after `SELFIE_UNLOAD_AFTER_S` of no
+  renders (default 3600). The same hosted-brain case that answers the headroom test "yes forever"
+  would otherwise hold the card until restart — observed as eleven gigabytes still resident nine
+  hours after the last selfie. 0 drops it after every render; a negative value keeps it, matching
+  `VOICE_UNLOAD_AFTER_S`. A new render **MUST** cancel a pending unload so a shot taken fifty-nine
+  minutes later still hits a warm pipeline. A hosted backend holds no weights and **MUST NOT**
+  arm a timer.
 - §7.7 **The web: `web_search` / `read_page` / `research`, and what she reads she keeps.** The
   three hands arrive together or not at all — searching with no way to open what you found is half
   a capability — behind one `SEARCH_BACKEND` knob whose default is `off`.

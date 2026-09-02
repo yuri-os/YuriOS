@@ -164,7 +164,10 @@ def reset_shared_gate() -> None:
 #: hosted brain — GLM over OpenRouter, say — there is no brain on this card at
 #: all, so that question answers "yes, nothing else is competing for it" and
 #: the pipeline stays warm forever. Which was true of the character asking and
-#: false of the card: the neighbour's camera was competing for it.
+#: false of the card: the neighbour's camera was competing for it. The idle
+#: unload (`SELFIE_UNLOAD_AFTER_S`, default one hour) is the other half of
+#: that gap: even one camera, with nobody else on the card, must not hold
+#: eleven gigabytes until restart.
 #:
 #: Observed, on a 16 GiB card with an OpenRouter brain: Yuri renders at 17:05
 #: and holds ~11 GiB warm for nine hours; YuriQuant's DREAM selfie loads a
@@ -182,6 +185,10 @@ _WARM: Optional[tuple[object, Callable[[], None]]] = None
 #: character's camera out of another's render — needed by the claim above,
 #: which would otherwise be free to hand the card away mid-render.
 _RENDER_LOCK: Optional[asyncio.Lock] = None
+#: The pending idle unload of a warm pipeline (SPEC §7.6a). Process-wide
+#: because two cameras sharing one backend share one pile of weights, and
+#: one of them timing out must not pull the card out from under the other.
+_IDLE_TASK: Optional[asyncio.Task] = None
 
 
 def claim_card(holder: object, release: Callable[[], None]) -> None:
@@ -230,10 +237,65 @@ def shared_render_lock() -> asyncio.Lock:
     return _RENDER_LOCK
 
 
+def cancel_idle_unload() -> None:
+    """A render is about to use the card — don't drop it out from under it."""
+    global _IDLE_TASK
+    task, _IDLE_TASK = _IDLE_TASK, None
+    if task is not None and not task.done():
+        task.cancel()
+
+
+def schedule_idle_unload(
+    delay_s: float,
+    release: Callable[[], None],
+    lock: asyncio.Lock,
+) -> None:
+    """Drop a warm local pipeline if nobody renders for `delay_s` (SPEC §7.6a).
+
+    Process-wide: two cameras sharing one backend share one timer. Negative
+    delay (and 0) keep this a no-op — 0 is "don't stay warm" and the caller
+    drops the pipeline itself rather than arming a wait. A new render
+    cancels this via `cancel_idle_unload`. The teardown hops a worker so a
+    torch `empty_cache` never lands on the event loop.
+    """
+    cancel_idle_unload()
+    if delay_s <= 0:
+        return
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:                   # off-loop (a test calling _render)
+        return
+
+    async def _later() -> None:
+        try:
+            await asyncio.sleep(delay_s)
+            async with lock:
+                await asyncio.to_thread(release)
+            log.info("card: idle %.0fs — unloaded the local render pipeline",
+                     delay_s)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("card: idle unload of the local render pipeline failed")
+        finally:
+            global _IDLE_TASK
+            if _IDLE_TASK is asyncio.current_task():
+                _IDLE_TASK = None
+
+    global _IDLE_TASK
+    _IDLE_TASK = loop.create_task(_later(), name="selfie-idle-unload")
+
+
+def idle_unload_pending() -> Optional[asyncio.Task]:
+    """The armed idle-unload task, or None. Tests wait on it."""
+    return _IDLE_TASK
+
+
 def reset_card() -> None:
-    """Drop the claim and the lock — for tests, for the same reason
-    `reset_shared_gate` exists."""
+    """Drop the claim, the lock and a pending idle unload — for tests, for
+    the same reason `reset_shared_gate` exists."""
     global _WARM, _RENDER_LOCK
+    cancel_idle_unload()
     with _WARM_LOCK:
         _WARM = None
     _RENDER_LOCK = None

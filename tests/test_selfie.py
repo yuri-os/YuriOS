@@ -983,6 +983,105 @@ async def test_an_old_parker_without_the_question_keeps_the_old_behaviour(cfg, c
     assert lab.forge.torn_down == 0
 
 
+# ---- idle unload of a warm local pipeline (SPEC §7.6a) ----------------------
+# A hosted brain never trips the headroom test, so without a timer the
+# pipeline sits in VRAM until restart. The lab constructed by hand defaults
+# to never timing out (see test_runtime_build); these pass the knob.
+
+class ResidentForge(WarmForge):
+    """WarmForge plus the marker that says this camera holds the card."""
+    RESIDENT_FREE_GIB = 11.0
+
+
+async def _wait_idle():
+    from yurios.world.vram import idle_unload_pending
+    task = idle_unload_pending()
+    if task is not None:
+        await asyncio.gather(task, return_exceptions=True)
+
+
+async def test_a_warm_local_pipeline_unloads_after_the_idle_timeout(cfg, clock):
+    rec = Recorder()
+    parker = WarmthParker(room_for_the_brain=True)
+    lab = SelfieLab(ResidentForge(cfg.selfie_dir), clock=clock, post=rec.post,
+                    speak=rec.speak, parker=parker, unload_after_s=0.05)
+    lab.start({"id": "idle1", "scene": "window", "status": "started"})
+    await settle(lab)
+    assert lab.forge.torn_down == 0            # still warm immediately after
+    await _wait_idle()
+    assert lab.forge.torn_down >= 1
+
+
+async def test_a_new_render_cancels_the_idle_unload(cfg, clock):
+    """A shot fifty-nine minutes later must still hit a warm pipeline."""
+    rec = Recorder()
+    parker = WarmthParker(room_for_the_brain=True)
+    lab = SelfieLab(ResidentForge(cfg.selfie_dir), clock=clock, post=rec.post,
+                    speak=rec.speak, parker=parker, unload_after_s=0.2)
+    lab.start({"id": "idle2a", "status": "started"})
+    await settle(lab)
+    assert lab.forge.torn_down == 0
+    lab.start({"id": "idle2b", "status": "started"})
+    await settle(lab)
+    assert lab.forge.torn_down == 0            # second shot reset the timer
+    await asyncio.sleep(0.08)
+    assert lab.forge.torn_down == 0            # …and it has not fired yet
+    await _wait_idle()
+    assert lab.forge.torn_down >= 1
+
+
+async def test_zero_unloads_after_every_render(cfg, clock):
+    """0 is 'don't stay warm', not 'schedule a no-op wait'."""
+    rec = Recorder()
+    parker = WarmthParker(room_for_the_brain=True)
+    lab = SelfieLab(ResidentForge(cfg.selfie_dir), clock=clock, post=rec.post,
+                    speak=rec.speak, parker=parker, unload_after_s=0)
+    lab.start({"id": "idle0", "status": "started"})
+    await settle(lab)
+    assert lab.forge.torn_down >= 1
+    from yurios.world.vram import idle_unload_pending
+    assert idle_unload_pending() is None
+
+
+async def test_a_negative_timeout_keeps_the_pipeline_loaded(cfg, clock):
+    rec = Recorder()
+    parker = WarmthParker(room_for_the_brain=True)
+    lab = SelfieLab(ResidentForge(cfg.selfie_dir), clock=clock, post=rec.post,
+                    speak=rec.speak, parker=parker, unload_after_s=-1)
+    lab.start({"id": "idle-keep", "status": "started"})
+    await settle(lab)
+    await asyncio.sleep(0.05)
+    assert lab.forge.torn_down == 0
+    from yurios.world.vram import idle_unload_pending
+    assert idle_unload_pending() is None
+
+
+async def test_a_hosted_camera_does_not_arm_an_idle_timer(cfg, clock, forge):
+    """mock / openrouter hold no weights; a timer there would cancel a
+    neighbour's, and would fire a teardown that does not exist."""
+    lab = SelfieLab(forge, clock=clock, post=Recorder().post,
+                    speak=Recorder().speak, unload_after_s=0.05)
+    lab.start({"id": "hosted", "status": "started"})
+    await settle(lab)
+    from yurios.world.vram import idle_unload_pending
+    assert idle_unload_pending() is None
+
+
+async def test_closing_the_lab_drops_a_warm_pipeline(cfg, clock):
+    """Stopping the runtime is the last one out — don't wait the hour."""
+    rec = Recorder()
+    parker = WarmthParker(room_for_the_brain=True)
+    lab = SelfieLab(ResidentForge(cfg.selfie_dir), clock=clock, post=rec.post,
+                    speak=rec.speak, parker=parker, unload_after_s=3600)
+    lab.start({"id": "idle-close", "status": "started"})
+    await settle(lab)
+    assert lab.forge.torn_down == 0
+    await lab.close()
+    assert lab.forge.torn_down >= 1
+    from yurios.world.vram import idle_unload_pending
+    assert idle_unload_pending() is None
+
+
 # ---- one card, one pipeline: the cameras that share a checkpoint ------------
 
 @pytest.fixture

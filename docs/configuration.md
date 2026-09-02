@@ -285,6 +285,7 @@ reliably goes wrong when you point her at an instance you already run.
 | `SELFIE_KREA2_STEPS` / `_CFG` | `0` / `-1` | `0`/`-1` = read it off the checkpoint |
 | `SELFIE_LLM_PARK` | `true` | lend the LLM's VRAM to a local render |
 | `SELFIE_WARM_HEADROOM_GIB` | `6.0` | VRAM her brain needs beside a warm render pipeline; below it the pipeline is dropped after each render |
+| `SELFIE_UNLOAD_AFTER_S` | `3600` | idle timeout for a warm local pipeline; 0 = drop after every render, negative = keep it loaded |
 
 See [Selfies](selfies.md).
 

@@ -126,6 +126,19 @@ A park never happens mid-reply: evicting the model while a turn is streaming wou
 stream and the draft would vanish from the chat, so a render that needs a park waits for a quiet
 moment first. Set `SELFIE_LLM_PARK=false` to never touch LM Studio (renders use offload instead).
 
+### Idle unload
+
+```ini
+SELFIE_UNLOAD_AFTER_S=3600        # seconds; 0 = drop after every render; negative = keep it
+```
+
+A local pipeline stays warm between shots on purpose — reloading costs ~25 s. When her brain is
+hosted (OpenRouter GLM, a cloud chat model) there is nothing else on the card, so the "does her
+brain still fit beside it?" test answers yes forever and the weights would sit in VRAM until
+restart. After an hour of no renders they are dropped; the next selfie loads them again. The
+timer is process-wide (one card, one pipeline) and a new shot cancels it, so a selfie fifty-nine
+minutes later still hits a warm pipeline.
+
 ## What she can ask for
 
 `look` is the important one: **the whole picture in her own words**, written the way you'd

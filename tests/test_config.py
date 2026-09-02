@@ -30,6 +30,9 @@ def test_defaults():
     assert cfg.voice_ws_max_frame_bytes == 2048
     assert cfg.voice_ws_max_utterance_s == 60.0
     assert cfg.voice_ws_max_message_bytes == 64 * 1024
+    # a hosted brain never trips the warm-headroom test, so a local camera
+    # must not sit in VRAM until restart (§7.6a)
+    assert cfg.selfie_unload_after_s == 3600.0
 
 
 def test_env_overrides(monkeypatch):
@@ -41,6 +44,7 @@ def test_env_overrides(monkeypatch):
     monkeypatch.setenv("TELEGRAM_SEND_NON_TELEGRAM", "true")
     monkeypatch.setenv("VOICE_WS_MAX_CONNECTIONS", "3")
     monkeypatch.setenv("VOICE_WS_IDLE_TIMEOUT_S", "12.5")
+    monkeypatch.setenv("SELFIE_UNLOAD_AFTER_S", "900")
     cfg = Config(_env_file=None)
     assert cfg.context_length == 32768
     assert cfg.tools_backend == "off"
@@ -50,6 +54,7 @@ def test_env_overrides(monkeypatch):
     assert cfg.telegram_send_non_telegram
     assert cfg.voice_ws_max_connections == 3
     assert cfg.voice_ws_idle_timeout_s == 12.5
+    assert cfg.selfie_unload_after_s == 900.0
 
 
 def test_example_enables_flash_attention_for_direct_gguf():

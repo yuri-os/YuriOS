@@ -216,6 +216,11 @@ came up short now says so with a WARNING instead of going quiet.
 A daemon already wedged in that state stays wedged — the VRAM is held by the running process, so
 `yurios restart` is the way out.
 
+**The local camera is still on the GPU long after the last selfie** — a hosted chat model never
+trips the warm-headroom test, so the pipeline would otherwise stay in VRAM until restart.
+`SELFIE_UNLOAD_AFTER_S` (default 3600) drops it after that many seconds of no renders; 0 drops
+it after every shot, and a negative value keeps it loaded.
+
 ## She never says anything on her own
 
 That's the default, and it's the conservative half of the design: most ticks end in REST, and the

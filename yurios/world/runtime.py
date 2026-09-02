@@ -105,7 +105,8 @@ def build_camera(rt) -> tuple[SelfieLab | None, str]:
                         gate=rt.park_gate),
                     quiet=rt.wait_turns_idle,
                     situation=rt.visual_situation,
-                    signal=rt.post_signal)
+                    signal=rt.post_signal,
+                    unload_after_s=cfg.selfie_unload_after_s)
     return lab, status
 
 

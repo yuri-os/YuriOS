@@ -95,7 +95,7 @@ class TelegramChannel(Channel):
             timeout=httpx.Timeout(POLL_TIMEOUT_S + 10, connect=10),
             transport=self._transport)
         me = await self._api("getMe")        # validates the token, loudly, now
-        self._queue = rt.hub.subscribe()
+        self._queue = rt.hub.subscribe(viewer=False)
         self._tasks = [
             asyncio.create_task(self._poll(), name="telegram-poll"),
             asyncio.create_task(self._deliver(), name="telegram-deliver"),

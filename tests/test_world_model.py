@@ -47,6 +47,8 @@ def test_situation_carries_the_host_lines_and_presence(world):
 
 def test_presence_and_away_arithmetic(world):
     w, clock = world
+    w.observe(_sig("user_present", clock))
+    assert "Sam is here right now." in w.situation()
     w.observe(_sig("user_message", clock, text="hi"))
     assert "Sam is here right now." in w.situation()
     w.observe(_sig("user_absent", clock))
@@ -54,6 +56,27 @@ def test_presence_and_away_arithmetic(world):
     assert "away about 5 hours" in w.situation()
     clock.advance(48 * 3600)
     assert "away about 2 days" in w.situation()
+
+
+def test_a_message_is_contact_not_company(world):
+    """Telegram is reachable, not present: a phone message must not leave
+    her believing you are in the room after you put the phone down."""
+    w, clock = world
+    w.observe(_sig("user_message", clock, text="hi from the phone"))
+    assert "Sam is here right now." not in w.situation()
+
+
+def test_a_previous_process_leaving_present_is_not_company(tmp_path):
+    clock = VirtualClock(start=SIM_START.timestamp())
+    vault = MindVault(tmp_path / "vault")
+    vault.write_json("world/state.json", {
+        "user_present": True, "last_user_message": None,
+        "last_contact_out": None, "threads": [], "expectations": [],
+    })
+    w = WorldModelStore(vault, clock, controller=SpyController(),
+                        timers=TimerBoard(clock), user_name="Sam")
+    assert w.snapshot()["user_present"] is False
+    assert "Sam is here right now." not in w.situation()
 
 
 def test_expectation_met_resolves_quietly(world):

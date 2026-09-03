@@ -35,6 +35,10 @@ class EventHub:
     def __init__(self, max_queue: int = 256):
         self._max_queue = max_queue
         self._queues: List[asyncio.Queue] = []
+        # `/api/events` pages (and the CLI). Channel adapters drain `_queues`
+        # too, but they are delivery, not company — presence uses this list
+        # (SPEC §10, §16.2).
+        self._viewers: List[asyncio.Queue] = []
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         # sticky state, replayed on subscribe (SPEC §4): key → last event
         self.sticky: Dict[Hashable, Dict[str, Any]] = {}
@@ -70,19 +74,34 @@ class EventHub:
 
     # ---- subscribe (on the loop; called by the /api/events route) ----
 
-    def subscribe(self) -> asyncio.Queue:
-        """Register a subscriber; returns its queue, pre-loaded with sticky state."""
+    def subscribe(self, *, viewer: bool = False) -> asyncio.Queue:
+        """Register a subscriber; returns its queue, pre-loaded with sticky state.
+
+        `viewer=True` is a page (or the CLI) on `/api/events` — that is presence.
+        Channel adapters drain the same bus with the default: they are delivery,
+        not company (SPEC §10, §16.2). Found live: Telegram + notify held
+        `subscribers` ≥ 1 after the tab closed, so `user_absent` never fired.
+        """
         self._loop = asyncio.get_running_loop()
         q: asyncio.Queue = asyncio.Queue(maxsize=self._max_queue)
         for event in self.sticky.values():
             q.put_nowait(event)
         self._queues.append(q)
+        if viewer:
+            self._viewers.append(q)
         return q
 
     def unsubscribe(self, q: asyncio.Queue) -> None:
         if q in self._queues:
             self._queues.remove(q)
+        if q in self._viewers:
+            self._viewers.remove(q)
 
     @property
     def subscribers(self) -> int:
         return len(self._queues)
+
+    @property
+    def viewers(self) -> int:
+        """Pages and the CLI currently on `/api/events`. Not channel adapters."""
+        return len(self._viewers)

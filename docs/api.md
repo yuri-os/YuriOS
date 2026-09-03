@@ -170,7 +170,8 @@ turns receive the retryable `503` response above. Typed WebSocket text is capped
 On attach you get `hello`, then a replay of sticky appearance state (last-write-wins), then live
 events. The stream pings while idle and ends itself on shutdown, so an open tab never holds Ctrl+C
 hostage. **Attaching counts as presence**: it posts `user_present` to the mind, and the last
-detach posts `user_absent`.
+page or CLI detach posts `user_absent`. Telegram and the notify channel drain the same bus
+and are not viewers — `/api/health`'s `viewers` is this page count, not every hub subscriber.
 
 | Event | Payload |
 |---|---|

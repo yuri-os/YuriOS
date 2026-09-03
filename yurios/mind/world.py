@@ -67,6 +67,7 @@ class WorldModelStore:
         self.user_name = user_name
         self.state_path = vault.vault / "world" / "state.json"
         self.beliefs_path = vault.vault / "world" / "beliefs.jsonl"
+        self._forget_stale_presence()
 
     # ------------------------------------------------------------------ state
 
@@ -81,6 +82,18 @@ class WorldModelStore:
         # and not a commit — most signals leave this dict exactly as they found it
         self.vault.write_json("world/state.json", st)
 
+    def _forget_stale_presence(self) -> None:
+        """A previous process's last True is not company (SPEC §16.2, §19.1).
+
+        Presence is a live `/api/events` viewer. Persisting it made a restart
+        with no tab open look occupied, and adapters that never unsubscribed
+        meant `user_absent` never arrived to correct it.
+        """
+        st = read_json(self.state_path, None)
+        if st and st.get("user_present"):
+            st["user_present"] = False
+            self._save(st)
+
     # ---------------------------------------------------------------- observe
 
     def observe(self, signal: Signal) -> UpdateResult:
@@ -89,7 +102,10 @@ class WorldModelStore:
         res = UpdateResult()
 
         if signal.type in ("user_message", "turn_committed"):
-            st["user_present"] = True
+            # Contact, not company. Telegram is reachable, not present
+            # (§10.5): a phone message must not leave `user_present` True
+            # after you put the phone down. Pages already posted
+            # `user_present` when `/api/events` attached.
             st["last_user_message"] = now_iso
             text = signal.payload.get("text", "")
             if text:

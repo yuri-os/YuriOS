@@ -307,6 +307,21 @@ def test_the_notification_stream_takes_no_presence_and_no_hub_slot(cfg):
     channel.subscribe()
     assert len(rt.signals) == before_signals
     assert rt.hub.subscribers == before_subs
+    assert rt.hub.viewers == 0
+
+
+async def test_notify_drains_the_hub_without_being_company(cfg):
+    """start() subscribes to deliver unheard lines. That slot is not a viewer."""
+    rt = create_app(cfg, brain=FakeBrain()).state.rt
+    channel = NotifyChannel()
+    await channel.start(rt)
+    try:
+        assert rt.hub.subscribers == 1
+        assert rt.hub.viewers == 0
+        assert all(s.type != "user_present" for s in rt.signals.next(0, 1000)[0])
+    finally:
+        await channel.stop()
+    assert rt.hub.subscribers == 0
 
 
 # ---- the HTTP surface ------------------------------------------------------

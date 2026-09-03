@@ -81,7 +81,7 @@ class NotifyChannel(Channel):
 
     async def start(self, rt) -> str:
         self.rt = rt
-        self._queue = rt.hub.subscribe()
+        self._queue = rt.hub.subscribe(viewer=False)
         self._task = asyncio.create_task(self._deliver(), name="notify-deliver")
         return f"{self.backend} · {self._available()}"
 

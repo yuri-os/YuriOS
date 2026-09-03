@@ -953,8 +953,14 @@ keeps a socket of its own is sound.
 - **`GET /api/events`** — the bus's wire: SSE, one `data:` line per event. On attach: `hello`,
   then the sticky replay, then live events. The stream **MUST** end itself on shutdown (a stop
   flag polled every second — an open tab must never hold Ctrl+C hostage) and ping while idle.
-  The attach/detach of subscribers **MUST** post `user_present` / `user_absent` signals to the
-  mind — presence is a signal, not a guess (§16.2). `GET /api/history` backfills the chat (§2.6).
+  The attach/detach of `/api/events` **viewers** (a page, the CLI) **MUST** post
+  `user_present` / `user_absent` to the mind — presence is a signal, not a guess
+  (§16.2). Channel adapters that drain the same hub (Telegram, notify) **MUST NOT**
+  count: they are delivery, not company. `user_absent` **MUST** fire when the last
+  viewer leaves even if adapters remain. Found live: adapters held
+  `hub.subscribers` ≥ 1, so `user_absent` never posted and expensive hands stayed
+  gated after the tab closed. `/api/health`'s `viewers` is this count.
+  `GET /api/history` backfills the chat (§2.6).
 - **`/ws/voice`** — the audio-only socket: binary mic PCM up,
   `hello`/`endpoint`/`bargein`/`text`/`speak` control up; `session`, `warming` (her voice is
   loading for this connection — §9.9), `filler`/`audio` (base64 PCM + the sentence text for §5),
@@ -985,7 +991,8 @@ a frontend:
 - **Outbound** — an `EventHub` subscription. Committed `message` events carry the originating
   `channel`, so an adapter can filter cross-chat copies. The mind's SUGGEST lines and
   undeliverable SPEAKs land as `proactive` messages on the same bus (§18.3); an outside channel's
-  forwarding policy decides whether those leave the host.
+  forwarding policy decides whether those leave the host. An adapter's subscription is a
+  **drain**, not a viewer: it **MUST NOT** count toward presence (§10).
 
 Channels in this build (`yurios/world/channels/`; a failed channel is one degraded medium, never a
 down host — `/api/health` and the boot board say which):
@@ -1209,7 +1216,10 @@ what they mean — no producer may call into the mind.
   in this build: the world voice route (the tee), the `/api/events` route (presence), the timer
   board, the self-edit API. Unknown types are legal and appraise low. `user_present`/`user_absent`
   are bookkeeping — observed by the world model, never chosen as intentions (the greeting is the
-  voice route's job).
+  voice route's job). They track `/api/events` viewers only: a page or the CLI. A
+  `user_message` (Telegram included) is reachable, not present, and **MUST NOT**
+  set the flag. A previous process's last True is not company — the world model
+  starts this process absent until a viewer attaches.
 - §16.3 **A completion is not a success** (normative). `task_completion` means the dispatched work
   is *over*, not that it worked: a producer **MUST** post it for a failed run as well, carrying an
   `error` key and no product, so a goal in `waiting` is released by the failure rather than by the
@@ -1377,7 +1387,9 @@ from it.
   append-only log (`world/beliefs.jsonl`); `query(q, at=…)` answers "what was believed when" (the
   snapshot stage of point-in-time; the temporal graph is a sanctioned later stage and out of scope,
   §26). Structured now-state (`world/state.json`): presence, last contact each way, open threads,
-  expectations.
+  expectations. Presence in that file is **this process**: a restart with no
+  viewer **MUST** start absent, even if the previous process left `true` on
+  disk.
 - §19.2 **`situation()` — the stage every prompt carries.** It **MUST** compose the host lines (the
   injected clock's time, the **embodiment truth** verbatim, the room's sticky scene state, pending
   timers — still rendered by `yurios/world/situation.py`) with what only a store can know: whether

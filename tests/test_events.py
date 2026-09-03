@@ -55,6 +55,20 @@ async def test_unsubscribe_stops_delivery_and_counts():
     assert q.empty()
 
 
+async def test_a_drain_is_not_a_viewer():
+    """Telegram and notify subscribe for delivery. They are not company."""
+    hub = EventHub()
+    drain = hub.subscribe()
+    page = hub.subscribe(viewer=True)
+    assert hub.subscribers == 2
+    assert hub.viewers == 1
+    hub.unsubscribe(page)
+    assert hub.viewers == 0
+    assert hub.subscribers == 1
+    hub.unsubscribe(drain)
+    assert hub.subscribers == 0
+
+
 async def test_turns_idle_gates_on_the_turn_lifecycle(cfg):
     """Runtime.wait_turns_idle — the selfie parker's quiet gate (§7.6): set
     while no turn is in flight, cleared from turn_started until the matching
@@ -201,3 +215,26 @@ async def test_the_last_page_leaving_still_posts_user_absent(client):
     assert rt.hub.subscribers == 0
     assert not rt.stopping.is_set()
     assert "user_absent" in _types(rt)
+
+
+async def test_a_channel_adapter_does_not_keep_the_room_occupied(client):
+    """Found live: Telegram + notify held hub.subscribers ≥ 1, so closing the
+    tab never posted user_absent and expensive hands stayed gated."""
+    from yurios.world.routes.events import events as events_route
+
+    rt = client.app.state.rt
+    drain = rt.hub.subscribe()
+    assert rt.hub.viewers == 0
+    response = await events_route(_Req(client.app))
+    stream = response.body_iterator
+    assert "hello" in await stream.__anext__()
+    assert rt.hub.viewers == 1
+    assert rt.hub.subscribers == 2
+    present = [s for s in rt.signals.next(0, 1000)[0] if s.type == "user_present"]
+    assert present[-1].payload.get("viewers") == 1
+    await stream.aclose()
+    assert rt.hub.viewers == 0
+    assert rt.hub.subscribers == 1
+    assert not rt.stopping.is_set()
+    assert "user_absent" in _types(rt)
+    rt.hub.unsubscribe(drain)

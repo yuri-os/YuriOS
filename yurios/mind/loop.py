@@ -708,7 +708,7 @@ class MindLoop:
         kept as reflexes — gaze drift, a small expression pulse, rain-gazing.
         Reflexes, not intentions: no model, no journal, seeded RNG, and silent
         the moment she's engaged or the room is empty."""
-        if self._engaged_now() or self.hub.subscribers == 0:
+        if self._engaged_now() or self.hub.viewers == 0:
             return
         if self.activity.state not in (IDLE, ENGAGED):
             return                              # DORMANT/DREAM: the body rests

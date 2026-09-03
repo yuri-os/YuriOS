@@ -59,6 +59,8 @@ Everything that happens *to* her is one typed, timestamped signal appended to on
 what they mean.
 
 Each arrival appends a line to `signals.jsonl` — "what woke her at 3 a.m." is a file you read.
+`user_present` / `user_absent` mean a page or the CLI is on `/api/events`. The tray, Telegram,
+and the doorbell are not company; a message from your phone is reachable, not present.
 
 ## Activity states
 

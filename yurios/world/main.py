@@ -331,8 +331,9 @@ class Runtime:
         this on her own initiative and may have said it to an empty room, so it
         waits on disk until somebody has actually been in to see it. It is set
         by the caller rather than inferred here, because only the caller knows:
-        `hub.subscribers` counts channel adapters too, so "no subscribers" stops
-        meaning "nobody is home" the moment Telegram is configured. The mind's
+        `hub.subscribers` counts channel adapters too; `hub.viewers` is the
+        pages. "No subscribers" stopped meaning "nobody is home" the moment
+        Telegram is configured. The mind's
         SUGGEST line and its undeliverable SPEAK say so explicitly (§18.3); a
         greeting never does, because a greeting is answered *to* somebody who
         just arrived.

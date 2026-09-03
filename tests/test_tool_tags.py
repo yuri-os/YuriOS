@@ -27,6 +27,15 @@ def test_emotion_tags_pass_through_untouched():
     assert text == "[happy] Hey you." and calls == []
 
 
+def test_a_doubled_expression_tag_is_not_a_tool():
+    """Found live: `[[tender]]` was parsed as a call and denied 'not a tool
+    she has', which also stripped the face tag from speech."""
+    text, calls = push_all(ToolTagParser(),
+                           ["[[tender]] I missed you. [[happy]] There."])
+    assert calls == []
+    assert text == "[tender] I missed you. [happy] There."
+
+
 def test_whole_marker_in_one_token():
     text, calls = push_all(ToolTagParser(),
                            ['One sec. [[set_timer {"minutes": 10, "label": "tea"}]]'])

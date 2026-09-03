@@ -421,7 +421,10 @@ class DreamContext:
             "Consolidation of finished days is DREAM's job. It writes durable "
             "facts to memory/semantic/facts.md — that is kept memory. There is "
             "no kept-memory folder on your desk. diary/ entries are a separate "
-            "night job, already written when that night ran. A maintenance goal "
+            "night job, already written when that night ran. A standing research "
+            "job (a market brief, an overnight report) writes to reports/ on "
+            "the desk and is delivered in the morning — do not file a daytime "
+            "task to pull prices or write a morning brief. A maintenance goal "
             "about catching up on nights is a reminder for DREAM, not a task "
             "for your hands. Do not file a desk task to list, match, or create "
             "kept-memory entries.")

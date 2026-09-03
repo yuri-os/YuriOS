@@ -634,6 +634,10 @@ to every new subscriber before its first live event. Malformed JSON is logged an
   to its real terminator, so a literal newline or an unescaped `"` inside it costs nothing). And
   a marker left open at end-of-stream whose body is otherwise complete **MUST** be salvaged.
   All three are self-validating: they only ever yield a call that parses.
+  A doubled expression tag (`[[tender]]`, `[[happy]]`) is the §6.1 emotion
+  channel with an extra bracket, **not** a tool: rewrite it to `[tender]` so the
+  face still changes. Live, those names were parsed as calls and denied "not a
+  tool she has", which both wasted an audit line and stripped the tag from speech.
   A marker that still cannot be read **MUST NOT** fail silently — it appends an audit line
   (verdict `dropped: malformed marker`), is marked as unrun in the verbatim record, and earns
   **one** re-emit pass per turn. Silence here is not neutral: the broken marker stays in the
@@ -1403,6 +1407,10 @@ turn** — separate files, separate indexes, separate `inspect()`.
   journaled ("read and shelved …"). Re-ingest replaces a doc's chunks, never duplicates. A doc that
   fails to ingest (no embedder backend, a mangled file) is marked seen with one loud WARNING and
   retried only when the file changes — a broken shelf item **MUST NOT** become a retry loop.
+  The ingest impulse **MUST NOT** fire while a read holds the shelf lock. `scan()`
+  already steps aside rather than queueing; scoring "new document on the shelf"
+  and then ingesting nothing is the retry loop that check exists to prevent
+  (measured: 320 empty ingests against one overnight research run).
 - §20.2 **Retrieval is grounded, and it reaches the prompt.** Every returned `Chunk` carries `doc`
   + `span` (character range) — a citation she can show. `search()` **MUST** run on every assembled
   turn and join conversation as the assembler's knowledge slot (§7.1 block 8), carrying its
@@ -1424,7 +1432,10 @@ turn** — separate files, separate indexes, separate `inspect()`.
   file** — are summarised to at most a few durable facts (utility model; an offline heuristic keeps
   the pass alive with no model), deduped against `memory/semantic/facts.md`, appended there with
   their source day, and indexed at **salience 2.0** so recall prefers the distilled fact over the
-  raw exchange.
+  raw exchange. The summariser **MUST NOT** keep `NOTHING` or the night's own
+  bookkeeping ("folded … into what I keep", "wrote a diary entry", "had a picture
+  made") as facts: those are the pipeline talking about itself, and storing them
+  is how "kept memory" became a desk folder she then tried to list.
 - **Oldest-first and resumable** (`state/dream_progress.json`): a night that runs out of budget
   leaves a backlog, not an overrun, and the next DREAM tick resumes. The night's work is journaled
   ("slept on it: folded … into what I keep").
@@ -1695,8 +1706,10 @@ optional due time, **provenance**, and a **commitment strategy**; lifecycle
   all three slots on one idea reworded four ways, which `goals.md`'s exact-text merge cannot see.
   She **MUST NOT** file DREAM's own work as a daytime desk task. Consolidation writes
   `memory/semantic/facts.md`; `workspace/diary/` is a separate night job; there is no
-  `kept-memory` folder on the desk. A stock-take that refiles "catch up on the nights" as
-  "list diary vs kept-memory" is how she spent days on `list_notes` looking for a ledger the
+  `kept-memory` folder on the desk; a standing research job writes the morning brief
+  to `reports/`. A stock-take that refiles "catch up on the nights" as
+  "list diary vs kept-memory", or "get the numbers ready when they wake" as a
+  daytime `web_search`, is how she spent days on a hand looking for a ledger the
   night already keeps. `night_owned()` is that refusal; strategy context **MUST** also say
   the night owns it, because a prompt-only hint is the one existing vaults with a custom
   `dreams/strategy.md` would otherwise never see.

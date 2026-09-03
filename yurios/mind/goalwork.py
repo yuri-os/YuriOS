@@ -140,8 +140,10 @@ def context(loop, goal: Goal) -> str:
         parts.append(
             "THIS IS THE NIGHT'S JOB\n\n"
             "Consolidation writes durable facts (the block below), not a "
-            "desk folder called kept-memory. `list_notes` only sees "
-            "workspace/. Park this and leave it for DREAM.")
+            "desk folder called kept-memory. A standing research job writes "
+            "the morning brief to reports/ on the desk. `list_notes` only "
+            "sees workspace/. If last night already produced the product, "
+            "this goal is finished — park it and leave the rest for DREAM.")
     if loop.skills is not None:
         catalog = loop.skills.catalog(limit=12)
         if catalog:

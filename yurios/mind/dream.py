@@ -42,7 +42,41 @@ UtilityCall = Callable[[list[dict]], Awaitable[str]]
 SUMMARISE_SYSTEM = (
     "From this day's journal, list the 0-5 durable facts worth keeping "
     "long-term — things that will still matter in a month. One per line, no "
-    "bullets, no preamble. If nothing durable happened output NOTHING.")
+    "bullets, no preamble. Facts about them, the relationship, or the world "
+    "— not that a diary was written, a picture was made, or a night was "
+    "folded. If nothing durable happened output NOTHING and nothing else.")
+
+#: Night bookkeeping the summariser used to store as if it were about *them*.
+#: "folded a note" is a real event; "folded the day into what I keep" is not.
+_BOOKKEEPING = (
+    "into what i keep",
+    "into what she keep",
+    "into kept memory",
+    "into the kept",
+    "into her kept",
+    "wrote a diary",
+    "diary entry for",
+    "a diary entry",
+    "dream picture",
+    "picture of her dream",
+    "had it made",
+    "had a picture made",
+    "slept on it",
+    "unconsolidated",
+    "kept-memory",
+    "catch up on the night",
+)
+
+
+def keep_fact(text: str) -> bool:
+    """True when a summariser line is a durable fact, not night process (SPEC §21)."""
+    fact = (text or "").strip().strip("-• ").strip()
+    if len(fact) <= 3:
+        return False
+    if fact.upper() == "NOTHING" or fact.upper().startswith("NOTHING"):
+        return False
+    low = fact.lower()
+    return not any(p in low for p in _BOOKKEEPING)
 
 
 class ConsolidationReport:
@@ -131,13 +165,13 @@ class DreamConsolidator:
             # offline heuristic: keep the lines someone flagged as worth keeping
             lines = [l for l in text.splitlines() if l.startswith("### ")]
             keep = [l.split("  ", 1)[-1] for l in lines if "remember" in l.lower()]
-            return keep[:5]
+            return [k for k in keep if keep_fact(k)][:5]
         try:
             raw = await self.utility([
                 {"role": "system", "content": SUMMARISE_SYSTEM},
                 {"role": "user", "content": f"Journal for {day}:\n{text[:6000]}"}])
             facts = [l.strip("-• ").strip() for l in raw.splitlines() if l.strip()]
-            return [f for f in facts if len(f) > 3][:5]
+            return [f for f in facts if keep_fact(f)][:5]
         except InferenceBusy:
             raise
         except Exception:  # noqa: BLE001 — a failed night leaves the backlog intact

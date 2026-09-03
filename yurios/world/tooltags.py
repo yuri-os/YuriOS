@@ -66,6 +66,23 @@ log = logging.getLogger("world.tooltags")
 # long. Keep a bounded buffer, but leave enough room for the advertised schema.
 MAX_MARKER_LEN = 4096
 
+#: Expression tags from `desktop/voice/emotion.py` PALETTE. The model is told
+#: to write `[tender]`; live it sometimes writes `[[tender]]`, which this
+#: parser used to treat as a tool and the Guard then denied ("not a tool she
+#: has"). Keep in sync with PALETTE — a name here is a face, never a hand.
+EXPRESSION_NAMES = frozenset({
+    "neutral", "happy", "sad", "surprised",
+    "shy", "thinking", "playful", "tender",
+})
+
+
+def _as_expression(body: str) -> str | None:
+    """`[[tender]]` is a doubled emotion tag, not a tool (SPEC §7.4)."""
+    body = _trim(body.strip()) if body else ""
+    name, _, _rest = body.partition(" ")
+    name = name.strip().lower()
+    return name if name in EXPRESSION_NAMES else None
+
 
 @dataclass
 class ToolCall:
@@ -212,12 +229,17 @@ class ToolTagParser:
                 self._buf += ch
                 closer = _CLOSE.search(self._buf) if ch == "]" else None
                 if closer is not None:
-                    call = self._close(self._buf[:closer.start()])
-                    if call is not None:
-                        self.calls.append(call)
-                        new_calls.append(call)
+                    raw = self._buf[:closer.start()]
+                    tag = _as_expression(raw)
+                    if tag:
+                        out += f"[{tag}]"
                     else:
-                        self.dropped += 1
+                        call = self._close(raw)
+                        if call is not None:
+                            self.calls.append(call)
+                            new_calls.append(call)
+                        else:
+                            self.dropped += 1
                     self._in_marker, self._buf = False, ""
                     self._after = True
                 elif len(self._buf) > MAX_MARKER_LEN:
@@ -250,8 +272,11 @@ class ToolTagParser:
         tail = self._hold
         self._hold = ""
         if self._in_marker or self._drop:
-            call = None if self._drop else self._close(self._buf)
-            if call is not None:
+            tag = None if self._drop else _as_expression(self._buf)
+            call = None if (self._drop or tag) else self._close(self._buf)
+            if tag:
+                tail += f"[{tag}]"
+            elif call is not None:
                 log.info("salvaged an unclosed %s marker at end of stream", call.tool)
                 self.calls.append(call)
                 self.salvaged.append(call)

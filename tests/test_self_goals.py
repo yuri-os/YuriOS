@@ -317,6 +317,10 @@ NIGHT_OWNED = [
     "catch up on the nights I haven't consolidated yet",
     "Check whether diary/2026-09-01 has a corresponding kept-memory entry, "
     "and if not, create one",
+    "Pull current spot prices for BTC, S&P 500, and gold via web_search and "
+    "write them into a fresh morning brief note dated for when you wakes",
+    "Get exact market numbers — S&P level, Bitcoin price, and gold — and "
+    "have them ready for the user when they wake up",
 ]
 
 NOT_NIGHT_OWNED = [
@@ -344,6 +348,26 @@ async def test_the_night_refuses_to_file_its_own_work(tmp_path, cfg):
             "success": "I can name the oldest unconsolidated diary entry",
             "first_action": "Call list_notes on the diary/ folder",
             "capability": "list_notes",
+        },
+    })
+    runner, _clock, goals = _rig(tmp_path, cfg, answer=answer)
+    out, ctx = await _stocktake(runner)
+    assert goals.open_goals() == []
+    assert ctx.goal_refusal == "night"
+    assert "the night already does that" in out.result
+
+
+async def test_the_night_refuses_to_file_a_morning_brief(tmp_path, cfg):
+    """Found live: strategy refiled the overnight market-brief as web_search."""
+    answer = json.dumps({
+        "reflection": "They will want numbers when they wake.",
+        "next": {
+            "objective": NIGHT_OWNED[4],
+            "why": "the brief is what they look for in the morning",
+            "evidence": "the overnight job writes reports/market-brief",
+            "success": "a morning brief with current prices exists",
+            "first_action": "web_search for current BTC price",
+            "capability": "web_search",
         },
     })
     runner, _clock, goals = _rig(tmp_path, cfg, answer=answer)

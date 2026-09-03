@@ -88,6 +88,20 @@ async def test_new_document_gets_read_and_journaled(cfg, seeded_vault):
     assert any("read and shelved manual.md" in p.read_text() for p in day_files)
 
 
+async def test_ingest_does_not_fire_while_a_read_holds_the_shelf(cfg, seeded_vault):
+    """Found live: 320 ticks scored 'new document' then ingested 0 docs
+    because research already held the lock."""
+    rig = make_mind(cfg, seeded_vault)
+    ref = seeded_vault / "knowledge" / "reference"
+    ref.mkdir(parents=True, exist_ok=True)
+    (ref / "manual.md").write_text("The kettle whistles at 93 degrees.\n")
+    async with rig.mind.knowledge._busy:
+        trace = await rig.mind.tick()
+    assert trace["decided"]["intention"] != "ingest"
+    assert "ingested 0" not in str(trace.get("acted") or "")
+    assert rig.mind.knowledge.pending_docs() == ["manual.md"]
+
+
 async def test_every_dirty_tick_is_one_commit(cfg, seeded_vault, open_vault_window):
     rig = make_mind(cfg, seeded_vault)
 

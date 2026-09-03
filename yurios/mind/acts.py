@@ -185,6 +185,9 @@ async def self_talk(loop) -> tuple[dict, dict, list[str]]:
 
 
 async def ingest(loop) -> tuple[dict, dict, list[str]]:
+    if loop.knowledge.busy:
+        return ({"what": "knowledge.ingest",
+                 "result": "already reading"}, {}, [])
     with correlate.scope(kind=correlate.KNOWLEDGE):
         results = await loop.knowledge.scan()
     notes = [f"read and shelved {r.doc} ({r.chunks} passages"

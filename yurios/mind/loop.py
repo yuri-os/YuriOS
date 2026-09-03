@@ -497,7 +497,7 @@ class MindLoop:
             # trace, not to compete. With the house switch off there is no
             # reason string at all — off means invisible (principle 9).
             appraisals.append(Appraisal("tool_step", "impulse", 0.0, offer.reason))
-        if self.knowledge.pending_docs():
+        if self.knowledge.pending_docs() and not self.knowledge.busy:
             appraisals.append(Appraisal("ingest", "impulse", 0.55,
                                         "new document on the shelf"))
         if (self.cfg.dream_enabled and self.cfg.utility_enabled

@@ -240,11 +240,14 @@ In the DREAM state — entered from DORMANT inside `MIND_DREAM_START_HOUR`..`MIN
 of the episodic journal (never today's live file) are summarised to at most a few durable facts,
 deduped against `memory/semantic/facts.md`, appended there with their source day, and indexed at
 higher salience so recall prefers the distilled fact over the raw exchange.
+`NOTHING` and the night's own bookkeeping (that a diary was written, a picture
+was made, a day was folded) are not facts and are not stored.
 
 It's oldest-first and resumable: a night that runs out of budget leaves a backlog, not an overrun,
 and the next DREAM tick picks up where it stopped. The night's work is journaled — "slept on it:
 folded … into what I keep". That phrase is the facts file, not a `kept-memory/` folder on her
-desk. Strategy will not file a daytime task to list diary entries against one.
+desk. Strategy will not file a daytime task to list diary entries against one,
+or to pull prices for a morning brief the night already writes.
 
 ### More than one thing happens at night
 

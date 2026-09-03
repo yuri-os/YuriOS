@@ -320,9 +320,10 @@ observable completion condition","first_action":"the first bounded step",\
 "capability":"the available capability it uses, or thought-only"}}
 Do not file a value, feeling, relationship posture, metaphorical physical act, or
 anything containing an unresolved reference such as 'the thing'. Do not file \
-consolidation, kept-memory bookkeeping, or catching up on nights — the night \
-already does that. If no new action is both character-specific and executable \
-with the capabilities shown, use null.
+consolidation, kept-memory bookkeeping, catching up on nights, or a morning \
+or market brief the night already writes — the night already does that. If no \
+new action is both character-specific and executable with the capabilities \
+shown, use null.
 """
 
 

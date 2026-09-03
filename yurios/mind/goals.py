@@ -110,7 +110,7 @@ def night_owned(text: str) -> bool:
     vs kept-memory", and she then spent days on `list_notes` looking for a
     folder that is not on the desk. Consolidation writes
     `memory/semantic/facts.md`; `workspace/diary/` is a separate night job.
-    Neither is a hand.
+    A standing research job writes the morning brief. None of those is a hand.
     """
     t = " ".join((text or "").lower().split())
     if "kept-memory" in t or "kept memory" in t:
@@ -119,6 +119,13 @@ def night_owned(text: str) -> bool:
         return True
     if "consolidat" in t and any(
             w in t for w in ("night", "nights", "diary", "memory")):
+        return True
+    if any(p in t for p in ("morning brief", "market brief", "overnight brief",
+                            "market-brief")):
+        return True
+    if "wake" in t and any(
+            p in t for p in ("spot price", "s&p", "bitcoin", "gold",
+                             "market number")):
         return True
     return False
 

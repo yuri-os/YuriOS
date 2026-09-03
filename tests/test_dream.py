@@ -6,7 +6,7 @@ from __future__ import annotations
 import pytest
 
 from yurios.app.memory.store import FileMemoryStore
-from yurios.mind.dream import DreamConsolidator
+from yurios.mind.dream import DreamConsolidator, keep_fact
 from yurios.mind.vaultio import MindVault
 from yurios.kernel.clock import VirtualClock
 
@@ -82,3 +82,29 @@ async def test_offline_heuristic_still_runs(tmp_path):
     assert report.facts_added == 1
     assert "anniversary" in (tmp_path / "vault" / "memory" / "semantic"
                              / "facts.md").read_text()
+
+
+def test_night_bookkeeping_is_not_a_durable_fact():
+    assert keep_fact("Sam prefers tea strong with no sugar")
+    assert not keep_fact("NOTHING")
+    assert not keep_fact("She folded 2026-08-11 into what I keep")
+    assert not keep_fact("She wrote a diary entry for 2026-08-11")
+    assert not keep_fact("She had a picture of her dream of 2026-08-11 made")
+    assert keep_fact("She left a folded note by their door")
+
+
+async def test_summariser_nothing_is_not_stored(rig):
+    dream, _clock, vault, _ = rig
+
+    async def nothing(messages, **params):
+        return "NOTHING\nShe folded 2026-07-05 into what I keep"
+
+    dream.utility = nothing
+    _day_file(vault, "2026-07-05", ["user: hello  ⇄  yuri: hi"])
+    report = await dream.consolidate()
+    assert report.days_processed == ["2026-07-05"]
+    assert report.facts_added == 0
+    facts_path = vault / "memory" / "semantic" / "facts.md"
+    facts = facts_path.read_text() if facts_path.exists() else ""
+    assert "NOTHING" not in facts
+    assert "into what I keep" not in facts

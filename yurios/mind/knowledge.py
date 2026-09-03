@@ -145,6 +145,11 @@ class KnowledgeStore:
         self._busy = asyncio.Lock()
         self._ensure_shelf()
 
+    @property
+    def busy(self) -> bool:
+        """True while a read holds the shelf lock — SENSE must not queue."""
+        return self._busy.locked()
+
     #: The knowledge index is derived and rebuildable — the same class of file as
     #: `memory/index/`, which `VAULT_GITIGNORE` excludes. It is *not* in that list
     #: because this rule has to reach vaults that already exist: a Vault's

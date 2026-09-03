@@ -1567,10 +1567,13 @@ function setState(name) {
  * polling path and no new event type: `mind` already carries her state, so the
  * chip and the timeline follow her without this page asking repeatedly.
  *
+ * `presence=0`: this is an engineer surface, not a room. Attaching as a viewer
+ * would gate her expensive hands and look like company (SPEC §10, §24.3).
+ *
  * A refresh only ever touches the section in view, and only on its first page —
  * otherwise a list you are halfway through reading would rearrange itself. */
 function subscribe() {
-  const stream = new EventSource(apiPath("/api/events"));
+  const stream = new EventSource(apiPath("/api/events") + "?presence=0");
   const live = (on) => {
     nodes.streamChip.classList.toggle("live", on);
     nodes.streamLabel.textContent = on ? "live" : "offline";

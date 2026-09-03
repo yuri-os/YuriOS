@@ -11,7 +11,7 @@ import datetime
 
 from yurios.world.avatar.controller import VrmController
 from yurios.kernel.clock import VirtualClock
-from yurios.world.situation import EMBODIMENT, render_situation
+from yurios.world.situation import EMBODIMENT, refer_user, render_situation
 from yurios.world.tools.timers import TimerBoard
 
 
@@ -80,3 +80,21 @@ def test_timers_are_listed_with_time_left():
 
 def test_no_timers_no_timer_line():
     assert "Timers you have running" not in _render(VirtualClock())
+
+
+def test_default_you_is_the_user_not_her():
+    """USER_NAME defaults to you for the card. In the system prompt You is
+    already her — `you is here` was ungrammatical and named the wrong person."""
+    assert refer_user("you") == "the user"
+    assert refer_user("you", sentence=True) == "The user"
+    assert refer_user("Sam") == "Sam"
+    assert refer_user("Sam", sentence=True) == "Sam"
+    text = _render(VirtualClock(), user="you")
+    assert "you is" not in text
+    assert "you's" not in text
+    assert "the user's local time" in text
+    assert "on the user's screen" in text
+    assert "When the user asks" in text
+    named = _render(VirtualClock(), user="Sam")
+    assert "Sam's local time" in named
+    assert "on Sam's screen" in named

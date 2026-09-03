@@ -371,6 +371,12 @@ state; with the mind running, the same `## THE SITUATION RIGHT NOW` slot is fill
 same `situation.py` renderer, now extended with presence, open threads, and expectations.
 The block's place in the prompt does not move; what fills it does. It is wired to the brain
 via `ToolBrain.set_world`. Mindless, the brain **MUST** fall back to the bare host rendering.
+In this block `You` is her. The human is a third-person name (`Alex is here right
+now`, `Alex's local time`). `USER_NAME` defaults to `you` for `{{user}}` in the
+card, which is second person from her mouth; stuffing that pronoun into a
+third-person slot produced `you is here right now` and `you's local time` —
+ungrammatical, and it reads as if *she* arrived. When the configured name is
+`you` (or empty), the block **MUST** say `the user` instead.
 
 ### §2.6 — The chat surface: her words, visible, beside her
 
@@ -953,14 +959,16 @@ keeps a socket of its own is sound.
 - **`GET /api/events`** — the bus's wire: SSE, one `data:` line per event. On attach: `hello`,
   then the sticky replay, then live events. The stream **MUST** end itself on shutdown (a stop
   flag polled every second — an open tab must never hold Ctrl+C hostage) and ping while idle.
-  The attach/detach of `/api/events` **viewers** (a page, the CLI) **MUST** post
-  `user_present` / `user_absent` to the mind — presence is a signal, not a guess
-  (§16.2). Channel adapters that drain the same hub (Telegram, notify) **MUST NOT**
-  count: they are delivery, not company. `user_absent` **MUST** fire when the last
-  viewer leaves even if adapters remain. Found live: adapters held
-  `hub.subscribers` ≥ 1, so `user_absent` never posted and expensive hands stayed
-  gated after the tab closed. `/api/health`'s `viewers` is this count.
-  `GET /api/history` backfills the chat (§2.6).
+  The attach/detach of `/api/events` **viewers** — a chat room (sanctuary, text,
+  Live2D) or the live CLI — **MUST** post `user_present` / `user_absent` to the
+  mind — presence is a signal, not a guess (§16.2). Channel adapters (Telegram,
+  notify) and the mind debug page (`GET /api/events?presence=0`, §24.3) drain
+  the same hub and **MUST NOT** count: they are delivery or inspection, not
+  company. `user_absent` **MUST** fire when the last viewer leaves even if
+  drains remain. Found live: adapters held `hub.subscribers` ≥ 1, so
+  `user_absent` never posted and expensive hands stayed gated after the tab
+  closed; the debug page then did the same with one engineer tab. `/api/health`'s
+  `viewers` is this count. `GET /api/history` backfills the chat (§2.6).
 - **`/ws/voice`** — the audio-only socket: binary mic PCM up,
   `hello`/`endpoint`/`bargein`/`text`/`speak` control up; `session`, `warming` (her voice is
   loading for this connection — §9.9), `filler`/`audio` (base64 PCM + the sentence text for §5),
@@ -1083,6 +1091,13 @@ of the character tree — is Part III's (§29.1).
 A knob in `.env` is the **host default**: every character inherits it unless her registry record
 overrides that field (§31.2). The knobs a character may override are hers alone; the rest —
 the port, the room, the reflex windows, what leaves the machine — are the house's.
+`USER_NAME` is the house name for the human in every prompt (`{{user}}`, the
+situation block). Its default is `you` for card macros; that pronoun **MUST NOT**
+stay the running value. The switchboard **MUST** ask for a real name when the
+configured value is `you` or empty, because stuffing it into a system prompt
+where `You` already means her produced `you is here right now` and `Never write
+you's words`. A save writes `.env` and takes effect on restart, like the rest of
+the house file.
 
 The settings surface (`yurios/envfile.py`) is **one table, two front ends**: the panel — the gear in
 every room and **House settings** on the board — and `yurios settings` in the terminal. Neither
@@ -1216,10 +1231,11 @@ what they mean — no producer may call into the mind.
   in this build: the world voice route (the tee), the `/api/events` route (presence), the timer
   board, the self-edit API. Unknown types are legal and appraise low. `user_present`/`user_absent`
   are bookkeeping — observed by the world model, never chosen as intentions (the greeting is the
-  voice route's job). They track `/api/events` viewers only: a page or the CLI. A
+  voice route's job). They track chat-room and live-CLI viewers only. A
   `user_message` (Telegram included) is reachable, not present, and **MUST NOT**
-  set the flag. A previous process's last True is not company — the world model
-  starts this process absent until a viewer attaches.
+  set the flag. The mind debug page is an engineer surface, not a room, and
+  **MUST NOT** set the flag. A previous process's last True is not company — the
+  world model starts this process absent until a viewer attaches.
 - §16.3 **A completion is not a success** (normative). `task_completion` means the dispatched work
   is *over*, not that it worked: a producer **MUST** post it for a failed run as well, carrying an
   `error` key and no product, so a goal in `waiting` is released by the failure rather than by the
@@ -1823,7 +1839,10 @@ The product half of autonomy: what converts an always-on process from creepy to 
   grows a second tab — **inner life** (`web/js/mind.js`): right-now state and budget, edits waiting on
   you (with content and one-click approve/reject), goals with provenance, the shelf, and the journal,
   refreshed live off the same one bus (`journal`/`mind` events). Everything reads *through* the mind's
-  own stores; the dashboard can never disagree with the files.
+  own stores; the dashboard can never disagree with the files. The standalone debug page
+  (`/characters/{id}/mind`, `web/mind/`) **MUST** attach the bus as
+  `GET /api/events?presence=0`: it is inspection, not company, and **MUST NOT**
+  post `user_present` / `user_absent` (§10).
 
 ## §25 — Config (the mind's knobs)
 

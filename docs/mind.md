@@ -59,8 +59,9 @@ Everything that happens *to* her is one typed, timestamped signal appended to on
 what they mean.
 
 Each arrival appends a line to `signals.jsonl` — "what woke her at 3 a.m." is a file you read.
-`user_present` / `user_absent` mean a page or the CLI is on `/api/events`. The tray, Telegram,
-and the doorbell are not company; a message from your phone is reachable, not present.
+`user_present` / `user_absent` mean a chat room or the live CLI is on `/api/events`. The tray,
+Telegram, the doorbell, and the mind debug page are not company; a message from your phone is
+reachable, not present.
 
 ## Activity states
 
@@ -160,6 +161,9 @@ contact each way, open threads and expectations.
 pending timers) with what only a store can know: whether you're here, how long you've been away,
 what's in progress, what she half-expects. It's written to `vault/world/situation.md` whenever it
 changes — her picture of now is a file you can `cat` — and it's what every prompt carries.
+`You` in that block is her. The human is a name (`Alex is here right now`). The default
+`USER_NAME=you` is for `{{user}}` in the card, not this slot — here it becomes `the user`,
+or she reads `you is here` as if she walked in.
 
 The embodiment truth in there names a *place*, and the place is hers: `vault/world/setting.md`,
 read out of her character card when she was imported and rewritten into second-person prose by
@@ -550,7 +554,8 @@ Ten sections down the left — **Overview**, **Timeline**, **Ticks**, **Dreams**
 **Tools**, **Vault**, **Memory**, **Signals**, **Cost** — and two chips in the header that mean
 different things: the rung she is on, and whether this page's own event stream is `live` or
 `offline`. The second one going offline changes nothing about what you can read; the files are
-still there.
+still there. The stream is a drain (`/api/events?presence=0`): watching this page is not being
+in the room with her.
 
 - the **overview** — what is on disk for her, read without starting her: the state, the budget,
   the Vault head, row counts, and a manifest of every log with a `rotated` flag, because a page

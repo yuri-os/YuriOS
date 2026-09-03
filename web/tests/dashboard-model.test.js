@@ -5,9 +5,11 @@ import {
   filterCharacters,
   formatDiaryDay,
   initials,
+  needsUserName,
   normalizeCharacter,
   normalizeCharacters,
   normalizeDetailItems,
+  normalizeUserName,
 } from '../dashboard/model.js';
 
 /* dashboard/model.js is the switchboard's whole reading of the API: every row the
@@ -276,5 +278,29 @@ describe('contextEntries', () => {
   it('has nothing to show for a payload that is not an object', () => {
     expect(contextEntries(null)).toEqual([]);
     expect(contextEntries([1, 2])).toEqual([]);
+  });
+});
+
+describe('needsUserName', () => {
+  it('asks when USER_NAME is the default pronoun that collides with her You', () => {
+    expect(needsUserName('you')).toBe(true);
+    expect(needsUserName('You')).toBe(true);
+    expect(needsUserName('')).toBe(true);
+    expect(needsUserName('the user')).toBe(true);
+    expect(needsUserName(undefined)).toBe(true);
+  });
+
+  it('does not ask when a real name is already set', () => {
+    expect(needsUserName('Alex')).toBe(false);
+    expect(needsUserName('Sam')).toBe(false);
+  });
+});
+
+describe('normalizeUserName', () => {
+  it('keeps a real name and refuses the colliding pronouns', () => {
+    expect(normalizeUserName('  Alex  ')).toBe('Alex');
+    expect(normalizeUserName('you')).toBe('');
+    expect(normalizeUserName('the user')).toBe('');
+    expect(normalizeUserName('')).toBe('');
   });
 });

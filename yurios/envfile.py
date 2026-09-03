@@ -62,6 +62,11 @@ _WHISPER = ["tiny.en", "base.en", "small.en", "medium.en", "large-v3"]
 # current value is read from; type ∈ {select,text,password,number,bool}; options
 # for a select; suggest = datalist hints for an open combobox; help = one line.
 CURATED: list[dict] = [
+    {"group": "You", "fields": [
+        {"key": "USER_NAME", "attr": "user_name", "type": "text",
+         "help": "your name in her prompts — not 'you'. The default 'you' collides "
+                 "with You meaning her, so she reads 'you is here' as herself"},
+    ]},
     {"group": "Brain", "fields": [
         # the key comes first: set it once and it's ready before you pick an
         # openrouter/… route below (and it's what the model browse authenticates with).

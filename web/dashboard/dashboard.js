@@ -1,16 +1,19 @@
 import { $, $$, element, errorMessage, setBusy, showToast } from "../shared/dom.js";
 import { charactersApi } from "./api.js";
+import { request } from "../shared/http.js";
 import {
   contextEntries,
   filterCharacters,
   formatDiaryDay,
   formatRelativeTime,
   initials,
+  needsUserName,
   normalizeCharacter,
   normalizeCharacters,
   normalizeDetailItems,
   normalizeJournalDay,
   normalizeJournalDays,
+  normalizeUserName,
 } from "./model.js";
 
 const elements = {
@@ -1044,6 +1047,7 @@ function wireEvents() {
     openModal(elements.archiveDialog);
   });
   $("#archive-form").addEventListener("submit", submitArchive);
+  $("#user-name-form").addEventListener("submit", submitUserName);
   const fileInput = $("#png-file");
   fileInput.addEventListener("change", () => $("#file-name").textContent = fileInput.files[0]?.name || "");
   const dropZone = $("#drop-zone");
@@ -1068,6 +1072,56 @@ function wireEvents() {
   });
 }
 
+async function loadUserNameAsk() {
+  const panel = $("#user-name-ask");
+  const form = $("#user-name-form");
+  const status = $("#user-name-status");
+  if (!panel) return;
+  try {
+    const body = await request("/api/settings");
+    const field = (body.groups || []).flatMap((group) => group.fields || [])
+      .find((item) => item.key === "USER_NAME");
+    if (!needsUserName(field?.value)) {
+      panel.hidden = true;
+      return;
+    }
+    panel.hidden = false;
+    form.hidden = false;
+    status.hidden = true;
+  } catch {
+    // Remote binds 401 the house file; the board still has to load.
+  }
+}
+
+async function submitUserName(event) {
+  event.preventDefault();
+  const input = $("#user-name-input");
+  const status = $("#user-name-status");
+  const form = $("#user-name-form");
+  const name = normalizeUserName(input.value);
+  status.hidden = false;
+  if (!name) {
+    status.textContent = "A real name, not “you”.";
+    return;
+  }
+  const button = event.target.querySelector("[type=submit]");
+  setBusy(button, true, "Saving...");
+  try {
+    await request("/api/settings", {
+      method: "POST",
+      body: JSON.stringify({ USER_NAME: name }),
+    });
+    form.hidden = true;
+    status.textContent = `Saved as ${name}. Restart YuriOS for her to use it.`;
+    toast(`USER_NAME set to ${name}. Restart to apply.`);
+  } catch (error) {
+    status.textContent = errorMessage(error);
+  } finally {
+    setBusy(button, false, "Saving...");
+  }
+}
+
 wireEvents();
 setView(state.view);
 loadCharacters();
+loadUserNameAsk();

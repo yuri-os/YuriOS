@@ -305,6 +305,15 @@ def test_shared_frontend_scripts_are_served_raw(client):
         # <script> on the un-bundled page (see the file headers)
         assert not re.search(r"^\s*(import|export)\s", r.text, re.M)
     assert "/api/events" in client.get("/js/chat.js").text
+    assert "?presence=0" not in client.get("/js/chat.js").text
+
+
+def test_the_mind_debug_page_attaches_without_presence():
+    """The debug page at /characters/{id}/mind watches the bus as a drain
+    (SPEC §24.3). A room's chat.js must not."""
+    mind = (WEB / "mind" / "mind.js").read_text()
+    assert "?presence=0" in mind
+    assert 'apiPath("/api/events") + "?presence=0"' in mind
 
 
 def test_raw_frontend_assets_are_revalidated(client):

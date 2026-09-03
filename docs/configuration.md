@@ -160,7 +160,7 @@ Ollama settings.
 | `TOOL_LOG_DIR` | `./tool-logs` | the tool audit |
 | `SELFIE_DIR` | `./selfies` | her photos + the provenance ledger |
 | `UPLOAD_DIR` | `./uploads` | pictures you sent her — a separate shelf, not her gallery |
-| `USER_NAME` | `you` | the `{{user}}` substitution |
+| `USER_NAME` | `you` | your name in her prompts. The switchboard asks for this when it is still `you`. A real name (`Alex`) is what the situation block and `{{user}}` call the human; the default collides with `You` meaning her |
 | `UTILITY_ENABLED` | `true` | the off-hot-path model work |
 | `DREAM_ENABLED` | `true` | nightly consolidation |
 

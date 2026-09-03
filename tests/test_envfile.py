@@ -28,6 +28,9 @@ def test_every_config_knob_is_in_the_table_and_typed_from_its_annotation():
                 if name not in envfile.HIDDEN}
     assert declared <= set(table), sorted(declared - set(table))[:5]
 
+    assert table["USER_NAME"]["type"] == "text"
+    assert any(g["group"] == "You" and any(f["key"] == "USER_NAME" for f in g["fields"])
+               for g in envfile.groups_for(cfg))
     assert table["MIND_ENABLED"]["type"] == "bool"
     assert table["MIND_SEED"]["type"] == "number"
     assert table["MIND_ACT_THRESHOLD"]["step"] == "any"        # a float, not an int
@@ -104,7 +107,7 @@ def test_groups_and_help_come_from_the_example_file(tmp_path):
 def test_the_curated_groups_come_first_and_are_not_repeated_below():
     groups = envfile.groups_for(Config(_env_file=None))
     names = [group["group"] for group in groups]
-    assert names[:4] == ["Brain", "Embeddings", "Storage", "Server"]
+    assert names[:5] == ["You", "Brain", "Embeddings", "Storage", "Server"]
     assert names[-1] == "Everything else"
 
     seen: set[str] = set()

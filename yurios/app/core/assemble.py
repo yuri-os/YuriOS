@@ -172,7 +172,9 @@ def soul_preamble(soul: Soul, *, user_md: str = "", user_name: str = "you",
         if soul.scenario.strip():
             blocks.append(_block("SCENARIO", soul.scenario))
         if user_md.strip():
-            blocks.append(_block("WHO YOU ARE TO HER", user_md))
+            blocks.append(_block(
+                "WHO YOU ARE TO HER",
+                apply_macros(user_md, soul.name, user_name)))
     if not blocks:
         return ""
     blocks.append(_block("WHOSE THINKING THIS IS",
@@ -220,7 +222,9 @@ def assemble(soul: Soul, *, user_md: str, summary: str, memories: list[Memory],
         if lore_now:
             blocks.append(_block("LORE", "\n\n".join(
                 f"[{e.name}] {e.content}" for e in lore_now)))
-        blocks.append(_block("WHO YOU ARE TO HER", user_md or "(nothing yet)"))
+        blocks.append(_block(
+            "WHO YOU ARE TO HER",
+            apply_macros(user_md or "(nothing yet)", soul.name, user_name)))
         if goals_now:
             blocks.append(_block(
                 "WHAT YOU'RE WORKING ON",

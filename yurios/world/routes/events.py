@@ -30,16 +30,17 @@ router = APIRouter()
 
 
 @router.get("/api/events")
-async def events(request: Request):
+async def events(request: Request, presence: bool = Query(default=True)):
+    """`presence=0` is a drain: the mind debug page watches the bus without
+    being in the room (SPEC §10, §24.3). Default is a chat room or the CLI."""
     rt = request.app.state.rt
-    q = rt.hub.subscribe(viewer=True)
-    # presence is a signal, not a guess (SPEC §16.2): a page attaching is the
-    # closest thing the host has to "someone walked in", and the mind's world
-    # model tracks it. Count viewers, not hub.subscribers — Telegram and notify
-    # drain the same bus and are not company. The mirror lands in the finally
-    # below.
-    rt.signals.post("user_present", {"viewers": rt.hub.viewers},
-                    source="frontend")
+    q = rt.hub.subscribe(viewer=presence)
+    # presence is a signal, not a guess (SPEC §16.2): a *room* attaching is
+    # "someone walked in". Telegram, notify, and the mind debug page drain
+    # the same bus and are not company. The mirror lands in the finally below.
+    if presence:
+        rt.signals.post("user_present", {"viewers": rt.hub.viewers},
+                        source="frontend")
     # rt.stopping isn't set until lifespan shutdown, which uvicorn runs *after*
     # it drains connections — so during the drain this stream would never learn
     # to stop and would hold shutdown open. server.should_exit flips the instant
@@ -78,7 +79,8 @@ async def events(request: Request):
             # never read it. Archive moves the character's directory the moment
             # `host.stop` returns, so the write landed in the old path and left
             # a phantom folder for a character no longer in the registry.
-            if rt.hub.viewers == 0 and not rt.stopping.is_set():
+            if (presence and rt.hub.viewers == 0
+                    and not rt.stopping.is_set()):
                 rt.signals.post("user_absent", {}, source="frontend")
 
     return StreamingResponse(stream(), media_type="text/event-stream")

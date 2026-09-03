@@ -238,3 +238,29 @@ async def test_a_channel_adapter_does_not_keep_the_room_occupied(client):
     assert not rt.stopping.is_set()
     assert "user_absent" in _types(rt)
     rt.hub.unsubscribe(drain)
+
+
+async def test_the_mind_debug_page_is_not_company(client):
+    """`/characters/{id}/mind` is an engineer surface. Watching her ticks
+    must not look like sitting in the room (SPEC §24.3)."""
+    from yurios.world.routes.events import events as events_route
+
+    rt = client.app.state.rt
+    response = await events_route(_Req(client.app), presence=False)
+    stream = response.body_iterator
+    assert "hello" in await stream.__anext__()
+    assert rt.hub.viewers == 0
+    assert rt.hub.subscribers == 1
+    assert "user_present" not in _types(rt)
+    await stream.aclose()
+    assert rt.hub.subscribers == 0
+    assert "user_absent" not in _types(rt)
+
+
+def test_presence_query_zero_is_a_drain(client):
+    rt = client.app.state.rt
+    rt.loop.call_soon_threadsafe(rt.stopping.set)
+    client.get("/api/events?presence=0")
+    assert rt.hub.viewers == 0
+    assert "user_present" not in _types(rt)
+    assert "user_absent" not in _types(rt)

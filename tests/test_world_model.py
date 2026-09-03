@@ -58,6 +58,18 @@ def test_presence_and_away_arithmetic(world):
     assert "away about 2 days" in w.situation()
 
 
+def test_presence_with_default_you_names_the_user_not_her(tmp_path):
+    clock = VirtualClock(start=SIM_START.timestamp())
+    vault = MindVault(tmp_path / "vault")
+    w = WorldModelStore(vault, clock, controller=SpyController(),
+                        timers=TimerBoard(clock), user_name="you")
+    w.observe(_sig("user_present", clock))
+    text = w.situation()
+    assert "The user is here right now." in text
+    assert "you is" not in text
+    assert "you's" not in text
+
+
 def test_a_message_is_contact_not_company(world):
     """Telegram is reachable, not present: a phone message must not leave
     her believing you are in the room after you put the phone down."""

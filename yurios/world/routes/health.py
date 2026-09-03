@@ -64,7 +64,7 @@ async def health(request: Request) -> dict:
         "image_input": rt.image_input,
         "image_input_detail": rt.image_input_status,
         "web": rt.research_status,         # "searxng" | "fake" | "off" (§7.7)
-        "viewers": rt.hub.viewers,         # /api/events pages, not channel adapters
+        "viewers": rt.hub.viewers,         # chat rooms / CLI, not debug or adapters
         "context": rt.context.snapshot(),  # prompt tokens vs the window (§11)
     }
 

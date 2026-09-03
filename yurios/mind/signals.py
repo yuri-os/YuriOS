@@ -27,8 +27,8 @@ from .util import iso_of, jsonl_append, new_id
 SIGNAL_TYPES = (
     "user_message",     # a committed user turn (text; the voice route tees it)
     "turn_committed",   # a full exchange committed (payload: text, reply)
-    "user_present",     # a page or the CLI attached to /api/events
-    "user_absent",      # the last /api/events viewer detached
+    "user_present",     # a chat room or the live CLI attached to /api/events
+    "user_absent",      # the last chat-room / CLI viewer detached
     "timer",            # a TimerBoard countdown landed (payload: label)
     "task_completion",  # dispatched work finished (a selfie render, …)
     "selfedit_decision",  # the user ruled on a queued self-edit (id, approve)

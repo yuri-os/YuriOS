@@ -715,6 +715,8 @@ def test_the_board_carries_the_house_settings_panel_with_nothing_running(
     markup = board.read_text()
     assert 'id="settings-open"' in markup and 'data-scope="house"' in markup
     assert '<script src="/shared/settings.js"></script>' in markup
+    assert 'id="user-name-ask"' in markup
+    assert 'id="user-name-form"' in markup
 
 
 def test_house_settings_never_display_a_running_characters_effective_paths(

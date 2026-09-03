@@ -13,6 +13,22 @@ function boolean(value) {
   return Boolean(value);
 }
 
+/* Pronouns and placeholders that collide with `You` meaning her in a system
+ * prompt. The switchboard asks for a real name when USER_NAME is one of these. */
+export const GENERIC_USER_NAMES = Object.freeze(["", "you", "u", "yourself", "the user"]);
+
+export function needsUserName(value) {
+  return GENERIC_USER_NAMES.includes(String(value ?? "").trim().toLowerCase());
+}
+
+export function normalizeUserName(value) {
+  const name = String(value ?? "").trim();
+  if (!name || name.length > 40) return "";
+  if (GENERIC_USER_NAMES.includes(name.toLowerCase())) return "";
+  if (/[\n\r]/.test(name)) return "";
+  return name;
+}
+
 export function initials(name) {
   const words = text(name, "?").trim().split(/\s+/).filter(Boolean);
   return (words.length > 1 ? words[0][0] + words.at(-1)[0] : words[0]?.slice(0, 2) || "?").toUpperCase();

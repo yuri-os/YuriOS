@@ -33,7 +33,7 @@ from dataclasses import dataclass, field
 from yurios.characters.setting import read_place
 from yurios.world.avatar.controller import VrmController
 from yurios.kernel.clock import Clock
-from yurios.world.situation import render_situation
+from yurios.world.situation import refer_user, render_situation
 from yurios.world.tools.timers import TimerBoard
 
 from .signals import Signal, failure_of
@@ -85,7 +85,7 @@ class WorldModelStore:
     def _forget_stale_presence(self) -> None:
         """A previous process's last True is not company (SPEC §16.2, §19.1).
 
-        Presence is a live `/api/events` viewer. Persisting it made a restart
+        Presence is a live chat-room / CLI viewer. Persisting it made a restart
         with no tab open look occupied, and adapters that never unsubscribed
         meant `user_absent` never arrived to correct it.
         """
@@ -105,7 +105,7 @@ class WorldModelStore:
             # Contact, not company. Telegram is reachable, not present
             # (§10.5): a phone message must not leave `user_present` True
             # after you put the phone down. Pages already posted
-            # `user_present` when `/api/events` attached.
+            # `user_present` when a chat room attached.
             st["last_user_message"] = now_iso
             text = signal.payload.get("text", "")
             if text:
@@ -171,20 +171,21 @@ class WorldModelStore:
         lines = [render_situation(self.clock, controller=self.controller,
                                   timers=self.timers, user_name=self.user_name,
                                   place=read_place(self.vault.vault))]
+        who = refer_user(self.user_name, sentence=True)
         if st["user_present"]:
-            lines.append(f"{self.user_name} is here right now.")
+            lines.append(f"{who} is here right now.")
         elif st["last_user_message"]:
             gap_h = (now - ts_of_iso(st["last_user_message"])) / 3600
             if gap_h < 1:
-                lines.append(f"{self.user_name} was here minutes ago.")
+                lines.append(f"{who} was here minutes ago.")
             elif gap_h < 24:
-                lines.append(f"{self.user_name} has been away about "
+                lines.append(f"{who} has been away about "
                              f"{gap_h:.0f} hours.")
             else:
-                lines.append(f"{self.user_name} has been away about "
+                lines.append(f"{who} has been away about "
                              f"{gap_h / 24:.0f} days.")
         else:
-            lines.append(f"{self.user_name} hasn't spoken yet.")
+            lines.append(f"{who} hasn't spoken yet.")
         for t in st["threads"][:5]:
             lines.append(f"In progress: {t.get('text', t)}")
         for e in st["expectations"][:3]:

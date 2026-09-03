@@ -116,6 +116,20 @@
       </header>
 
       <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
+      <section id="user-name-ask" class="name-ask" hidden>
+        <p class="eyebrow">Who they talk to</p>
+        <h2>What should they call you?</h2>
+        <p>Without a name, every prompt uses <code>you</code> for both her and you —
+          she reads <code>you is here right now</code> as if she walked in. This is the
+          house <code>USER_NAME</code>. A restart applies it.</p>
+        <form id="user-name-form">
+          <label class="sr-only" for="user-name-input">Your name</label>
+          <input id="user-name-input" type="text" maxlength="40" required
+                 placeholder="Alex" autocomplete="nickname" spellcheck="false">
+          <button class="button button-primary" type="submit">Save name</button>
+        </form>
+        <p id="user-name-status" class="form-note" hidden></p>
+      </section>
       <div id="character-grid" class="character-grid" aria-live="polite" aria-busy="true"></div>
 
       <section id="empty-state" class="empty-state" hidden>

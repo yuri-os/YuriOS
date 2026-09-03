@@ -322,3 +322,16 @@ async def test_the_turn_prompt_does_not_move(tmp_path, cfg):
     assert "THE HONESTY CONSTRAINT" in out.system
     assert "WHOSE THINKING THIS IS" not in out.system, (
         "the mind's preamble leaked into a conversational turn")
+
+
+def test_user_md_macros_are_applied_on_a_turn(tmp_path):
+    """Found live: WHO YOU ARE TO HER kept `{{user}}` in the heading because
+    USER.md is read raw and assemble stuffed it in without apply_macros."""
+    from yurios.app.core.assemble import assemble
+    vault = _write_card(tmp_path / "yuri", "yuri")
+    soul = SoulLoader(vault / "soul", user_name="Sam").load()
+    out = assemble(soul, user_md="## Who {{user}} seems to be\n\n_(unknown)_",
+                   summary="", memories=[], lore=[], window=[],
+                   user_msg="hey", user_name="Sam")
+    assert "{{user}}" not in out.system
+    assert "Who Sam seems to be" in out.system

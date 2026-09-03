@@ -60,6 +60,27 @@ _TRUTH = (
 #: setting of her own still gets, verbatim and unchanged.
 EMBODIMENT = " ".join((_BODY, HOUSE_PLACE, _TRUTH))
 
+#: `USER_NAME` values that are second-person pronouns, not a name. In a
+#: system prompt `You` is already her; these cannot fill a third-person slot.
+_NOT_A_NAME = frozenset({"you", "u", "yourself", "the user"})
+
+
+def refer_user(name: str, *, sentence: bool = False) -> str:
+    """How the situation block names the human (SPEC §2.5, §19.2).
+
+    `USER_NAME` defaults to `you` so `{{user}}` in the card is second person
+    from her mouth. The situation block is a system prompt: `You` is already
+    her. Stuffing `you` in as a subject produced `you is here right now` and
+    `you's local time` — ungrammatical, and it reads as if *she* arrived.
+    A pronoun is not a name; say `the user`. A real name (`Alex`) is kept.
+    """
+    who = (name or "").strip()
+    if not who or who.casefold() in _NOT_A_NAME:
+        who = "the user"
+    if sentence:
+        return who[:1].upper() + who[1:]
+    return who
+
 
 def embodiment(user_name: str, place: str = "") -> str:
     """The embodiment truth, standing in *her* room when she has one.
@@ -75,13 +96,13 @@ def embodiment(user_name: str, place: str = "") -> str:
         if text[-1] not in ".!?…":
             text += "."
         clause = f"{text} {DESKTOP}"
-    return " ".join((_BODY, clause, _TRUTH)).replace("{user}", user_name)
+    return " ".join((_BODY, clause, _TRUTH)).replace("{user}", refer_user(user_name))
 
 
 def _clock_line(now: datetime.datetime, user_name: str) -> str:
     return (f"It is {now.strftime('%A, %Y-%m-%d')} and the clock reads "
-            f"{now.strftime('%H:%M')} — {user_name}'s local time. Asked the "
-            "time or the date, just say it.")
+            f"{now.strftime('%H:%M')} — {refer_user(user_name)}'s local time. "
+            "Asked the time or the date, just say it.")
 
 
 def _rain_line(intensity: float) -> str:

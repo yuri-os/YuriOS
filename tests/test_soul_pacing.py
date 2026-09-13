@@ -56,6 +56,15 @@ def example_blocks():
     return reader_sections
 
 
+def test_voice_law_does_not_carry_card_publishing_notes(soul):
+    """'NSFW character cards load' and 'tasteful so it can be shared' are
+    author notes. They were in Voice law, which never drops."""
+    law = soul.voice_law.lower()
+    assert "nsfw character cards" not in law
+    assert "tasteful so" not in law
+    assert "shared freely" not in law
+
+
 def test_voice_law_teaches_reply_size_tracks_the_beat(soul):
     """Voice law is block 1 and never overflows (SPEC §2.1). The pacing rule
     has to live here or it vanishes the turn the example set is dropped."""
@@ -80,6 +89,19 @@ def test_the_long_answer_is_not_the_last_example(example_blocks):
     assert words[-1] <= TERSE_WORDS, (
         f"last example is {words[-1]} words ({example_blocks[-1][0]!r}); "
         f"close on a short everyday reply")
+
+
+def test_soul_src_does_not_cite_book_chapters():
+    """Author-book 'ch. 09' citations are not for the model. USER.md is
+    injected whole; EXAMPLES and PERSONA are one edit away from the same."""
+    if not SOUL_SRC.is_dir():
+        pytest.skip("soul-src missing")
+    hits = []
+    for path in sorted(SOUL_SRC.glob("*.md")):
+        for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if re.search(r"(→\s*)?(book\s+)?ch\.\s*\d+", line, re.I):
+                hits.append(f"{path.name}:{n}: {line.strip()}")
+    assert hits == [], "chapter citations in soul-src:\n" + "\n".join(hits)
 
 
 def test_loader_keeps_the_pacing_line_and_the_short_closer(soul):

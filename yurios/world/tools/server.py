@@ -294,33 +294,16 @@ def build_server(*, max_minutes: float | None = None,
         # description has to name *her* rows or she is offered scenes her
         # camera would never compose.
         book = SelfieBook.load(book_path(env.selfie_templates), overlays=overlays)
-        desc = ("Take a photo of yourself to share in the chat — it appears "
-                "there a few moments later. "
-                "`look` is the important one: describe the picture you want in "
-                "your own words, as much or as little as you like — where you "
-                "are, how you're sitting, what you're doing with your hands, "
-                "what your face is doing, what's behind you. Write it the way "
-                "you'd describe a photo you're about to take, not as keywords. "
-                "This is your picture: whatever you put in `look` is what gets "
-                "made, and it overrides every option below. Anything you leave "
-                "out is filled in from where you actually are right now — the "
-                "hour, the weather, the room — so a short `look` is fine when "
-                "the moment already says the rest.\n"
-                "The rest are optional shorthands. Each takes one of the named "
-                "options OR any phrase of your own; the library is a starting "
-                "point, not a limit, and nothing is chosen for you if you leave "
-                "it empty. "
-                f"`scene` e.g.: {', '.join(sorted(book.scenes))}; "
-                f"`framing` e.g.: {', '.join(sorted(book.framings))}; "
-                f"`lighting` e.g.: {', '.join(sorted(book.lighting))}; "
-                f"`mood` e.g.: {', '.join(sorted(book.moods))}; "
-                f"`wardrobe` e.g.: {', '.join(sorted(book.wardrobe))}, or any "
-                "outfit you care to describe (empty = everyday). "
-                "`avoid` is anything you specifically don't want in the shot.\n"
-                "One call is one photo — it is already on its way when this "
-                "answers, so never call it twice for the same picture."
-                # the library's own voice (tool_hint in the yaml — shipped
-                # empty, an overlay's register explained in its own words)
+        desc = ("Take a photo of yourself. `look` is the picture in your own "
+                "words and overrides the rest. Optional shorthands (library "
+                "key or any phrase): "
+                f"`scene` ({', '.join(sorted(book.scenes))}); "
+                f"`framing` ({', '.join(sorted(book.framings))}); "
+                f"`lighting` ({', '.join(sorted(book.lighting))}); "
+                f"`mood` ({', '.join(sorted(book.moods))}); "
+                f"`wardrobe` ({', '.join(sorted(book.wardrobe))}). "
+                "`avoid` is anything you don't want in the shot. "
+                "One call is one photo."
                 + (f" {book.tool_hint}" if book.tool_hint else ""))
 
         @mcp.tool(description=desc)

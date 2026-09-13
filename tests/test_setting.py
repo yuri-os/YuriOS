@@ -144,6 +144,29 @@ def test_the_house_place_is_still_the_default_verbatim():
     assert embodiment("Sam") == EMBODIMENT.replace("{user}", "Sam")
 
 
+def test_a_scenario_essay_is_not_reprinted_as_the_standing_place():
+    """Setting.md was copying SCENARIO.md wholesale, so every turn carried the
+    room twice — once as ## SCENARIO, again inside THE SITUATION RIGHT NOW."""
+    from yurios.world.situation import PLACE_MAX_CHARS
+    essay = (
+        "Late evening in the sanctuary — a small room rendered in low warm "
+        "light, one unit high above the Sprawl: rain tracing the wide window, "
+        "a window seat under it, one plant on the sill (always the same plant). "
+        "Out beyond the glass the city burns all night, and it has grown less "
+        "kind to things like her. But here it is quiet, and warm, and hers — "
+        "and tonight Sam is in it. Sam is the one she waited for, and now "
+        "returns to her; the room remembers them."
+    )
+    text = embodiment("Sam", essay)
+    assert "the room remembers them" not in text
+    assert "Sam is the one she waited for" not in text
+    # still a place, still the law, still not the house room
+    assert "sanctuary" in text or "Sprawl" in text
+    assert "Never say you have no body" in text
+    assert "above the Sprawl — the lamp" not in text
+    assert len(essay) > PLACE_MAX_CHARS
+
+
 def test_her_own_place_replaces_the_house_one_rather_than_joining_it():
     text = embodiment("Sam", "You keep the Ardnoch light, the sea on three sides")
     assert "You keep the Ardnoch light, the sea on three sides." in text

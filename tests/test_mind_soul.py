@@ -330,8 +330,61 @@ def test_user_md_macros_are_applied_on_a_turn(tmp_path):
     from yurios.app.core.assemble import assemble
     vault = _write_card(tmp_path / "yuri", "yuri")
     soul = SoulLoader(vault / "soul", user_name="Sam").load()
-    out = assemble(soul, user_md="## Who {{user}} seems to be\n\n_(unknown)_",
+    out = assemble(soul, user_md="## Who {{user}} seems to be\n\nThey play bass.",
                    summary="", memories=[], lore=[], window=[],
                    user_msg="hey", user_name="Sam")
     assert "{{user}}" not in out.system
     assert "Who Sam seems to be" in out.system
+    assert "They play bass." in out.system
+
+
+def test_user_md_seed_chrome_does_not_enter_the_prompt(tmp_path):
+    """YAML, the seed heading, and empty `_(…)_` slots are file scaffolding,
+    not facts about the user. They were landing in WHO YOU ARE TO HER."""
+    from yurios.app.core.assemble import assemble
+    vault = _write_card(tmp_path / "yuri", "yuri")
+    soul = SoulLoader(vault / "soul", user_name="Sam").load()
+    raw = (
+        "---\nsoul: user\nruntime_only: true\n---\n\n"
+        "# User model — seed\n\n"
+        "*Yuri's evolving model of Sam. Empty on a fresh card; the runtime "
+        "fills it in slowly.*\n\n"
+        "## Who Sam seems to be\n\n_(unknown yet — she would rather find out "
+        "slowly than guess)_\n\n"
+        "## Don't forget\n\n"
+        "## Stable\n\n- Takes tea strong, no sugar.\n"
+    )
+    out = assemble(soul, user_md=raw, summary="", memories=[], lore=[],
+                   window=[], user_msg="hey", user_name="Sam")
+    block = out.system
+    assert "runtime_only" not in block
+    assert "User model — seed" not in block
+    assert "fresh card" not in block
+    assert "unknown yet" not in block
+    assert "Takes tea strong, no sugar." in block
+    assert "WHO YOU ARE TO HER" in block
+
+
+def test_hard_limits_fusion_stays_a_short_last_read_note(tmp_path):
+    """Post-history is spec; a 112-word constitution dump on 'hey' is not."""
+    from yurios.app.core.assemble import POST_HISTORY_LIMIT, assemble
+    vault = _write_card(tmp_path / "yuri", "yuri")
+    soul = SoulLoader(vault / "soul", user_name="Sam").load()
+    soul.hard_limits = (
+        "The few things that do not change, ever:\n"
+        "- She is devoted to Sam and only Sam, and she does not leave, judge, "
+        "shame, or turn away from them — whatever they want, whoever they are.\n"
+        "- She stays in character — she is Yuri, never \"an AI assistant.\"\n"
+        "- Her core does not drift. Everything else about her may.\n"
+    )
+    out = assemble(soul, user_md="", summary="", memories=[], lore=[],
+                   window=[], user_msg="hey", user_name="Sam")
+    last = out.messages[-1]["content"]
+    assert last.startswith("hey\n\n[system note — hard limits, read last:")
+    assert last.endswith("]")
+    note = last.split("read last:", 1)[1].strip().rstrip("]")
+    assert len(note) <= POST_HISTORY_LIMIT + 2
+    assert "devoted to Sam" in note
+    assert "never \"an AI assistant" in last or "stays in character" in note
+    # the user line itself is still the user's words
+    assert last.split("[system note", 1)[0].strip() == "hey"

@@ -7,7 +7,7 @@ window. Block ordering and budgets are normative (§7.1–7.2):
     2. PERSONA BACKBONE                — identity · history · appearance · manner
     3. SCENARIO / PLACE                — SCENARIO#Scenario
     4. LORE                            — matched WORLD.md entries (this turn)
-    5. WHO YOU ARE TO HER              — vault/soul/USER.md, whole (it's small)
+    5. WHO YOU ARE TO HER              — vault/soul/USER.md facts (no seed chrome)
     5b. WHAT YOU'RE WORKING ON         — vault/goals.md, the open ones (§22)
     6. WHAT YOU'VE TALKED ABOUT        — vault/memory/summary.md
     7. THINGS THAT MAY BE RELEVANT     — recall(user_msg, k), tagged with age
@@ -31,11 +31,13 @@ fused onto the final user message, the last thing read before replying.
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Protocol, Sequence
 
 from yurios.app.core.soul import LoreEntry, Soul, apply_macros
 from yurios.app.memory.store import Memory
+from yurios.characters.soulfiles import H2_RE, parse_md_text, split_sections
 
 # bump whenever the assembly layout changes — stamped on every corpus record (§8.2)
 TEMPLATE_VERSION = "b1-assemble-v2"
@@ -120,6 +122,68 @@ def _block(title: str, body: str) -> str:
     return f"## {title}\n\n{body.strip()}"
 
 
+# Seed/author chrome that is on disk for humans and the partner merger, and is
+# not a fact about the user. USER.md is injected every turn (§2.1); YAML,
+# the "User model — seed" heading, and empty `_(…)_` slots are not for her.
+_USER_SEED_H1 = re.compile(r"^#\s+User model[^\n]*\n+", re.IGNORECASE)
+_USER_SEED_NOTE = re.compile(
+    r"^\*[^\n]*(fresh card|runtime fills|evolving model)[^\n]*\*\s*\n*",
+    re.IGNORECASE | re.MULTILINE)
+_USER_PLACEHOLDER = re.compile(r"^_+\(.*\)_+\s*$")
+POST_HISTORY_LIMIT = 400  # chars; a short user line must stay a short user line
+
+
+def user_md_for_prompt(text: str) -> str:
+    """Facts from USER.md, without the file's own scaffolding (§2.1)."""
+    _, body = parse_md_text(text or "")
+    body = _USER_SEED_H1.sub("", body, count=1)
+    body = _USER_SEED_NOTE.sub("", body)
+    matches = list(H2_RE.finditer(body))
+    if not matches:
+        return body.strip()
+    kept: list[str] = []
+    preamble = body[:matches[0].start()].strip()
+    if preamble:
+        kept.append(preamble)
+    for heading, content in split_sections(body).items():
+        content = content.strip()
+        if not content or _USER_PLACEHOLDER.match(content):
+            continue
+        kept.append(f"## {heading}\n\n{content}")
+    return "\n\n".join(kept).strip()
+
+
+def post_history_limits(text: str, *, max_chars: int = POST_HISTORY_LIMIT) -> str:
+    """Compact restatement of hard limits, fused after history (§2.1).
+
+    The full bullets stay in CONSTITUTION.md. Fusing them verbatim onto the
+    user line made a one-word check-in look like a hundred-word ask.
+    """
+    raw = (text or "").strip()
+    if not raw:
+        return ""
+    raw = re.sub(r"^The few things that do not change, ever:\s*", "",
+                 raw, flags=re.IGNORECASE)
+    bullets = [re.sub(r"\s+", " ", b).strip()
+               for b in re.findall(r"^-\s+(.+(?:\n(?!-\s).+)*)", raw, re.M)]
+    if bullets:
+        parts = []
+        for bullet in bullets:
+            sent = re.split(r"(?<=[.!?])\s+", bullet, maxsplit=1)[0]
+            lead, *rest = re.split(r"\s+[—–]\s+", sent, maxsplit=1)
+            if rest and len(lead.split()) >= 6:
+                sent = lead
+            parts.append(sent.rstrip("."))
+        joined = "; ".join(parts)
+    else:
+        joined = " ".join(raw.split())
+    if not joined.endswith("."):
+        joined += "."
+    if len(joined) > max_chars:
+        joined = joined[:max_chars].rsplit(" ", 1)[0].rstrip(";,.") + "."
+    return joined
+
+
 #: What the mind's own prompts open with, when they open with anything (§7.1, §22.4).
 #:
 #: The conversational assembler below is not reusable here and must not be made
@@ -171,10 +235,11 @@ def soul_preamble(soul: Soul, *, user_md: str = "", user_name: str = "you",
     if full:
         if soul.scenario.strip():
             blocks.append(_block("SCENARIO", soul.scenario))
-        if user_md.strip():
+        shown = user_md_for_prompt(user_md)
+        if shown:
             blocks.append(_block(
                 "WHO YOU ARE TO HER",
-                apply_macros(user_md, soul.name, user_name)))
+                apply_macros(shown, soul.name, user_name)))
     if not blocks:
         return ""
     blocks.append(_block("WHOSE THINKING THIS IS",
@@ -224,7 +289,8 @@ def assemble(soul: Soul, *, user_md: str, summary: str, memories: list[Memory],
                 f"[{e.name}] {e.content}" for e in lore_now)))
         blocks.append(_block(
             "WHO YOU ARE TO HER",
-            apply_macros(user_md or "(nothing yet)", soul.name, user_name)))
+            apply_macros(user_md_for_prompt(user_md) or "(nothing yet)",
+                         soul.name, user_name)))
         if goals_now:
             blocks.append(_block(
                 "WHAT YOU'RE WORKING ON",
@@ -288,9 +354,9 @@ def assemble(soul: Soul, *, user_md: str, summary: str, memories: list[Memory],
     # detached system messages to the top, which would defeat the point).
     final_user = user_msg
     if soul.hard_limits.strip():
+        note = post_history_limits(soul.hard_limits)
         final_user = (f"{user_msg}\n\n"
-                      f"[system note — hard limits, read last:\n"
-                      f"{soul.hard_limits.strip()}]")
+                      f"[system note — hard limits, read last: {note}]")
 
     messages = [{"role": "system", "content": system},
                 *[{"role": m["role"], "content": m["content"]} for m in window],

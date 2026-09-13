@@ -20,6 +20,7 @@ bodiless.
 from __future__ import annotations
 
 import datetime
+import re
 
 from .avatar.controller import VrmController
 from ..kernel.clock import Clock
@@ -82,6 +83,28 @@ def refer_user(name: str, *, sentence: bool = False) -> str:
     return who
 
 
+#: Standing place in the situation block. SCENARIO already carries the literary
+#: room; this line only has to say where she is. Past this a derived setting
+#: that copied the scenario essay reprints it.
+PLACE_MAX_CHARS = 220
+
+
+def _fit_place(text: str) -> str:
+    """One or two short sentences, never the scenario paragraph again."""
+    text = str(text or "").strip()
+    if not text:
+        return ""
+    if text[-1] not in ".!?…":
+        text += "."
+    if len(text) <= PLACE_MAX_CHARS:
+        return text
+    first = re.split(r"(?<=[.!?…])\s+", text, maxsplit=1)[0]
+    if len(first) <= PLACE_MAX_CHARS:
+        return first if first[-1] in ".!?…" else first + "."
+    cut = text[:PLACE_MAX_CHARS].rsplit(" ", 1)[0].rstrip(".,;")
+    return cut + "."
+
+
 def embodiment(user_name: str, place: str = "") -> str:
     """The embodiment truth, standing in *her* room when she has one.
 
@@ -91,10 +114,8 @@ def embodiment(user_name: str, place: str = "") -> str:
     richer room, it is a character who does not know where she lives.
     """
     clause = HOUSE_PLACE
-    text = str(place or "").strip()
+    text = _fit_place(place)
     if text:
-        if text[-1] not in ".!?…":
-            text += "."
         clause = f"{text} {DESKTOP}"
     return " ".join((_BODY, clause, _TRUTH)).replace("{user}", refer_user(user_name))
 

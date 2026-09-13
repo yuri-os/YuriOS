@@ -163,7 +163,7 @@ reactive body (Part II gates who may edit it, §23).
 2. PERSONA BACKBONE       (CONSTITUTION#Identity/#History + PERSONA#Appearance/#Manner + @personality)
 3. SCENARIO / PLACE       (SCENARIO#Scenario)
 4. LORE (if fired)        (matched WORLD.md entries, keyword-triggered)
-5. WHO YOU ARE TO HER     (vault/soul/USER.md, whole — it is small)
+5. WHO YOU ARE TO HER     (vault/soul/USER.md facts — not YAML, seed headings, or empty `_(…)_` slots)
 6. WHAT YOU'VE TALKED ABOUT (vault/memory/summary.md)
 7. THINGS THAT MAY BE RELEVANT (recall(user_msg, k), each tagged with age)
 8. WHAT YOU'VE READ       (knowledge.search(user_msg, k), each with its citation — §20.2)
@@ -173,7 +173,10 @@ reactive body (Part II gates who may edit it, §23).
 
 followed by the last `RAW_WINDOW_TURNS` raw messages (default 6) and the new user message.
 `CONSTITUTION.md#Hard limits` (post-history instructions) **MUST** be appended **after** the
-history, so it is the last thing read before replying. The raw window **MUST** stay small
+history, so it is the last thing read before replying. The fused note **MUST** be a compact
+restatement (a short last-read reminder), not the full constitution section: fusing the
+verbatim bullets onto the user line made a one-word check-in look like a hundred-word ask.
+The raw window **MUST** stay small
 (long raw context degrades middle recall); the rolling summary carries older context
 cheaply. On overflow, **drop the examples first, then knowledge, then recalled memories, then
 the lorebook; never drop the voice law, persona, `USER.md`, or the honesty constraint.**
@@ -352,11 +355,14 @@ directions, not the truth). The embodiment-truth text lives as one constant
 (`yurios/world/situation.py`) so the test suite can assert it verbatim.
 
 **Her room is hers.** The place named in that truth **MUST** be the character's own, read from
-`vault/world/setting.md` — one to three second-person present-tense sentences derived from her
+`vault/world/setting.md` — one to three short second-person present-tense sentences derived from her
 card at import (`yurios/characters/setting.py`: the `scenario` field first, a `Setting:`/
 `Location:` section next, the description last). It **MUST** replace the shipped companion's
 room outright rather than joining it, and the desktop clause, which is true wherever she lives,
-**MUST** survive the swap. A character whose card says nothing about a place gets no place line
+**MUST** survive the swap. It **MUST NOT** reprint the scenario block: that prose already
+sits in `## SCENARIO`, and pasting it into the situation made every turn carry the room twice.
+A long derived setting **MUST** be cut to a standing-place length (`PLACE_MAX_CHARS`) so the
+situation block stays *now* (clock, body, rain, who is here). A character whose card says nothing about a place gets no place line
 substituted and keeps the house sentence; the constant's default is therefore still asserted
 verbatim. The file is derived-marked, so the utility model's improvement pass (`refine_setting`,
 run after import and on demand) **MUST NOT** overwrite one a human has edited, and it is

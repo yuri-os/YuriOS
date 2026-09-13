@@ -32,8 +32,8 @@ fields:
     - PERSONA.md#Manner
   personality: PERSONA.md@personality
   scenario: SCENARIO.md#Scenario
-  # The first-ever line is the bootstrap cold open (BOOTSTRAP.md, consumed once →
-  # ch. 28). Only its `## Cold open` is baked as the card's first_mes; the journey/
+  # The first-ever line is the bootstrap cold open (BOOTSTRAP.md, consumed once).
+  # Only its `## Cold open` is baked as the card's first_mes; the journey/
   # exit/handoff below it are YuriOS-runtime concerns that never leave the box. The
   # return greetings (a companion who has met you before) are the alternates.
   first_mes: "BOOTSTRAP.md#Cold open"

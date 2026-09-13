@@ -637,7 +637,7 @@ to every new subscriber before its first live event. Malformed JSON is logged an
   silently (a 12B local model *will* emit a broken one). Because the tools whose argument is
   *prose* (`write_note`, `append_note`, the selfie `look`) ask that model to be a JSON
   serializer for a paragraph it is still composing, the marker grammar **MUST** be read as the
-  model writes it, not as the directive asks for it. Three recoveries are **REQUIRED** before a
+  model writes it, not as the directive asks for it. These recoveries are **REQUIRED** before a
   drop. **The closer is two brackets with optional whitespace between them** (`]]`, `] ]`,
   `]\n]`) — the live 12B writes `}] ]` consistently, and an `endswith("]]")` test leaves that
   marker open to swallow the rest of the stream, her next sentences and her next marker with it;
@@ -645,7 +645,12 @@ to every new subscriber before its first live event. Malformed JSON is logged an
   re-read leniently (`json` still owns every scalar, list and nested object; a prose string runs
   to its real terminator, so a literal newline or an unescaped `"` inside it costs nothing). And
   a marker left open at end-of-stream whose body is otherwise complete **MUST** be salvaged.
-  All three are self-validating: they only ever yield a call that parses.
+  A tool name glued to its object with no space (`read_note{"path": "…"}`) or written as a
+  parenthesized call (`read_note("path")`, `read_note({"path": "…"})`) **MUST** be the same
+  call: the name is the leading identifier, a JSON object is the arguments, a parenthesized
+  object is unwrapped, and a parenthesized positional list is zipped onto the discovered
+  property names in schema order. All of these are self-validating: they only ever yield a
+  call that parses.
   A doubled expression tag (`[[tender]]`, `[[happy]]`) is the §6.1 emotion
   channel with an extra bracket, **not** a tool: rewrite it to `[tender]` so the
   face still changes. Live, those names were parsed as calls and denied "not a
@@ -668,7 +673,9 @@ to every new subscriber before its first live event. Malformed JSON is logged an
   fragment and discards the sentences that say *when to reach for the tool* — a hand she can
   call but was never told the purpose of is one she does not use, which is indistinguishable
   from not having it. A length cap **MAY** bound a mounted third-party server (§7.2) but
-  **MUST** sit above every first-party description. The grammar is taught by a **concrete**
+  **MUST** sit above every first-party description. The catalogue line is the tool's name
+  and its description, **not** a `name(args)` signature: small models copy the signature as
+  the call. The grammar is taught by a **concrete**
   example; a metavariable like `tool_name` in the block is emitted verbatim by small models and
   arrives at the guard as a call to a tool that does not exist. Every parameter **MUST** be
   explained in its tool's description — the schema carries names and types, and the description
@@ -681,7 +688,11 @@ to every new subscriber before its first live event. Malformed JSON is logged an
 - §7.5 **Semantics.** The MCP server is the *contract and audit point* for `set_timer` — it
   validates and records — but the **host** schedules the wake (`yurios/world/tools/timers.py`,
   on the injected clock), because only the host owns her voice; when a timer elapses she
-  **MUST** announce it aloud through the ambient seam (§9), queued until deliverable.
+  **MUST** announce it through the ambient seam (§9), queued until deliverable.
+  Deliverable is a voice injector **or** a chat viewer (a text room or the
+  terminal, which do not open `/ws/voice` while muted). With no injector the
+  announcement **MUST** land as a proactive chat line on the EventHub rather
+  than wait forever for a socket that page never opens.
   `play_music` drives the browser-side synthesized ambience (§6.2) —
   a generative pad, not a media library; the seam is the point.
 - §7.6 **Her camera: `take_selfie` / `show_picture`, start-don't-await.** The two hands that

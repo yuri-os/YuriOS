@@ -213,3 +213,47 @@ def test_salvage_only_accepts_a_call_that_parses():
     p = ToolTagParser()
     _, calls = push_all(p, ['[[write_note {"path": "a.md", "text": '])
     assert calls == [] and p.salvaged == [] and p.dropped == 1
+
+
+READ_NOTE_NAMES = {"read_note": ("path", "start_line", "end_line")}
+SET_TIMER_NAMES = {"set_timer": ("minutes", "label")}
+
+
+def test_a_name_glued_to_the_object_still_parses():
+    """Live GLM re-emit: `[[read_note{"path":"…"}]]` — no space. `_close` used
+    to `partition(" ")` and treat the whole body as a bad tool name."""
+    _, calls = push_all(ToolTagParser(),
+                        ['[[read_note{"path":"research/intimacy_and_spice_findings.md"}]]'])
+    assert calls[0].tool == "read_note"
+    assert calls[0].args == {"path": "research/intimacy_and_spice_findings.md"}
+
+
+def test_a_parenthesized_object_is_unwrapped():
+    _, calls = push_all(ToolTagParser(),
+                        ['[[read_note({"path": "research/probe.md"})]]'])
+    assert calls[0].args == {"path": "research/probe.md"}
+
+
+def test_a_positional_call_zips_onto_schema_order():
+    """Live GLM first try: `[[read_note("research/…")]]`, copied off a
+    `read_note(path)` listing. Without property names this still drops."""
+    p = ToolTagParser(arg_names=READ_NOTE_NAMES)
+    _, calls = push_all(p, ['[[read_note("research/intimacy_and_spice_findings.md")]]'])
+    assert calls[0].args == {"path": "research/intimacy_and_spice_findings.md"}
+    p2 = ToolTagParser()
+    _, calls2 = push_all(p2, ['[[read_note("research/probe.md")]]'])
+    assert calls2 == [] and p2.dropped == 1
+
+
+def test_positional_timer_and_kwargs_parse():
+    p = ToolTagParser(arg_names=SET_TIMER_NAMES)
+    _, a = push_all(p, ['[[set_timer(10, "tea")]]'])
+    assert a[0].args == {"minutes": 10, "label": "tea"}
+    _, b = push_all(ToolTagParser(), ['[[set_timer(minutes=10, label="tea")]]'])
+    assert b[0].args == {"minutes": 10, "label": "tea"}
+
+
+def test_a_positional_list_longer_than_the_schema_still_drops():
+    p = ToolTagParser(arg_names=SET_TIMER_NAMES)
+    _, calls = push_all(p, ['[[set_timer(10, "tea", "extra")]]'])
+    assert calls == [] and p.dropped == 1

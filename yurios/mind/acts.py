@@ -156,7 +156,13 @@ async def promise_review(loop, offer=None) -> tuple[dict, dict, list[str]]:
 
 async def announce(loop) -> tuple[dict, dict, list[str]]:
     """A landed timer — a promise, so it queues until deliverable (the
-    Build #4 rule, kept verbatim)."""
+    Build #4 rule, kept verbatim).
+
+    Voice injectors are only the `/ws/voice` socket. A muted text room and
+    the terminal never attach one, but they *are* looking (`hub.viewers`).
+    Speak first; if that finds no mouth, post the line to chat the same way
+    a SPEAK reach-out does when the room has no audio.
+    """
     t = loop._pending_announce[0]
     loop.controller.set_expression("surprised", 0.6, reset_ms=4000)
     cue = ANNOUNCE_CUE.format(label=t.get("label", "your timer"),
@@ -167,6 +173,13 @@ async def announce(loop) -> tuple[dict, dict, list[str]]:
         loop._pending_announce.pop(0)
         return ({"what": "speak", "result": "announced the timer"}, {},
                 [f"told them the “{t.get('label')}” timer finished"])
+    if loop.hub.viewers:
+        text = await loop._compose(cue)
+        if text:
+            loop.post_message("assistant", text, proactive=True)
+            loop._pending_announce.pop(0)
+            return ({"what": "speak", "result": "announced the timer"}, {},
+                    [f"told them the “{t.get('label')}” timer finished"])
     return ({"what": "speak", "result": "announce queued (nobody to tell)"},
             {}, [])
 

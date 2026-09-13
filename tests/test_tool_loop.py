@@ -164,6 +164,29 @@ async def test_a_continuation_that_merely_starts_the_same_way_is_kept_whole(
     assert spoken == "I'll check. I'll check the other one too."
 
 
+async def test_a_tag_only_lead_in_does_not_crash_the_continuation(
+        cfg, guard, timers, controller):
+    """Live after restart: first pass was `[tender] [[list_notes]]`, the
+    continuation opened with words, and `_EchoSkipper` indexed past `already`."""
+    chat = ScriptedChat([
+        ["[tender] ", '[[list_notes {}]]'],
+        ["[happy] Here's everything I've kept."],
+    ])
+    runner = FakeToolRunner()
+    tb = make_toolbrain(cfg, guard, timers, controller, chat, runner=runner)
+    spoken = "".join(await collect(tb._stream_with_tools([], [])))
+    assert runner.calls == [("list_notes", {})]
+    assert spoken == "[tender] [happy] Here's everything I've kept."
+
+
+def test_echo_skipper_survives_a_lead_in_with_no_words():
+    from yurios.world.brain import _EchoSkipper
+    for already in ("[tender] ", "[shy]", " ", "\n"):
+        echo = _EchoSkipper(already)
+        out = echo.push("[happy] Here's the list.") + echo.finish()
+        assert "Here's the list." in out, already
+
+
 async def test_a_pass_that_only_repeats_itself_adds_nothing(cfg, guard, timers,
                                                             controller):
     chat = ScriptedChat([
@@ -192,6 +215,39 @@ async def test_a_marker_a_bracket_short_still_runs(cfg, guard, timers, controlle
     assert runner.calls == [("set_timer", {"minutes": 10, "label": "tea"})]
     assert spoken == "Sure — one sec. Ten minutes."
     assert [t.label for t in timers.pending()] == ["tea"]
+
+
+async def test_a_glued_json_marker_runs_without_a_reemit(cfg, guard, timers,
+                                                         controller):
+    """The live re-emit that still dropped: no space between name and `{`."""
+    chat = ScriptedChat([
+        ['One sec. [[set_timer{"minutes":10,"label":"tea"}]]'],
+        ["Ten minutes."],
+    ])
+    runner = FakeToolRunner()
+    tb = make_toolbrain(cfg, guard, timers, controller, chat, runner=runner)
+
+    spoken = "".join(await collect(tb._stream_with_tools([], [])))
+
+    assert runner.calls == [("set_timer", {"minutes": 10, "label": "tea"})]
+    assert spoken == "One sec. Ten minutes."
+    assert len(chat.calls) == 2          # continuation, not a re-emit
+
+
+async def test_a_positional_call_runs_without_a_reemit(cfg, guard, timers,
+                                                       controller):
+    """The live first try: `name("arg")`, copied off a `name(args)` listing."""
+    chat = ScriptedChat([
+        ['One sec. [[set_timer(10, "tea")]]'],
+        ["Ten minutes."],
+    ])
+    runner = FakeToolRunner()
+    tb = make_toolbrain(cfg, guard, timers, controller, chat, runner=runner)
+
+    spoken = "".join(await collect(tb._stream_with_tools([], [])))
+
+    assert runner.calls == [("set_timer", {"minutes": 10, "label": "tea"})]
+    assert spoken == "One sec. Ten minutes."
 
 
 async def test_a_broken_marker_is_told_to_her_not_swallowed(cfg, guard, timers,
@@ -419,7 +475,10 @@ def test_the_directive_carries_no_copyable_placeholder():
                            user_name="Sam", max_calls=2)
     assert "tool_name" not in text
     assert '[[set_timer {"minutes": 10, "label": "tea"}]]' in text   # still shown
-    assert "- research(topic) — Go and find out." in text
+    assert "- research — Go and find out." in text
+    assert "research(" not in text          # a `name(args)` listing is copied as the call
+    assert "exactly like the example" in text
+    assert "a space" in text
 
 
 # ------------------------------------------------------- fitting args to schema

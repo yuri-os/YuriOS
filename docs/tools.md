@@ -49,9 +49,11 @@ sandboxed hands are a named later rung, not an omission to be patched around.
 
 The MCP server is the *contract and audit point* — it validates and records — but the **host**
 schedules the wake, because only the host owns her voice. When a timer elapses she announces it
-aloud through the ambient seam, queued until it's deliverable: if nobody is there to hear it, it
-waits rather than being lost. Timer announcements are delivered by the mind loop, so they are not
-announced while `MIND_ENABLED=false` or while no model is configured.
+through the ambient seam, queued until it's deliverable: a live voice socket, or a chat viewer
+(the text room and the terminal never open `/ws/voice` while muted, so the line lands in the
+transcript as `proactive`). If nobody is there at all, it waits rather than being lost. Timer
+announcements are delivered by the mind loop, so they are not announced while `MIND_ENABLED=false`
+or while no model is configured.
 
 ```ini
 TIMER_MAX_MINUTES=180
@@ -284,6 +286,8 @@ So the parser reads what arrives rather than what the directive asked for:
 | `}]]`, `}] ]`, `}]\n]` | all close the marker; a stray bracket left in the body is trimmed |
 | a literal newline or bare `"` inside a prose argument | the object is re-read leniently — `json` still owns every scalar, list and nested object |
 | `}]` and then end-of-stream | salvaged, if the body is otherwise complete |
+| `read_note{"path": "…"}` (no space) | the name is the leading identifier; the object still parses |
+| `read_note("path")`, `read_note({"path": "…"})` | parenthesized call: JSON object unwrapped, or positional values zipped onto schema order |
 | anything still unreadable | audit line (`dropped: malformed marker`), marked unrun in the verbatim record, and **one** re-emit pass |
 
 Every recovery is self-validating: it can only ever produce a call that parses, so junk still

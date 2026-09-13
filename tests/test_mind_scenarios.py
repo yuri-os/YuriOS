@@ -191,3 +191,19 @@ async def test_timer_announce_queues_until_someone_can_hear(cfg, seeded_vault):
     await rig.mind.tick()
     assert not rig.mind._pending_announce
     assert any("tea" in c["cue"] for c in rig.speak.calls if c["delivered"])
+
+
+async def test_timer_announce_lands_in_chat_when_a_text_page_is_open(
+        cfg, seeded_vault):
+    """The text room (and the terminal) never attach `/ws/voice` while muted,
+    so speak_ambient is always False. They still subscribe as viewers."""
+    rig = make_mind(cfg, seeded_vault)
+    rig.mind.hub.subscribe(viewer=True)
+    rig.timers.add(id="t1", label="tea", seconds=60.0)
+    rig.clock.advance(61)
+    rig.timers.poll()
+    rig.speak.connected = False
+    await rig.mind.tick()
+    assert not rig.mind._pending_announce
+    assert rig.post.proactive(), "the line must reach the transcript"
+    assert not any(c["delivered"] for c in rig.speak.calls)

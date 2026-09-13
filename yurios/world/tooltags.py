@@ -49,8 +49,11 @@ So the tolerance goes one step further than "drop it cleanly":
     `_trim` forgives a stray one left over inside the body;
   - `_repair` re-reads a malformed object leniently, letting `json` handle every
     scalar and taking prose strings literally to their real terminator;
-  - `finish` salvages a marker that never closed but is otherwise complete.
-The last three are self-validating — they only ever produce a call that parses —
+  - `finish` salvages a marker that never closed but is otherwise complete;
+  - `_close` splits the name at the first non-identifier, so a missing space
+    (`read_note{...}`) still yields the object, and a parenthesized call
+    (`read_note("path")`, `read_note({"path": "…"})`) is the same call.
+The recoveries are self-validating — they only ever produce a call that parses —
 so junk still ends up dropped, and `dropped` now counts it so the caller can say so.
 """
 from __future__ import annotations
@@ -58,6 +61,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 
 log = logging.getLogger("world.tooltags")
@@ -142,6 +146,89 @@ def _unescape(text: str) -> str:
     return "".join(out)
 
 
+#: A tool name is an identifier. Splitting on the first space used to drop the
+#: live GLM shape `read_note{"path": "…"}` (no space) and the listing-copy
+#: `read_note("path")` before `_repair` ever saw the arguments.
+_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+
+
+def _split_call(body: str) -> tuple[str, str] | None:
+    """`name`, `name {json}`, `name{json}`, `name("v")` → (name, rest)."""
+    body = _trim(body.strip())
+    if not body:
+        return None
+    m = _NAME.match(body)
+    if m is None:
+        return None
+    return m.group(0), body[m.end():].strip()
+
+
+def _loads_obj(text: str) -> dict | None:
+    """A JSON object, or the same object after `_repair`. Else None."""
+    try:
+        args = json.loads(text)
+    except ValueError:
+        args = _repair(text)
+        if args is None:
+            return None
+    return args if isinstance(args, dict) else None
+
+
+def _kwargs(inner: str) -> dict | None:
+    """`path="x", minutes=10` → dict. None if this isn't keyword arguments."""
+    text = inner.strip()
+    if not text or not _NAME.match(text):
+        return None
+    out: dict = {}
+    p = 0
+    while True:
+        while p < len(text) and text[p] in " \t\n\r,":
+            p += 1
+        if p >= len(text):
+            return out or None
+        key = _NAME.match(text, p)
+        if key is None:
+            return None
+        p = key.end()
+        while p < len(text) and text[p] in " \t":
+            p += 1
+        if p >= len(text) or text[p] not in "=:":
+            return None
+        p += 1
+        while p < len(text) and text[p] in " \t":
+            p += 1
+        try:
+            value, p = json.JSONDecoder().raw_decode(text, p)
+        except ValueError:
+            return None
+        out[key.group(0)] = value
+
+
+def _from_rest(rest: str, keys: Sequence[str]) -> dict | None:
+    """Arguments after the tool name — JSON, glued JSON, or a parenthesized call."""
+    if not rest:
+        return {}
+    if rest.startswith("{"):
+        return _loads_obj(rest)
+    if rest.startswith("(") and rest.endswith(")"):
+        inner = rest[1:-1].strip()
+        if not inner:
+            return {}
+        if inner.startswith("{"):
+            return _loads_obj(inner)
+        kw = _kwargs(inner)
+        if kw is not None:
+            return kw
+        try:
+            values = json.loads(f"[{inner}]")
+        except ValueError:
+            return None
+        if not isinstance(values, list) or not keys or len(values) > len(keys):
+            return None
+        return dict(zip(keys, values))
+    return None
+
+
 def _repair(rest: str) -> dict | None:
     """A malformed argument object, read leniently — or None if it isn't one.
 
@@ -193,6 +280,9 @@ class ToolTagParser:
     (speakable_text, calls_closed_on_this_token)."""
 
     calls: list[ToolCall] = field(default_factory=list)
+    #: Property names in schema order, keyed by tool. Positional
+    #: `read_note("path")` zips onto these; unknown tools still drop.
+    arg_names: Mapping[str, Sequence[str]] = field(default_factory=dict)
     #: Calls recovered by `finish` from a marker that never closed — the caller
     #: has already left its streaming loop by then, so they are handed over here
     #: rather than through `push`.
@@ -287,34 +377,21 @@ class ToolTagParser:
             self._buf = ""
         return tail
 
-    @staticmethod
-    def _close(body: str) -> ToolCall | None:
-        """Parse 'tool_name {json}' → ToolCall, or None if malformed.
+    def _close(self, body: str) -> ToolCall | None:
+        """Parse a marker body → ToolCall, or None if malformed.
 
         `_trim` first, so a bracket the model left over — `{…}]`, the tail of the
         `] ]` closer it likes to write — is forgiven here once, for every caller,
-        instead of at each of the three places a body arrives from."""
-        body = _trim(body.strip())
-        if not body:
+        instead of at each of the three places a body arrives from. The name is
+        the leading identifier, not `partition(" ")`: a glued `{` or a
+        parenthesized call is still a call (SPEC §7.4)."""
+        split = _split_call(body)
+        if split is None:
+            log.warning("bad tool name in marker: %r", body[:80])
             return None
-        name, _, rest = body.partition(" ")
-        name = name.strip()
-        if not name.replace("_", "").isalnum():
-            log.warning("bad tool name in marker: %r", name)
-            return None
-        rest = rest.strip()
-        if not rest:
-            return ToolCall(name, {})
-        try:
-            args = json.loads(rest)
-        except ValueError:
-            args = _repair(rest)
-            if args is None:
-                log.warning("bad JSON in tool marker for %r: %r", name, rest[:80])
-                return None
-            log.info("repaired the argument JSON in a %r marker (%d chars)",
-                     name, len(rest))
-        if not isinstance(args, dict):
-            log.warning("tool marker args not an object for %r", name)
+        name, rest = split
+        args = _from_rest(rest, tuple(self.arg_names.get(name) or ()))
+        if args is None:
+            log.warning("bad JSON in tool marker for %r: %r", name, rest[:80])
             return None
         return ToolCall(name, args)

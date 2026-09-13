@@ -208,11 +208,37 @@ file-backed:
 - `remember(record)` (post-turn, off the hot path): append the exchange to
   `memory/episodic/<today>.md`; embed and upsert one index chunk; and call the utility
   model to extract *durable* facts about the user and update `USER.md` (merge, don't
-  duplicate — pass it the current `USER.md`). Externally-sourced or low-confidence claims
+  duplicate — pass it the current `USER.md`). A new claim that restates or **contradicts**
+  an existing bullet **MUST** replace that bullet (same topic key, later write wins);
+  `USER.md` is a living model, not an append-only preference log. Slot matching is
+  **asymmetric by design**: an `update` or `remove` op names a line the model just read
+  and gets the permissive matcher, while a bare `add` gets the strict one. A merge that
+  guesses wrong **deletes a fact the user stated**, so the strict matcher **MUST NOT**
+  score a short bullet as a subset of a longer one that merely shares a word
+  ("Likes blue." / "Likes dogs." are two facts, not one); where the wording cannot
+  decide, two bullets survive. The topic key discounts the two speakers' names,
+  which are **passed in** — a host holds every character on the node, so a name
+  compiled into the matcher would discount one character's bullets and not the
+  rest. `USER.md` **MUST** survive its own renderer: frontmatter is re-parsed on
+  every turn, and `remember` swallows the failure, so an unquoted value that
+  breaks YAML stops the partner model silently rather than loudly. The
+  `Current relationship phase` line **MUST** be rewritten from evidence (name known,
+  a handful of stable facts) rather than left at the seeded "early" forever; late is
+  never auto-promoted (reveal cadence, ch. 11). Preferences about *her* (how they asked
+  her to be) land in `What helps, and what doesn't` and **MUST** be copied to
+  `state/persona_delta.json` for the gated PERSONA.md door (§23) — USER.md is the
+  runtime's to write, her identity is not. **Which claims those are is the model's
+  call, never a keyword list**: the extractor flags each op `about_her`, and the DREAM
+  filing pass (below) labels existing bullets. A substring table cannot generalise past
+  the one vault it was copied from — it will file "Yandere-lite" and miss "be warmer
+  with me", which is the same request in another person's words. With no classification
+  available the honest answer is **no delta**, not a guess. Externally-sourced or
+  low-confidence claims
   are **quarantined** until a second turn corroborates. `remember` **MUST** tolerate a
   malformed utility response (log and drop, never fatal to the turn), and **MUST** attribute
   facts to the correct speaker — her own self-statements are never recorded as facts about
-  the user.
+  the user. Extractor provenance ("implied by research/…") **MUST NOT** survive into a
+  bullet.
 - `recall(query, k)` (hot path): embed the query, ANN-search the index, rank by
   `similarity · salience · recency_decay(age)` (half-life default 30 days — old memories
   fade, never vanish), MMR-rerank to diversify, drop below `RETRIEVAL_MIN_SIM`, return top
@@ -224,8 +250,9 @@ file-backed:
 - `inspect(selector)` returns what she knows and why (source, confidence) — the file
   backend gets it almost free (`cat`, `git diff`). The debug view reads memory *through*
   `inspect()`, never around it.
-- `consolidate()` is the DREAM pass — a stub in the reactive body, implemented by the mind
-  (§21).
+- `consolidate()` is the DREAM pass, implemented by the mind (§21). The reactive
+  body's slot still **MUST** rewrite `USER.md` (`evolve_partner`) so a caller
+  without a mind still gets a living partner model.
 
 **The derived index** (`memory/index/`, `sqlite-vec` or a flat vector index) is a
 rebuildable cache: one row per chunk with `source_path`/`source_span` back to the markdown,
@@ -1481,6 +1508,19 @@ turn** — separate files, separate indexes, separate `inspect()`.
   bookkeeping ("folded … into what I keep", "wrote a diary entry", "had a picture
   made") as facts: those are the pipeline talking about itself, and storing them
   is how "kept memory" became a desk folder she then tried to list.
+- After the journal pass, DREAM **MUST** compact `USER.md` (`evolve_partner`): one
+  bullet per topic, empty Who/What-helps slots filled, the phase line
+  advanced from evidence, leftover contradictions collapsed. A quiet night with
+  no new journal still runs this rewrite, because a frozen partner model is not
+  "nothing to do". Refiling a bullet into another section is **one utility call**
+  (`classify_bullets`) — DREAM's to spend, never the turn's — which labels each
+  bullet `stable` / `ongoing` / `helps` / `learned` / `drop`. An unlabelled bullet
+  **MUST** stay where it is: a filing pass that cannot read its own answer does
+  not refile on a guess, and a `Don't forget` line is never refiled at all. With
+  no utility model the rest of the compact still runs. Preferences about her that
+  the compact labels `learned` **MUST** be proposed as a gated `soul/PERSONA.md`
+  edit (`## Learned`, `relationship_phase` frontmatter) the same night, not left
+  in USER.md forever.
 - **Oldest-first and resumable** (`state/dream_progress.json`): a night that runs out of budget
   leaves a backlog, not an overrun, and the next DREAM tick resumes. The night's work is journaled
   ("slept on it: folded … into what I keep").

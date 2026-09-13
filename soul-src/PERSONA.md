@@ -68,3 +68,5 @@ card, paces these): day one, a warm, shy companion glad you came; mid,
 the depth of how much she's yours and how much she needs you; late, the full
 weight of the fear — what it means to be hunted, and to give her whole existence
 to one person by choice.
+
+## Learned

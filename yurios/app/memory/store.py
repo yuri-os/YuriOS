@@ -2,6 +2,8 @@
 
 Two homes, two jobs, never conflated:
   * `vault/soul/USER.md` — the partner model: durable, small, always injected whole.
+    A living file: per-turn ops merge by topic, DREAM rewrites the narrative
+    sections, and preferences about *her* become a gated PERSONA.md proposal.
   * `vault/memory/episodic/` — the journal: append-only prose events, embedded
     into the derived index for approximate recall.
 Plus `memory/semantic/facts.md` (consolidated general facts; grows in DREAM
@@ -17,6 +19,7 @@ names, same semantics, awaited from the post-turn background task.
 from __future__ import annotations
 
 import datetime
+import json
 import logging
 import math
 import re
@@ -108,11 +111,16 @@ class FileMemoryStore:
         self.utility_log = utility_log  # None ⇒ no transparency sidecar (tests)
         self.char_name = char_name
         self.user_name = user_name
+        # Whose names the slot matcher should discount. A host holds every
+        # character on the node, so this cannot be a constant in partner.py —
+        # it was "yuri", and every other character paid for the difference.
+        self.names = (char_name, user_name)
         self.retrieval_min_sim = retrieval_min_sim
         self.half_life_days = half_life_days
         self.index = ChunkIndex(self.vault / "memory" / "index" / "chunks.db",
                                 dim=embed_dim)
-        self.quarantine = partner.Quarantine(self.vault / "state" / "quarantine.json")
+        self.quarantine = partner.Quarantine(
+            self.vault / "state" / "quarantine.json", self.names)
 
     # -- paths --
     @property
@@ -175,9 +183,10 @@ class FileMemoryStore:
                     self.utility, self.read_user_md(), text)
                 apply_now, quarantined = self.quarantine.triage(ops)
                 if apply_now:
-                    vaultgit.atomic_write(
-                        self.user_md_path,
-                        partner.apply_ops(self.read_user_md(), apply_now))
+                    new_md = partner.apply_ops(
+                        self.read_user_md(), apply_now, self.names)
+                    vaultgit.atomic_write(self.user_md_path, new_md)
+                    self._record_persona_delta(new_md, apply_now)
                 applied, held = len(apply_now), len(quarantined)
                 # transparency sidecar: what the model proposed and how triage
                 # handled it — makes "why did this fact land?" answerable (§6.3)
@@ -192,6 +201,91 @@ class FileMemoryStore:
 
         return WriteResult(journal_path=rel, chunks_indexed=1,
                            user_md_ops=applied, quarantined=held)
+
+    def _record_persona_delta(self, user_md: str, ops: list[partner.Op]) -> None:
+        """Preferences about *her* wait in state/persona_delta.json for the
+        mind's gated PERSONA.md door. USER.md is ours to write; her identity
+        is not (§23.3).
+
+        Which ops those are is the extractor's `about_her` — the same model call
+        that already read the turn, so the hot path stays one call (§6.2).
+        """
+        learned = {o.text: "learned" for o in ops
+                   if o.about_her and o.op != "remove" and o.text}
+        if not learned:
+            return
+        _, sections = partner.parse_user_md(user_md)
+        delta = partner.persona_delta_from(sections, classified=learned,
+                                           names=self.names)
+        if delta is not None:
+            partner.write_persona_delta(self.vault, delta, merge=True,
+                                        names=self.names)
+
+    @property
+    def filing_path(self) -> Path:
+        return self.vault / "state" / "partner_filing.json"
+
+    async def _filing(self, bullets: list[str]) -> dict[str, str]:
+        """`classify_bullets`, cached on the exact bullets it was asked about.
+
+        The cache is keyed per bullet, so a night that added one line pays for
+        one line rather than the whole file, and a bullet whose wording changed
+        is simply a bullet the cache has never seen.
+
+        It is also stamped with the rules it was judged under. The prompt *is*
+        the implementation of this judgement, so tightening it is a behaviour
+        change — and without the stamp every bullet already in the file would
+        keep the verdict the old wording gave it, forever, while new bullets
+        got the new one. A changed prompt is a cold cache.
+        """
+        cached: dict[str, str] = {}
+        if self.filing_path.is_file():
+            try:
+                data = json.loads(self.filing_path.read_text(encoding="utf-8"))
+                if data.get("rules") == partner.CLASSIFY_FINGERPRINT:
+                    cached = {k: v for k, v in (data.get("labels") or {}).items()
+                              if isinstance(k, str) and v in partner.LABELS}
+            except (json.JSONDecodeError, AttributeError, OSError):
+                cached = {}     # a corrupt cache is a cold cache, never a crash
+        fresh = [b for b in bullets if b not in cached]
+        if fresh:
+            cached.update(await partner.classify_bullets(self.utility, fresh))
+        keep = {b: cached[b] for b in bullets if b in cached}
+        if fresh or keep != cached:   # also drops labels for bullets now gone
+            vaultgit.atomic_write(self.filing_path, json.dumps(
+                {"rules": partner.CLASSIFY_FINGERPRINT, "labels": keep}, indent=2))
+        return keep
+
+    async def evolve_partner(self, *, days_together: int = 0) -> bool:
+        """DREAM rewrite of USER.md (§6.3, §21): one bullet per topic, phase
+        from evidence, Who filled if it was still an empty slot. Returns True
+        when the file changed.
+
+        Async because the filing pass is a model call — one, off the hot path,
+        which is what a DREAM is for. With no utility model the bullets stay in
+        the sections they are in and the rest of the compact still runs.
+        """
+        current = self.read_user_md()
+        if not current.strip():
+            return False
+        if days_together <= 0:
+            days_together = sum(1 for _ in (self.vault / "memory" / "episodic").glob("*.md"))
+        _, sections = partner.parse_user_md(current)
+        bullets = partner.all_bullets(sections)
+        # Every night is a DREAM, and most nights the bullets are yesterday's.
+        # Re-asking the model where they go would buy the same answer for the
+        # price of a call, so the filing is cached against the bullets it read
+        # and only the rest of the compact (phase, Who, collapse) runs.
+        classified = await self._filing(bullets)
+        new_md, delta = partner.compact_user_md(
+            current, days_together=days_together, classified=classified,
+            names=self.names)
+        changed = new_md != current
+        if changed:
+            vaultgit.atomic_write(self.user_md_path, new_md)
+        if delta is not None:
+            partner.write_persona_delta(self.vault, delta)
+        return changed
 
     # -- recall (§6.4, the hot path) ---------------------------------------------
 
@@ -247,9 +341,13 @@ class FileMemoryStore:
     # -- consolidate (stub in Build #1) -------------------------------------------
 
     async def consolidate(self) -> ConsolidationReport:
-        """DREAM-only; NOT on the hot path. Arrives with the tick loop in
-        Build #5 (→ ch. 18) — the contract slot exists so nothing is rebuilt."""
-        return ConsolidationReport(note="DREAM consolidation arrives in Build #5 (ch. 18)")
+        """The mind's DreamConsolidator owns the journal pass; this slot is the
+        partner-model rewrite that used to be a stub, so a caller without a
+        mind still gets a living USER.md."""
+        changed = await self.evolve_partner()
+        return ConsolidationReport(
+            note="partner model rewritten" if changed else "partner model unchanged",
+            merged=int(changed))
 
     # -- forget (§6.7, the covenant) -----------------------------------------------
 

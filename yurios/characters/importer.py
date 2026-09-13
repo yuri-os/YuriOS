@@ -308,6 +308,15 @@ def _write_partner_model(soul: Path) -> None:
     card handed to someone else carries who she is, never who you were to her
     (`soul-src`, D-014).
 
+    Its headings are `soul-src/USER.md`'s, to the letter. They drifted once —
+    this template said "What helps, and what does **not**" and carried a
+    `# User model` title and `_(unknown)_` placeholders — and every imported
+    character paid for it: the partner model matched headings by exact string,
+    so it added its own "...doesn't" beside the card's and fed that one, while
+    the heading the card actually had kept its placeholder forever, in a file
+    injected whole on every turn. `partner.canon_section` now reads both, but
+    a card imported today should not need the compatibility path.
+
     The manifest's other `runtime_only:` file, `MEMORY.md`, deliberately has no
     counterpart here. It is runtime memory rather than persona prose, so it
     never lands under `soul/` at all: `scripts/seed_vault.py` splits it into
@@ -323,17 +332,16 @@ def _write_partner_model(soul: Path) -> None:
         """---
 soul: user
 runtime_only: true
+phase: early
 ---
-
-# User model
 
 ## Who {{user}} seems to be
 
-_(unknown)_
+## What helps, and what doesn't
 
-## What helps, and what does not
+## Current relationship phase
 
-_(to be learned)_
+early — careful courtesy; the formality has not yet thawed.
 """,
     )
 

@@ -104,6 +104,20 @@ def _build_lorebook(reader: _Reader, fname: str) -> list[LoreEntry]:
     return entries
 
 
+def _backbone_with_learned(reader: _Reader, description_field) -> str:
+    """Identity backbone, plus PERSONA.md#Learned when the relationship has
+    actually rewritten her. The heading is runtime-only — it must not travel
+    on a card — so it is not in soul.yaml and is skipped while empty."""
+    backbone = reader.resolve_field(description_field)
+    try:
+        learned = reader.sections("PERSONA.md").get("Learned", "").strip()
+    except (FileNotFoundError, KeyError):
+        return backbone
+    if not learned:
+        return backbone
+    return f"{backbone}\n\n{learned}"
+
+
 class SoulLoader:
     """Loads the SOUL from `vault/soul/` — called on every turn (§5), so the
     persona is always whatever the files say *right now*."""
@@ -144,7 +158,8 @@ class SoulLoader:
             name=name,
             card_version=card_version,
             voice_law=mac(reader.resolve_field(fields["system_prompt"])),
-            backbone=mac(reader.resolve_field(fields["description"])),
+            backbone=mac(_backbone_with_learned(
+                reader, fields["description"])),
             personality=mac(reader.resolve_field(fields["personality"])),
             scenario=mac(reader.resolve_field(fields["scenario"])),
             return_greetings=[mac(g) for g in reader.resolve_list(fields["alternate_greetings"])],

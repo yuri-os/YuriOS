@@ -122,7 +122,9 @@ def test_the_relationship_starts_at_zero(grown, tmp_path):
         result.png, character_id="subject")
     vault = landed.paths.vault
 
-    assert "_(unknown)_" in (vault / "soul" / "USER.md").read_text()
+    user_md = (vault / "soul" / "USER.md").read_text()
+    # a blank partner model: the seed phase line and not one learned bullet
+    assert "early — " in user_md and "\n- " not in user_md
     assert list((vault / "memory" / "episodic").glob("*")) == []
     assert (vault / "memory" / "semantic" / "facts.md").read_text().strip() == "# Facts"
     assert (vault / "memory" / "semantic" / "forgotten.md").read_text().strip() \
@@ -206,4 +208,6 @@ def test_a_card_without_a_soul_payload_still_imports(grown, tmp_path):
     soul = SoulLoader(landed.paths.vault / "soul").load()
     assert soul.name == "Card Person"
     assert GROWN in soul.backbone          # via the flattened description
-    assert "_(unknown)_" in (landed.paths.vault / "soul" / "USER.md").read_text()
+    user_md = (landed.paths.vault / "soul" / "USER.md").read_text()
+    # a blank partner model: the seed phase line and not one learned bullet
+    assert "early — " in user_md and "\n- " not in user_md

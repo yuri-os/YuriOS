@@ -41,3 +41,6 @@ desktop-shell/node_modules/
 # the measurement it came from is not
 .coverage
 .coverage.*
+
+# relationship-evolution bench output (USER.md history, GLM traces)
+scripts/relationship_bench/out/

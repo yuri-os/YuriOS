@@ -416,7 +416,9 @@ def test_a_hostile_payload_falls_back_to_synthesis_not_failure(tmp_path):
         png_card(native_with_soul(files)), character_id="planted")
 
     # the payload was rejected wholesale, so the card's prose was synthesised
-    assert "_(unknown)_" in (record.paths.vault / "soul" / "USER.md").read_text()
+    user_md = (record.paths.vault / "soul" / "USER.md").read_text()
+    # a blank partner model: the seed phase line and not one learned bullet
+    assert "early — " in user_md and "\n- " not in user_md
     assert (record.paths.vault / "soul" / "CONSTITUTION.md").is_file()
 
 
@@ -472,6 +474,8 @@ def test_a_good_payload_is_written_verbatim(tmp_path):
     soul = record.paths.vault / "soul"
     assert (soul / "PERSONA.md").read_text() == GOOD_FILES["PERSONA.md"]
     assert (soul / "CONSTITUTION.md").read_text() == GOOD_FILES["CONSTITUTION.md"]
-    assert "_(unknown)_" in (soul / "USER.md").read_text()
+    user_md = (soul / "USER.md").read_text()
+    # a blank partner model: the seed phase line and not one learned bullet
+    assert "early — " in user_md and "\n- " not in user_md
     # BOOTSTRAP.md was absent from the payload, so she gets a fresh cold open
     assert (soul / "BOOTSTRAP.md").is_file()

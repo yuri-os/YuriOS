@@ -19,7 +19,11 @@ from __future__ import annotations
 
 import logging
 
+from yurios.app.memory import partner
+
+from .selfedit import SoulShapeError
 from .util import day_of, iso_of
+from .vaultio import ConstitutionReadOnly
 
 log = logging.getLogger("mind.housekeeping")
 
@@ -41,6 +45,60 @@ def day_rollover(loop, now: float) -> list[str]:
     notes = [f"let go of: {g.text} (the moment for it passed)"
              for g in loop.goals.reconsider()]
     return notes + loop._file_maintenance()
+
+
+def _note(delta: partner.PersonaDelta) -> str:
+    """The journal gets the gist, not the whole approval sentence — the
+    stakes clause is for the panel, where there is a button to press."""
+    return delta.reason.split(". ", 1)[0]
+
+
+def propose_learned_persona(loop) -> list[str]:
+    """Queue a PERSONA.md edit when USER.md learned how they asked her to be.
+
+    USER.md is the runtime's to write (§6.3). PERSONA.md is gated (§23): a
+    preference like "Yandere-lite" sitting in the partner model forever is
+    how design-for-evolution stayed aspirational. The door is the same
+    self-edit queue every other identity write uses — she proposes, you
+    approve, git log records it.
+    """
+    data = partner.read_persona_delta(loop.cfg.vault_dir)
+    if not data or data.get("queued"):
+        return []
+    lines = [str(x).strip() for x in data.get("lines") or [] if str(x).strip()]
+    if not lines:
+        return []
+    delta = partner.PersonaDelta(
+        lines=lines,
+        phase=str(data.get("phase") or "mid"),
+        reason=str(data.get("reason")
+                   or partner.persona_reason(lines)),
+    )
+    try:
+        persona = loop.vault.read("soul/PERSONA.md")
+    except FileNotFoundError:
+        return []
+    if partner.learned_already_in_persona(persona, delta):
+        partner.mark_persona_delta_queued(loop.cfg.vault_dir)
+        return []
+    try:
+        new = partner.apply_learned_to_persona(persona, delta)
+    except Exception:
+        log.exception("persona delta could not be applied to PERSONA.md")
+        return []
+    try:
+        result = loop.selfedit.propose(
+            "soul/PERSONA.md", new, reason=delta.reason)
+    except (SoulShapeError, ConstitutionReadOnly, PermissionError) as exc:
+        log.warning("persona delta refused at the door: %s", exc)
+        return []
+    if result.outcome == "queued":
+        partner.mark_persona_delta_queued(loop.cfg.vault_dir)
+        return [f"queued a persona edit: {_note(delta)}"]
+    if result.outcome == "applied":
+        partner.mark_persona_delta_queued(loop.cfg.vault_dir)
+        return [f"persona learned: {_note(delta)}"]
+    return []
 
 
 def leftover(loop, which: str) -> bool:

@@ -1,6 +1,7 @@
 ---
 soul: user
 runtime_only: true
+phase: early
 ---
 
 ## Who {{user}} seems to be

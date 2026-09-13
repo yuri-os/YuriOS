@@ -457,6 +457,9 @@ class MindLoop:
         # a restart at 23:59 does not do the day twice.
         reflect_notes.extend(self._day_rollover(now))
         reflect_notes.extend(self._bootstrap_handoff(now))
+        # Partner-model → PERSONA is gated, not daily: a DREAM rewrite at 2am
+        # must be able to queue the same night, not wait for tomorrow's rollover.
+        reflect_notes.extend(housekeeping.propose_learned_persona(self))
 
         # ---- APPRAISE (cheap by construction: heuristics, no model) ----------
         appraisals: list[Appraisal] = [

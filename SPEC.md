@@ -1894,9 +1894,12 @@ The product half of autonomy: what converts an always-on process from creepy to 
   `GET /api/mind/journal?days=` (her `[she]` lines by day), `GET /api/mind/trace?n=`,
   `POST /api/mind/edits/{id}` (`{"approve": bool}` → a signal, §23.2). The browser page's chat column
   grows a second tab — **inner life** (`web/js/mind.js`): right-now state and budget, edits waiting on
-  you (with content and one-click approve/reject), goals with provenance, the shelf, and the journal,
+  you (with content and one-click approve/reject), goals with provenance and a one-click control
+  that opens the matching desk file (`workspace/goals/<id>.md`, §22.3) through
+  `GET /api/mind/workspace/file`, the shelf, and the journal,
   refreshed live off the same one bus (`journal`/`mind` events). Everything reads *through* the mind's
-  own stores; the dashboard can never disagree with the files. The standalone debug page
+  own stores; the dashboard can never disagree with the files. The snapshot **MUST** name each
+  goal's `desk` path so the panel does not invent it. The standalone debug page
   (`/characters/{id}/mind`, `web/mind/`) **MUST** attach the bus as
   `GET /api/events?presence=0`: it is inspection, not company, and **MUST NOT**
   post `user_present` / `user_absent` (§10).

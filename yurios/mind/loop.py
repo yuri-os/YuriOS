@@ -865,7 +865,8 @@ class MindLoop:
             "budget": self.budget.snapshot(),
             "goals": [{"id": g.id, "text": g.text, "kind": g.kind,
                        "state": g.state, "due": g.due,
-                       "provenance": g.provenance}
+                       "provenance": g.provenance,
+                       "desk": self.GOAL_DESK.format(id=g.id)}
                       for g in self.goals.all()][-30:],
             "pending_edits": self.selfedit.pending(),
             # Goals of her own (§22.1), as the inner-life panel reads them.

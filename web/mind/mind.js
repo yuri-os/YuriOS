@@ -1374,15 +1374,58 @@ async function renderSignals(ctx) {
       + "in her room, where the decision goes through the mind as a signal." }));
   }
 
-  const goalRow = (goal) => element("div", { className: "row" },
-    element("div", { className: "row-top" },
-      element("span", { className: "row-title", text: goal.text }),
-      chip(goal.state || "pending", goal.state === "done" ? "ok"
-        : goal.state === "abandoned" ? "bad" : ""),
-      chip(goal.kind || "task"),
-      element("span", { className: "row-time", text: goal.due ? `due ${relative(goal.due)}` : "" })),
-    element("div", { className: "row-body mono muted", text:
-      `priority ${goal.priority} · ${goal.commitment || "single-minded"} · from ${goal.provenance || "?"}` }));
+  const goalRow = (goal) => {
+    const desk = `workspace/goals/${goal.id}.md`;
+    const holder = element("div");
+    const open = element("button", {
+      className: "button button-quiet",
+      text: "read it",
+      attrs: { type: "button" },
+    });
+    open.addEventListener("click", async () => {
+      if (holder.dataset.loaded) {
+        const hidden = holder.hidden;
+        holder.hidden = !hidden;
+        open.textContent = hidden ? "fold it away" : "read it";
+        return;
+      }
+      open.disabled = true;
+      open.textContent = "opening…";
+      try {
+        const file = await debugApi.file(desk);
+        holder.append(element("pre", { className: "json",
+          text: file.text || "(it is empty)" }));
+      } catch (error) {
+        holder.append(element("p", { className: "placeholder", text:
+          error?.status === 400 || error?.status === 404
+            ? "she hasn't written this one up yet."
+            : (errorMessage(error) || "could not open that file") }));
+      } finally {
+        holder.dataset.loaded = "1";
+        holder.hidden = false;
+        open.disabled = false;
+        open.textContent = "fold it away";
+      }
+    });
+    const vault = element("button", {
+      className: "button button-quiet",
+      text: "open in vault",
+      attrs: { type: "button" },
+    });
+    vault.addEventListener("click", () => go(`#/vault/file/${desk}`));
+    return element("div", { className: "row" },
+      element("div", { className: "row-top" },
+        element("span", { className: "row-title", text: goal.text }),
+        chip(goal.state || "pending", goal.state === "done" ? "ok"
+          : goal.state === "abandoned" ? "bad" : ""),
+        chip(goal.kind || "task"),
+        element("span", { className: "row-time",
+          text: goal.due ? `due ${relative(goal.due)}` : "" })),
+      element("div", { className: "row-body mono muted", text:
+        `priority ${goal.priority} · ${goal.commitment || "single-minded"} · from ${goal.provenance || "?"}` }),
+      element("div", { className: "row-actions" }, open, vault),
+      holder);
+  };
   wrap.append(panel("Goals", rows(goals.items || [], goalRow)));
 
   wrap.append(panel("Signal inbox", element("div", {},

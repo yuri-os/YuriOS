@@ -145,9 +145,8 @@ svg { width: 1.1em; height: 1.1em; fill: none; stroke: currentColor; stroke-widt
 .row-time { margin-left: auto; font: 10px var(--font-mono); color: var(--dim); white-space: nowrap; }
 .row-body { color: var(--soft); font-size: 12.5px; line-height: 1.5; overflow-wrap: anywhere; }
 
-/* --- the dreams section ------------------------------------------------------
- * The only section with controls on it, so the only one that needs a form row
- * and a place to put a button under a row. Everything else here is read-only. */
+/* --- the dreams section, and the goal desk opener on Signals -----------------
+ * Dreams is the write surface; the goal row's buttons only fetch a file. */
 .row-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 .field-row { display: flex; align-items: center; gap: 9px; margin-bottom: 11px; }
 .field-row label { font-size: 12.5px; color: var(--soft); }

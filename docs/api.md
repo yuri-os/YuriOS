@@ -230,7 +230,7 @@ set a timer?" gets answered without reading logs.
 
 | Route | |
 |---|---|
-| `GET /api/mind` | activity state, cadence, budget, goals, shelf, pending self-edits, and `goal_filing` (the switch, plus how many of her own goals are open against the cap) |
+| `GET /api/mind` | activity state, cadence, budget, goals (each with its `desk` path), shelf, pending self-edits, and `goal_filing` (the switch, plus how many of her own goals are open against the cap) |
 | `GET /api/mind/journal?days=` | her `[she]` lines by day (max 30) |
 | `GET /api/mind/trace?n=` | the tick-trace tail (max 200) |
 | `POST /api/mind/edits/{id}` | `{"approve": bool}` — queued as a signal the loop consumes next tick |

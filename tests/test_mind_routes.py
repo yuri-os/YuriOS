@@ -39,6 +39,21 @@ def test_api_mind_snapshot(client_with_mind):
     assert "pending_edits" in snap and "goals" in snap
 
 
+def test_the_snapshot_names_each_goal_desk(client_with_mind):
+    """The inner-life panel opens workspace/goals/<id>.md (SPEC §22.3, §24.3)
+    through the existing desk route, so the snapshot must name that path
+    rather than the browser inventing it."""
+    c, rig = client_with_mind
+    goal = rig.mind.goals.add("show you what I mean", kind="task")
+    row = next(g for g in c.get("/api/mind").json()["goals"] if g["id"] == goal.id)
+    assert row["desk"] == f"goals/{goal.id}.md"
+    assert c.get("/api/mind/workspace/file",
+                 params={"path": row["desk"]}).status_code == 404
+    rig.mind.workspace.write(row["desk"], "the almost\n")
+    assert c.get("/api/mind/workspace/file",
+                 params={"path": row["desk"]}).json()["text"] == "the almost\n"
+
+
 def test_workspace_routes_list_read_and_write_through_the_desk(client_with_mind, monkeypatch):
     c, rig = client_with_mind
     events = []

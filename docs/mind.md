@@ -532,7 +532,7 @@ The chat column's second tab, refreshed live off the same event bus:
 
 - her activity state and heartbeat,
 - today's token budget,
-- the goals on her mind, with where each came from,
+- the goals on her mind, with where each came from, and a control that opens the desk file she has been writing against,
 - the shelf,
 - edits waiting on your approval, with content and one-click approve/reject,
 - and the journal.
@@ -576,6 +576,9 @@ in the room with her.
   than waiting for 2 a.m. to come round again;
 - the **Vault's own history** — the commit list, any file now or at a revision, and every edit to
   one file (`soul/USER.md` is the usual reason you came);
+- **signals, goals and edits** — the inbox and the checklist of what she means to do, with a
+  control on each goal that opens the desk file she has been writing against
+  (`workspace/goals/<id>.md`);
 - the **recall index**, her semantic facts, beliefs, and the knowledge shelf;
 - and **what it costs** — context pressure over time, the budget, and what the small model
   produced versus what was quarantined.

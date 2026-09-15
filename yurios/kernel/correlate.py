@@ -114,6 +114,12 @@ def scope(**overrides) -> Iterator[Origin]:
     rather than restarts: a DREAM act inside a tick becomes `kind="dream"` while
     keeping the tick's id, and both records still join to the tick that caused
     them. Pass `corr_id=` explicitly to force a new one.
+
+    A scope may be held across a `yield` — `desktop/brain.py`'s `stream_greeting`
+    keeps one open for the whole stream so a barged-in greeting still records
+    what it was grounded in. An abandoned generator is then finalized wherever
+    the garbage collector reaches it, which is not the Context that opened the
+    scope, so the exit is written to survive that.
     """
     parent = _current.get()
     if parent is None:
@@ -125,4 +131,14 @@ def scope(**overrides) -> Iterator[Origin]:
     try:
         yield origin
     finally:
-        _current.reset(token)
+        try:
+            _current.reset(token)
+        except ValueError:
+            # The token belongs to the Context that entered the scope, and this
+            # is a different one: an (async) generator holding a scope across its
+            # `yield`, closed from another task — a client that hung up mid-
+            # greeting. Leaving the scope is still the right end state, and
+            # setting the parent back says so in the Context we are actually in;
+            # that Context is discarded on the next line anyway. Raising here
+            # would only turn a hang-up into an unretrieved task exception.
+            _current.set(parent)

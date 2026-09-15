@@ -143,6 +143,22 @@ class FileMemoryStore:
         p = self.vault / "memory" / "summary.md"
         return p.read_text(encoding="utf-8") if p.exists() else ""
 
+    def partner_evolution_pending(self) -> bool:
+        """Whether USER.md contains learned state beyond a fresh card's seed."""
+        current = self.read_user_md()
+        if not current.strip():
+            return False
+        _, sections = partner.parse_user_md(current)
+        # A fresh card's headings and early phase are scaffolding, not learned
+        # state. Scheduling them would create maintenance work before the first
+        # conversation. Keep this knowledge beside the partner parser so the
+        # mind layer does not import characters through it and form a cycle.
+        return bool(
+            partner.all_bullets(sections)
+            or partner.scrub(sections.get(partner.WHO, ""))
+            or partner.phase_of(sections.get(partner.PHASE, "")) not in ("", "early")
+        )
+
     # -- remember (§6.2) --------------------------------------------------------
 
     def _journal_append(self, record: Record) -> tuple[str, str]:

@@ -29,7 +29,6 @@ import logging
 from typing import Awaitable, Callable
 
 from yurios.kernel.clock import Clock
-from yurios.app.memory import partner
 from yurios.app.providers.admission import InferenceBusy
 
 from .util import day_of, read_json, utc_iso_of, write_json
@@ -112,16 +111,8 @@ class DreamConsolidator:
 
     def partner_backlog(self) -> list[str]:
         """One partner rewrite per calendar night, even without a journal (§21)."""
-        path = self.vault.vault / "soul" / "USER.md"
-        if not path.is_file():
-            return []
-        _, sections = partner.parse_user_md(path.read_text(encoding="utf-8"))
-        # A fresh card's seed headings and early phase are not learned state.
-        # Giving that empty model work would file a maintenance goal on its
-        # very first daytime tick, before the relationship has begun.
-        if (not partner.all_bullets(sections)
-                and not partner.scrub(sections.get(partner.WHO, ""))
-                and partner.phase_of(sections.get(partner.PHASE, "")) in ("", "early")):
+        needs_evolution = getattr(self.store, "partner_evolution_pending", None)
+        if not callable(needs_evolution) or not needs_evolution():
             return []
         progress = read_json(self.progress_path, {}) or {}
         if progress.get("partner_evolved_on") == day_of(self.clock.now()):

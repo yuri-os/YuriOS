@@ -18,6 +18,8 @@ let it fail the run instead of rotting quietly.
 from __future__ import annotations
 
 import ast
+import subprocess
+import sys
 from pathlib import Path
 
 KERNEL = Path(__file__).resolve().parents[1] / "yurios" / "kernel"
@@ -193,3 +195,11 @@ def test_a_fixed_cycle_leaves_the_list():
     assert not gone, (
         "these no longer cycle — delete them from KNOWN_CYCLES:\n" +
         "\n".join("  " + " <-> ".join(sorted(c)) for c in sorted(map(sorted, gone))))
+
+
+def test_the_server_imports_from_a_cold_process():
+    """Import order cannot hide a cycle that bricks the real entry point."""
+    result = subprocess.run(
+        [sys.executable, "-c", "import yurios.mind.dream; import yurios.world.main"],
+        cwd=PKG.parent, capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr

@@ -235,12 +235,17 @@ class BrainAdapter:
             system_budget_tokens=self.cfg.system_budget_tokens,
             lorebook_budget_tokens=self.cfg.lorebook_budget_tokens,
             knowledge_budget_tokens=self.cfg.knowledge_budget_tokens)
-        # the two prompt changes Build #2 makes (§6): tell the model this is a
-        # spoken (not written) exchange — no narration — and ask for inline
-        # expression tags. Both are voice-only; Build #1's text chat keeps neither.
-        prompt.messages[0]["content"] += (
-            f"\n\n## VOICE\n\n{SPOKEN_STYLE_DIRECTIVE}"
-            f"\n\n## EXPRESSION\n\n{EXPRESSION_DIRECTIVE}")
+        # Build #2's two prompt changes (§9.7): the expression tags on every
+        # channel (they are stripped from shown text and drive a body when
+        # there is one), and the spoken-style directive ONLY when this turn is
+        # going out loud. A text turn told "this is a spoken conversation"
+        # cannot text like a person; the channel is on the correlate scope,
+        # and a line composed under no scope at all (a reach-out for the
+        # inbox) is read, not heard.
+        origin = correlate.current()
+        if origin is not None and origin.channel == "voice":
+            prompt.messages[0]["content"] += f"\n\n## VOICE\n\n{SPOKEN_STYLE_DIRECTIVE}"
+        prompt.messages[0]["content"] += f"\n\n## EXPRESSION\n\n{EXPRESSION_DIRECTIVE}"
         desk = self._desk_block()
         if desk:
             prompt.messages[0]["content"] += f"\n\n{desk}"

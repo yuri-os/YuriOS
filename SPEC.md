@@ -924,9 +924,12 @@ STT/TTS/VAD SDK, and fakes implement each seam so the whole loop runs offline (�
   (`app/conversation.py`; it stays on the page). Without it the next
   prompt reads that line as a question still owed an answer and she answers it a second time,
   folded into the new turn.
-- §9.7 **Emotion → expression.** The model is asked (appended system blocks, voice-only) to
-  treat the exchange as *spoken* (no narration, no stage directions, no asterisk actions) and to
-  emit inline expression tags from the §3.4 palette. The parser (`yurios/desktop/voice/emotion.py`)
+- §9.7 **Emotion → expression.** The model is asked (appended system blocks) to emit inline
+  expression tags from the §3.4 palette on every channel, and — **only** on a turn whose channel
+  is `voice` — to treat the exchange as *spoken* (no narration, no stage directions, no asterisk
+  actions). A text turn, and a line composed under no channel at all (a reach-out for the inbox),
+  **MUST NOT** carry the spoken-style block: a companion who texts is told nothing about speech.
+  The parser (`yurios/desktop/voice/emotion.py`)
   **MUST** strip tags from the spoken text, emit an expression event when a tag closes (the face
   leads the voice), tolerate split tags, drop unknown tags silently, and also strip
   `*asterisk narration*` (streaming-safe, dropping an unclosed span rather than speaking it).
@@ -1029,7 +1032,9 @@ a frontend:
 
 - **Inbound** — the shared text-turn runner (`yurios/world/turns.py`): resolve session →
   transcript + `user_message` signal → the brain's token stream (expression tags to the puppet
-  lane, stripped from the shown text, sentences as `draft`s) → verbatim persist → `message` commit
+  lane, stripped from the shown text, the clean text accumulating as a `draft` with its line
+  breaks kept — a text is shown as it was written, so three lines are three bubbles, not one
+  sentence) → verbatim persist → `message` commit
   + `turn_committed` signal. It **MUST** mirror the voice route's contract minus the audio,
   including the rule that a failed turn leaves no trace. Text turns from all channels serialise on
   one lock. Exposed as `POST /api/chat` (`{text, session_id?, channel, client_id?}` →

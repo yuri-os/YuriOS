@@ -71,6 +71,7 @@ def desk_write(loop, goal: Goal, line: str) -> None:
     loop._desk_notes.append(f"wrote up where I got to: "
                             f"{desk_path(loop, goal)}")
     loop.vault.mark_dirty()
+    loop.hub.publish("workspace", {"action": "append", "path": desk_path(loop, goal)})
 
 
 def memories(loop, goal: Goal, facts: str) -> list:

@@ -834,8 +834,12 @@ def write_persona_delta(vault: Path, delta: PersonaDelta, *,
     if merge:
         lines = [str(x) for x in existing.get("lines") or []]
         for line in delta.lines:
-            if not any(same_slot(line, kept, names=names) for kept in lines):
+            idx = next((i for i, kept in enumerate(lines)
+                        if same_slot(line, kept, names=names)), None)
+            if idx is None:
                 lines.append(line)
+            else:
+                lines[idx] = line
         # the reason describes the lines, so merging the lines rewrites it
         delta = PersonaDelta(lines=lines, phase=delta.phase,
                              reason=persona_reason(lines))
@@ -848,14 +852,21 @@ def write_persona_delta(vault: Path, delta: PersonaDelta, *,
         "reason": delta.reason,
         "fingerprint": delta.fingerprint(),
         "queued": False,
+        "edit_id": existing.get("edit_id"),
+        # Older queued deltas did not retain their approval id. Carry their
+        # exact reason so the mind can withdraw that legacy proposal too.
+        "superseded_reason": (existing.get("reason") if existing.get("queued")
+                              else existing.get("superseded_reason")),
     }, indent=2))
 
 
-def mark_persona_delta_queued(vault: Path) -> None:
+def mark_persona_delta_queued(vault: Path, edit_id: str | None = None) -> None:
     data = read_persona_delta(vault)
     if not data:
         return
     data["queued"] = True
+    data["edit_id"] = edit_id
+    data.pop("superseded_reason", None)
     vaultgit.atomic_write(Path(vault) / PERSONA_DELTA_PATH,
                           json.dumps(data, indent=2))
 
@@ -922,11 +933,6 @@ class Quarantine:
         held: list[Op] = []
         for op in ops:
             if op.op == "remove":       # removals are always honored
-                apply_now.append(op)
-                continue
-            if op.section in PROSE_SECTIONS:
-                # A phase/who rewrite is a revision of a slot we already have,
-                # not a new claim that needs a second sighting.
                 apply_now.append(op)
                 continue
             match = next((q for q in self.items

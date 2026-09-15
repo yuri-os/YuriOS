@@ -101,6 +101,50 @@ async def test_today_is_never_dreamt_about(rig):
     assert runner.backlog() == []
 
 
+async def test_quiet_night_rewrites_partner_once_and_survives_restart(rig):
+    runner, clock, vault = rig
+    path = vault / "soul" / "USER.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("## Stable\n\n- Name is Rowan.\n")
+    assert runner._consolidator.backlog() == []
+    assert runner.backlog() == ["2026-07-05"]
+    report = await runner.run(only="consolidate")
+    assert "mid" in path.read_text()
+    assert report.jobs[0].changed
+    assert not report.nothing_to_do
+    assert runner.backlog() == []
+    # The daily marker is on disk, not a flag in the running job.
+    resumed = DreamConsolidator(runner.vault, runner.store, clock)
+    assert resumed.partner_backlog() == []
+    clock.advance(86400)
+    assert resumed.partner_backlog() == ["2026-07-06"]
+
+
+def test_the_seed_alone_does_not_create_quiet_night_work(rig):
+    from .conftest import ROOT
+
+    runner, clock, vault = rig
+    path = vault / "soul" / "USER.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text((ROOT / "soul-src" / "USER.md").read_text())
+    assert runner.backlog() == []
+
+
+async def test_failed_quiet_night_keeps_partner_work_pending(rig, monkeypatch):
+    runner, clock, vault = rig
+    path = vault / "soul" / "USER.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("## Stable\n\n- Likes dogs.\n")
+
+    async def fail(**kwargs):
+        raise RuntimeError("classification failed")
+
+    monkeypatch.setattr(runner.store, "evolve_partner", fail)
+    report = await runner.run(only="consolidate")
+    assert report.jobs[0].failed
+    assert runner.backlog() == ["2026-07-05"]
+
+
 async def test_progress_is_per_job_and_resumable(rig):
     runner, _clock, vault = rig
     _day_file(vault, "2026-07-04", ["user: remember the boat  ⇄  yuri: noted"])

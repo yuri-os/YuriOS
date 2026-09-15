@@ -36,7 +36,8 @@ import { STATE_META, canonicalState } from '../shared/activity-state.js';
   const droppingGoals = new Set();
   const openDesks = new Set();    // goal ids whose desk file is unfolded
   const deskCache = new Map();    // id -> { text, missing }
-  const deskPending = new Set();
+  const deskPending = new Map();  // id -> request token; superseded fetches are ignored
+  const deskPaths = new Map();
   const SLOW = 20000;             // DORMANT ticks are slow
   const FAST = 2000;              // a passage takes seconds; a bar should move
 
@@ -215,6 +216,7 @@ import { STATE_META, canonicalState } from '../shared/activity-state.js';
   }
 
   function goalRow(g) {
+    deskPaths.set(g.id, deskPath(g));
     const hers = String(g.provenance || '').startsWith(HERS);
     const abandoned = g.state === 'abandoned';
     if (abandoned) droppingGoals.delete(g.id);
@@ -405,11 +407,18 @@ import { STATE_META, canonicalState } from '../shared/activity-state.js';
       return;
     }
     openDesks.add(id);
-    if (deskCache.has(id) || deskPending.has(id)) {
+    if (deskCache.has(id) && !deskCache.get(id).missing) {
       render();
       return;
     }
-    deskPending.add(id);
+    await loadDesk(id, path);
+  }
+
+  async function loadDesk(id, path) {
+    if (deskPending.has(id)) return;
+    const request = Symbol();
+    deskPending.set(id, request);
+    deskCache.delete(id);
     render();
     try {
       await runtimeReady;
@@ -417,14 +426,17 @@ import { STATE_META, canonicalState } from '../shared/activity-state.js';
         '/api/mind/workspace/file?path=' + encodeURIComponent(path || '')));
       if (res.ok) {
         const data = await res.json();
+        if (deskPending.get(id) !== request) return;
         deskCache.set(id, { text: data.text || '(it is empty)', missing: false });
       } else {
+        if (deskPending.get(id) !== request) return;
         deskCache.set(id, { text: '', missing: true });
       }
     } catch {
+      if (deskPending.get(id) !== request) return;
       deskCache.set(id, { text: '', missing: true });
     } finally {
-      deskPending.delete(id);
+      if (deskPending.get(id) === request) deskPending.delete(id);
     }
     if (openDesks.has(id)) render();
   }
@@ -572,6 +584,13 @@ import { STATE_META, canonicalState } from '../shared/activity-state.js';
   // it, because a run beginning is exactly when the slow cadence stops doing.
   window.addEventListener('world-ev', (ev) => {
     const t = ev.detail?.type;
+    if (t === 'workspace') {
+      // A write may land before an older fetch completes. Retire both cached
+      // results and pending requests; only the fresh response may repaint.
+      deskCache.clear();
+      deskPending.clear();
+      for (const id of openDesks) loadDesk(id, deskPaths.get(id));
+    }
     if (open && (t === 'journal' || t === 'mind' || t === 'research_status')) {
       render().then(pace);
     } else if (!open && !filesPanel.hidden && t === 'workspace') {

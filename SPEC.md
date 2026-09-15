@@ -234,7 +234,11 @@ file-backed:
   with me", which is the same request in another person's words. With no classification
   available the honest answer is **no delta**, not a guess. Externally-sourced or
   low-confidence claims
-  are **quarantined** until a second turn corroborates. `remember` **MUST** tolerate a
+  are **quarantined** until a second turn corroborates, including claims in the
+  Who and relationship-phase prose sections. A corrected persona direction **MUST**
+  replace its previous pending value; an obsolete generated approval entry **MUST**
+  be withdrawn when its replacement is proposed. A stale approval **MUST NOT**
+  apply the old direction once a correction is recorded. `remember` **MUST** tolerate a
   malformed utility response (log and drop, never fatal to the turn), and **MUST** attribute
   facts to the correct speaker — her own self-statements are never recorded as facts about
   the user. Extractor provenance ("implied by research/…") **MUST NOT** survive into a
@@ -245,6 +249,8 @@ file-backed:
   k. An empty Vault returns `[]`; assembly proceeds on SOUL + `USER.md` alone.
 - `forget(selector)` is **supersede-not-delete**: remove the line from the working
   `USER.md`/`facts.md`, append a tombstone to `memory/semantic/forgotten.md`, and commit.
+  Removal **MUST** include matching prose in `USER.md`, including derived copies in
+  Who and the relationship phase, while preserving the file's headings and frontmatter.
   The old value survives in `git log` but is gone from every future prompt — assembly never
   reads `forgotten.md`, and `recall` drops any chunk whose source text is tombstoned.
 - `inspect(selector)` returns what she knows and why (source, confidence) — the file
@@ -253,6 +259,9 @@ file-backed:
 - `consolidate()` is the DREAM pass, implemented by the mind (§21). The reactive
   body's slot still **MUST** rewrite `USER.md` (`evolve_partner`) so a caller
   without a mind still gets a living partner model.
+  A rewrite that awaits a model call **MUST** re-read `USER.md` before merging its
+  result, preserving intervening edits and forgetting; labels from the earlier read
+  apply only to bullets whose text is unchanged.
 
 **The derived index** (`memory/index/`, `sqlite-vec` or a flat vector index) is a
 rebuildable cache: one row per chunk with `source_path`/`source_span` back to the markdown,
@@ -942,6 +951,8 @@ STT/TTS/VAD SDK, and fakes implement each seam so the whole loop runs offline (�
   is `voice` — to treat the exchange as *spoken* (no narration, no stage directions, no asterisk
   actions). A text turn, and a line composed under no channel at all (a reach-out for the inbox),
   **MUST NOT** carry the spoken-style block: a companion who texts is told nothing about speech.
+  Both browser and native voice sockets **MUST** establish the voice channel for
+  greetings and replies before the brain assembles their prompts.
   The parser (`yurios/desktop/voice/emotion.py`)
   **MUST** strip tags from the spoken text, emit an expression event when a tag closes (the face
   leads the voice), tolerate split tags, drop unknown tags silently, and also strip
@@ -1543,6 +1554,12 @@ turn** — separate files, separate indexes, separate `inspect()`.
   the compact labels `learned` **MUST** be proposed as a gated `soul/PERSONA.md`
   edit (`## Learned`, `relationship_phase` frontmatter) the same night, not left
   in USER.md forever.
+  With learned claims in `USER.md` (beyond the untouched seed), consolidation
+  **MUST** expose pending work once per
+  calendar night even if its journal backlog is empty. A successful pass records
+  `partner_evolved_on` in `state/dream_progress.json` using the injected clock;
+  failure leaves the work pending, and restarting **MUST NOT** repeat a completed
+  quiet-night pass. A partner-only rewrite **MUST** be reported as a change.
 - **Oldest-first and resumable** (`state/dream_progress.json`): a night that runs out of budget
   leaves a backlog, not an overrun, and the next DREAM tick resumes. The night's work is journaled
   ("slept on it: folded … into what I keep").
@@ -1921,7 +1938,13 @@ The product half of autonomy: what converts an always-on process from creepy to 
   `GET /api/mind/workspace/file`, the shelf, and the journal,
   refreshed live off the same one bus (`journal`/`mind` events). Everything reads *through* the mind's
   own stores; the dashboard can never disagree with the files. The snapshot **MUST** name each
-  goal's `desk` path so the panel does not invent it. The standalone debug page
+  goal's `desk` path so the panel does not invent it.
+  Cached goal previews **MUST** be invalidated by workspace events, including
+  missing-file results; reopening a missing file retries it. An invalidated fetch
+  **MUST NOT** overwrite a newer preview when its response arrives late.
+  The mind's own goal-progress writes **MUST** publish the same workspace events
+  as tool and human writes so an open preview follows the work.
+  The standalone debug page
   (`/characters/{id}/mind`, `web/mind/`) **MUST** attach the bus as
   `GET /api/events?presence=0`: it is inspection, not company, and **MUST NOT**
   post `user_present` / `user_absent` (§10).

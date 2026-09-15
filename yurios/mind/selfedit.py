@@ -24,6 +24,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from yurios.app.memory import partner
 from yurios.characters.soulfiles import shape_complaint
 from yurios.kernel.clock import Clock
 
@@ -102,6 +103,14 @@ class SelfEdit:
     def pending(self) -> list[dict]:
         return read_json(self.pending_path, []) or []
 
+    def withdraw(self, edit_id: str) -> None:
+        """An obsolete proposal must no longer be approvable."""
+        pending = self.pending()
+        kept = [p for p in pending if p["id"] != edit_id]
+        if len(kept) != len(pending):
+            write_json(self.pending_path, kept)
+            self.vault.mark_dirty()
+
     def decide(self, edit_id: str, approve: bool) -> EditResult | None:
         """Consume one queued edit. Called from the loop when the user's
         `selfedit_decision` signal arrives (the /api/mind/edits route posts it)."""
@@ -111,6 +120,14 @@ class SelfEdit:
             return None
         write_json(self.pending_path, [p for p in pending if p["id"] != edit_id])
         self.vault.mark_dirty()
+        if entry["surface"] == "soul/PERSONA.md":
+            delta = partner.read_persona_delta(self.vault.vault) or {}
+            # A click can reach SENSE before housekeeping withdraws the old
+            # proposal. A correction already on disk makes that click stale.
+            if not delta.get("queued", True) and (
+                    delta.get("edit_id") == edit_id
+                    or delta.get("superseded_reason") == entry["reason"]):
+                return None
         if not approve:
             return EditResult(edit_id, "rejected", entry["surface"], entry["reason"])
         self.vault.write(entry["surface"], entry["content"], gate=True)

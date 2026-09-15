@@ -277,6 +277,14 @@ class FileMemoryStore:
         # price of a call, so the filing is cached against the bullets it read
         # and only the rest of the compact (phase, Who, collapse) runs.
         classified = await self._filing(bullets)
+        # The model call yields to edits and forget(). Merge against the file
+        # as it stands now, and only reuse labels for unchanged bullets.
+        current = self.read_user_md()
+        if not current.strip():
+            return False
+        _, sections = partner.parse_user_md(current)
+        classified = {b: classified[b] for b in partner.all_bullets(sections)
+                      if b in classified}
         new_md, delta = partner.compact_user_md(
             current, days_together=days_together, classified=classified,
             names=self.names)
@@ -377,6 +385,20 @@ class FileMemoryStore:
             if not path.exists():
                 continue
             lines = path.read_text(encoding="utf-8").splitlines()
+            if path == self.user_md_path:
+                # USER.md now holds facts in prose too, including the name
+                # copied into Who and the phase. Keep its YAML and headings.
+                front, sections = partner.parse_user_md("\n".join(lines))
+                count = 0
+                for heading, body in sections.items():
+                    body_lines = body.splitlines()
+                    kept_body = [ln for ln in body_lines if sel not in ln.lower()]
+                    count += len(body_lines) - len(kept_body)
+                    sections[heading] = "\n".join(kept_body)
+                if count:
+                    removed += count
+                    vaultgit.atomic_write(path, partner.render_user_md(front, sections))
+                continue
             kept = [ln for ln in lines
                     if not (ln.lstrip().startswith("- ") and sel in ln.lower())]
             if len(kept) != len(lines):

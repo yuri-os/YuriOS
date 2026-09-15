@@ -58,6 +58,33 @@ async def test_a_voice_turn_still_is(cfg, seeded_vault, clock, controller):
     assert "## EXPRESSION" in system_of(chat)
 
 
+def test_native_voice_marks_greetings_and_replies_as_spoken(cfg, seeded_vault):
+    from yurios.desktop.brain import BrainAdapter
+    from yurios.desktop.main import create_app as desktop_app
+
+    cfg = cfg.model_copy(update={"vault_dir": seeded_vault,
+                                 "embed_dim": FakeEmbedder.dim})
+    chat = CannedChat("[happy] Hello there.")
+    brain = BrainAdapter.build(cfg, chat_model=chat,
+                               utility_model=FakeUtility(), embedder=FakeEmbedder())
+    # A returning greeting calls the model; the authored cold open does not.
+    brain.cold_open = lambda: None
+    with TestClient(desktop_app(cfg, brain=brain)) as client:
+        with client.websocket_connect("/ws/voice") as ws:
+            ws.send_json({"type": "hello"})
+            for request in (None, {"type": "text", "text": "Hello"}):
+                if request:
+                    ws.send_json(request)
+                for _ in range(100):
+                    event = ws.receive_json()
+                    assert event["type"] != "error", event
+                    if event["type"] == "done":
+                        break
+                else:
+                    pytest.fail("voice turn did not finish")
+                assert "## VOICE\n" in system_of(chat)
+
+
 async def test_an_ambient_line_with_no_channel_is_text(cfg, seeded_vault, clock, controller):
     """A reach-out composed for the inbox has no channel; it is read, not heard."""
     chat = CannedChat("[tender] thinking of you")

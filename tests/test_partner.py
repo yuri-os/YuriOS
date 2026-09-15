@@ -7,8 +7,11 @@ PERSONA.md. These pin the fixes, not a live model's obedience.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import subprocess
+
+import pytest
 
 from yurios.app.core.soul import SoulLoader
 from yurios.characters.soulfiles import parse_md_text
@@ -317,7 +320,9 @@ def test_learned_section_is_a_slice_not_a_new_character():
     assert not partner.learned_already_in_persona(persona, delta)
 
 
-def test_a_persona_delta_is_queued_not_silently_applied(tmp_path):
+@pytest.mark.parametrize("legacy", [False, True])
+@pytest.mark.parametrize("early_click", [False, True])
+def test_a_persona_delta_is_queued_not_silently_applied(tmp_path, legacy, early_click):
     vault_dir = tmp_path / "vault"
     (vault_dir / "soul").mkdir(parents=True)
     (vault_dir / "state").mkdir(parents=True)
@@ -351,6 +356,92 @@ def test_a_persona_delta_is_queued_not_silently_applied(tmp_path):
     assert vault.read("soul/PERSONA.md") == persona  # untouched until you approve
     # a second pass must not nag
     assert propose_learned_persona(Loop()) == []
+
+    old_id = selfedit.pending()[0]["id"]
+    if legacy:
+        data = partner.read_persona_delta(vault_dir)
+        data.pop("edit_id", None)
+        (vault_dir / partner.PERSONA_DELTA_PATH).write_text(json.dumps(data))
+    corrected = partner.PersonaDelta(
+        lines=["Yandere-lite: do not reach out."], phase="mid", reason="correction")
+    partner.write_persona_delta(vault_dir, corrected, merge=True)
+    if early_click:
+        assert selfedit.decide(old_id, True) is None
+        assert vault.read("soul/PERSONA.md") == persona
+    assert propose_learned_persona(Loop())
+    pending = selfedit.pending()
+    assert len(pending) == 1 and pending[0]["id"] != old_id
+    assert "do not reach out" in pending[0]["content"]
+    assert "bold about reaching out" not in pending[0]["content"]
+    assert selfedit.decide(old_id, True) is None
+    selfedit.decide(pending[0]["id"], True)
+    assert "do not reach out" in vault.read("soul/PERSONA.md")
+
+
+async def test_forget_removes_derived_name_from_prompt(tmp_path, monkeypatch):
+    from yurios.app.core.assemble import user_md_for_prompt
+
+    store = _store(tmp_path, ScriptedUtility(ops_json({
+        "section": "Stable", "text": "Name is Rowan.",
+        "op": "add", "confidence": 0.95})))
+    await store.remember(Record(session_id="s", turn_index=0,
+                                user_msg="My name is Rowan", reply="Hello"))
+    assert store.read_user_md().count("Rowan") == 3
+    monkeypatch.setattr("yurios.app.vaultgit.commit", lambda *a, **kw: None)
+    store.forget("Rowan")
+    assert "Rowan" not in user_md_for_prompt(store.read_user_md())
+    assert "Rowan" in store.forgotten_path.read_text()
+    front, _ = partner.parse_user_md(store.read_user_md())
+    assert front["runtime_only"] is True
+
+
+async def test_persona_correction_replaces_pending_direction(tmp_path):
+    old = "Wants her to be formal."
+    new = "Does not want her to be formal."
+    store = _store(tmp_path, ScriptedUtility(*[
+        ops_json({"section": partner.HELPS, "text": text, "op": op,
+                  "confidence": 0.95, "about_her": True})
+        for text, op in [(old, "add"), (new, "update")]]))
+    for i, text in enumerate((old, new)):
+        await store.remember(Record(session_id="s", turn_index=i,
+                                    user_msg=text, reply="Okay"))
+    assert new in store.read_user_md()
+    assert partner.read_persona_delta(tmp_path)["lines"] == [new]
+
+
+def test_low_confidence_prose_waits_for_corroboration(tmp_path):
+    quarantine = partner.Quarantine(tmp_path / "quarantine.json")
+    for section, text in ((partner.WHO, "Name is Rowan; lives in Seoul."),
+                          (partner.PHASE, "mid — they trust each other.")):
+        op = Op(section, text, confidence=0.1)
+        applied, held = quarantine.triage([op])
+        assert applied == [] and held == [op]
+        applied, held = quarantine.triage([op])
+        assert applied == [op] and held == []
+
+
+async def test_filing_preserves_edits_and_forgetting_during_model_call(tmp_path, monkeypatch):
+    entered, resume = asyncio.Event(), asyncio.Event()
+
+    class Utility:
+        async def complete(self, messages, **kwargs):
+            entered.set()
+            await resume.wait()
+            return json.dumps({"labels": {"1": "ongoing"}})
+
+    store = _store(tmp_path, Utility())
+    store.user_md_path.write_text(partner.apply_ops(
+        store.read_user_md(), [Op("Stable", "Works late.", confidence=0.95)]))
+    task = asyncio.create_task(store.evolve_partner())
+    await entered.wait()
+    monkeypatch.setattr("yurios.app.vaultgit.commit", lambda *a, **kw: None)
+    store.forget("Works late")
+    store.user_md_path.write_text(partner.apply_ops(
+        store.read_user_md(), [Op("Stable", "Likes dogs.", confidence=0.95)]))
+    resume.set()
+    await task
+    assert "Works late." not in store.read_user_md()
+    assert "Likes dogs." in partner.parse_user_md(store.read_user_md())[1]["Stable"]
 
 
 async def test_dreams_filing_pass_is_cached_on_the_bullets_it_read(tmp_path):

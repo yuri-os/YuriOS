@@ -129,6 +129,7 @@ async def test_a_goal_stays_active_across_ticks_and_reads_its_own_desk(
     rig = make_mind(cfg, seeded_vault, utility=utility)
     goal = rig.mind.goals.add("work out how to take the bathroom tiles off",
                               kind="task", priority=0.9)
+    events = rig.mind.hub.subscribe()
 
     await rig.mind.tick()
     after_one = rig.mind.goals.get(goal.id)
@@ -137,6 +138,12 @@ async def test_a_goal_stays_active_across_ticks_and_reads_its_own_desk(
     # the working note went to her desk, not only the journal
     desk = rig.mind.workspace.read(f"goals/{goal.id}.md", default="")
     assert "heat gun" in desk
+    published = []
+    while not events.empty():
+        published.append(events.get_nowait())
+    rig.mind.hub.unsubscribe(events)
+    assert {"type": "workspace", "action": "append",
+            "path": f"goals/{goal.id}.md"} in published
 
     # the next step reads it back — which is the whole point of the desk
     rig.clock.advance(rig.mind.cfg.mind_consider_cooldown_s + 60)

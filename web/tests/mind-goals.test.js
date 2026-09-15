@@ -1,7 +1,13 @@
 /** @vitest-environment jsdom */
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+
+beforeEach(() => vi.spyOn(window, 'addEventListener'));
 
 afterEach(() => {
+  for (const [type, listener, options] of window.addEventListener.mock.calls) {
+    window.removeEventListener(type, listener, options);
+  }
+  vi.restoreAllMocks();
   vi.resetModules();
   vi.unstubAllGlobals();
   delete window.YuriOSRuntime;
@@ -197,7 +203,48 @@ it('opens the desk file next to a goal and folds it without fetching again', asy
   expect(fetched).toHaveBeenCalledTimes(1);
 });
 
-it('says so when a goal has no desk file yet', async () => {
+it('refreshes an open file on writes and ignores a superseded response', async () => {
+  document.body.innerHTML = `
+    <button id="tab-chat"></button><button id="tab-mind"></button>
+    <button id="tab-files"></button><div id="messages"></div>
+    <div id="innerlife" hidden></div><div id="files" hidden></div>`;
+  window.YuriOSRuntime = { apiPath: (path) => path };
+  const state = {
+    state: 'IDLE', cadence_s: 60, interrupts_today: 0, dream_backlog: [],
+    budget: { spent_tokens: 0, daily_tokens: 1000 }, pending_edits: [],
+    goals: [{id: 'g-live', text: 'live goal', kind: 'task', state: 'active', provenance: 'user'}],
+    goal_filing: { enabled: true, open: 0, max: 3 }, shelf: [],
+  };
+  let finishOld;
+  const file = vi.fn()
+    .mockResolvedValueOnce({ok: true, json: async () => ({text: 'original'})})
+    .mockImplementationOnce(() => new Promise(resolve => { finishOld = resolve; }))
+    .mockResolvedValue({ok: true, json: async () => ({text: 'newest'})});
+  vi.stubGlobal('fetch', vi.fn(async url => {
+    if (url === '/api/mind') return {ok: true, json: async () => state};
+    if (url === '/api/mind/journal?days=3') return {ok: true, json: async () => ({days: []})};
+    if (url === '/api/mind/reading') return {ok: true, json: async () => ({runs: [], held: []})};
+    if (String(url).startsWith('/api/mind/workspace/file?')) return file();
+    throw new Error(`unexpected request: ${url}`);
+  }));
+  await import('../js/mind.js');
+  document.getElementById('tab-mind').click();
+  await vi.waitFor(() => expect(document.querySelector('.il-look')).not.toBeNull());
+  document.querySelector('.il-look').click();
+  await vi.waitFor(() => expect(document.querySelector('.il-desk').textContent).toBe('original'));
+  const changed = () => window.dispatchEvent(new CustomEvent('world-ev', {
+    detail: {type: 'workspace', action: 'write', path: 'goals/g-live.md'},
+  }));
+  changed();
+  await vi.waitFor(() => expect(file).toHaveBeenCalledTimes(2));
+  changed();
+  await vi.waitFor(() => expect(document.querySelector('.il-desk').textContent).toBe('newest'));
+  finishOld({ok: true, json: async () => ({text: 'stale'})});
+  await new Promise(resolve => setTimeout(resolve, 20));
+  expect(document.querySelector('.il-desk').textContent).toBe('newest');
+});
+
+it('retries a missing goal file when reopened', async () => {
   document.body.innerHTML = `
     <button id="tab-chat"></button><button id="tab-mind"></button>
     <button id="tab-files"></button><button id="tab-gallery"></button>
@@ -214,6 +261,7 @@ it('says so when a goal has no desk file yet', async () => {
     }],
     goal_filing: { enabled: true, open: 0, max: 3 }, shelf: [],
   };
+  let exists = false;
   vi.stubGlobal('fetch', vi.fn((url, options = {}) => {
     if (url === '/api/mind' && !options.method) {
       return Promise.resolve({ ok: true, json: async () => state });
@@ -227,7 +275,8 @@ it('says so when a goal has no desk file yet', async () => {
       });
     }
     if (String(url).startsWith('/api/mind/workspace/file?')) {
-      return Promise.resolve({ ok: false, status: 404, text: async () => 'missing' });
+      return Promise.resolve({ ok: exists, status: exists ? 200 : 404,
+        json: async () => ({text: 'written now'}), text: async () => 'missing' });
     }
     throw new Error(`unexpected request: ${url}`);
   }));
@@ -239,4 +288,9 @@ it('says so when a goal has no desk file yet', async () => {
   await vi.waitFor(() => expect(document.querySelector('.il-desk')?.textContent)
     .toBe("she hasn't written this one up yet."));
   expect(document.querySelector('.il-drop')).not.toBeNull();
+  exists = true;
+  document.querySelector('.il-look').click();
+  await vi.waitFor(() => expect(document.querySelector('.il-desk')).toBeNull());
+  document.querySelector('.il-look').click();
+  await vi.waitFor(() => expect(document.querySelector('.il-desk')?.textContent).toBe('written now'));
 });

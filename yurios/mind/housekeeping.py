@@ -65,6 +65,13 @@ def propose_learned_persona(loop) -> list[str]:
     data = partner.read_persona_delta(loop.cfg.vault_dir)
     if not data or data.get("queued"):
         return []
+    if data.get("edit_id"):
+        loop.selfedit.withdraw(data["edit_id"])
+    elif data.get("superseded_reason"):
+        for edit in loop.selfedit.pending():
+            if (edit["surface"] == "soul/PERSONA.md"
+                    and edit["reason"] == data["superseded_reason"]):
+                loop.selfedit.withdraw(edit["id"])
     lines = [str(x).strip() for x in data.get("lines") or [] if str(x).strip()]
     if not lines:
         return []
@@ -93,7 +100,7 @@ def propose_learned_persona(loop) -> list[str]:
         log.warning("persona delta refused at the door: %s", exc)
         return []
     if result.outcome == "queued":
-        partner.mark_persona_delta_queued(loop.cfg.vault_dir)
+        partner.mark_persona_delta_queued(loop.cfg.vault_dir, result.id)
         return [f"queued a persona edit: {_note(delta)}"]
     if result.outcome == "applied":
         partner.mark_persona_delta_queued(loop.cfg.vault_dir)

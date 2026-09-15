@@ -29,6 +29,7 @@ import logging
 from typing import Awaitable, Callable
 
 from yurios.kernel.clock import Clock
+from yurios.app.memory import partner
 from yurios.app.providers.admission import InferenceBusy
 
 from .util import day_of, read_json, utc_iso_of, write_json
@@ -109,14 +110,32 @@ class DreamConsolidator:
                       if is_canonical_day(p.stem) and p.stem < today)
         return [d for d in days if d not in done]
 
+    def partner_backlog(self) -> list[str]:
+        """One partner rewrite per calendar night, even without a journal (§21)."""
+        path = self.vault.vault / "soul" / "USER.md"
+        if not path.is_file():
+            return []
+        _, sections = partner.parse_user_md(path.read_text(encoding="utf-8"))
+        # A fresh card's seed headings and early phase are not learned state.
+        # Giving that empty model work would file a maintenance goal on its
+        # very first daytime tick, before the relationship has begun.
+        if (not partner.all_bullets(sections)
+                and not partner.scrub(sections.get(partner.WHO, ""))
+                and partner.phase_of(sections.get(partner.PHASE, "")) in ("", "early")):
+            return []
+        progress = read_json(self.progress_path, {}) or {}
+        if progress.get("partner_evolved_on") == day_of(self.clock.now()):
+            return []
+        return [day_of(self.clock.now() - 86400.0)]
+
     # ------------------------------------------------------------ consolidate
 
     async def consolidate(self, *, token_budget: int = 40000) -> ConsolidationReport:
         report = ConsolidationReport()
         pending = self.backlog()
         if not pending:
-            report.nothing_to_do = True
             await self._evolve_partner(report)
+            report.nothing_to_do = not report.user_md_rewritten
             return report
 
         progress = read_json(self.progress_path, {}) or {}
@@ -157,8 +176,8 @@ class DreamConsolidator:
             spent += cost
 
         if report.days_processed:                 # a night that consolidated
-            write_json(self.progress_path,        # nothing leaves no trace and
-                       {"consolidated_days": done_days})   # no commit
+            progress["consolidated_days"] = done_days
+            write_json(self.progress_path, progress)
             self.vault.mark_dirty()
         await self._evolve_partner(report)
         return report
@@ -173,7 +192,10 @@ class DreamConsolidator:
         days = sum(1 for _ in self.episodic.glob("*.md"))
         if await evolve(days_together=days):
             report.user_md_rewritten = True
-            self.vault.mark_dirty()
+        progress = read_json(self.progress_path, {}) or {}
+        progress["partner_evolved_on"] = day_of(self.clock.now())
+        write_json(self.progress_path, progress)
+        self.vault.mark_dirty()
 
     async def _summarise_day(self, day: str, text: str) -> list[str]:
         if self.utility is None:

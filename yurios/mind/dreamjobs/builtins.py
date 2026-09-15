@@ -180,7 +180,7 @@ class ConsolidateJob(DreamJob):
         self.consolidator = consolidator
 
     def backlog(self, ctx, ledger) -> list[str]:
-        return self.consolidator.backlog()
+        return self.consolidator.backlog() or self.consolidator.partner_backlog()
 
     async def work(self, ctx: DreamContext, day: str) -> JobReport:
         # The consolidator is budgeted and resumable in its own right, so one
@@ -188,12 +188,15 @@ class ConsolidateJob(DreamJob):
         # takes exactly the oldest day and let the runner decide about the next.
         report = await self.consolidator.consolidate(token_budget=1)
         out = JobReport(name=self.name, days=list(report.days_processed),
-                        changed=bool(report.facts_added))
+                        changed=bool(report.facts_added or report.user_md_rewritten))
         out.result = (f"{len(report.days_processed)} day(s), "
                       f"{report.facts_added} fact(s)")
         if report.days_processed:
             out.note = (f"slept on it: folded {', '.join(report.days_processed)} "
                         "into what I keep")
+        if report.user_md_rewritten:
+            out.result += "; partner model rewritten"
+            out.note = (out.note + "; " if out.note else "") + "updated how I see them"
         return out
 
 

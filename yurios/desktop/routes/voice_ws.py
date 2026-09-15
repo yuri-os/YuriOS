@@ -35,6 +35,8 @@ import logging
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
+from yurios.kernel import correlate
+
 from ..voice.latency import TurnTrace
 from ..voice.transcript import is_meaningful_transcript
 from ..voice.ws_limits import (
@@ -78,10 +80,12 @@ async def _connected(ws: WebSocket, rt) -> None:
     async def run(agen) -> None:
         """Pump one turn's OutEvents to the client until it ends or the client goes."""
         try:
-            async for ev in agen:
-                if not await safe_send(encode_event(ev)):
-                    controller.cancel()        # client vanished → tear the turn down
-                    return
+            # The native socket is speech, including its greeting (SPEC §9.7).
+            with correlate.scope(channel="voice", session_id=session_id):
+                async for ev in agen:
+                    if not await safe_send(encode_event(ev)):
+                        controller.cancel()    # client vanished → tear the turn down
+                        return
         except Exception:
             log.exception("turn stream failed")
             await safe_send({"type": "error", "message": "turn failed"})

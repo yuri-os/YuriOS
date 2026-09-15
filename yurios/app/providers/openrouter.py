@@ -15,6 +15,7 @@ For lm_studio/… the server's base url is passed as `api_base` (LMSTUDIO_BASE_U
 """
 from __future__ import annotations
 
+import logging
 from typing import AsyncIterator
 
 import litellm
@@ -22,6 +23,8 @@ import litellm
 from yurios import attribution
 from yurios.app.providers.admission import inference_admission
 from yurios.app.providers.usage import chunk_prompt_tokens, chunk_text
+
+log = logging.getLogger("app.providers")
 
 
 def _route(model: str) -> str:
@@ -70,6 +73,22 @@ def _thinking_off(model: str, messages: list[dict]) -> tuple[list[dict], dict]:
     if model.startswith("openrouter/"):
         return messages, dict(_OPENROUTER_NO_THINK_BODY)
     return _no_think_messages(messages), dict(_NO_THINK_BODY)
+
+
+def _schema_refused(answer: str, meta: dict, call: dict) -> bool:
+    """Did this route answer nothing *because* of the JSON Schema we sent?
+
+    The tell is a completion that stopped normally having written not one token:
+    a model that ran out of room says `length`, one that was cut off says so, and
+    one that had nothing to say still writes `{"goal": null}`. Empty at `stop` is
+    the route declining a schema it cannot serve, in the one way the OpenAI shape
+    gives it to decline in. Narrow on purpose — it must never eat a real empty.
+    """
+    fmt = call.get("response_format") or {}
+    return (not answer.strip()
+            and fmt.get("type") == "json_schema"
+            and meta.get("finish_reason") == "stop"
+            and not meta.get("completion_tokens"))
 
 # Routes that accept OpenAI's `stream_options` — verified against LM Studio 0.4,
 # which otherwise sends no usage at all (its streams end on a plain finish_reason
@@ -237,24 +256,45 @@ class LiteLLMUtilityModel:
             # OpenAI-compatible local servers, including LM Studio, enforce
             # JSON Schema as a top-level completion parameter.
             extra["response_format"] = params["response_format"]
+        call = dict(
+            model=self.model,
+            messages=messages,
+            api_key=self.api_key,
+            api_base=self.api_base,
+            temperature=params.get("temperature", 0.2),
+            max_tokens=params.get("max_tokens", self.max_tokens),
+            **_attribution(self.model),
+            **extra,
+        )
         async with inference_admission():
-            response = await litellm.acompletion(
-                model=self.model,
-                messages=messages,
-                api_key=self.api_key,
-                api_base=self.api_base,
-                temperature=params.get("temperature", 0.2),
-                max_tokens=params.get("max_tokens", self.max_tokens),
-                **_attribution(self.model),
-                **extra,
-            )
-            choice = response.choices[0]
-            usage = getattr(response, "usage", None)
-            details = getattr(usage, "completion_tokens_details", None)
-            return (choice.message.content or "", {
-                "finish_reason": getattr(choice, "finish_reason", "") or "",
-                "prompt_tokens": getattr(usage, "prompt_tokens", 0) or 0,
-                "completion_tokens": getattr(usage, "completion_tokens", 0) or 0,
-                "total_tokens": getattr(usage, "total_tokens", 0) or 0,
-                "reasoning_tokens": getattr(details, "reasoning_tokens", 0) or 0,
-            })
+            answer, meta = await self._complete(call)
+            if _schema_refused(answer, meta, call):
+                # A route that cannot serve this schema answers *nothing* rather
+                # than refusing (SPEC §2.4). Measured on openrouter/z-ai/glm-5.2
+                # with the promise-review schema: finish_reason="stop" and zero
+                # completion tokens, strict or not — while the same call with
+                # `json_object`, or with no response_format at all, answers
+                # correctly. The shape was never being held by the schema: the
+                # contract is stated in the system prompt and re-checked by the
+                # parser. So dropping to plain JSON mode gives up enforcement
+                # this route was not performing, and buys back the answer.
+                log.info("%s answered nothing under a json_schema; "
+                         "retrying in json_object mode", self.model)
+                answer, meta = await self._complete(
+                    {**call, "response_format": {"type": "json_object"}})
+                meta["schema_downgraded"] = True
+            return answer, meta
+
+    async def _complete(self, call: dict) -> tuple[str, dict]:
+        """One completion, unpacked. Its own method so a retry is the same call."""
+        response = await litellm.acompletion(**call)
+        choice = response.choices[0]
+        usage = getattr(response, "usage", None)
+        details = getattr(usage, "completion_tokens_details", None)
+        return (choice.message.content or "", {
+            "finish_reason": getattr(choice, "finish_reason", "") or "",
+            "prompt_tokens": getattr(usage, "prompt_tokens", 0) or 0,
+            "completion_tokens": getattr(usage, "completion_tokens", 0) or 0,
+            "total_tokens": getattr(usage, "total_tokens", 0) or 0,
+            "reasoning_tokens": getattr(details, "reasoning_tokens", 0) or 0,
+        })

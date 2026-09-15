@@ -249,6 +249,18 @@ def test_promise_review_parser_is_strict():
         parse_promise_review('{"goal":null,"extra":true}', candidate_count=1)
 
 
+def test_an_empty_review_says_it_was_empty():
+    """Not "was not JSON": 39 of 85 reviews on one installation came back empty
+    because the route would not serve the schema (§2.4), and calling that a
+    malformed answer sent every reader to the parser instead of the seam."""
+    for silence in ("", "   \n ", "<think>hm</think>"):
+        with pytest.raises(PromiseReviewError, match="empty"):
+            parse_promise_review(silence, candidate_count=1)
+    with pytest.raises(PromiseReviewError, match="not JSON"):
+        parse_promise_review("she answered in her own voice instead",
+                             candidate_count=1)
+
+
 def test_promise_review_cannot_copy_an_unrelated_open_goal():
     decision = parse_promise_review(
         review_goal("check this week's economic calendar"), candidate_count=1)

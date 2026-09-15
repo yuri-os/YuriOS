@@ -518,7 +518,22 @@ def promise_review_messages(*, user_text: str, reply: str,
 
 
 def _json_payload(raw: str) -> dict:
+    """The review's JSON — strictly, but saying which way it failed.
+
+    The parser stays strict about prose: a model that wraps the object in
+    commentary has not followed the contract, and this decides whether a goal
+    enters her store, so a near-miss is refused rather than dug out of the
+    sentence around it (`test_promise_review_parser_is_strict`).
+
+    What it does *not* conflate any more is an empty answer with a malformed
+    one. Empty is not the model failing the contract — it is the route saying
+    nothing at all, most often because it would not serve the JSON Schema
+    (§2.4, handled a layer down) — and reported as "was not JSON" it sent every
+    reader looking at the parser for a bug that was never here (SPEC §22.1a).
+    """
     text = re.sub(r"^\s*<think>.*?</think>\s*", "", raw or "", flags=re.S)
+    if not text.strip():
+        raise PromiseReviewError("promise review came back empty")
     fence = re.fullmatch(r"\s*```(?:json)?\s*(.*?)\s*```\s*", text, flags=re.S | re.I)
     if fence:
         text = fence.group(1)

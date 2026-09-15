@@ -23,8 +23,9 @@ from yurios.kernel import correlate
 
 
 from .goals import (Goal, trim, PROMISE_REVIEW_RESPONSE_FORMAT, PromiseCandidate,
-                    parse_promise_review, promise_decision_grounded,
-                    promise_kind, promise_review_messages)
+                    PromiseReviewError, parse_promise_review,
+                    promise_decision_grounded, promise_kind,
+                    promise_review_messages)
 from .policy import DREAM, score_interrupt
 from .signals import Signal, failure_of
 from .util import day_of, iso_of, ts_of_iso
@@ -117,8 +118,16 @@ async def promise_review(loop, offer=None) -> tuple[dict, dict, list[str]]:
                 max_tokens=1200,
                 response_format=PROMISE_REVIEW_RESPONSE_FORMAT)
         decision = parse_promise_review(raw, candidate_count=len(candidates))
-    except Exception:  # noqa: BLE001 — a malformed review must not kill the tick
-        log.warning("promise review failed; retaining it", exc_info=True)
+    except Exception as exc:  # noqa: BLE001 — a malformed review must not kill the tick
+        if isinstance(exc, PromiseReviewError):
+            # The utility model missing its contract is an ordinary outcome with
+            # a retry behind it, so it is one line naming what came back. The
+            # traceback only ever pointed at the parser, which is not where the
+            # answer was lost; the head of the reply is what tells them apart.
+            log.warning("promise review failed (%s): %r; retaining it",
+                        exc, (raw or "")[:120])
+        else:
+            log.warning("promise review failed; retaining it", exc_info=True)
         attempts = int(review.get("attempts", 0)) + 1
         review["attempts"] = attempts
         review["retry_at"] = now + min(3600.0, 30.0 * (2 ** (attempts - 1)))

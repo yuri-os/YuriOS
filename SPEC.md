@@ -379,6 +379,20 @@ the model to read. The utility path **MUST** strip a leading `<think>…</think>
 parsing its JSON, and **MUST** budget enough tokens (`UTILITY_MAX_TOKENS`) that a reasoning
 pass does not truncate the answer to an empty string and silently lose the fact.
 
+**Structured output degrades, like every other backend.** A utility caller **MAY** send a
+`response_format` of `json_schema`; local OpenAI-compatible servers enforce it, and where it
+is enforced it is worth having. But a route is free not to serve a given schema, and the
+OpenAI shape gives it only one way to say so: it answers nothing — `finish_reason: "stop"`,
+zero completion tokens — which reaches the caller as a parse failure naming the wrong cause.
+Measured on `openrouter/z-ai/glm-5.2` with the promise-review schema (§22.1a): empty with the
+schema, strict or not, and correct with `json_object` or with no `response_format` at all. So
+an empty answer under a `json_schema` **MUST** be retried once in `json_object` mode before it
+is reported as a failure, and the downgrade **MUST** be visible in the call's metadata. The
+schema is never what holds the shape — every structured utility contract is also stated in the
+prompt and re-checked by its parser — so this gives up enforcement the route was not doing.
+The retry is deliberately narrow: only an *empty* answer, only at `stop`, only where a schema
+was sent, so a model with genuinely nothing to say is never asked twice.
+
 ### §2.5 — The situation block: she knows when and where she is
 
 Every assembled prompt — reply, greeting, and ambient speech alike — **MUST** carry one

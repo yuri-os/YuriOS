@@ -1048,7 +1048,11 @@ a frontend:
   lane, stripped from the shown text, the clean text accumulating as a `draft` with its line
   breaks kept — a text is shown as it was written, so three lines are three bubbles, not one
   sentence) → verbatim persist → `message` commit
-  + `turn_committed` signal. It **MUST** mirror the voice route's contract minus the audio,
+  + `turn_committed` signal. A `draft` carries the whole reply so far rather than a delta, so the
+  runner **MUST NOT** publish one per token: it accumulates per token and publishes on a sentence,
+  a line break, or a bounded run of neither. Per-token drafts are quadratic in bytes on a bus whose
+  per-subscriber queues are bounded and drop when full (§4), and the drop lands on whatever is
+  published next — her committed `message`. It **MUST** mirror the voice route's contract minus the audio,
   including the rule that a failed turn leaves no trace. Text turns from all channels serialise on
   one lock. Exposed as `POST /api/chat` (`{text, session_id?, channel, client_id?}` →
   `{session_id, user_message, message, active_selfies}`). It has `POST /api/chat/cancel` for a

@@ -15,8 +15,9 @@ One turn, end to end, mirroring the voice route's forks minus the audio:
   - `turn_started`/`turn_ended` bracket the turn (the mind knows she's talking);
   - brain tokens stream through the `EmotionParser`: tags drive the face on the
     puppet lane (`controller.set_expression`, voice fork #5) and are stripped
-    from the shown text; the clean text accumulates as a `draft` on the hub with
-    its line breaks kept (§10.5) — a text is shown as it was written;
+    from the shown text; the clean text accumulates token by token with its line
+    breaks kept (§10.5) — a text is shown as it was written — and goes out as a
+    `draft` on the hub a sentence or a line at a time (`_Drafts`);
   - a clean turn persists the *verbatim* reply (tags kept, B2's corpus rule),
     commits the shown text as a `message`, and tees `turn_committed` onto the
     bus (the mind's REFLECT share: world model, promise extraction);
@@ -49,6 +50,61 @@ def _text_of(chunks: list[str]) -> str:
     text is shown as it was written (§10.5)."""
     text = re.sub(r"[ \t]{2,}", " ", "".join(chunks))
     return re.sub(r"[ \t]*\n[ \t]*", "\n", text).strip()
+
+
+#: Sentence enders and the line break. Cadence only — this decides when the room
+#: gets a repaint, never what it shows — so `Dr.` flushing early costs one event
+#: and nothing else. That is why it is this and not the sentence cutter.
+_BOUNDARY = re.compile(r"[.!?…\n]")
+
+#: How much unpublished text may pile up before a draft goes out regardless.
+#: Prose that offers no boundary — a URL, a code block, a model that forgot its
+#: punctuation — still streams instead of arriving whole at commit.
+DRAFT_FLUSH_CHARS = 120
+
+
+class _Drafts:
+    """The draft cadence: what the room sees while she is still typing (§10.5).
+
+    Every `draft` carries the whole reply so far, not a delta, so one per token
+    sends the text again for every token — quadratic bytes on a bus whose queues
+    are bounded at 256 and *drop* when full (`kernel/hub.py`). The drop does not
+    land politely on drafts: it lands on whatever is published next, which at the
+    end of a turn is her committed `message`. A long reply to a backgrounded tab
+    could stream and then never commit, logged at debug and nowhere else. It is
+    one bus per subscriber, so every open tab, the CLI and the dashboard each pay
+    it.
+
+    So the tokens accumulate one by one — that is what keeps her line breaks —
+    and a draft goes out on a sentence, a line break, or once the unpublished
+    tail reaches `DRAFT_FLUSH_CHARS`. Roughly one event per line or sentence,
+    which is the cadence a reader perceives anyway.
+    """
+
+    def __init__(self, hub, *, enabled: bool = True):
+        self.hub = hub
+        self.enabled = enabled          # a cold open shows its own text instead
+        self.shown: list[str] = []      # clean text, tags stripped, breaks kept
+        self._unpublished = 0
+
+    def push(self, speakable: str) -> None:
+        """Accumulate one token's shown text, publishing if it closes a beat."""
+        self.shown.append(speakable)
+        self._unpublished += len(speakable)
+        if _BOUNDARY.search(speakable) or self._unpublished >= DRAFT_FLUSH_CHARS:
+            self.flush()
+
+    def flush(self) -> None:
+        """Publish the tail if anything is unpublished. Called once more when the
+        stream ends, so the room never sits on a draft cut mid-sentence while the
+        commit waits behind a memory-extractor call."""
+        if self._unpublished and self.enabled:
+            self.hub.publish("draft", {"text": self.text})
+        self._unpublished = 0
+
+    @property
+    def text(self) -> str:
+        return _text_of(self.shown)
 
 
 class TextTurns:
@@ -95,7 +151,7 @@ class TextTurns:
             if cold:
                 rt.hub.publish("draft", {"text": cold})
             parser = EmotionParser(default=rt.cfg.expression_default)
-            shown: list[str] = []          # clean text, line breaks kept (§10.5)
+            drafts = _Drafts(rt.hub, enabled=not cold)   # …unless the text is given
             prev_events = 0
             try:
                 async for token in rt.brain.stream_greeting(session_id):
@@ -105,12 +161,11 @@ class TextTurns:
                             parser.events[prev_events].expression, 1.0, reset_ms=0)
                         prev_events += 1
                     if speakable:
-                        shown.append(speakable)
-                        if not cold:               # …unless the text is given
-                            rt.hub.publish("draft", {"text": _text_of(shown)})
+                        drafts.push(speakable)
                 tail = parser.finish()
                 if tail:
-                    shown.append(tail)
+                    drafts.shown.append(tail)
+                drafts.flush()
             except Exception:
                 # nothing was committed and nothing was appended (a greeting
                 # never puts a user line in the window), so there is nothing to
@@ -126,7 +181,7 @@ class TextTurns:
             # arrival; only a failure above (which raised) leaves it un-marked.
             rt.greeted.add(session_id)
             entry = None
-            text = cold or _text_of(shown)
+            text = cold or drafts.text
             if text:
                 entry = rt.post_message("assistant", text,
                                         proactive=True, channel=channel,
@@ -173,7 +228,7 @@ class TextTurns:
             rt.turn_started()
             parser = EmotionParser(default=rt.cfg.expression_default)
             raw: list[str] = []          # model output verbatim (tags kept, for persist)
-            shown: list[str] = []        # clean text, tags stripped, line breaks kept
+            drafts = _Drafts(rt.hub)     # clean text, tags stripped, line breaks kept
             prev_events = 0
             turn_context = getattr(rt.brain, "turn_context", None)
             context = turn_context(channel=channel, client_id=client_id,
@@ -197,11 +252,11 @@ class TextTurns:
                                 parser.events[prev_events].expression, 1.0, reset_ms=0)
                             prev_events += 1
                         if speakable:
-                            shown.append(speakable)
-                            rt.hub.publish("draft", {"text": _text_of(shown)})
+                            drafts.push(speakable)
                     tail = parser.finish()
                     if tail:
-                        shown.append(tail)
+                        drafts.shown.append(tail)
+                    drafts.flush()
             except asyncio.CancelledError:
                 rt.hub.publish("draft_cancel", {})
                 rt.brain.abandon(session_id)
@@ -220,7 +275,7 @@ class TextTurns:
                 rt.turn_ended()
 
             entry = None
-            reply = _text_of(shown)
+            reply = drafts.text
             if not reply:
                 rt.brain.abandon(session_id)   # nothing to commit — same rollback
             if reply:

@@ -167,3 +167,31 @@ async def test_the_headers_survive_litellm_all_the_way_to_the_socket():
     assert seen["x-openrouter-title"] == "YuriOS"
     assert seen["x-title"] == "YuriOS"              # not "liteLLM"
     assert seen["user-agent"].startswith("YuriOS/") # not "litellm/1.93.0"
+
+
+# ---- thinking-off (SPEC §2.4) ------------------------------------------------
+
+async def _one_stream(model):
+    async for _ in model.stream([{"role": "system", "content": "be her"},
+                                 {"role": "user", "content": "hi"}]):
+        pass
+
+
+async def test_openrouter_thinking_off_is_the_native_switch(acompletion):
+    await _one_stream(LiteLLMChatModel("openrouter/deepseek/deepseek-v4.1-flash", thinking=False))
+    assert acompletion.kwargs["extra_body"] == {"reasoning": {"enabled": False}}
+    assert "/no_think" not in acompletion.kwargs["messages"][0]["content"]
+
+
+async def test_local_thinking_off_keeps_the_belt_and_braces(acompletion):
+    await _one_stream(LiteLLMChatModel("lm_studio/some/qwen", thinking=False))
+    assert acompletion.kwargs["extra_body"] == {"reasoning_effort": "none"}
+    assert acompletion.kwargs["messages"][0]["content"].endswith("/no_think")
+
+
+async def test_openrouter_utility_thinking_off_is_native_too(acompletion):
+    model = LiteLLMUtilityModel("openrouter/deepseek/deepseek-v4.1-flash", thinking=False)
+    await model.complete([{"role": "system", "content": "extract"},
+                         {"role": "user", "content": "hi"}])
+    assert acompletion.kwargs["extra_body"] == {"reasoning": {"enabled": False}}
+    assert "/no_think" not in acompletion.kwargs["messages"][0]["content"]

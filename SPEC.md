@@ -363,7 +363,10 @@ off the hot path where extraction quality matters and its latency is free. Think
 token headroom so the pass *and* the answer both fit; thinking-off rides `reasoning_effort:
 "none"` in the raw request body (`extra_body`) — passed as a top-level LiteLLM arg it is
 rewritten and never applied — with a `/no_think` system-token fallback. Both are inert on a
-non-reasoning model. The utility path **MUST** strip a leading `<think>…</think>` before
+non-reasoning model. On an `openrouter/` route thinking-off **MUST** instead send OpenRouter's
+native `reasoning: {"enabled": false}` body and **MUST NOT** append the `/no_think` token: the
+token is a Qwen idiom, and on a hosted route it would sit in her system message as text for
+the model to read. The utility path **MUST** strip a leading `<think>…</think>` before
 parsing its JSON, and **MUST** budget enough tokens (`UTILITY_MAX_TOKENS`) that a reasoning
 pass does not truncate the answer to an empty string and silently lose the fact.
 

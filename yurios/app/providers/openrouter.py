@@ -57,6 +57,20 @@ def _attribution(model: str) -> dict:
 # then answers directly. This is what makes Build #2's voice loop real-time.
 _NO_THINK_BODY = {"reasoning_effort": "none"}
 
+# OpenRouter's own switch (docs/guides/best-practices/reasoning-tokens):
+# `reasoning.enabled=false` in the body. `reasoning_effort: none` is not
+# honoured by every provider behind it, and `/no_think` is a Qwen idiom that
+# would sit in her system message for the model to read. So the hosted route
+# gets the native switch and nothing in the prompt (SPEC §2.4).
+_OPENROUTER_NO_THINK_BODY = {"reasoning": {"enabled": False}}
+
+
+def _thinking_off(model: str, messages: list[dict]) -> tuple[list[dict], dict]:
+    """(messages, body) that turn a reasoning pass off for this route."""
+    if model.startswith("openrouter/"):
+        return messages, dict(_OPENROUTER_NO_THINK_BODY)
+    return _no_think_messages(messages), dict(_NO_THINK_BODY)
+
 # Routes that accept OpenAI's `stream_options` — verified against LM Studio 0.4,
 # which otherwise sends no usage at all (its streams end on a plain finish_reason
 # chunk). Asking turns the context gauge from a ~4-chars/token estimate into the
@@ -115,8 +129,7 @@ class LiteLLMChatModel:
         async with inference_admission():
             extra = {}
             if not self.thinking:
-                messages = _no_think_messages(messages)
-                extra["extra_body"] = _NO_THINK_BODY
+                messages, extra["extra_body"] = _thinking_off(self.model, messages)
             if self.meter is not None:
                 self.meter.note_prompt(messages)      # the estimate, before the call
             response = await litellm.acompletion(
@@ -204,8 +217,8 @@ class LiteLLMUtilityModel:
         extra: dict = {}
         body: dict = {}
         if not params.get("thinking", self.thinking):
-            messages = _no_think_messages(messages)
-            body.update(_NO_THINK_BODY)
+            messages, off = _thinking_off(self.model, messages)
+            body.update(off)
         elif params.get("reasoning_effort"):
             # Only with the pass on: `thinking=False` *is* an effort of "none",
             # so a caller that passes both — a research job handing every call

@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from pathlib import Path
 
 import httpx
@@ -48,6 +49,11 @@ API_BASE = "https://api.telegram.org"
 POLL_TIMEOUT_S = 50          # Telegram's long-poll window
 RETRY_BACKOFF_S = 3.0        # after a network error; polling is idempotent
 MAX_MESSAGE_CHARS = 4096     # Telegram's hard sendMessage cap
+
+
+def _bubbles(text: str) -> list[str]:
+    """Blank-line-separated paragraphs, empties dropped: one message each."""
+    return [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
 
 
 class TelegramChannel(Channel):
@@ -223,9 +229,13 @@ class TelegramChannel(Channel):
             return
         if not text:
             return
-        for i in range(0, len(text), MAX_MESSAGE_CHARS):
-            await self._api("sendMessage", chat_id=self.chat_id,
-                            text=text[i:i + MAX_MESSAGE_CHARS])
+        # A blank line is where she hit send (SPEC §10.5): each paragraph is
+        # its own bubble, the way a person double- and triple-texts. Each
+        # bubble is still cut at Telegram's cap.
+        for bubble in _bubbles(text):
+            for i in range(0, len(bubble), MAX_MESSAGE_CHARS):
+                await self._api("sendMessage", chat_id=self.chat_id,
+                                text=bubble[i:i + MAX_MESSAGE_CHARS])
 
     # ---- inbound pictures (SPEC §35) ----
 

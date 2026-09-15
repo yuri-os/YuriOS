@@ -65,7 +65,8 @@ and processes nothing else. Once it's set she binds to exactly one chat, and str
 ignored.
 
 Telegram is *reachable, not present*: it posts no presence signals, so a message there doesn't
-make her think you're in the room. Selfies are sent as the file itself.
+make her think you're in the room. Selfies are sent as the file itself. A reply with blank
+lines arrives as one message per paragraph, the way she'd send it from a phone.
 
 ### One bot, one character
 

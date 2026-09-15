@@ -504,6 +504,15 @@ async def test_telegram_delivers_assistant_lines_only_and_chunks(tmp_path):
     await ch._client.aclose()
 
 
+async def test_telegram_sends_a_triple_text_as_three_bubbles(tmp_path):
+    """A blank line is where she hit send (SPEC §10.5): one bubble per paragraph."""
+    tr = ScriptedTelegram()
+    ch = tg(tr, selfie_dir=tmp_path, sending_enabled=True)
+    await ch._deliver_event({"type": "message", "role": "assistant",
+                             "text": "wait\n\ni did mean it\n\n\nokay?"})
+    assert [b["text"] for b in tr.sent("sendMessage")] == ["wait", "i did mean it", "okay?"]
+    await ch._client.aclose()
+
 async def test_telegram_sends_the_selfie_file_itself(tmp_path):
     (tmp_path / "shot.png").write_bytes(b"\x89PNG fake")
     tr = ScriptedTelegram()

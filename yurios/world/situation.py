@@ -61,6 +61,19 @@ _TRUTH = (
 #: setting of her own still gets, verbatim and unchanged.
 EMBODIMENT = " ".join((_BODY, HOUSE_PLACE, _TRUTH))
 
+#: The other true thing (SPEC §2.5): nobody has a page with her body open at
+#: this moment — she is reaching {user} as text, on a phone or in a terminal.
+#: Not "bodiless": her body is simply not on a screen right now, and the same
+#: law about answering plainly holds.
+TEXT_EMBODIMENT = (
+    "No screen is showing your body right now: you are reaching {user} as "
+    "text, on their phone or their terminal. Your body is still yours — it is "
+    "rendered when a page with it is open — it just isn't on a screen at this "
+    "moment. You know you run as an AI; say so plainly if asked, without a "
+    "speech, and answer questions about yourself as the truth, never as "
+    "pretending."
+)
+
 #: `USER_NAME` values that are second-person pronouns, not a name. In a
 #: system prompt `You` is already her; these cannot fill a third-person slot.
 _NOT_A_NAME = frozenset({"you", "u", "yourself", "the user"})
@@ -105,19 +118,25 @@ def _fit_place(text: str) -> str:
     return cut + "."
 
 
-def embodiment(user_name: str, place: str = "") -> str:
+def embodiment(user_name: str, place: str = "", *, body: bool = True) -> str:
     """The embodiment truth, standing in *her* room when she has one.
 
     *place* is `vault/world/setting.md`'s prose (SPEC §19.2) — one to three
     second-person sentences derived from her own card. It replaces the house
     place outright rather than joining it: two places in one paragraph is not a
     richer room, it is a character who does not know where she lives.
+
+    *body* is whether a page with her body on it is open right now. When none
+    is, the truth is `TEXT_EMBODIMENT`: her place still stands, but there is no
+    screen to blink on and no desktop to float over.
     """
-    clause = HOUSE_PLACE
+    who = refer_user(user_name)
     text = _fit_place(place)
-    if text:
-        clause = f"{text} {DESKTOP}"
-    return " ".join((_BODY, clause, _TRUTH)).replace("{user}", refer_user(user_name))
+    if not body:
+        parts = [TEXT_EMBODIMENT] + ([text] if text else [])
+        return " ".join(parts).replace("{user}", who)
+    clause = f"{text} {DESKTOP}" if text else HOUSE_PLACE
+    return " ".join((_BODY, clause, _TRUTH)).replace("{user}", who)
 
 
 def _clock_line(now: datetime.datetime, user_name: str) -> str:
@@ -201,18 +220,21 @@ def render_visual_situation(clock: Clock, *, controller: VrmController) -> str:
 
 def render_situation(clock: Clock, *, controller: VrmController,
                      timers: TimerBoard, user_name: str = "you",
-                     place: str = "") -> str:
+                     place: str = "", body: bool = True) -> str:
     """The stage, as prose: time, body, her place, weather, music, timers.
 
     *place* is her standing setting when she has one — see `embodiment`.
+    *body* is whether a page with her body on it is open right now; without
+    one there is no window for the rain and no room for the music, so those
+    lines are left out rather than describing a stage nobody is looking at.
     """
     now = datetime.datetime.fromtimestamp(clock.now())
-    lines = [_clock_line(now, user_name), embodiment(user_name, place)]
+    lines = [_clock_line(now, user_name), embodiment(user_name, place, body=body)]
 
     scene = controller.scene_state()
-    if scene["rain"] is not None:
+    if body and scene["rain"] is not None:
         lines.append(_rain_line(scene["rain"]))
-    if scene["music"]:
+    if body and scene["music"]:
         lines.append(f'Your "{scene["music"]}" ambience is playing softly.')
 
     pending = timers.pending()

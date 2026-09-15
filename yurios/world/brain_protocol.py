@@ -106,3 +106,8 @@ class AutonomousBrain(ConversationalBrain, Protocol):
     def set_selfedit(self, selfedit: Any) -> None:
         """The §23 self-edit door, so `propose_edit` has somewhere to land."""
         ...
+
+    def set_body_probe(self, probe: Any) -> None:
+        """"Is her body on a screen right now?" (SPEC §2.5) — the hub's
+        body-viewer count, read per prompt rather than cached."""
+        ...

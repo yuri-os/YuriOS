@@ -85,3 +85,16 @@ def test_a_multi_line_text_arrives_as_written(cfg):
         r = c.post("/api/chat", json={"text": "did you?", "channel": "browser"})
         assert r.status_code == 200, r.text
         assert r.json()["message"]["text"] == "wait\n\ni did mean it\n\nokay?"
+
+
+# ---- no body on any screen (§2.5) --------------------------------------------
+
+async def test_a_turn_with_no_body_on_screen_is_told_so(cfg, seeded_vault, clock, controller):
+    chat = CannedChat("[happy] hi")
+    brain = make_brain(cfg, seeded_vault, chat, clock, controller)
+    brain.set_body_probe(lambda: False)
+    session = brain.resolve_session(None)
+    with brain.turn_context(channel="telegram"):
+        await collect(brain.stream_reply(session, "hey"))
+    assert "in your body right now" not in system_of(chat)
+    assert "as text" in system_of(chat)

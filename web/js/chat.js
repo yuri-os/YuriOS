@@ -604,7 +604,11 @@
   }
 
   function openStream(onStatus, recoverOnOpen = false) {
-    const source = new EventSource(apiPath('/api/events'));
+    // The text room draws no body: say so, and the situation block tells her
+    // whether her face is on a screen right now (SPEC §2.5). The sanctuary and
+    // the Live2D room are the default.
+    const bodiless = document.documentElement.dataset.room === 'Text';
+    const source = new EventSource(apiPath('/api/events') + (bodiless ? '?body=0' : ''));
     es = source;
     let everOpened = false;
     source.onopen = () => {

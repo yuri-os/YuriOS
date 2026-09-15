@@ -11,7 +11,7 @@ import datetime
 
 from yurios.world.avatar.controller import VrmController
 from yurios.kernel.clock import VirtualClock
-from yurios.world.situation import EMBODIMENT, refer_user, render_situation
+from yurios.world.situation import EMBODIMENT, TEXT_EMBODIMENT, refer_user, render_situation
 from yurios.world.tools.timers import TimerBoard
 
 
@@ -98,3 +98,20 @@ def test_default_you_is_the_user_not_her():
     named = _render(VirtualClock(), user="Sam")
     assert "Sam's local time" in named
     assert "on Sam's screen" in named
+
+
+def test_no_body_on_screen_is_said_plainly():
+    """Nobody has a page with her body open (SPEC §2.5): the block says she is
+    reaching the user as text, and shows no window for the rain to fall on."""
+    clock = VirtualClock()
+    c = VrmController()
+    c.set_rain(0.6)
+    text = render_situation(clock, controller=c, timers=TimerBoard(clock),
+                            user_name="Sam", body=False)
+    assert TEXT_EMBODIMENT.replace("{user}", "Sam") in text
+    assert "in your body right now" not in text
+    assert "Never say you have no body" not in text
+    assert "rain" not in text
+    # the default is unchanged: a body on screen is the body truth
+    assert "in your body right now" in render_situation(
+        clock, controller=c, timers=TimerBoard(clock), user_name="Sam")

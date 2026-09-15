@@ -79,5 +79,5 @@ def test_the_autonomous_contract_is_the_conversational_one_plus_the_seams():
     assert conversational < autonomous
     assert autonomous - conversational == {
         "set_prompt_log", "set_tools", "set_world", "set_knowledge",
-        "set_workspace", "set_goals", "set_selfedit"}
+        "set_workspace", "set_goals", "set_selfedit", "set_body_probe"}
     assert "state" in AutonomousBrain.__protocol_attrs__

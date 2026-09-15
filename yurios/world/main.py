@@ -182,6 +182,9 @@ class Runtime:
         # whether or not the loop is running, and they are half the record.
         if self.autonomous:
             self.brain.set_prompt_log(PromptLog.from_config(cfg, self.clock))
+            # Is her body on a screen right now? (SPEC §2.5) The hub knows: the
+            # sanctuary and the Live2D room count, the text room does not.
+            self.brain.set_body_probe(lambda: self.hub.body_viewers > 0)
         self._tool_runner = tool_runner        # injected, or built at startup
         self.tools_status = "off"
         self.tool_count = 0

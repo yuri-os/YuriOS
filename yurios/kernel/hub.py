@@ -39,6 +39,10 @@ class EventHub:
         # page drain `_queues` too, but they are not company — presence uses
         # this list (SPEC §10, §16.2, §24.3).
         self._viewers: List[asyncio.Queue] = []
+        # The viewers that draw her: the sanctuary and the Live2D room. The
+        # text room is company with no face on screen, and the situation block
+        # says which is true right now (SPEC §2.5).
+        self._body_viewers: List[asyncio.Queue] = []
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         # sticky state, replayed on subscribe (SPEC §4): key → last event
         self.sticky: Dict[Hashable, Dict[str, Any]] = {}
@@ -74,13 +78,14 @@ class EventHub:
 
     # ---- subscribe (on the loop; called by the /api/events route) ----
 
-    def subscribe(self, *, viewer: bool = False) -> asyncio.Queue:
+    def subscribe(self, *, viewer: bool = False, body: bool = True) -> asyncio.Queue:
         """Register a subscriber; returns its queue, pre-loaded with sticky state.
 
         `viewer=True` is a chat room (or the live CLI) on `/api/events` — that
         is presence. Channel adapters and the mind debug page (`presence=0`)
         drain the same bus with the default: they are not company
-        (SPEC §10, §16.2, §24.3).
+        (SPEC §10, §16.2, §24.3). `body=False` is a viewer that draws no body
+        — the text room — so it never counts toward `body_viewers` (§2.5).
         """
         self._loop = asyncio.get_running_loop()
         q: asyncio.Queue = asyncio.Queue(maxsize=self._max_queue)
@@ -89,6 +94,8 @@ class EventHub:
         self._queues.append(q)
         if viewer:
             self._viewers.append(q)
+            if body:
+                self._body_viewers.append(q)
         return q
 
     def unsubscribe(self, q: asyncio.Queue) -> None:
@@ -96,6 +103,8 @@ class EventHub:
             self._queues.remove(q)
         if q in self._viewers:
             self._viewers.remove(q)
+        if q in self._body_viewers:
+            self._body_viewers.remove(q)
 
     @property
     def subscribers(self) -> int:
@@ -105,3 +114,8 @@ class EventHub:
     def viewers(self) -> int:
         """Chat rooms and the live CLI. Not adapters, not the mind debug page."""
         return len(self._viewers)
+
+    @property
+    def body_viewers(self) -> int:
+        """Rooms with her body on screen right now (SPEC §2.5)."""
+        return len(self._body_viewers)

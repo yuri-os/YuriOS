@@ -29,6 +29,7 @@ renders *from* and never writes over.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Callable
 
 from yurios.characters.setting import read_place
 from yurios.world.avatar.controller import VrmController
@@ -59,12 +60,16 @@ class Fact:
 class WorldModelStore:
     def __init__(self, vault: MindVault, clock: Clock, *,
                  controller: VrmController, timers: TimerBoard,
-                 user_name: str = "you"):
+                 user_name: str = "you",
+                 body_visible: Callable[[], bool] | None = None):
         self.vault = vault
         self.clock = clock
         self.controller = controller
         self.timers = timers
         self.user_name = user_name
+        # Whether a page with her body on it is open right now (SPEC §2.5):
+        # the hub's body-viewer count, wired by the MindLoop. None = assume so.
+        self.body_visible = body_visible
         self.state_path = vault.vault / "world" / "state.json"
         self.beliefs_path = vault.vault / "world" / "beliefs.jsonl"
         self._forget_stale_presence()
@@ -170,7 +175,9 @@ class WorldModelStore:
         # restart — it is one small file, and this is once per turn.
         lines = [render_situation(self.clock, controller=self.controller,
                                   timers=self.timers, user_name=self.user_name,
-                                  place=read_place(self.vault.vault))]
+                                  place=read_place(self.vault.vault),
+                                  body=self.body_visible() if self.body_visible
+                                  else True)]
         who = refer_user(self.user_name, sentence=True)
         if st["user_present"]:
             lines.append(f"{who} is here right now.")

@@ -210,7 +210,10 @@ async def check_character(client: httpx.AsyncClient, character_id: str) -> dict[
 
 
 async def start_listener(client: httpx.AsyncClient, state: dict[str, Any]) -> asyncio.Task:
-    path = endpoint(state, "events")
+    # A terminal is company (`presence` stays on) but it draws no body, so it
+    # never counts toward the hub's body viewers: the situation block tells her
+    # she is reaching you as text, in a terminal (SPEC §2.5).
+    path = endpoint(state, "events") + "?body=0"
     state["event_path"] = path
     return asyncio.create_task(listen(client, state, path), name=f"terminal-events-{state.get('character_id') or 'primary'}")
 

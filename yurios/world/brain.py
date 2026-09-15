@@ -28,7 +28,7 @@ import asyncio
 import json
 import logging
 import re
-from typing import AsyncIterator, Optional
+from typing import AsyncIterator, Callable, Optional
 
 from yurios.app.core import assemble as asm
 from yurios.characters.setting import read_place
@@ -182,6 +182,10 @@ class ToolBrain(BrainAdapter):
         self.controller = controller
         self.selfies = selfies                 # SelfieLab | None (§7.6)
         self.research = research               # Researcher | None (§7.7)
+        # Whether a page with her body on it is open right now (§2.5). The
+        # runtime wires the hub's count in; unset means "assume so", which is
+        # Build #4's behaviour and what the desktop app gets.
+        self.body_visible: Optional[Callable[[], bool]] = None
         # mind/selfedit.py's door (§23), wired by the MindLoop the same way the
         # shelf and the desk are. None means the tool was never advertised.
         self.selfedit = None
@@ -201,6 +205,11 @@ class ToolBrain(BrainAdapter):
                                   utility_model=utility_model, embedder=embedder)
         return cls(base.state, base.cfg, guard=guard, timers=timers,
                    controller=controller, selfies=selfies, research=research)
+
+    def set_body_probe(self, probe: Callable[[], bool]) -> None:
+        """Wire "is her body on a screen right now?" (SPEC §2.5) — the hub's
+        body-viewer count, in practice. Read per prompt, never cached."""
+        self.body_visible = probe
 
     def set_tools(self, runner: Optional[ToolRunner], specs: list[ToolSpec]) -> None:
         """Wire the discovered hands (SPEC §7.2). None/empty → she has no hands
@@ -264,7 +273,8 @@ class ToolBrain(BrainAdapter):
             situation = render_situation(
                 self.guard.clock, controller=self.controller,
                 timers=self.timers, user_name=self.cfg.user_name,
-                place=read_place(self.cfg.vault_dir))
+                place=read_place(self.cfg.vault_dir),
+                body=self.body_visible() if self.body_visible else True)
         prompt.messages[0]["content"] += (
             "\n\n## THE SITUATION RIGHT NOW\n\n" + situation)
         return soul, prompt

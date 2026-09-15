@@ -384,6 +384,16 @@ surroundings, and asked about them she answers plainly (the no-narration rule fo
 directions, not the truth). The embodiment-truth text lives as one constant
 (`yurios/world/situation.py`) so the test suite can assert it verbatim.
 
+That truth is stated **only while a page with her body on it is open** — the sanctuary or the
+Live2D room, counted by the `EventHub` as `body_viewers`; the text room attaches to
+`/api/events` with `body=0` and is company without a face on screen, and a Telegram or CLI turn
+with no room open has none. Without one, the block **MUST** instead carry the text truth
+(`TEXT_EMBODIMENT`, the same module): no screen is showing her body right now and she is
+reaching the user as text; her body is still hers, simply not on a screen at this moment; she
+still answers about herself plainly. The scene lines (rain, music) belong to a room somebody is
+looking at and are omitted with it. A companion who lives in a phone must never be told her eyes
+are blinking on a screen nobody has open.
+
 **Her room is hers.** The place named in that truth **MUST** be the character's own, read from
 `vault/world/setting.md` — one to three short second-person present-tense sentences derived from her
 card at import (`yurios/characters/setting.py`: the `scenario` field first, a `Setting:`/

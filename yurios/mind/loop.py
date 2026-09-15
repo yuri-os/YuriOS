@@ -108,7 +108,8 @@ class MindLoop:
         self.vault = MindVault(cfg.vault_dir)
         state = brain.state                    # the Build #1 AppState
         self.world = WorldModelStore(self.vault, clock, controller=controller,
-                                     timers=timers, user_name=cfg.user_name)
+                                     timers=timers, user_name=cfg.user_name,
+                                     body_visible=lambda: hub.body_viewers > 0)
         brain.set_world(self.world)            # the §19.2 seam swap: every prompt
                                                # now carries the store's stage
         self.knowledge = KnowledgeStore(

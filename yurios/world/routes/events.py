@@ -30,11 +30,14 @@ router = APIRouter()
 
 
 @router.get("/api/events")
-async def events(request: Request, presence: bool = Query(default=True)):
+async def events(request: Request, presence: bool = Query(default=True),
+                 body: bool = Query(default=True)):
     """`presence=0` is a drain: the mind debug page watches the bus without
-    being in the room (SPEC §10, §24.3). Default is a chat room or the CLI."""
+    being in the room (SPEC §10, §24.3). Default is a chat room or the CLI.
+    `body=0` is a room that draws no body — the text room — so the situation
+    block can tell her whether her face is on a screen right now (§2.5)."""
     rt = request.app.state.rt
-    q = rt.hub.subscribe(viewer=presence)
+    q = rt.hub.subscribe(viewer=presence, body=body)
     # presence is a signal, not a guess (SPEC §16.2): a *room* attaching is
     # "someone walked in". Telegram, notify, and the mind debug page drain
     # the same bus and are not company. The mirror lands in the finally below.

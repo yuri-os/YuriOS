@@ -264,3 +264,31 @@ def test_presence_query_zero_is_a_drain(client):
     assert rt.hub.viewers == 0
     assert "user_present" not in _types(rt)
     assert "user_absent" not in _types(rt)
+
+
+async def test_a_text_room_is_company_but_not_a_body():
+    """The text room and Telegram put nobody's face on a screen (SPEC §2.5):
+    they count as company, never as a rendered body."""
+    hub = EventHub()
+    text = hub.subscribe(viewer=True, body=False)
+    assert hub.viewers == 1
+    assert hub.body_viewers == 0
+    stage = hub.subscribe(viewer=True)
+    assert hub.body_viewers == 1
+    hub.unsubscribe(stage)
+    assert hub.body_viewers == 0
+    hub.unsubscribe(text)
+    assert hub.viewers == 0
+
+
+async def test_body_query_zero_is_a_room_without_a_body(client):
+    from yurios.world.routes.events import events as events_route
+
+    rt = client.app.state.rt
+    response = await events_route(_Req(client.app), body=False)
+    stream = response.body_iterator
+    assert "hello" in await stream.__anext__()
+    assert rt.hub.viewers == 1
+    assert rt.hub.body_viewers == 0
+    await stream.aclose()
+    assert rt.hub.viewers == 0

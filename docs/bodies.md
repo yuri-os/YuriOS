@@ -113,6 +113,11 @@ downloaded, and none of the room's code is even in the page's bundle.
 Use it when the 3D room is the wrong trade: an integrated GPU, a phone on a train, a remote or
 headless session, a screen reader, or a machine whose whole GPU you'd rather leave to the model.
 
+She knows the difference. While only text rooms, Telegram or the terminal are talking to her,
+her prompt says no screen is showing her body right now and she is reaching you as text; the
+moment a sanctuary or Live2D page opens, it says her body is on screen. A companion written to
+live in your phone is never told her eyes are blinking on a page nobody has open.
+
 What you keep:
 
 - her words, with history, timestamps, selfies and the "she spoke first" marking;

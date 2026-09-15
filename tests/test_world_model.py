@@ -132,3 +132,15 @@ def test_threads_and_contact_out(world):
     assert w.snapshot()["last_contact_out"] is None
     w.note_contact_out()
     assert w.snapshot()["last_contact_out"] is not None
+
+
+def test_the_stage_knows_when_no_body_is_on_a_screen(tmp_path):
+    clock = VirtualClock(start=SIM_START.timestamp())
+    vault = MindVault(tmp_path / "vault")
+    on_screen = {"body": False}
+    w = WorldModelStore(vault, clock, controller=SpyController(),
+                        timers=TimerBoard(clock), user_name="Sam",
+                        body_visible=lambda: on_screen["body"])
+    assert "in your body right now" not in w.situation()
+    on_screen["body"] = True
+    assert "in your body right now" in w.situation()

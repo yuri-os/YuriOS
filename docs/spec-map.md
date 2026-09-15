@@ -12,7 +12,7 @@ a section are folded into it.
 | Section | Implemented in | Also cited by |
 |---|---|---|
 | **§1** — Goal and properties | `yurios/world/channels/telegram.py`<br>`yurios/desktop/config.py`<br>`yurios/world/main.py` | — |
-| **§2** — The brain, the voice, and the seam | `yurios/world/main.py`<br>`web/js/chat.js`<br>`yurios/world/brain.py`<br>`yurios/world/situation.py`<br>*+24 more* | `tests/test_situation.py`<br>`tests/test_voice_ws_fork.py`<br>`tests/test_conversation.py`<br>*+6 more* |
+| **§2** — The brain, the voice, and the seam | `yurios/world/main.py`<br>`web/js/chat.js`<br>`yurios/world/brain.py`<br>`yurios/world/situation.py`<br>*+24 more* | `tests/test_situation.py`<br>`tests/test_voice_ws_fork.py`<br>`tests/test_conversation.py`<br>*+7 more* |
 | **§3** — The body: the VRM stage | `yurios/desktop/voice/protocols.py`<br>`web/js/stage/EmoteController.js`<br>`yurios/desktop/config.py`<br>`web/js/stage/Blink.js`<br>*+23 more* | `tests/test_doctor.py`<br>`tests/test_lmstudio_preload.py`<br>`tests/test_palette_map.py`<br>*+2 more* |
 | **§4** — The control channel (`avatar` events on the bus) | `yurios/world/avatar/controller.py`<br>`web/js/bridge.js`<br>`yurios/desktop/routes/voice_ws.py`<br>`yurios/desktop/voice/turn.py`<br>*+12 more* | `tests/test_avatar_controller.py`<br>`tests/test_events.py` |
 | **§5** — Visemes: real lip-sync | `yurios/desktop/voice/fillers.py`<br>`web/js/stage/VrmStage.js`<br>`web/js/voice.js`<br>`scripts/seed_vault.py`<br>*+6 more* | `tests/test_bootstrap_greeting.py`<br>`tests/test_mind_goals.py`<br>`tests/test_studio_routes.py` |
@@ -34,7 +34,7 @@ a section are folded into it.
 | **§21** — DREAM consolidation | `yurios/mind/dream.py`<br>`yurios/mind/dreamjobs/filedsl.py`<br>`yurios/ctl/dreams.py`<br>`yurios/mind/dreamjobs/__init__.py`<br>*+5 more* | `tests/test_dreamjobs.py`<br>`tests/test_mind_routes.py`<br>`tests/test_cli_dreams.py`<br>*+1 more* |
 | **§22** — Goals and intentions | `yurios/mind/goals.py`<br>`yurios/mind/prompts.py`<br>`yurios/mind/goalwork.py`<br>`yurios/mind/loop.py`<br>*+4 more* | `tests/test_mind_goals.py`<br>`tests/test_mind_routes.py`<br>`tests/test_mind_soul.py`<br>*+1 more* |
 | **§23** — The SOUL split and gated self-edits | `yurios/mind/selfedit.py`<br>`yurios/world/tools/server.py` | `tests/test_selfedit.py`<br>`tests/test_mind_goals.py` |
-| **§24** — The journal, the trace, and the inner-life surface | `yurios/world/debug.py`<br>`yurios/world/main.py`<br>`yurios/world/routes/mind.py`<br>`web/dashboard/dashboard.js`<br>*+15 more* | `tests/test_host_debug.py`<br>`tests/test_mind_routes.py`<br>`tests/test_events.py`<br>*+1 more* |
+| **§24** — The journal, the trace, and the inner-life surface | `yurios/world/debug.py`<br>`yurios/world/main.py`<br>`yurios/world/routes/mind.py`<br>`web/dashboard/dashboard.js`<br>*+15 more* | `tests/test_host_debug.py`<br>`tests/test_mind_routes.py`<br>`tests/test_correlate.py`<br>*+2 more* |
 | **§25** — Config (the mind's knobs) | — | — |
 | **§26** — Omissions (normative) | `yurios/mind/loop.py`<br>`yurios/mind/hands.py`<br>`yurios/world/host/hosting.py`<br>`web/dashboard/dashboard.js`<br>*+4 more* | `tests/test_characters_registry.py`<br>`tests/test_host.py`<br>`tests/test_mind_hands.py` |
 | **§27** — Tests (the hard gate) | `web/js/stage/sanctuary/Cat.js`<br>`yurios/kernel/clock.py`<br>`yurios/world/tools/client.py`<br>`yurios/world/tools/fakes.py`<br>*+3 more* | `tests/conftest.py`<br>`tests/test_forge_diffusers.py`<br>`tests/test_forge_krea2.py`<br>*+2 more* |
@@ -48,4 +48,4 @@ a section are folded into it.
 | **§35** — Pictures you send her | `yurios/world/main.py`<br>`yurios/world/channels/telegram.py`<br>`yurios/world/routes/chat.py`<br>`web/js/chat.js`<br>*+11 more* | `tests/test_channels.py`<br>`tests/test_context_meter.py`<br>`tests/test_integration.py`<br>*+1 more* |
 | **§36** — Command-line control | `yurios/ctl/__init__.py`<br>`yurios/ctl/characters.py`<br>`yurios/ctl/client.py`<br>`yurios/world/host/switchboard.py`<br>*+1 more* | `tests/test_cli_camera.py`<br>`tests/test_cli_characters.py` |
 
-*732 citation sites over 108 sections.*
+*736 citation sites over 108 sections.*

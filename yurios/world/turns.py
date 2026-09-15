@@ -15,7 +15,8 @@ One turn, end to end, mirroring the voice route's forks minus the audio:
   - `turn_started`/`turn_ended` bracket the turn (the mind knows she's talking);
   - brain tokens stream through the `EmotionParser`: tags drive the face on the
     puppet lane (`controller.set_expression`, voice fork #5) and are stripped
-    from the shown text; completed sentences accumulate as a `draft` on the hub;
+    from the shown text; the clean text accumulates as a `draft` on the hub with
+    its line breaks kept (§10.5) — a text is shown as it was written;
   - a clean turn persists the *verbatim* reply (tags kept, B2's corpus rule),
     commits the shown text as a `message`, and tees `turn_committed` onto the
     bus (the mind's REFLECT share: world model, promise extraction);
@@ -31,12 +32,23 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from contextlib import nullcontext
 
 from yurios.desktop.voice.emotion import EmotionParser
-from yurios.desktop.voice.sentences import cut_sentences
 
 log = logging.getLogger("world.turns")
+
+
+def _text_of(chunks: list[str]) -> str:
+    """The shown text: line breaks kept, the gap a stripped tag leaves closed.
+
+    `[happy] Hey. [tender] I missed you.` shows as `Hey. I missed you.` — the
+    parser drops the tag and both spaces around it survive; runs of spaces
+    collapse, and a line never starts or ends with one. Newlines stay: a
+    text is shown as it was written (§10.5)."""
+    text = re.sub(r"[ \t]{2,}", " ", "".join(chunks))
+    return re.sub(r"[ \t]*\n[ \t]*", "\n", text).strip()
 
 
 class TextTurns:
@@ -83,8 +95,7 @@ class TextTurns:
             if cold:
                 rt.hub.publish("draft", {"text": cold})
             parser = EmotionParser(default=rt.cfg.expression_default)
-            shown: list[str] = []
-            buf = ""
+            shown: list[str] = []          # clean text, line breaks kept (§10.5)
             prev_events = 0
             try:
                 async for token in rt.brain.stream_greeting(session_id):
@@ -93,15 +104,13 @@ class TextTurns:
                         rt.controller.set_expression(
                             parser.events[prev_events].expression, 1.0, reset_ms=0)
                         prev_events += 1
-                    buf += speakable
-                    done, buf = cut_sentences(buf)
-                    for s in done:
-                        shown.append(s)
+                    if speakable:
+                        shown.append(speakable)
                         if not cold:               # …unless the text is given
-                            rt.hub.publish("draft", {"text": " ".join(shown)})
-                parser.finish()
-                if buf.strip():
-                    shown.append(buf.strip())
+                            rt.hub.publish("draft", {"text": _text_of(shown)})
+                tail = parser.finish()
+                if tail:
+                    shown.append(tail)
             except Exception:
                 # nothing was committed and nothing was appended (a greeting
                 # never puts a user line in the window), so there is nothing to
@@ -117,7 +126,7 @@ class TextTurns:
             # arrival; only a failure above (which raised) leaves it un-marked.
             rt.greeted.add(session_id)
             entry = None
-            text = cold or (" ".join(shown) if shown else "")
+            text = cold or _text_of(shown)
             if text:
                 entry = rt.post_message("assistant", text,
                                         proactive=True, channel=channel,
@@ -164,8 +173,7 @@ class TextTurns:
             rt.turn_started()
             parser = EmotionParser(default=rt.cfg.expression_default)
             raw: list[str] = []          # model output verbatim (tags kept, for persist)
-            shown: list[str] = []        # committed sentences, tags stripped
-            buf = ""
+            shown: list[str] = []        # clean text, tags stripped, line breaks kept
             prev_events = 0
             turn_context = getattr(rt.brain, "turn_context", None)
             context = turn_context(channel=channel, client_id=client_id,
@@ -188,14 +196,12 @@ class TextTurns:
                             rt.controller.set_expression(
                                 parser.events[prev_events].expression, 1.0, reset_ms=0)
                             prev_events += 1
-                        buf += speakable
-                        done, buf = cut_sentences(buf)
-                        for s in done:
-                            shown.append(s)
-                            rt.hub.publish("draft", {"text": " ".join(shown)})
-                    parser.finish()
-                    if buf.strip():
-                        shown.append(buf.strip())
+                        if speakable:
+                            shown.append(speakable)
+                            rt.hub.publish("draft", {"text": _text_of(shown)})
+                    tail = parser.finish()
+                    if tail:
+                        shown.append(tail)
             except asyncio.CancelledError:
                 rt.hub.publish("draft_cancel", {})
                 rt.brain.abandon(session_id)
@@ -214,10 +220,10 @@ class TextTurns:
                 rt.turn_ended()
 
             entry = None
-            if not shown:
+            reply = _text_of(shown)
+            if not reply:
                 rt.brain.abandon(session_id)   # nothing to commit — same rollback
-            if shown:
-                reply = " ".join(shown)
+            if reply:
                 entry = rt.post_message("assistant", reply, channel=channel,
                                         session_id=session_id)
                 # Persisting is another model call — the memory extractor's —

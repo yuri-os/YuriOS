@@ -20,6 +20,22 @@ from yurios.world.config import Config
 TOKEN = "owner-token-with-at-least-thirty-two-characters"
 
 
+def test_owner_form_keeps_its_origin_and_still_rejects_a_null_one():
+    """Safari and Chromium submit `Origin: null` for a form on a page served
+    with `Referrer-Policy: no-referrer`, and the boundary rejected the owner's
+    own login as a cross-site post. Same-origin keeps the form usable while
+    still withholding referrers from other sites."""
+    with TestClient(secured_app()) as client:
+        page = client.get("/auth")
+        assert page.headers["referrer-policy"] == "same-origin"
+        assert client.post("/api/auth/session", data={"token": TOKEN},
+                           headers={"Origin": "null"}).status_code == 403
+        accepted = client.post("/api/auth/session", data={"token": TOKEN},
+                               headers={"Origin": "http://testserver"},
+                               follow_redirects=False)
+        assert accepted.status_code == 303
+
+
 def secured_app(*, host: str = "0.0.0.0", token: str = TOKEN) -> FastAPI:
     app = FastAPI()
     install_owner_security(

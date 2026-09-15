@@ -369,7 +369,10 @@ async def login_page(request: Request, next: str = "/", token: str = ""):
     return HTMLResponse(body, headers={
         "Cache-Control": "no-store",
         "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
-        "Referrer-Policy": "no-referrer",
+        # Safari and Chromium submit `Origin: null` for a form on a page that
+        # says no-referrer, and the boundary then refuses the owner's own login.
+        # Same-origin keeps the form usable and still tells other sites nothing.
+        "Referrer-Policy": "same-origin",
         "X-Content-Type-Options": "nosniff",
     })
 

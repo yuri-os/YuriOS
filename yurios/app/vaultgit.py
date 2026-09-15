@@ -15,7 +15,7 @@ import re
 import subprocess
 import tempfile
 import time
-from pathlib import Path
+from pathlib import Path, PurePath
 
 VAULT_GITIGNORE = """\
 # derived, rebuildable — never committed (§4.1); scripts/reindex.py rebuilds it
@@ -55,6 +55,12 @@ def atomic_append(path: Path, text: str) -> None:
     atomic_write(path, current + text)
 
 
+def _config_path(path: PurePath) -> str:
+    """A quoted Git-config value, including Windows paths and comment markers."""
+    value = path.as_posix().replace("\\", "\\\\").replace('"', '\\"')
+    return '"' + value.replace("\n", "\\n").replace("\t", "\\t") + '"'
+
+
 def _git_env(vault: Path) -> dict | None:
     """Git refuses to touch a repo owned by a different uid ("dubious
     ownership") — routine on NTFS/exFAT mounts where every file reads as
@@ -72,16 +78,18 @@ def _git_env(vault: Path) -> dict | None:
     state.mkdir(parents=True, exist_ok=True)
     tag = hashlib.md5(str(vault_abs).encode()).hexdigest()[:12]
     shim = state / f"gitconfig-{tag}"
-    if not shim.exists():
-        home = Path.home()
-        xdg = Path(os.environ.get("XDG_CONFIG_HOME", home / ".config"))
-        shim.write_text(
-            "[include]\n"
-            f"\tpath = {home / '.gitconfig'}\n"          # missing files are
-            f"\tpath = {xdg / 'git' / 'config'}\n"       # silently skipped
-            "[safe]\n"
-            f"\tdirectory = {vault_abs}\n",
-            encoding="utf-8")
+    home = Path.home()
+    xdg = Path(os.environ.get("XDG_CONFIG_HOME", home / ".config"))
+    content = (
+        "[include]\n"
+        f"\tpath = {_config_path(home / '.gitconfig')}\n"
+        f"\tpath = {_config_path(xdg / 'git' / 'config')}\n"
+        "[safe]\n"
+        f"\tdirectory = {_config_path(vault_abs)}\n")
+    # Repair shims written by older versions too: unescaped Windows backslashes
+    # made Git reject every subsequent Vault operation, including first seeding.
+    if not shim.exists() or shim.read_text(encoding="utf-8") != content:
+        atomic_write(shim, content)
     return os.environ | {"GIT_CONFIG_GLOBAL": str(shim)}
 
 

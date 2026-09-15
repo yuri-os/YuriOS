@@ -113,3 +113,24 @@ def test_the_citation_convention_is_actually_in_use():
     cited = _citations()
     assert len(cited) > 80, f"only {len(cited)} sections cited — has the scan broken?"
     assert sum(len(w) for w in cited.values()) > 500
+
+
+def test_the_generated_index_matches_the_citations_it_is_built_from():
+    """The index rots the other way too, and nothing was watching that end.
+
+    `docs/spec-map.md` is generated from these same citations by
+    `scripts/spec_map.py`, and AGENTS.md sends a reader there to go from a
+    section to its modules. But regenerating it is a step someone has to
+    remember after moving code, and `--check` was a manual command — so the
+    file went stale in the ordinary course of work, silently, while every
+    test above stayed green. It is a derived file: it belongs to the suite
+    that already guards the citations, not to a habit.
+
+    Rendering costs about half a second, because it is the same scan the
+    tests above do. If this fails, run: python scripts/spec_map.py
+    """
+    from scripts import spec_map
+
+    titles, hits = spec_map.collect()
+    assert spec_map.OUT.read_text(encoding="utf-8") == spec_map.render(titles, hits), (
+        "docs/spec-map.md is out of date — run: python scripts/spec_map.py")

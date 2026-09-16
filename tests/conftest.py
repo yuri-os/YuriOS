@@ -38,6 +38,7 @@ def fresh_park_gate():
     running hundreds of runtimes, so a gate a failed test left shut would
     silently hold every later one at the door, and a backend one test built
     would be handed to the next. Each test gets a clean card."""
+    from yurios.app.providers.sentence_tf import reset_shared
     from yurios.forge.backends import reset_shared_backends
     from yurios.world.vram import reset_card, reset_shared_gate
 
@@ -45,6 +46,7 @@ def fresh_park_gate():
         reset_shared_gate()
         reset_card()               # the card's warm-pipeline claim and its lock
         reset_shared_backends()    # …and the backends that would hold one
+        reset_shared()             # in-process embedder cache (SPEC §2.4)
 
     _fresh()
     yield

@@ -60,9 +60,9 @@ def test_empty_board_is_not_done():
 
 
 def test_every_move_is_narrated_to_the_log(caplog):
-    """The panel only exists once the port is open, and the slow half of boot
-    happens before that — so the log is the only witness, and `yurios start`
-    reads it to tell a slow wake from a wedged one."""
+    """The panel only exists once the port is open, and a cold LM Studio
+    load still happens before that — so the log is the only witness, and
+    `yurios start` reads it to tell a slow wake from a wedged one."""
     ticks = iter([0.0, 0.0, 41.0])                     # t0, start, done
     b = BootBoard(clock=lambda: next(ticks))
     b.declare("embed", "memory · embedding model")
@@ -131,3 +131,48 @@ def test_voice_preload_warms_the_stages_at_boot(cfg):
         assert snap["done"] is True
         states = {s["key"]: s["state"] for s in snap["services"]}
         assert states["tts"] == states["stt"] == states["vad"] == "ready"
+
+
+async def test_start_async_does_not_wait_for_the_tool_server(cfg, seeded_vault):
+    """Spawning MCP is 2–3s per character and used to sit in front of her mind
+    and the host's port. Discovery now runs on the loop without holding the
+    rest of boot (SPEC §7.2)."""
+    import asyncio
+
+    from yurios.world.tools.fakes import FakeToolRunner
+
+    from .conftest import CannedChat, FakeEmbedder, FakeUtility
+
+    began = asyncio.Event()
+    release = asyncio.Event()
+
+    class Slow(FakeToolRunner):
+        async def start(self):
+            began.set()
+            await release.wait()
+            return await super().start()
+
+    app_cfg = cfg.model_copy(update={
+        "mind_enabled": False, "vault_dir": seeded_vault,
+        "embed_dim": FakeEmbedder.dim,
+        "corpus_dir": seeded_vault.parent / "corpus",
+        "trace_dir": seeded_vault.parent / "traces"})
+    app = create_app(app_cfg, chat_model=CannedChat(),
+                     utility_model=FakeUtility(), embedder=FakeEmbedder(),
+                     tool_runner=Slow(), manage_lifespan=False)
+    rt = app.state.rt
+    await rt.start_async()
+    await asyncio.sleep(0)
+    assert began.is_set()
+    tools = next(s for s in rt.boot.snapshot()["services"] if s["key"] == "tools")
+    assert tools["state"] == "loading"
+    assert rt.tool_count == 0
+    release.set()
+    for _ in range(50):
+        if rt.tool_count:
+            break
+        await asyncio.sleep(0.02)
+    assert rt.tool_count > 0
+    tools = next(s for s in rt.boot.snapshot()["services"] if s["key"] == "tools")
+    assert tools["state"] == "ready"
+    await rt.stop_async()

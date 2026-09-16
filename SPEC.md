@@ -327,6 +327,15 @@ second server. An LM Studio embedder may instead reuse the chat server when expl
 Embeddings are always local and ownable. A failed backend **MUST** degrade gracefully (keep
 talking, log the truth) rather than crash.
 
+The in-process sentence-transformers embedder **MUST** load off-thread and **MUST NOT** hold
+up the rest of boot: building a character continues into her hands, her mind and her
+channels, and the host **MUST** open its port without waiting for the weights. The boot
+board (§6.4) stays on `loading` until they land (or the load fails), which is what the
+enter gate waits on. A recall that arrives before they do **MUST** behave as an empty
+Vault — `[]`, no freeze of the event loop. `embed()` itself still waits, so a write that
+needs a vector (remember, reindex, ingest) never drops one. A failed load **MUST** settle
+the board as failed and keep her talking.
+
 **Model residency.** Sharing one server has a cost that is not obvious: LM Studio JIT-loads
 whatever model a request names, and by default unloads the previously JIT-loaded one to do it.
 Every turn touches both models — the chat model streams the reply, the embedder recalls and
@@ -671,7 +680,12 @@ to every new subscriber before its first live event. Malformed JSON is logged an
   (`yurios/world/tools/client.py`, stdio, spawning `yurios.world.tools.server`), discover tools
   with `list_tools`, and build the §7.4 directive from the discovered schemas. If the SDK or
   server fails, the build **MUST** degrade to tools-off and keep talking; `/api/health` reports
-  the truth.
+  the truth. Spawning the server **MUST NOT** hold up the rest of boot: her mind and channels
+  continue, the host opens its port, and the boot board (§6.4) stays on `loading` until
+  discovery finishes (or fails). A turn that arrives before her hands are wired **MUST** see
+  no tools — the same as tools-off — rather than waiting. The stdio session **MUST** still
+  live on the event loop (anyio cancel scopes cannot move to a thread); only the wait is
+  off the boot path.
 
   `MCP_SERVERS` **MAY** name a JSON file in the conventional `{"mcpServers": {…}}` shape, whose
   servers are mounted alongside hers behind the same `ToolRunner` seam (`MultiToolRunner`), so the

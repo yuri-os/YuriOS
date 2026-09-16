@@ -18,6 +18,7 @@ names, same semantics, awaited from the post-turn background task.
 """
 from __future__ import annotations
 
+import asyncio
 import datetime
 import json
 import logging
@@ -185,10 +186,17 @@ class FileMemoryStore:
 
         # 2. embed + upsert one chunk row, traceable back to the journal line
         text = f"{self.user_name}: {record.user_msg}\n{self.char_name}: {record.reply}"
+        embed = self.embedder.embed
+        if getattr(self.embedder, "ready", True):
+            vec = embed([text])[0]
+        else:
+            # Off the loop: a cold load is tens of seconds, and this host is
+            # holding every other character's room open while it runs (§2.4).
+            vec = (await asyncio.to_thread(embed, [text]))[0]
         self.index.upsert(
             id=f"turn-{record.session_id}-{record.turn_index}",
             kind="turn", source_path=rel, source_span=span, text=text,
-            embedding=self.embedder.embed([text])[0],
+            embedding=vec,
             created_at=record.ts.isoformat(), salience=1.0)
 
         # 3. partner model — this is where USER.md grows (§6.3)
@@ -343,6 +351,10 @@ class FileMemoryStore:
     def recall(self, query: str, k: int = 6) -> list[Memory]:
         if self.index.count() == 0:
             return []   # empty Vault ⇒ []; assembly proceeds on SOUL + USER.md alone
+        if not getattr(self.embedder, "ready", True):
+            # Weights still loading (SPEC §2.4): same as empty, not a freeze of
+            # the event loop and not a failed turn.
+            return []
         now = datetime.datetime.now(datetime.UTC)
         q = self.embedder.embed([query])[0]
         rows = self.index.search(q, limit=k * 4)

@@ -77,7 +77,7 @@ class AppState:
     pending_tasks: set = field(default_factory=set)  # keep post-turn tasks alive
 
 
-def _default_embedder(cfg: Config):
+def _default_embedder(cfg: Config, *, wait: bool = True):
     if cfg.embed_backend == "ollama":
         from yurios.app.providers.ollama import OllamaEmbedder
         return OllamaEmbedder(cfg.embed_model, cfg.embed_dim)
@@ -103,10 +103,10 @@ def _default_embedder(cfg: Config):
             cfg.embed_backend = "sentence_tf"
             cfg.embed_model = DEFAULT_MODEL
             cfg.embed_dim = DEFAULT_DIM
-            return SentenceTFEmbedder(cfg.embed_model, cfg.embed_dim)
+            return SentenceTFEmbedder(cfg.embed_model, cfg.embed_dim, wait=wait)
         return embedder
     from yurios.app.providers.sentence_tf import SentenceTFEmbedder
-    return SentenceTFEmbedder(cfg.embed_model, cfg.embed_dim)
+    return SentenceTFEmbedder(cfg.embed_model, cfg.embed_dim, wait=wait)
 
 
 def _lmstudio_ids(cfg: Config, *, chat: bool, embed: bool) -> list[str]:

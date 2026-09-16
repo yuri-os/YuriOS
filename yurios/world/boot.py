@@ -1,27 +1,31 @@
 """The startup status board (SPEC §2, §6.4) — the kernel-boot log the UI shows
 while she wakes.
 
-The slow parts of boot are local models: the embedder that indexes her memory, and
-— when a room is opened — the voice stack, whose Kokoro TTS, faster-whisper and
-silero load cold on the CPU and can take a minute (world/voicestack.py). A fresh
-page would otherwise sit on the enter gate with no sign of life. This board
-records each service as it moves pending → loading → ready | failed | skipped,
-with how long it took, and `/api/boot` serves the snapshot. A service that only
-loads on demand declares itself `skipped` and narrates itself later if it does
-run: the gate polls until every service is terminal, so nothing may be left
-pending for an event that might never come. The web boot panel
-(web/js/boot.js) polls it — deliberately *not* the /api/events bus, because that
-stream only opens after the enter gesture (SPEC §6.4), and the whole point is to
-show progress *before* she's ready to be entered.
+The slow parts of boot are local models: the embedder that indexes her memory,
+the MCP tool server (a spawned process, a couple of seconds each), and — when a
+room is opened — the voice stack, whose Kokoro TTS, faster-whisper and silero
+load cold on the CPU and can take a minute (world/voicestack.py). A fresh page
+would otherwise sit on the enter gate with no sign of life. This board records
+each service as it moves pending → loading → ready | failed | skipped, with how
+long it took, and `/api/boot` serves the snapshot. A service that only loads on
+demand declares itself `skipped` and narrates itself later if it does run: the
+gate polls until every service is terminal, so nothing may be left pending for
+an event that might never come. The web boot panel (web/js/boot.js) polls it —
+deliberately *not* the /api/events bus, because that stream only opens after the
+enter gesture (SPEC §6.4), and the whole point is to show progress *before*
+she's ready to be entered.
 
 Thread-safe on purpose: the voice models warm on a worker thread while tools and
 the mind come up on the event loop, so both writers touch one lock.
 
 Every move is also narrated to the log, prefixed `boot:`. The panel is only
-visible once the server answers requests, and the slowest half of boot happens
-before that — a cold embedder, a 27B model loading in LM Studio. Those lines are
-what `yurios start` watches to tell "still waking" from "wedged" (yurios/cli.py),
-and what the log has to show afterwards to explain where three minutes went.
+visible once the server answers requests. A cold LM Studio chat model still
+loads before that; the in-process embedder and the MCP tool server do not —
+they warm without holding the rest of boot (SPEC §2.4, §7.2) and the board
+stays on `loading` until they land, which is what the enter gate waits on.
+Those lines are what `yurios start` watches to tell "still waking" from
+"wedged" (yurios/cli.py), and what the log has to show afterwards to explain
+where three minutes went.
 """
 from __future__ import annotations
 

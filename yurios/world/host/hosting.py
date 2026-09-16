@@ -553,15 +553,16 @@ class CharacterHost:
             ensure_setting(record)      # …and her own room, before her prompt (§2.5)
             try:
                 # Off the event loop. Building a character is not a quick
-                # object graph: it loads the embedding model that indexes her
-                # memory (the sentence-transformers default is a cold torch
-                # model, ~20 s the first time in a process) and, with
-                # LMSTUDIO_PRELOAD on — the default — it waits on LM Studio
-                # seating her chat model, which for a cold 6 GB file is about a
-                # minute. Done inline, that is a minute in which this process
-                # answers nothing: not the switchboard that asked for it, not
-                # the SSE stream in somebody else's room, not the voice socket
-                # of a character who was mid-sentence. A host is one process
+                # object graph: with LMSTUDIO_PRELOAD on — the default — it
+                # waits on LM Studio seating her chat model, which for a cold
+                # 6 GB file is about a minute. The embedding model that indexes
+                # her memory is a cold torch load too (~20 s the first time in
+                # a process) but that one is kicked off-thread and does not
+                # hold the rest of the start (SPEC §2.4). Done inline, a minute
+                # of LM Studio is a minute in which this process answers
+                # nothing: not the switchboard that asked for it, not the SSE
+                # stream in somebody else's room, not the voice socket of a
+                # character who was mid-sentence. A host is one process
                 # holding every character on the node, so a start has to be
                 # something the others can be served *through*.
                 #

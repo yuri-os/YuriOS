@@ -1172,11 +1172,11 @@ async def test_starting_a_character_does_not_freeze_the_rest_of_the_node(
     """A host is one process holding every character on the node, so building
     one of them cannot be something the others wait *behind*.
 
-    Building a character is not a quick object graph. It loads the embedding
-    model that indexes her memory — the sentence-transformers default is a cold
-    torch model, about twenty seconds the first time in a process — and with
-    LMSTUDIO_PRELOAD on, which is the default, it also waits on LM Studio
-    seating her chat model: roughly a minute for a cold 6 GB file. Run inline
+    Building a character is not a quick object graph. With LMSTUDIO_PRELOAD
+    on, which is the default, it waits on LM Studio seating her chat model:
+    roughly a minute for a cold 6 GB file. The embedding model that indexes
+    her memory is a cold torch load too, but that one is kicked off-thread
+    and does not hold the rest of the start. Run the LM Studio wait inline
     on the event loop, that is a minute in which this process answers nothing —
     not the switchboard that asked for the start, not the SSE stream in
     somebody else's room, not the voice socket of a character who was

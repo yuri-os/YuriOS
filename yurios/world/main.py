@@ -120,7 +120,8 @@ class Runtime:
         self.stopping = asyncio.Event()        # ends open SSE streams on shutdown
         # the boot log the UI shows while she wakes (SPEC §6.4). Voice services
         # are declared here and resolved on the warm-up thread; tools/mind on
-        # the event loop (start_async); selfies is known now. /api/boot serves it.
+        # the event loop (start_async) — tools without holding the rest of
+        # boot (SPEC §7.2); selfies is known now. /api/boot serves it.
         self.boot = BootBoard(who=cfg.character_id)
         # absent from the allowlist = no hand (§7.3) — runtime.tool_rates
         self.guard = Guard(rates_per_min=runtime.tool_rates(cfg),
@@ -644,54 +645,15 @@ class Runtime:
         if runner is not None and not self.autonomous:
             runner = None                      # injected test brain has no hands
         if runner is not None:
+            # Spawn/discover off the rest of boot (SPEC §7.2). The stdio
+            # session has to live on this loop — anyio cancel scopes cannot
+            # move to a thread — but the wait for it must not. A turn that
+            # arrives before the board settles sees no hands, the same as
+            # tools-off, rather than holding the host's port closed.
             self.boot.start("tools", detail=self.cfg.tools_backend)
-            try:
-                specs = await runner.start()
-                # Discovery is the allowlist for tools nobody here could name in
-                # advance (§7.3) — that is, a third-party server's. Hers are
-                # deliberately NOT admitted this way: the rates in __init__ are
-                # her allowlist, and they encode decisions discovery can't see
-                # (SELFIE_BACKEND=off leaves the camera out of the buckets, and
-                # the fake runner advertises it regardless). Auto-admitting
-                # everything would quietly hand back the hands config took away.
-                #
-                # Only `MultiToolRunner` keeps `started` as the (name, child)
-                # list this walks; a single runner uses the same attribute for
-                # a plain "did I come up" bool. Iterating that raised
-                # `TypeError: 'bool' object is not iterable` — inside the except
-                # below, so `TOOLS_BACKEND=fake` booted her handless with one
-                # warning and no discovery ever ran.
-                servers = getattr(runner, "started", None)
-                for name, child in (servers if isinstance(servers, list) else []):
-                    if name == "yurios":
-                        continue
-                    rate = self._external_rates.get(name, self.cfg.tool_rate_external)
-                    for spec in specs:
-                        if runner.server_of(spec.name) == name and \
-                                self.guard.allow(spec.name, rate):
-                            log.info("tools: %s admitted at %d/min (from the %r "
-                                     "server)", spec.name, rate, name)
-                self.brain.set_tools(runner, specs)
-                self._tool_runner = runner
-                self.tool_count = len(specs)
-                self.tools_status = ("fake" if type(runner).__name__ == "FakeToolRunner"
-                                     else "mcp")
-                detail = f"{self.tools_status} · {len(specs)} tools"
-                if isinstance(runner, MultiToolRunner):
-                    detail += f" · {len(runner.started)} servers"
-                    for name, why in runner.failures.items():
-                        log.warning("tools: %s is not mounted (%s)", name, why)
-                self.boot.done("tools", detail=detail)
-            except Exception as e:
-                # peeled out of its task groups — the wrapper's own message is
-                # "unhandled errors in a TaskGroup", which names nothing (§7.2)
-                from .tools.client import start_failure
-                why = start_failure(e)
-                log.warning("tool backend failed — she has no hands this run: %s", why)
-                self.tools_status = f"failed: {why}"
-                self.tool_count = 0
-                self._tool_runner = None
-                self.boot.done("tools", state="failed", detail=why[:80])
+            self._tool_runner = runner
+            self._tasks.append(asyncio.create_task(
+                self._start_tools(runner), name="tools-boot"))
         elif self.cfg.tools_backend != "off":
             # declared pending but no runner (e.g. a test brain) — settle it
             self.boot.done("tools", state="skipped", detail="no hands")
@@ -736,6 +698,60 @@ class Runtime:
                 self.boot.done("channels", detail=detail)
             else:
                 self.boot.done("channels", state="failed", detail=detail)
+
+    async def _start_tools(self, runner) -> None:
+        """Discover, admit, wire. The boot line stays on `loading` until this
+        returns (SPEC §7.2). A dead server is tools-off, not a raised start."""
+        from .tools.client import start_failure
+        try:
+            specs = await runner.start()
+            # Discovery is the allowlist for tools nobody here could name in
+            # advance (§7.3) — that is, a third-party server's. Hers are
+            # deliberately NOT admitted this way: the rates in __init__ are
+            # her allowlist, and they encode decisions discovery can't see
+            # (SELFIE_BACKEND=off leaves the camera out of the buckets, and
+            # the fake runner advertises it regardless). Auto-admitting
+            # everything would quietly hand back the hands config took away.
+            #
+            # Only `MultiToolRunner` keeps `started` as the (name, child)
+            # list this walks; a single runner uses the same attribute for
+            # a plain "did I come up" bool. Iterating that raised
+            # `TypeError: 'bool' object is not iterable` — inside the except
+            # below, so `TOOLS_BACKEND=fake` booted her handless with one
+            # warning and no discovery ever ran.
+            servers = getattr(runner, "started", None)
+            for name, child in (servers if isinstance(servers, list) else []):
+                if name == "yurios":
+                    continue
+                rate = self._external_rates.get(name, self.cfg.tool_rate_external)
+                for spec in specs:
+                    if runner.server_of(spec.name) == name and \
+                            self.guard.allow(spec.name, rate):
+                        log.info("tools: %s admitted at %d/min (from the %r "
+                                 "server)", spec.name, rate, name)
+            self.brain.set_tools(runner, specs)
+            self.tool_count = len(specs)
+            self.tools_status = ("fake" if type(runner).__name__ == "FakeToolRunner"
+                                 else "mcp")
+            detail = f"{self.tools_status} · {len(specs)} tools"
+            if isinstance(runner, MultiToolRunner):
+                detail += f" · {len(runner.started)} servers"
+                for name, why in runner.failures.items():
+                    log.warning("tools: %s is not mounted (%s)", name, why)
+            self.boot.done("tools", detail=detail)
+        except asyncio.CancelledError:
+            for key in self.boot.unresolved(("tools",)):
+                self.boot.done(key, state="skipped", detail="stopped")
+            raise
+        except Exception as e:
+            # peeled out of its task groups — the wrapper's own message is
+            # "unhandled errors in a TaskGroup", which names nothing (§7.2)
+            why = start_failure(e)
+            log.warning("tool backend failed — she has no hands this run: %s", why)
+            self.tools_status = f"failed: {why}"
+            self.tool_count = 0
+            self._tool_runner = None
+            self.boot.done("tools", state="failed", detail=why[:80])
 
     async def stop_async(self) -> None:
         self.stopping.set()                    # open SSE streams end themselves

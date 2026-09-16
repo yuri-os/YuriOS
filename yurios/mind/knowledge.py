@@ -223,6 +223,10 @@ class KnowledgeStore:
         """
         if self._busy.locked():
             return []
+        if not getattr(self.embedder, "ready", True):
+            # Still loading (SPEC §2.4): leave every file pending for the next
+            # tick rather than claiming a doc we cannot embed yet.
+            return []
         results = []
         for name in self.pending_docs():
             try:
@@ -392,6 +396,10 @@ class KnowledgeStore:
         caller that arrives while it's claimed finds it already read and takes
         the shelved answer instead of doing the work again.
         """
+        if not getattr(self.embedder, "ready", True):
+            ensure = getattr(self.embedder, "ensure_ready", None)
+            if ensure is not None:
+                await asyncio.to_thread(ensure)
         doc = self._place(name, text)
         async with self._busy:
             if self._already_read(doc):
@@ -669,6 +677,8 @@ class KnowledgeStore:
     # ----------------------------------------------------------------- search
 
     def search(self, query: str, k: int = 3) -> list[Chunk]:
+        if not getattr(self.embedder, "ready", True):
+            return []
         rows = self._rows()
         if not rows:
             return []

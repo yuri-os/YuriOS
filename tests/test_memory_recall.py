@@ -39,6 +39,26 @@ def test_an_empty_vault_recalls_nothing_rather_than_raising(tmp_path):
     assert _store(tmp_path).recall("anything at all", 6) == []
 
 
+def test_recall_is_empty_while_the_embedder_is_still_loading(tmp_path):
+    """A cold sentence-transformers load must not freeze the event loop
+    (SPEC §2.4): until the weights land, recall is the empty-Vault path."""
+    class Loading:
+        ready = False
+        dim = 32
+
+        def embed(self, texts):
+            raise AssertionError("recall must not wait on a load")
+
+    (tmp_path / "memory" / "semantic").mkdir(parents=True)
+    (tmp_path / "soul").mkdir(parents=True)
+    store = FileMemoryStore(tmp_path, Loading(), embed_dim=32)
+    store.index.upsert(id="x", kind="turn", text="the good knives",
+                       source_path="t", source_span="",
+                       created_at="2026-01-01T00:00:00+00:00",
+                       salience=1.0, embedding=[1.0] + [0.0] * 31)
+    assert store.recall("knives", 6) == []
+
+
 def test_the_floor_drops_the_merely_unrelated(tmp_path):
     store = _store(tmp_path)
     _put(store, "near", "the good knives are in the second drawer")

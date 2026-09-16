@@ -17,9 +17,10 @@ def test_unavailable_lmstudio_embeddings_fall_back_to_sentence_transformers(monk
             raise httpx.ConnectError("connection refused")
 
     class LocalEmbedder:
-        def __init__(self, model_name, dim):
+        def __init__(self, model_name, dim, *, wait=True):
             self.model_name = model_name
             self.dim = dim
+            self.wait = wait
 
     monkeypatch.setattr(lmstudio, "LMStudioEmbedder", UnavailableLMStudioEmbedder)
     monkeypatch.setattr(sentence_tf, "SentenceTFEmbedder", LocalEmbedder)
@@ -60,7 +61,7 @@ def _fake_sentence_transformers(monkeypatch, recorder, failures=()):
     import sys
     from types import SimpleNamespace
 
-    monkeypatch.setattr(sentence_tf, "_shared", {})   # no model leaks between tests
+    sentence_tf.reset_shared()
     calls = []
 
     class SentenceTransformer:
@@ -135,3 +136,79 @@ def test_every_characters_embedder_shares_one_loaded_model(monkeypatch):
 
     assert len(loaded) == 1                      # loaded once, not per character
     assert first._model is second._model is third._model
+
+
+def test_construction_does_not_wait_for_the_model(monkeypatch):
+    """Boot kicks the load off and keeps going (SPEC §2.4). `embed()` is what
+    waits, so a write never drops a vector and a start is not sitting behind
+    a cold torch model."""
+    import sys
+    import threading
+    from types import SimpleNamespace
+
+    sentence_tf.reset_shared()
+    started = threading.Event()
+    release = threading.Event()
+    loaded = []
+
+    class SentenceTransformer:
+        def __init__(self, model_name, **kwargs):
+            started.set()
+            assert release.wait(timeout=5), "test gate was never opened"
+            loaded.append((model_name, kwargs))
+
+        def get_embedding_dimension(self):
+            return 384
+
+        def encode(self, texts, normalize_embeddings=True):
+            class _Arr:
+                def tolist(self_):
+                    return [[0.0] * 384 for _ in texts]
+            return _Arr()
+
+    monkeypatch.setitem(sys.modules, "sentence_transformers",
+                        SimpleNamespace(SentenceTransformer=SentenceTransformer))
+
+    embedder = sentence_tf.SentenceTFEmbedder(wait=False)
+    assert started.wait(timeout=5)
+    assert loaded == []
+    assert embedder.ready is False
+
+    release.set()
+    embedder.ensure_ready()
+    assert embedder.ready is True
+    assert loaded == [(sentence_tf.DEFAULT_MODEL, {"local_files_only": True})]
+    assert embedder.embed(["hi"])  # bound, not still waiting
+
+
+def test_a_wait_false_embedder_still_shares_the_in_flight_load(monkeypatch):
+    """Five characters boot at once; they must not start five loads."""
+    import sys
+    import threading
+    from types import SimpleNamespace
+
+    sentence_tf.reset_shared()
+    release = threading.Event()
+    loads = []
+
+    class SentenceTransformer:
+        def __init__(self, model_name, **kwargs):
+            loads.append(1)
+            assert release.wait(timeout=5)
+
+        def get_embedding_dimension(self):
+            return 384
+
+    monkeypatch.setitem(sys.modules, "sentence_transformers",
+                        SimpleNamespace(SentenceTransformer=SentenceTransformer))
+
+    one = sentence_tf.SentenceTFEmbedder(wait=False)
+    two = sentence_tf.SentenceTFEmbedder(wait=False)
+    three = sentence_tf.SentenceTFEmbedder(wait=False)
+    assert one.ready is two.ready is three.ready is False
+    release.set()
+    one.ensure_ready()
+    two.ensure_ready()
+    three.ensure_ready()
+    assert len(loads) == 1
+    assert one._model is two._model is three._model

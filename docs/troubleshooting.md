@@ -56,9 +56,11 @@ interleave commits in one Vault. Fix the paths in `data/characters.json`.
 It's refused rather than guessed at.
 
 **A start that takes minutes** — that can be normal, and `yurios start` no longer gives up on it.
-Cold-loading a 27B in LM Studio is ~3½ minutes by itself, and each character brings up its own
-embedder and tool server after that. The wait runs on progress, not a stopwatch: every boot step
-is echoed as it lands (`  … yuri · memory · embedding model…`) and the same lines go to the log.
+Cold-loading a 27B in LM Studio is ~3½ minutes by itself. The in-process embedder and each
+character's MCP tool server warm without holding the rest of boot; you will still see
+`  … yuri · memory · embedding model…` and `  … yuri · hands · tool server…` while they land.
+The wait runs on progress, not a stopwatch: every boot step is echoed as it lands and the
+same lines go to the log.
 It stops for two things — a log that has said nothing for five minutes (or `LMSTUDIO_LOAD_TIMEOUT_S`,
 whichever is longer, since a model load is one silent call), and any answer from the port.
 

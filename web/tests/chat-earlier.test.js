@@ -201,6 +201,21 @@ describe('the button at the top of the column', () => {
       .toContain('/api/history?limit=6');
   });
 
+  it('does not reuse a cached history snapshot', async () => {
+    /* A default fetch of `/api/history` can replay an earlier empty window
+     * (she spoke on Telegram, or the ring was seeded after the first visit)
+     * until a hard refresh. The page opts out the way `/api/boot` already does. */
+    const fetched = await open(conversation(20));
+    const transcript = fetched.mock.calls.filter(([url]) => {
+      const path = String(url);
+      return path.startsWith('/api/history') || path === '/api/inbox';
+    });
+    expect(transcript.length).toBeGreaterThan(0);
+    for (const [, opts] of transcript) {
+      expect(opts).toEqual(expect.objectContaining({ cache: 'no-store' }));
+    }
+  });
+
   it('offers the walk when a single line sits behind the opening screenful', async () => {
     /* The threshold that made the feature look dead: the page opened on the
      * route's hundred, so the button could not appear until the archive held a

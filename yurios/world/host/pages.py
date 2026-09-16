@@ -12,11 +12,21 @@ import logging
 from fastapi import FastAPI, Request
 from fastapi.responses import (FileResponse, JSONResponse, RedirectResponse)
 
-
 from ..main import DIST_DIR
 from .hosting import (CharacterHost)
 
 log = logging.getLogger("world.host")
+
+
+def _html(path):
+    """Vite entry HTML keeps a stable URL while hashed `/assets/*` names move.
+
+    `Cache-Control: no-cache` (revalidate every load) so a rebuild is not stuck
+    behind yesterday's index until a hard refresh — the same rule as unhashed
+    `/js/` and `/shared/` on the character app (`world/main.py`).
+    """
+    return FileResponse(path, media_type="text/html",
+                        headers={"Cache-Control": "no-cache"})
 
 
 def register(app: FastAPI, host: CharacterHost, require) -> None:
@@ -39,13 +49,13 @@ def register(app: FastAPI, host: CharacterHost, require) -> None:
         path = DIST_DIR / "dashboard" / "index.html"
         if not path.is_file():
             return JSONResponse({"detail": "frontend not built; run npm run build in web"}, 503)
-        return FileResponse(path, media_type="text/html")
+        return _html(path)
 
     @app.get("/characters/{character_id}/sanctuary")
     @app.get("/characters/{character_id}/sanctuary/")
     async def sanctuary(character_id: str):
         require(character_id)
-        return FileResponse(DIST_DIR / "index.html", media_type="text/html")
+        return _html(DIST_DIR / "index.html")
 
     @app.get("/characters/{character_id}/live2d")
     async def character_live2d(character_id: str):
@@ -59,7 +69,7 @@ def register(app: FastAPI, host: CharacterHost, require) -> None:
     @app.get("/characters/{character_id}/text/")
     async def character_text(character_id: str):
         require(character_id)
-        return FileResponse(DIST_DIR / "text" / "index.html", media_type="text/html")
+        return _html(DIST_DIR / "text" / "index.html")
 
     # The mind debug page (SPEC §24.3): not a room — it never speaks to her, it
     # reads her files. Character-scoped by path like the rooms above, so
@@ -68,4 +78,4 @@ def register(app: FastAPI, host: CharacterHost, require) -> None:
     @app.get("/characters/{character_id}/mind/")
     async def character_mind(character_id: str):
         require(character_id)
-        return FileResponse(DIST_DIR / "mind" / "index.html", media_type="text/html")
+        return _html(DIST_DIR / "mind" / "index.html")

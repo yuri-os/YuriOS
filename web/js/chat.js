@@ -32,6 +32,10 @@
     : import('/shared/runtime.js').catch(() => {});
   const apiPath = (path) => window.YuriOSRuntime?.apiPath(path) || path;
   const httpPath = (path) => window.YuriOSRuntime?.httpPath(path) || path;
+  // SPEC §2.6: the transcript is live (Telegram, another room, a restart that
+  // seeded the ring). Default fetch reuse of an earlier empty snapshot is a
+  // blank column until a hard refresh; opt out the way /api/boot already does.
+  const getFresh = (path) => fetch(apiPath(path), { cache: 'no-store' });
   const messages = document.getElementById('messages');
   let draftEl = null;
   let charName = '';
@@ -376,7 +380,7 @@
 
   async function loadInbox() {
     try {
-      const r = await fetch(apiPath('/api/inbox'));
+      const r = await getFresh('/api/inbox');
       if (!r.ok) return [];
       const entries = (await r.json()).entries || [];
       for (const e of entries) if (e.id) unheard.add(e.id);
@@ -504,8 +508,8 @@
     const el = scroller();
     const fromBottom = el.scrollHeight - el.scrollTop;
     try {
-      const resp = await fetch(apiPath('/api/history?limit=' + EARLIER_PAGE +
-                                       '&before=' + encodeURIComponent(oldestId)));
+      const resp = await getFresh('/api/history?limit=' + EARLIER_PAGE +
+                                  '&before=' + encodeURIComponent(oldestId));
       if (!resp.ok) throw new Error(String(resp.status));
       const data = await resp.json();
       const older = data.messages || [];
@@ -565,7 +569,7 @@
       return Promise.resolve();
     }
     recovering = true;
-    return fetch(apiPath('/api/history')).then((r) => {
+    return getFresh('/api/history').then((r) => {
       if (!r.ok) throw new Error(String(r.status));
       return r.json();
     }).then((d) => {
@@ -679,7 +683,7 @@
     // said into the empty room before that (SPEC §18.4). The inbox fetch cannot
     // hold up the transcript: a failed one is an empty run, not a blank chat.
     Promise.all([
-      fetch(apiPath('/api/history?limit=' + OPENING_PAGE)).then((r) => r.json())
+      getFresh('/api/history?limit=' + OPENING_PAGE).then((r) => r.json())
         .catch(() => ({})),
       loadInbox(),
     ]).then(([d, waiting]) => {

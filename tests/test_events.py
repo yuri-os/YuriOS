@@ -142,7 +142,9 @@ def test_history_backfills_the_transcript_ring(client):
             break
         import time
         time.sleep(0.02)
-    d = client.get("/api/history").json()
+    r = client.get("/api/history")
+    assert r.headers["cache-control"] == "no-store"   # SPEC §2.6: live transcript
+    d = r.json()
     roles = [(m["role"], m.get("proactive", False)) for m in d["messages"]]
     assert roles == [("user", False), ("assistant", True)]
     assert all(m["id"] and m["ts"] for m in d["messages"])   # dedup + clock keys

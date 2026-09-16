@@ -332,7 +332,9 @@ def test_the_room_serves_and_then_clears_what_was_waiting(cfg):
     rt.post_message("assistant", "I kept thinking about the cat names",
                     proactive=True, unheard=True)
     with TestClient(app) as c:
-        payload = c.get("/api/inbox").json()
+        inbox = c.get("/api/inbox")
+        assert inbox.headers["cache-control"] == "no-store"
+        payload = inbox.json()
         assert [e["text"] for e in payload["entries"]] == \
             ["I kept thinking about the cat names"]
         assert payload["unread"]["count"] == 1

@@ -102,8 +102,13 @@ async def history(request: Request,
     *older* than that one, `limit` of them: the "load the previous six" button
     at the top of the column, which walks back through the archive one press at
     a time rather than dumping a thousand lines into a page that wanted six.
+
+    `Cache-Control: no-store` (SPEC §2.6): the ring changes as she talks,
+    including on other channels, and a browser that reuses an earlier empty
+    snapshot opens the room onto a blank column until a hard refresh.
     """
-    return request.app.state.rt.history(limit=limit, before=before)
+    return JSONResponse(request.app.state.rt.history(limit=limit, before=before),
+                        headers={"Cache-Control": "no-store"})
 
 
 @router.get("/selfies/{name}")

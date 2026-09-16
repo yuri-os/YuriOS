@@ -141,6 +141,7 @@ def test_every_body_of_a_character_is_reachable_by_her_own_id(tmp_path, monkeypa
         text = client.get("/characters/yuri/text/")
         assert text.status_code == 200
         assert text.text == "text room"
+        assert text.headers["cache-control"] == "no-cache"
         assert client.get("/characters/yuri/text").status_code == 200
         assert client.get("/characters/unknown/text/").status_code == 404
         live2d = client.get("/characters/yuri/live2d", follow_redirects=False)

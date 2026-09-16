@@ -24,7 +24,7 @@ import asyncio
 import json
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from yurios.security import owner_or_loopback
 
@@ -37,11 +37,16 @@ def _inbox(request: Request):
 
 
 @router.get("/api/inbox")
-async def inbox(request: Request, all: bool = False) -> dict:
-    """Her pending reach-outs, oldest first — the order she said them in."""
+async def inbox(request: Request, all: bool = False):
+    """Her pending reach-outs, oldest first — the order she said them in.
+
+    `Cache-Control: no-store` (SPEC §2.6, §18.4): same reason as `/api/history`
+    — a cached empty inbox hides the night's reach-outs until a hard refresh.
+    """
     box = _inbox(request)
     entries = box.entries() if all else box.pending()
-    return {"entries": entries, "unread": box.unread()}
+    return JSONResponse({"entries": entries, "unread": box.unread()},
+                        headers={"Cache-Control": "no-store"})
 
 
 @router.post("/api/inbox/read")

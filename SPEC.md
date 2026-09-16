@@ -456,6 +456,11 @@ lines she spoke unprompted (the greeting, ambient self-talk, a finished selfie, 
 initiative), and inline images when a message carries `image_url` (§7.6). The host owns the
 transcript: an in-memory ring (~200 entries) appended by `post_message` and published as
 `message` events on the bus (§10); `GET /api/history` backfills a fresh page.
+The route **MUST** send `Cache-Control: no-store`, and the page's backfill
+fetch **MUST** opt out of the HTTP cache (`cache: 'no-store'`): the ring is a
+live transcript (another room, Telegram, a restart that seeded it from disk),
+and a browser that reuses an earlier empty snapshot opens the column blank
+until a hard refresh.
 
 **The column survives a restart.** Every committed entry is *also* written to
 `<vault>/state/conversation.jsonl` (`app/conversation.py`) and the ring is seeded from its tail

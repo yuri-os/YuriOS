@@ -453,7 +453,14 @@ Both browser pages (`/` and `/live2d/`) **MUST** show a chat column next to the 
 scrolling transcript with the user's turns (typed *and* spoken — the STT transcript joins the
 chat), her committed replies, an accumulating **draft** while she speaks, a `proactive` tag on
 lines she spoke unprompted (the greeting, ambient self-talk, a finished selfie, the mind's
-initiative), and inline images when a message carries `image_url` (§7.6). The host owns the
+initiative), and inline images when a message carries `image_url` (§7.6). A committed line that
+names a file on her desk — a relative path with a slash and a known suffix
+(`goals/…md`), optionally prefixed `workspace/` — **MUST** render that path as a
+control that fetches `GET /api/mind/workspace/file` and shows the contents in
+place, folded under the bubble until asked for (the same fetch the inner-life
+goal preview (§24.3) and a delivered report (§18.2a) already make). A missing
+file **MUST** say so rather than fail silently. Drafts **MUST NOT** be
+linkified: a path still being spoken is not a pointer yet. The host owns the
 transcript: an in-memory ring (~200 entries) appended by `post_message` and published as
 `message` events on the bus (§10); `GET /api/history` backfills a fresh page.
 The route **MUST** send `Cache-Control: no-store`, and the page's backfill

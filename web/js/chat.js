@@ -12,10 +12,11 @@
  *   2. render the chat: history backfill, the button at the top of the column
  *      that walks back through what came before it six lines at a time (§2.6),
  *      you/her bubbles, the accumulating draft while she speaks, the
- *      `proactive` tag when she spoke first, and an <img> when a message
+ *      `proactive` tag when she spoke first, an <img> when a message
  *      carries `image_url` — a selfie of hers (SPEC §7.6) or a picture you sent
  *      her (§35), which are one lane and one renderer because they are one
- *      conversation.
+ *      conversation — and a desk path she named in the line as a control that
+ *      opens that file in place (SPEC §2.6), the same GET a report card uses.
  *
  *   3. draw the "read it out" button on her committed lines (SPEC §9.11) and
  *      report which one is lit. Only the affordance: pressing it hands a
@@ -152,6 +153,49 @@
     if (button) window.WorldVoice?.speak?.(button.dataset.messageId);
   });
 
+  // A path on her desk, named in the line (SPEC §2.6). Slash plus a known
+  // suffix, optionally `workspace/` or `fs://workspace/` — not a URL, and not a
+  // bare filename, which is how `README.md` in passing stays ordinary words.
+  function deskPath(raw) {
+    return String(raw || '').replace(/\\/g, '/')
+      .replace(/^fs:\/\/workspace\//i, '')
+      .replace(/^workspace\//i, '');
+  }
+
+  const DESK_FILE = /(?<![\w./])(?:fs:\/\/)?(?:workspace\/)?(?:[A-Za-z][\w-]*\/)+[\w.-]+\.(?:md|txt|json|ya?ml|csv|html?|py|js|css)\b/gi;
+
+  function linkifyDesk(text) {
+    const source = String(text ?? '');
+    const re = new RegExp(DESK_FILE.source, 'gi');
+    const seen = [];
+    let html = '';
+    let last = 0;
+    let match;
+    while ((match = re.exec(source))) {
+      html += esc(source.slice(last, match.index));
+      const raw = match[0];
+      const path = deskPath(raw);
+      html += `<button type="button" class="msg-file" data-path="${esc(path)}"` +
+              ` title="read ${esc(path)}" aria-expanded="false">${esc(raw)}</button>`;
+      if (path && !seen.includes(path)) seen.push(path);
+      last = match.index + raw.length;
+    }
+    html += esc(source.slice(last));
+    for (const path of seen) {
+      html += `<span class="msg-file-card" data-path="${esc(path)}" hidden>` +
+              `<span class="msg-file-name">${esc(path)}</span>` +
+              `<span class="msg-file-body"></span></span>`;
+    }
+    return html;
+  }
+
+  function markFileOpen(msg, path, open) {
+    if (!msg) return;
+    for (const el of msg.querySelectorAll('.msg-file')) {
+      if (el.dataset.path === path) el.setAttribute('aria-expanded', open ? 'true' : 'false');
+    }
+  }
+
   function body(m, her, receipt = '') {
     let html = `<span class="who">${her ? esc(charName || 'her') : 'you'}` +
                (m.proactive ? '<em>· she spoke first</em>' : '') +
@@ -165,7 +209,7 @@
       html += `<a href="${esc(imageUrl)}" target="_blank" rel="noopener">` +
               `<img class="msg-img" src="${esc(imageUrl)}" alt="${esc(alt)}"></a>`;
     }
-    if (m.text) html += esc(m.text);
+    if (m.text) html += linkifyDesk(m.text);
     // A report a night wrote and was told to deliver (SPEC §18.2a). The line
     // above is what she said about it; this is the thing itself, folded away
     // until asked for — a page of research pasted into the transcript would
@@ -180,10 +224,52 @@
     return html;
   }
 
+  async function loadDeskFile(target, path, missing) {
+    if (target.dataset.loaded) return;
+    try {
+      const url = apiPath('/api/mind/workspace/file?path=' +
+                          encodeURIComponent(path || ''));
+      const resp = await fetch(url, { credentials: 'same-origin' });
+      if (!resp.ok) throw new Error(String(resp.status));
+      target.textContent = (await resp.json()).text || '(it is empty)';
+    } catch {
+      // The desk is the source of truth and a line is only a pointer at it, so
+      // a path whose file is gone is a real state, not a bug to hide.
+      target.textContent = missing;
+    }
+    target.dataset.loaded = '1';
+  }
+
   // One delegated listener rather than one per card: history backfill, the
   // inbox drain and a live delivery all produce the same markup, and only this
   // survives all three without remembering to re-bind.
   messages?.addEventListener('click', async (ev) => {
+    const fileBtn = ev.target.closest?.('.msg-file');
+    if (fileBtn) {
+      const msg = fileBtn.closest('.msg');
+      const path = fileBtn.dataset.path || '';
+      const card = msg && [...msg.querySelectorAll('.msg-file-card')]
+        .find((el) => el.dataset.path === path);
+      const target = card?.querySelector('.msg-file-body');
+      if (!card || !target) return;
+      if (!card.hidden) {
+        card.hidden = true;
+        markFileOpen(msg, path, false);
+        return;
+      }
+      if (!target.dataset.loaded) {
+        fileBtn.disabled = true;
+        try {
+          await loadDeskFile(target, path, "that file isn't on her desk any more.");
+        } finally {
+          fileBtn.disabled = false;
+        }
+      }
+      card.hidden = false;
+      markFileOpen(msg, path, true);
+      scroll();
+      return;
+    }
     const button = ev.target.closest?.('.report-open');
     if (!button) return;
     const card = button.closest('.msg-report');
@@ -198,18 +284,8 @@
       button.disabled = true;
       button.textContent = 'opening…';
       try {
-        const url = apiPath('/api/mind/workspace/file?path=' +
-                            encodeURIComponent(card.dataset.path || ''));
-        const resp = await fetch(url, { credentials: 'same-origin' });
-        if (!resp.ok) throw new Error(String(resp.status));
-        target.textContent = (await resp.json()).text || '(it is empty)';
-        target.dataset.loaded = '1';
-      } catch {
-        // Say which of the two things went wrong. The desk is the source of
-        // truth and the inbox row is only a pointer at it, so a report whose
-        // file is gone is a real state and not a bug to hide.
-        target.textContent = "that report isn't on her desk any more.";
-        target.dataset.loaded = '1';
+        await loadDeskFile(target, card.dataset.path || '',
+                           "that report isn't on her desk any more.");
       } finally {
         button.disabled = false;
       }

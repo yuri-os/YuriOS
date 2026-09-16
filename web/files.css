@@ -74,7 +74,6 @@
 #chat-col .fs-shell{ display:flex; flex-direction:column; }
 #chat-col .fs-os{ flex:none; max-height:236px; border-right:0; border-bottom:1px solid var(--rule); }
 #chat-col .fs-row{ min-height:25px; font-size:9px; }
-#chat-col .fs-mtime{ display:none; }
 #chat-col .fs-detail{ flex:1; padding:13px; }
 #chat-col .fs-file-head h2{ font-size:12px; }
 #chat-col .fs-editor,#chat-col .fs-source{ margin-top:10px; padding:10px; font-size:10px; }

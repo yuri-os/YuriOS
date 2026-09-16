@@ -262,6 +262,26 @@ svg{ width:1.1em; height:1.1em; fill:none; stroke:currentColor; stroke-width:1.7
   margin-top:10px; padding-top:10px; border-top:1px solid var(--rule);
   white-space:pre-wrap; color:var(--ink); font:12px/1.65 var(--font-mono);
 }
+/* A desk path named in the line (SPEC §2.6). A button, not a UA link: every
+   control in these rooms states its own background and colour. */
+.msg-file{
+  display:inline; padding:0; margin:0; border:0;
+  border-bottom:1px dashed currentColor;
+  background:var(--void); color:var(--acid, var(--amber));
+  cursor:pointer; font:inherit; font-family:var(--font-mono);
+}
+.msg-file:hover, .msg-file:focus-visible{ color:var(--ink); }
+.msg-file[aria-expanded="true"]{ border-bottom-style:solid; }
+.msg-file-card{
+  display:block; margin:10px 0 0; padding:10px 12px;
+  border:1px solid var(--rule); border-radius:2px; background:var(--ground);
+}
+.msg-file-card[hidden]{ display:none; }
+.msg-file-name{ display:block; color:var(--dim); font:10px var(--font-mono); }
+.msg-file-body{
+  display:block; margin-top:8px;
+  white-space:pre-wrap; color:var(--ink); font:12px/1.65 var(--font-mono);
+}
 
 /* voice.js writes her spoken sentence here; the transcript already carries it */
 .caption{ display:none; }

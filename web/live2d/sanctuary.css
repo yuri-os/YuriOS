@@ -257,6 +257,26 @@ svg{ width:1.1em; height:1.1em; fill:none; stroke:currentColor; stroke-width:1.7
   margin-top:8px; padding-top:8px; border-top:1px solid var(--rule);
   white-space:pre-wrap; color:var(--ink);
 }
+/* A desk path named in the line (SPEC §2.6). A button, not a UA link: every
+   control in these rooms states its own background and colour. */
+.msg-file{
+  display:inline; padding:0; margin:0; border:0;
+  border-bottom:1px dashed currentColor;
+  background:transparent; color:var(--acid, var(--amber));
+  cursor:pointer; font:inherit; font-family:var(--font-mono);
+}
+.msg-file:hover, .msg-file:focus-visible{ color:var(--ink); }
+.msg-file[aria-expanded="true"]{ border-bottom-style:solid; }
+.msg-file-card{
+  display:block; margin:8px 0 0; padding:8px 10px;
+  border:1px solid var(--rule); border-radius:2px; background:var(--void);
+}
+.msg-file-card[hidden]{ display:none; }
+.msg-file-name{ display:block; color:var(--dim); font:10px var(--font-mono); }
+.msg-file-body{
+  display:block; margin-top:6px;
+  white-space:pre-wrap; color:var(--ink);
+}
 .composer{ flex:none; display:flex; gap:8px; padding:12px; border-top:1px solid var(--rule); }
 /* her voice is still loading — nothing typed here can be answered yet (§9.9) */
 .composer.warming{ opacity:.72; }

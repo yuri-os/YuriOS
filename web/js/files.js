@@ -68,31 +68,46 @@
     return kind === 'workspace' ? state.workspace : state.research;
   }
 
-  // Folders first, then files, inside the current directory. Folders are
-  // derived from path prefixes so a dir the server never listed still opens.
+  function fileName(file, kind) {
+    return kind === 'workspace' ? file.path : file.name;
+  }
+
+  // Inside the current directory. Folders are derived from path prefixes so a
+  // dir the server never listed still opens. A folder's mtime is the newest
+  // change among its contents, not the directory inode. Newest first, files
+  // and folders in one list — the date is the order, not the kind.
   function children() {
     const vol = volume();
     if (!vol) return { dirs: [], docs: [] };
     const prefix = state.cwd.length > 1 ? state.cwd.slice(1).join('/') + '/' : '';
-    const dirs = new Set();
+    const dirs = new Map();
     const docs = [];
     for (const file of filesOf(vol.kind)) {
-      const path = vol.kind === 'workspace' ? file.path : file.name;
+      const path = fileName(file, vol.kind);
       if (!path.startsWith(prefix)) continue;
       const rest = path.slice(prefix.length);
+      if (!rest) continue;
       const slash = rest.indexOf('/');
+      const mtime = file.mtime || 0;
       if (slash === -1) {
-        if (file.dir) dirs.add(rest); else docs.push(file);
+        if (file.dir) dirs.set(rest, Math.max(dirs.get(rest) || 0, mtime));
+        else docs.push(file);
       } else {
-        dirs.add(rest.slice(0, slash));
+        const name = rest.slice(0, slash);
+        dirs.set(name, Math.max(dirs.get(name) || 0, mtime));
       }
     }
+    const byDate = (a, b) => (b.mtime || 0) - (a.mtime || 0)
+      || String(a.name || '').localeCompare(String(b.name || ''));
+    const dirList = [...dirs.entries()]
+      .map(([name, mtime]) => ({ name, mtime }))
+      .sort(byDate);
     docs.sort((a, b) => {
-      const an = vol.kind === 'workspace' ? a.path : a.name;
-      const bn = vol.kind === 'workspace' ? b.path : b.name;
-      return an.localeCompare(bn);
+      const dm = (b.mtime || 0) - (a.mtime || 0);
+      if (dm) return dm;
+      return fileName(a, vol.kind).localeCompare(fileName(b, vol.kind));
     });
-    return { dirs: [...dirs].sort(), docs };
+    return { dirs: dirList, docs };
   }
 
   // ------------------------------------------------------------------ render
@@ -130,12 +145,21 @@
     if (state.cwd.length) {
       rows.push(row(ICON.up, '..', '<small></small>', ' data-up="1"'));
     }
-    for (const dir of dirs) {
-      rows.push(row(ICON.folder, dir, '<small>dir</small>',
-        ` data-dir="${esc(dir)}"`, ' folder'));
-    }
-    for (const doc of docs) {
-      const path = vol.kind === 'workspace' ? doc.path : doc.name;
+    const items = [
+      ...dirs.map(dir => ({ kind: 'dir', name: dir.name, mtime: dir.mtime || 0 })),
+      ...docs.map(doc => ({ kind: 'file', doc, mtime: doc.mtime || 0 })),
+    ].sort((a, b) => (b.mtime - a.mtime)
+      || String(a.kind === 'dir' ? a.name : fileName(a.doc, vol.kind))
+        .localeCompare(String(b.kind === 'dir' ? b.name : fileName(b.doc, vol.kind))));
+    for (const item of items) {
+      if (item.kind === 'dir') {
+        rows.push(row(ICON.folder, item.name,
+          `<small>dir</small><small class="fs-mtime">${stamp(item.mtime)}</small>`,
+          ` data-dir="${esc(item.name)}"`, ' folder'));
+        continue;
+      }
+      const doc = item.doc;
+      const path = fileName(doc, vol.kind);
       const name = path.slice(path.lastIndexOf('/') + 1);
       const active = state.active?.kind === vol.kind && state.active?.path === path;
       rows.push(row(ICON.file, name,

@@ -811,6 +811,14 @@ to every new subscriber before its first live event. Malformed JSON is logged an
   validates and records — but the **host** schedules the wake (`yurios/world/tools/timers.py`,
   on the injected clock), because only the host owns her voice; when a timer elapses she
   **MUST** announce it through the ambient seam (§9), queued until deliverable.
+  A timer is a promise, so it **MUST** outlive the process: the board is written to
+  `<vault>/state/timers.json` on every change and read back at construction (untracked and
+  best-effort, the inbox's rules — a board that cannot be saved is still a board). A timer's
+  `due` is an absolute wall epoch, not a countdown, so one that elapsed while the host was down
+  is simply already due and lands on the first poll with no catch-up path; the `timer` signal
+  **MUST** carry `late_s` so that announcement does not describe itself as punctual. A timer
+  more than a day past due — longer than `TIMER_MAX_MINUTES`' own ceiling, so no longer a
+  promise anyone is still waiting on — **MUST** be dropped on the way in rather than announced.
   Deliverable is a voice injector **or** a chat viewer (a text room or the
   terminal, which do not open `/ws/voice` while muted). With no injector the
   announcement **MUST** land as a proactive chat line on the EventHub rather

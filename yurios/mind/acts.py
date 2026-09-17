@@ -36,6 +36,30 @@ ANNOUNCE_CUE = (
     "((The timer for “{label}” just finished. Tell {user} it's done — one "
     "short, warm spoken line, nothing else.))")
 
+#: The same promise, kept late — a timer set before a restart and restored off
+#: the board (§7.5). She must not call it punctual: "just finished" about a
+#: countdown that ended in the night is the one thing that would make the
+#: whole feature read as broken rather than as diligent.
+LATE_ANNOUNCE_CUE = (
+    "((The timer for “{label}” finished {ago}, while you were away — it's "
+    "only reaching {user} now. Tell them it's done and that you're late with "
+    "it, without making a production of the apology — one short, warm spoken "
+    "line, nothing else.))")
+
+#: Under this a timer is simply "finished": the poll runs a minute apart and
+#: the announcement may queue a while for somebody to tell, so a small gap is
+#: the ordinary path and not a lateness worth narrating.
+LATE_ANNOUNCE_AFTER_S = 300.0
+
+
+def _ago(seconds: float) -> str:
+    """How long ago, in the roundness a person would actually say it."""
+    if seconds < 5400:                                  # under an hour and a half
+        return f"about {max(1, round(seconds / 60))} minutes ago"
+    if seconds < 79200:                                 # under about a day
+        return f"about {round(seconds / 3600)} hours ago"
+    return f"about {max(1, round(seconds / 86400))} days ago"
+
 SELF_TALK_CUES = (
     "((It's been quiet for a while. Murmur one short line to yourself about "
     "the rain on the window — a private thought said softly aloud, not "
@@ -213,8 +237,13 @@ async def announce(loop) -> tuple[dict, dict, list[str]]:
     """
     t = loop._pending_announce[0]
     loop.controller.set_expression("surprised", 0.6, reset_ms=4000)
-    cue = ANNOUNCE_CUE.format(label=t.get("label", "your timer"),
-                              user=loop.cfg.user_name)
+    late = float(t.get("late_s") or 0.0)
+    if late >= LATE_ANNOUNCE_AFTER_S:
+        cue = LATE_ANNOUNCE_CUE.format(label=t.get("label", "your timer"),
+                                       user=loop.cfg.user_name, ago=_ago(late))
+    else:
+        cue = ANNOUNCE_CUE.format(label=t.get("label", "your timer"),
+                                  user=loop.cfg.user_name)
     with correlate.scope(kind=correlate.AMBIENT):
         spoken = await loop.speak(cue)
     if spoken:

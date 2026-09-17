@@ -127,7 +127,9 @@ class Runtime:
         self.guard = Guard(rates_per_min=runtime.tool_rates(cfg),
                            log_dir=cfg.tool_log_dir, clock=self.clock,
                            max_bytes=cfg.tool_log_max_bytes)
-        self.timers = TimerBoard(self.clock)
+        # …with its pending countdowns read back off disk (§7.5): at a
+        # ceiling of a day, a timer has a whole night to be restarted through.
+        self.timers = TimerBoard(self.clock, vault=cfg.vault_dir)
         # Pictures *in* (SPEC §35): the shelf a photo you send her lands on,
         # and whether the model she is speaking through can be sent one at all.
         # The store is built unconditionally and creates nothing until the first

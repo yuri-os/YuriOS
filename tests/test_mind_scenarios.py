@@ -193,6 +193,27 @@ async def test_timer_announce_queues_until_someone_can_hear(cfg, seeded_vault):
     assert any("tea" in c["cue"] for c in rig.speak.calls if c["delivered"])
 
 
+async def test_a_timer_restored_across_a_restart_is_not_called_punctual(
+        cfg, seeded_vault):
+    """A countdown that ended in the night reaches her the next morning (§7.5),
+    and "just finished" about it is the one thing that would make the whole
+    feature read as broken rather than as diligent."""
+    rig = make_mind(cfg, seeded_vault)
+    # what a restored board looks like on the first poll: already long due
+    rig.timers.add(id="t1", label="wake him", seconds=60.0)
+    rig.clock.advance(7 * 3600)
+    rig.timers.poll()
+    rig.speak.connected = True
+    await rig.mind.tick()                       # SENSE queues the promise…
+    rig.clock.advance(30)
+    await rig.mind.tick()                       # …and the next tick keeps it
+
+    said = [c["cue"] for c in rig.speak.calls if c["delivered"]]
+    assert said and "wake him" in said[0]
+    assert "hours ago" in said[0], said[0]
+    assert "just finished" not in said[0]
+
+
 async def test_timer_announce_lands_in_chat_when_a_text_page_is_open(
         cfg, seeded_vault):
     """The text room (and the terminal) never attach `/ws/voice` while muted,

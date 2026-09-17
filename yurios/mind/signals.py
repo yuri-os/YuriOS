@@ -29,7 +29,7 @@ SIGNAL_TYPES = (
     "turn_committed",   # a full exchange committed (payload: text, reply)
     "user_present",     # a chat room or the live CLI attached to /api/events
     "user_absent",      # the last chat-room / CLI viewer detached
-    "timer",            # a TimerBoard countdown landed (payload: label)
+    "timer",            # a TimerBoard countdown landed (payload: label, late_s)
     "task_completion",  # dispatched work finished (a selfie render, …)
     "selfedit_decision",  # the user ruled on a queued self-edit (id, approve)
     "wakeup",           # a wake the loop scheduled for itself (a due goal)

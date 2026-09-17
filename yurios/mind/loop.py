@@ -346,7 +346,12 @@ class MindLoop:
                           source="mind")
         while not self.timers.due.empty():     # landed countdowns become signals
             t = self.timers.due.get_nowait()
-            self.bus.post("timer", {"label": t.label, "id": t.id}, source="host")
+            # `late_s` is ~0 for a timer that landed while she was up, and the
+            # real gap for one restored across a restart (§7.5) — the
+            # announcement must not call that one punctual.
+            self.bus.post("timer", {"label": t.label, "id": t.id,
+                                    "late_s": max(0.0, self.clock.now() - t.due)},
+                          source="host")
         # …and the wakes the loop scheduled for itself (SPEC §16). A goal that
         # said "look at this again after lunch" said something the hourly
         # consider cooldown cannot express, and a run she dispatched and never

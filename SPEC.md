@@ -480,14 +480,16 @@ Both browser pages (`/` and `/live2d/`) **MUST** show a chat column next to the 
 scrolling transcript with the user's turns (typed *and* spoken — the STT transcript joins the
 chat), her committed replies, an accumulating **draft** while she speaks, a `proactive` tag on
 lines she spoke unprompted (the greeting, ambient self-talk, a finished selfie, the mind's
-initiative), and inline images when a message carries `image_url` (§7.6). A committed line that
-names a file on her desk — a relative path with a slash and a known suffix
+initiative), and inline images when a message carries `image_url` (§7.6). A committed line of
+*hers* that names a file on her desk — a relative path with a slash and a known suffix
 (`goals/…md`), optionally prefixed `workspace/` — **MUST** render that path as a
 control that fetches `GET /api/mind/workspace/file` and shows the contents in
 place, folded under the bubble until asked for (the same fetch the inner-life
 goal preview (§24.3) and a delivered report (§18.2a) already make). A missing
 file **MUST** say so rather than fail silently. Drafts **MUST NOT** be
-linkified: a path still being spoken is not a pointer yet. The host owns the
+linkified: a path still being spoken is not a pointer yet. Neither **MUST** the
+user's own lines: a path you typed or pasted is not a pointer she offered, and
+rendering it as one turns what you said into buttons you did not put there. The host owns the
 transcript: an in-memory ring (~200 entries) appended by `post_message` and published as
 `message` events on the bus (§10); `GET /api/history` backfills a fresh page.
 The route **MUST** send `Cache-Control: no-store`, and the page's backfill
@@ -708,7 +710,9 @@ to every new subscriber before its first live event. Malformed JSON is logged an
   discovery finishes (or fails). A turn that arrives before her hands are wired **MUST** see
   no tools — the same as tools-off — rather than waiting. The stdio session **MUST** still
   live on the event loop (anyio cancel scopes cannot move to a thread); only the wait is
-  off the boot path.
+  off the boot path. While the spawn is in flight `/api/health` **MUST** say so rather than
+  `off`, which is the answer for a character who has no hands at all and not one whose hands
+  are seconds away; a stage still loading is **NOT** a degradation.
 
   `MCP_SERVERS` **MAY** name a JSON file in the conventional `{"mcpServers": {…}}` shape, whose
   servers are mounted alongside hers behind the same `ToolRunner` seam (`MultiToolRunner`), so the

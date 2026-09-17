@@ -209,7 +209,11 @@
       html += `<a href="${esc(imageUrl)}" target="_blank" rel="noopener">` +
               `<img class="msg-img" src="${esc(imageUrl)}" alt="${esc(alt)}"></a>`;
     }
-    if (m.text) html += linkifyDesk(m.text);
+    // Only hers (SPEC §2.6): the control is for a line that names a file on
+    // *her* desk. Your own words are text — a path you typed or pasted is not
+    // a pointer she offered, and turning it into one would make what you said
+    // into buttons you did not put there.
+    if (m.text) html += her ? linkifyDesk(m.text) : esc(m.text);
     // A report a night wrote and was told to deliver (SPEC §18.2a). The line
     // above is what she said about it; this is the thing itself, folded away
     // until asked for — a page of research pasted into the transcript would

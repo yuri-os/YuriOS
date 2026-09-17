@@ -70,6 +70,20 @@ describe('a desk path named in the chat', () => {
       .toBe('workspace/goals/g-7517a5363d42.md');
   });
 
+  it('leaves your own words alone', () => {
+    // §2.6 is about a line *she* wrote. A path you typed or pasted is not a
+    // pointer she offered, and turning it into one would make what you said
+    // into buttons you did not put there.
+    boot().confirmUser({
+      id: 'm4', role: 'user',
+      text: 'have a look at goals/g-7517a5363d42.md when you get a chance',
+    });
+    expect(document.querySelector('.msg-file')).toBeNull();
+    expect(document.querySelector('.msg-file-card')).toBeNull();
+    expect(document.querySelector('.msg').textContent)
+      .toContain('goals/g-7517a5363d42.md');
+  });
+
   it('does not treat a URL as a desk path', () => {
     boot().confirmUser({
       id: 'm3', role: 'assistant',

@@ -35,7 +35,9 @@ class Config(VoiceConfig):
     tool_rate_desk: int = 20                    # her workspace + skills (§34.2):
                                                 #   local writes, no outside party
                                                 #   — a loop-catcher, not a ration
-    timer_max_minutes: int = 180                # set_timer upper bound (§7.1)
+    timer_max_minutes: int = 1440               # set_timer upper bound (§7.1):
+                                                #   a day, so "wake me tomorrow"
+                                                #   is a timer and not a refusal
     tool_rate_selfedit: int = 1                 # `propose_edit` (§23) — the one
                                                 #   hand that reaches at who she
                                                 #   is. Deliberation, not a loop

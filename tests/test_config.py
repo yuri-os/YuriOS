@@ -11,7 +11,7 @@ def test_defaults():
     assert cfg.port == 8768                       # +1 off Build #4
     assert cfg.tools_backend == "mcp"
     assert cfg.tool_max_calls_per_turn == 2
-    assert cfg.timer_max_minutes == 180
+    assert cfg.timer_max_minutes == 1440
     assert cfg.rain_intensity == 0.6
     # the mind's dials (SPEC §15–§18)
     assert cfg.mind_enabled

@@ -56,7 +56,7 @@ announcements are delivered by the mind loop, so they are not announced while `M
 or while no model is configured.
 
 ```ini
-TIMER_MAX_MINUTES=180
+TIMER_MAX_MINUTES=1440
 TOOL_RATE_TIMER=6                 # calls per minute
 ```
 

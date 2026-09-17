@@ -100,7 +100,7 @@ def test_a_value_that_will_not_parse_refuses_to_start():
 
 def test_a_whole_number_crosses_without_a_decimal_point():
     """Read by a human running `env` against a stuck tool server."""
-    assert ToolServerEnv().to_environ()["TIMER_MAX_MINUTES"] == "180"
+    assert ToolServerEnv().to_environ()["TIMER_MAX_MINUTES"] == "1440"
     assert ToolServerEnv().to_environ()["FETCH_TIMEOUT_S"] == "8"
     assert ToolServerEnv(fetch_timeout_s=2.5).to_environ()["FETCH_TIMEOUT_S"] == "2.5"
 

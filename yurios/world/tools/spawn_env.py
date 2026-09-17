@@ -63,8 +63,8 @@ class ToolServerEnv:
     substituted number would be worse than one that refused to start.
     """
 
-    #: `set_timer`'s upper bound (§7.1).
-    timer_max_minutes: float = 180.0
+    #: `set_timer`'s upper bound (§7.1) — a day.
+    timer_max_minutes: float = 1440.0
     #: Whether the camera hand is advertised at all (§7.6) — off is *absent*,
     #: never a hand that fails when she reaches for it.
     selfies: bool = True
@@ -128,7 +128,7 @@ class ToolServerEnv:
         """The spawned server's side: what actually arrived, typed."""
         env = os.environ if environ is None else environ
         return cls(
-            timer_max_minutes=float(env.get("TIMER_MAX_MINUTES", "180")),
+            timer_max_minutes=float(env.get("TIMER_MAX_MINUTES", "1440")),
             selfies=_read_flag(env, "SELFIE_ENABLED", True),
             selfie_templates=env.get("SELFIE_TEMPLATES", ""),
             selfie_templates_extra=env.get("SELFIE_TEMPLATES_EXTRA", ""),
@@ -169,11 +169,11 @@ class ToolServerEnv:
 
 
 def _number(value: float) -> str:
-    """A float that is a whole number crosses as `180`, not `180.0`.
+    """A float that is a whole number crosses as `1440`, not `1440.0`.
 
-    Cosmetic on the way in — `float("180.0")` and `float("180")` are the same
+    Cosmetic on the way in — `float("1440.0")` and `float("1440")` are the same
     number — but the value is also read by a human running `env` against a
-    stuck tool server, and `TIMER_MAX_MINUTES=180.0` reads like a setting
+    stuck tool server, and `TIMER_MAX_MINUTES=1440.0` reads like a setting
     somebody typed rather than the integer they actually configured.
     """
     return str(int(value)) if float(value).is_integer() else str(value)

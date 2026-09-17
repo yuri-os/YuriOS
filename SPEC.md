@@ -1911,7 +1911,17 @@ optional due time, **provenance**, and a **commitment strategy**; lifecycle
   worse than one who forgets yours; maintenance (DREAM backlog, shelf drops); and **her own
   judgement** (`strategy:<day>`) — the night's stock-take (§21.2) already asks her for the one thing
   worth doing next, and MAY file it. A companion whose every intention traces back to something the
-  user said is a queue with a voice. Near-duplicate open goals **MUST** merge, not multiply.
+  user said is a queue with a voice. Near-duplicate open goals **MUST** merge, not multiply —
+  **except a goal that names a parent** (`followup:<id>`, the news half of a kept promise). That
+  one is a second act about content she already has a goal for, so its words are the wrong test:
+  it quotes its parent in order to say what it is about, scores a total overlap against it, and is
+  merged back into the goal it exists to report on. Four of the first seven promises she kept were
+  never mentioned to anyone this way, and the three that survived did so only by falling under the
+  matcher's three-word floor. Two follow-ups of *different* parents are the same trap from the
+  other side: they share the boilerplate that frames them, so the second promise kept while the
+  first is still untold loses its news too. A follow-up **MUST** therefore be deduplicated on its
+  provenance — has this parent already got one — which is exact, idempotent, and the only test that
+  does not punish it for naming its subject.
 - §22.1b **A goal she filed herself is legible, capped, and disposable.** She may *add* to what she
   carries; she still **MUST NOT** silently reprioritise or drop what the user asked for. Every such
   goal **MUST** carry its `strategy:` provenance into `goals.md` and onto the inner-life surface, so

@@ -486,3 +486,97 @@ async def test_the_same_sentence_is_not_served_under_two_headings(
     assert "THINGS THAT MAY BE RELEVANT" in context
     assert "want sharpening" in context
     assert context.count(fact) == 1, "the same sentence under two headings"
+
+
+# --- the news half survives being filed (§22.1) --------------------------------
+#
+# A promise splits into work and news. The news is filed as a `followup:<id>`
+# goal whose text quotes its parent so it can say what it is about — and that
+# quotation scored a 1.0 overlap against the parent, which was still open, so
+# `add()` handed the follow-up back as a duplicate and it never existed. Four
+# of the first seven promises she kept were never mentioned to anybody.
+
+def _goals(rig):
+    return rig.mind.goals
+
+
+async def test_a_follow_up_is_not_absorbed_by_the_goal_it_reports_on(
+        cfg, seeded_vault):
+    rig = make_mind(cfg, seeded_vault)
+    parent = _goals(rig).add("write down her research findings properly",
+                             kind="task", provenance="promise:her-own-words")
+    news = _goals(rig).add(
+        f"tell them what came of “{parent.text}” — it's in "
+        f"goals/{parent.id}.md",
+        kind="reach_out", provenance=f"followup:{parent.id}")
+
+    assert news.id != parent.id, \
+        "the news was merged back into the work it was reporting on"
+    assert news.kind == "reach_out"
+    assert len(_goals(rig).all()) == 2
+
+
+async def test_two_promises_kept_at_once_are_both_told(cfg, seeded_vault):
+    """Unrelated follow-ups share only "tell", "came" and "goals" — three
+    content words, 0.38 overlap, enough to merge on boilerplate alone."""
+    rig = make_mind(cfg, seeded_vault)
+    first = _goals(rig).add("write down her research findings properly",
+                            kind="task", provenance="promise:her-own-words")
+    second = _goals(rig).add("remind the user about tea after two minutes",
+                             kind="task", provenance="promise:her-own-words")
+    a = _goals(rig).add(f"tell them what came of “{first.text}” — it's "
+                        f"in goals/{first.id}.md",
+                        kind="reach_out", provenance=f"followup:{first.id}")
+    b = _goals(rig).add(f"tell them what came of “{second.text}” — it's "
+                        f"in goals/{second.id}.md",
+                        kind="reach_out", provenance=f"followup:{second.id}")
+
+    ids = {first.id, second.id}
+    assert a.id not in ids and b.id not in ids, \
+        "a follow-up was absorbed by a parent before it could collide"
+    assert a.id != b.id, "the second promise kept lost its news to the first"
+
+
+async def test_the_same_promise_is_not_queued_for_telling_twice(cfg, seeded_vault):
+    """Filing on provenance is an exact test, so it is also idempotent."""
+    rig = make_mind(cfg, seeded_vault)
+    parent = _goals(rig).add("write down her research findings properly",
+                             kind="task", provenance="promise:her-own-words")
+    one = _goals(rig).add("tell them how it went", kind="reach_out",
+                          provenance=f"followup:{parent.id}")
+    two = _goals(rig).add("tell them how it turned out in the end",
+                          kind="reach_out", provenance=f"followup:{parent.id}")
+
+    assert one.id == two.id
+
+
+async def test_a_goal_she_is_already_carrying_is_still_not_filed_twice(
+        cfg, seeded_vault):
+    """The original question `echoes` exists to ask, unchanged."""
+    rig = make_mind(cfg, seeded_vault)
+    first = _goals(rig).add("write down her research findings properly",
+                            kind="task", provenance="promise:her-own-words")
+    again = _goals(rig).add("properly write down the research findings",
+                            kind="task", provenance="promise:her-own-words")
+
+    assert again.id == first.id
+
+
+async def test_a_promise_she_keeps_is_a_promise_they_hear_about(cfg, seeded_vault):
+    """End to end, on the path that lost them: a long-texted promise finishes,
+    and the news goal it files is still there afterwards."""
+    utility = ScriptedUtility(*["think goal complete — written up properly."] * 6)
+    rig = make_mind(cfg, seeded_vault, utility=utility)
+    parent = rig.mind.goals.add("write down her research findings properly",
+                                kind="task", priority=0.95,
+                                provenance="promise:her-own-words")
+
+    for _ in range(3):
+        await rig.mind.tick()
+        rig.clock.advance(rig.mind.cfg.mind_consider_cooldown_s + 60)
+
+    assert rig.mind.goals.get(parent.id).state == "done"
+    news = [g for g in rig.mind.goals.all()
+            if g.provenance == f"followup:{parent.id}"]
+    assert news, "she kept the promise and filed nothing to tell them about it"
+    assert news[0].kind == "reach_out"

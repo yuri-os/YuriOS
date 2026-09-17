@@ -247,11 +247,11 @@ def offer_the_picture(loop, goal: Goal) -> list[str]:
     shot = str(goal.product.get("image_url") or "")
     if not shot:
         return []
-    # Her own words about the shot, NOT the goal's text. Quoting the goal is
-    # what `offer_to_tell` does and it is a trap here: `echoes()` merges any
-    # two open goals sharing three content words, so a follow-up that quoted
-    # its parent was silently deduplicated INTO its parent and never existed.
-    # The detail reads better in the checklist anyway — it says which picture.
+    # Her own words about the shot rather than the goal's text: in the
+    # checklist it says *which* picture, which "tell them what came of …"
+    # never did. (Quoting the parent is safe now — `already_carrying` files a
+    # follow-up on its provenance, not its words — but this still reads
+    # better, and it was written when quoting silently deleted the goal.)
     detail = str(goal.product.get("detail") or "").strip()
     sid = str(goal.product.get("selfie_id") or "").strip()
     about = f" — {detail}" if detail else (f" ({sid})" if sid else "")

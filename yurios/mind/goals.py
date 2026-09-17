@@ -166,6 +166,36 @@ def echoes(text: str, existing: Iterable[Goal]) -> Goal | None:
     return None
 
 
+def already_carrying(text: str, provenance: str,
+                     existing: Iterable[Goal]) -> Goal | None:
+    """Is this a goal she is already carrying? Two questions, not one.
+
+    A goal that names a parent — `followup:<id>`, the news half of a promise
+    she has now kept (§22.1) — is a *second act* about content she already has
+    a goal for. Comparing its words to anything is therefore the wrong test:
+    the follow-up quotes its parent in order to say what it is about, scores an
+    overlap of 1.0 against it, and is merged back into the very goal it exists
+    to report on. That is not a near miss. Of the first seven promises she
+    kept, the four whose text ran to three content words or more were never
+    mentioned to anybody — she did the research, she wrote the thing, and the
+    goal that would have told them was quietly absorbed on the way out. The
+    three that survived were the short ones ("see what's there"), which fell
+    under `echoes`' three-word floor by luck.
+
+    The boilerplate is the same trap from the other side: two follow-ups of
+    *different* parents share "tell", "came" and "goals" and merge into each
+    other at 0.38 overlap, so the second promise kept while the first is still
+    waiting to be told loses its news too.
+
+    For these the honest question is whether this parent already has one —
+    which is an exact test, and idempotent. Everything else asks the original
+    question: is this the same intention, rephrased (`echoes`)?
+    """
+    if provenance.startswith("followup:"):
+        return next((g for g in existing if g.provenance == provenance), None)
+    return echoes(text, existing)
+
+
 LINE_RE = re.compile(r"^- \[(?P<done>[ x~])\] \((?P<id>[\w-]+)\) (?P<text>.*?)"
                      r"(?P<fields>(?: \| \w[\w-]*: [^|]*)*)$")
 
@@ -237,7 +267,7 @@ class GoalStore:
         goals = self.all()
         open_goals = [g for g in goals
                       if g.state in ("pending", "active", "waiting")]
-        existing = echoes(text, open_goals)
+        existing = already_carrying(text, provenance, open_goals)
         if isinstance(existing, Goal):
             return existing
         g = Goal(id=new_id("g"), text=text, kind=kind, priority=priority, due=due,

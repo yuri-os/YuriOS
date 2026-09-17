@@ -51,6 +51,45 @@ REACH_OUT_CUE = (
     "the one short, warm, specific spoken message you'd open with — no "
     "preamble, no explaining that you decided to speak.))")
 
+#: The same moment with the product in her hand (§18.2a). A separate cue rather
+#: than a sentence bolted onto the other one: told to "say what you'd open
+#: with" while a photo sits above the line, she writes the caption for a
+#: picture nobody can see — which is the failure, restated politely.
+REACH_OUT_WITH_SHOT_CUE = (
+    "((You decided, on your own, to reach out first about this: {goal}. The "
+    "picture is already there in the chat, right above what you are about to "
+    "say. Say the one short, warm, specific spoken line you would send it "
+    "with — don't describe it back to them, and don't explain that you "
+    "decided to speak. They can see it.))")
+
+
+def _product_of(sig: Signal) -> dict:
+    """The deliverable a `task_completion` came back holding (SPEC §18.2a).
+
+    A picture and nothing else, deliberately. The landing rule's own argument
+    is that a research digest is not a gift, and this is not trying to win that
+    argument — a photo is one object, she made it because they asked, and the
+    alternative to carrying it forward is the failure this exists to end: her
+    describing, at length, a picture they were never shown.
+    """
+    if failure_of(sig):
+        return {}
+    url = str(sig.payload.get("image_url") or "")
+    if not url:
+        return {}
+    return {"image_url": url,
+            "selfie_id": str(sig.payload.get("id") or ""),
+            "detail": str(sig.payload.get("detail") or "")}
+
+
+def _shot(goal: Goal) -> dict:
+    """`post_message` kwargs for the picture a goal is holding, or `{}`."""
+    url = str(goal.product.get("image_url") or "")
+    if not url:
+        return {}
+    return {"image_url": url,
+            "selfie_id": str(goal.product.get("selfie_id") or "")}
+
 
 def promise_review_available(loop) -> bool:
     return bool(loop.cfg.utility_enabled and loop.brain.state.utility is not None)
@@ -283,9 +322,25 @@ async def reach_out(loop, goal: Goal) -> tuple[dict, dict, list[str]]:
                  "outcome": decision.outcome, "factors": decision.factors,
                  "goal": goal.text}
 
+    # The picture this goal has been holding, if it has one (§18.2a). Gate 2
+    # still rules on whether she reaches out at all; what changed is that when
+    # the answer is yes, the delivery carries the thing the goal was about
+    # instead of a sentence describing it.
+    shot = _shot(goal)
+    cue = (REACH_OUT_WITH_SHOT_CUE if shot else REACH_OUT_CUE).format(
+        goal=goal.text)
+
     if decision.outcome == "SILENT":
         # THE DEFAULT: do it silently and journal it
-        if goal.is_stale(loop.clock) and goal.commitment != "blind":
+        if shot:
+            # …but not by dropping it. A stale reach-out is normally let go
+            # because news keeps badly and opening with something three days
+            # old is worse company than saying nothing. A photo she promised
+            # is not news: it is the promise, it is already made, and "let it
+            # go quietly" is precisely how it disappears (§18.2a). So it keeps
+            # its turn at Gate 2 for as long as it takes.
+            note = f"still holding the picture for: {goal.text}"
+        elif goal.is_stale(loop.clock) and goal.commitment != "blind":
             loop.goals.set_state(goal.id, "abandoned")
             note = f"let it go quietly: {goal.text} (the moment passed)"
         else:
@@ -294,34 +349,52 @@ async def reach_out(loop, goal: Goal) -> tuple[dict, dict, list[str]]:
 
     if decision.outcome == "SUGGEST":
         # a soft line in the chat — waiting when they next look, never spoken
-        text = await loop._compose(REACH_OUT_CUE.format(goal=goal.text))
+        text = await loop._compose(cue)
         if text:
             # `unheard`: a SUGGEST is *by definition* a line waiting for the
             # next time they look, so it belongs in the inbox whether or not
             # a page happens to be open right now (world/inbox.py).
-            loop.post_message("assistant", text, proactive=True, unheard=True)
+            # One entry, her line and the picture together — the message and
+            # the thing it is about were never two deliveries.
+            loop.post_message("assistant", text, proactive=True, unheard=True,
+                              **shot)
+        elif shot:
+            # No line came back, but the photo IS the delivery. Sending it
+            # wordlessly beats spending one of two or three interrupts a day
+            # on nothing (§18.4).
+            loop.post_message("assistant", "", proactive=True, unheard=True,
+                              **shot)
         loop.world.note_contact_out()
         loop.interrupts["count"] += 1
         loop.goals.set_state(goal.id, "done")
-        return ({"what": "chat", "result": f"left a quiet note: {goal.text}"},
-                interrupt, [f"left them a note about {goal.text}"])
+        sent = "sent the picture with a line" if shot else "left a quiet note"
+        return ({"what": "chat", "result": f"{sent}: {goal.text}"},
+                interrupt, [f"{sent} about {goal.text}"])
 
     # SPEAK: aloud through the ambient seam if a page is open (the full turn
     # pipeline — voice, face, barge-in); as a chat line if the room is empty
-    cue = REACH_OUT_CUE.format(goal=goal.text)
+    if shot:
+        # The picture goes first, so the line she says over it is true by the
+        # time she says it — the order the lab already uses for its own
+        # announce cue (world/selfies.py). It cannot ride along with her
+        # spoken line: that comes back through the turn pipeline as its own
+        # entry, which this function never gets to touch.
+        loop.post_message("assistant", "", proactive=True, unheard=True, **shot)
     with correlate.scope(kind=correlate.COMPOSE):
         spoken = await loop.speak(cue)
     if not spoken:
         # `speak` said no: there is no page to say it through, so this is the
         # case the inbox exists for — she spent an interrupt on an empty room.
+        # The photo, if there was one, is already posted above.
         text = await loop._compose(cue)
         if text:
             loop.post_message("assistant", text, proactive=True, unheard=True)
     loop.world.note_contact_out()
     loop.interrupts["count"] += 1
     loop.goals.set_state(goal.id, "done")
-    return ({"what": "speak", "result": f"reached out: {goal.text}"},
-            interrupt, [f"reached out first about {goal.text}"])
+    reached = "reached out with the picture" if shot else "reached out"
+    return ({"what": "speak", "result": f"{reached}: {goal.text}"},
+            interrupt, [f"{reached} first about {goal.text}"])
 
 
 def wake_goal(loop, goal_id: str) -> str:
@@ -359,7 +432,14 @@ def land_dispatched(loop, sig: Signal) -> str:
     goal = loop.goals.get(goal_id) if goal_id else None
     if goal is None or goal.state != "waiting":
         return ""
-    loop.goals.update(goal.id, state="active", meta={"dispatched": {}})
+    # What came back is put ON the goal, not posted (§18.2a — the lab still
+    # posts nothing). This is the step that was missing: without somewhere to
+    # keep it, a rendered photo existed only in the gallery and the goal that
+    # asked for it went on describing it forever.
+    meta: dict = {"dispatched": {}}
+    if (product := _product_of(sig)):
+        meta["product"] = product
+    loop.goals.update(goal.id, state="active", meta=meta)
     loop.considered.pop(goal.id, None)     # workable again on this very tick
     loop.wakeups.pop(goal.id, None)        # the safety net is not needed now
     what = sig.payload.get("kind") or "work"
@@ -369,8 +449,13 @@ def land_dispatched(loop, sig: Signal) -> str:
     if (err := failure_of(sig)):
         return (f"the {what} I started for “{goal.text}” failed "
                 f"({err}) — nothing landed")
-    where = ("it's in the vault, not in the chat"
-             if sig.payload.get("deliver") == "vault" else "it's in the chat")
+    if product:
+        # The third thing this line can say, and the one it could not before:
+        # not in the chat, but no longer out of reach either.
+        where = "it's mine to send now, not sent yet"
+    else:
+        where = ("it's in the vault, not in the chat"
+                 if sig.payload.get("deliver") == "vault" else "it's in the chat")
     return (f"the {what} I started for “{goal.text}” came back — {where}")
 
 

@@ -422,7 +422,10 @@ class MindLoop:
                     reflect_notes.append(
                         f"you let go of: {goal.text}")
             elif sig.type == "suspend_gap":
-                self.goals.reconsider()        # ONE catch-up over the whole gap
+                # ONE catch-up over the whole gap — but a goal that was
+                # holding a picture for you hands it on before it goes (§18.2a)
+                reflect_notes += goalwork.rescue_pictures(
+                    self, self.goals.reconsider())
                 reflect_notes.append(
                     f"the machine slept ~{sig.payload.get('hours', 0):.1f}h; "
                     "I caught up on what expired and what still matters")

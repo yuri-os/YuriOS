@@ -291,8 +291,13 @@ class PostRecorder:
         # **kw absorbs the routing fields a late-arriving message carries back
         # (channel, client_id, selfie_id) — a recorder that rejected them would
         # fail on exactly the callers that need them most.
+        # `image_url` is named here and so does NOT land in **kw: it has to be
+        # put back by hand or the transcript records every picture as a blank
+        # line, which is precisely the failure these tests exist to catch.
         entry = {"role": role, "text": text, "ts": self.clock.now(),
                  "proactive": proactive, **kw}
+        if image_url is not None:
+            entry["image_url"] = image_url
         self.messages.append(entry)
         return entry
 

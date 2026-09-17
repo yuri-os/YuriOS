@@ -14,7 +14,7 @@ from yurios.mind.hands import (CHEAP, EXPENSIVE, HANDS, Hands, describe_hands,
                                klass, parse_intent)
 from yurios.world.tools.fakes import FakeToolRunner
 
-from .conftest import ScriptedUtility, make_mind
+from .conftest import ScriptedUtility, make_mind, run_mind
 
 
 def hands_cfg(cfg, allow="write_note", **extra):
@@ -462,3 +462,172 @@ def test_the_ledger_survives_a_restart(cfg, clock):
     assert reborn.spent["count"] == 1
     # a near-miss is her changing her mind, not a repeat (Guard._fingerprint)
     assert reborn.cooling("write_note", {"path": "other.md"}) == 0.0
+
+
+# --- the landing rule, second half: what the gallery was a dead end for -------
+#
+# `_deliver: "vault"` is right that the lab must not post its own product, and
+# it was the whole rule — so a picture she took because you asked for it could
+# be described forever and shown never, and "show me" came back as a path to a
+# goal file. These are the four places the photo now has to survive.
+
+SHOT = "/selfies/1789648668-e3110ba4.png"
+
+
+def _completion(goal_id, **over):
+    payload = {"task": "a selfie she took", "kind": "selfie", "id": "e3110ba4",
+               "goal_id": goal_id, "deliver": "vault", "image_url": SHOT,
+               "detail": "the window seat, the lamp on the left"}
+    return {**payload, **over}
+
+
+async def test_a_finished_photo_is_kept_by_the_goal_that_asked_for_it(
+        cfg, seeded_vault):
+    """The render ends and the picture lands ON the goal (§18.2a). The lab
+    still posts nothing — that half of the rule is untouched."""
+    rig = rig_with_hands(cfg, seeded_vault,
+                         *["think still looking at it."] * 4, allow="")
+    goal = rig.mind.goals.add("send him the photo I promised", kind="task",
+                              priority=0.95, provenance="promise:her-own-words")
+    rig.mind.goals.update(goal.id, state="waiting",
+                          meta={"dispatched": {"tool": "take_selfie"}})
+
+    rig.mind.bus.post("task_completion", _completion(goal.id), source="selfies")
+    await rig.mind.tick()
+
+    woken = rig.mind.goals.get(goal.id)
+    assert woken.state != "waiting", "the completion still wakes the goal"
+    assert woken.product["image_url"] == SHOT
+    assert woken.product["selfie_id"] == "e3110ba4"
+    assert rig.post.proactive() == [], "and the lab still posts nothing (§18.2a)"
+    day_files = list((seeded_vault / "memory" / "episodic").glob("*.md"))
+    assert any("mine to send now" in p.read_text() for p in day_files), \
+        "the journal line must not say 'not in the chat' about a photo she can send"
+
+
+async def test_a_failed_render_leaves_the_goal_holding_nothing(cfg, seeded_vault):
+    """`task_completion` means the work is over, never that it worked (§16.3).
+    A goal that thinks it is holding a picture would reach out with a dead url."""
+    rig = rig_with_hands(cfg, seeded_vault,
+                         *["think still looking at it."] * 4, allow="")
+    goal = rig.mind.goals.add("send him the photo I promised", kind="task",
+                              priority=0.95, provenance="promise:her-own-words")
+    rig.mind.goals.update(goal.id, state="waiting",
+                          meta={"dispatched": {"tool": "take_selfie"}})
+
+    rig.mind.bus.post("task_completion",
+                      _completion(goal.id, error="OutOfMemoryError",
+                                  image_url=""),
+                      source="selfies")
+    await rig.mind.tick()
+
+    assert rig.mind.goals.get(goal.id).product == {}
+
+
+async def test_a_promise_that_made_a_photo_hands_it_to_a_goal_that_can_send_it(
+        cfg, seeded_vault):
+    """The gap all three stranded photographs fell through: the goal that made
+    the picture ended, the goal that could deliver it began, and nothing
+    crossed — the news half offered a path to `goals/g-….md` instead."""
+    rig = rig_with_hands(cfg, seeded_vault,
+                         *["think goal complete — it's taken."] * 6, allow="")
+    goal = rig.mind.goals.add("send him the photo I promised", kind="task",
+                              priority=0.95, provenance="promise:her-own-words")
+    rig.mind.goals.update(goal.id, state="waiting",
+                          meta={"dispatched": {"tool": "take_selfie"}})
+    rig.mind.bus.post("task_completion", _completion(goal.id), source="selfies")
+
+    await work(rig, ticks=3)
+
+    assert rig.mind.goals.get(goal.id).state == "done"
+    followup = next(g for g in rig.mind.goals.all()
+                    if g.provenance == f"followup:{goal.id}")
+    assert followup.kind == "reach_out"
+    assert followup.product["image_url"] == SHOT
+    assert ".md" not in followup.text, \
+        f"a picture, not a path to read about one: {followup.text}"
+    assert followup.commitment == "single-minded", \
+        "a promised photo is the promise; it does not expire as news does"
+
+
+async def test_letting_the_goal_go_does_not_let_the_photo_go_with_it(
+        cfg, seeded_vault):
+    """She gave up on the goal. The picture is still real and still unseen."""
+    from yurios.mind.util import iso_of
+    rig = rig_with_hands(cfg, seeded_vault,
+                         *["think nothing more to add."] * 6,
+                         allow="", mind_goal_max_steps=1)
+    goal = rig.mind.goals.add(
+        "show him the one I promised", kind="task", priority=0.95,
+        commitment="open-minded", due=iso_of(rig.clock.now() - 3600),
+        provenance="promise:her-own-words",
+        meta={"product": {"image_url": SHOT, "selfie_id": "e3110ba4"}})
+
+    await work(rig)
+
+    assert rig.mind.goals.get(goal.id).state == "abandoned"
+    followup = next(g for g in rig.mind.goals.all()
+                    if g.provenance == f"followup:{goal.id}")
+    assert followup.product["image_url"] == SHOT
+
+
+async def test_gate_2_arrives_holding_the_picture_not_a_sentence_about_it(
+        cfg, seeded_vault):
+    """The end of it: she passes Gate 2 and the photo is *in the message*.
+
+    Before this, every delivery Gate 2 had was text — so the one thing the
+    whole goal existed to hand over was the one thing that could not travel.
+    """
+    import datetime
+
+    rig = make_mind(cfg, seeded_vault)
+    rig.say("send me the one you promised", reply="When you're back. I mean it.")
+    await rig.mind.tick()
+    rig.mind.bus.post("user_absent", {}, source="frontend")
+    due = datetime.datetime(2026, 7, 7, 18, 0)
+    rig.mind.goals.add(
+        "send them the picture I took for them — the window seat, the lamp",
+        kind="reach_out", priority=0.8, due=due.isoformat(timespec="seconds"),
+        commitment="single-minded", provenance="followup:g-6233dc189e71",
+        meta={"product": {"image_url": SHOT, "selfie_id": "e3110ba4",
+                          "detail": "the window seat, the lamp on the left"}})
+
+    await run_mind(rig, hours=40)
+
+    proactive = rig.post.proactive()
+    assert proactive, "she never reached out at all"
+    carried = [m for m in proactive if m.get("image_url") == SHOT]
+    assert carried, f"Gate 2 passed and the picture stayed behind: {proactive}"
+    assert carried[0].get("selfie_id") == "e3110ba4"
+    assert all(m.get("unheard") for m in carried), \
+        "a photo sent into an empty room is exactly what the inbox is for"
+    g = next(g for g in rig.mind.goals.all() if g.provenance.startswith("followup:"))
+    assert g.state == "done"
+
+
+async def test_a_held_picture_is_never_let_go_of_quietly(cfg, seeded_vault):
+    """Gate 2's SILENT branch drops a stale reach-out, because news keeps
+    badly. A promised photo is not news — dropping it is the disappearance."""
+    import datetime
+
+    rig = make_mind(cfg, seeded_vault)
+    rig.mind.bus.post("user_absent", {}, source="frontend")
+    # due in the past and open to being let go: the exact shape SILENT drops
+    due = datetime.datetime(2026, 7, 5, 18, 0)
+    goal = rig.mind.goals.add(
+        "send them the picture I took for them — the window seat, the lamp",
+        kind="reach_out", priority=0.2, due=due.isoformat(timespec="seconds"),
+        commitment="open-minded", provenance="followup:g-6233dc189e71",
+        meta={"product": {"image_url": SHOT, "selfie_id": "e3110ba4"}})
+
+    await run_mind(rig, hours=12)
+
+    # The invariant is not that this goal survives — `reconsider()` may still
+    # sweep it — but that the picture is never left with nobody holding it.
+    holding = [g for g in rig.mind.goals.all()
+               if g.state in ("pending", "active", "waiting")
+               and g.product.get("image_url") == SHOT]
+    assert holding, \
+        "the picture was let go of quietly — this is the whole failure"
+    assert goal.id in {g.id for g in holding} or any(
+        g.provenance.startswith("followup:") for g in holding)

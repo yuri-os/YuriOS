@@ -1452,6 +1452,21 @@ them is precisely the always-interrupting-assistant failure.
     brief and not seven of them (the retired ones stay on the desk, which is the archive);
   - and it is **only** available to a job file that asked for it. A tool product the mind started
     still stamps `_deliver: "vault"` and still posts nothing, unchanged.
+
+  And one clarification the rule was missing, which cost three promised photographs: **the lab
+  posting nothing is not the same as the product being unreachable.** A mind-started render still
+  stamps `_deliver: "vault"` and the lab still posts nothing — but the `task_completion` it posts
+  instead carries the product's `image_url`, and the goal that dispatched the work **MUST** keep it
+  (`Goal.product`). However that goal ends — kept or let go — a promise-derived one **MUST** hand
+  the picture to its follow-up `reach_out` goal rather than hand over a path to its own goal file,
+  and a Gate 2 delivery **MUST** carry it: posted with the SUGGEST line as one entry, or ahead of a
+  SPEAK, so that the line she says over it is true by the time she says it. This is not Gate 2
+  bypassed, it is Gate 2 obeyed — the gate's question is whether *she* interrupts, it still asks and
+  answers it, and all that changed is that when the answer is yes she arrives holding the thing
+  instead of a sentence describing it. Without this the gallery was a dead end: every picture the
+  mind ever took could be talked about and none of it could be shown, and "show me" was answered
+  with `goals/g-….md`. Only a **picture** travels this way, for this section's own reason — a
+  research digest is not a gift.
 - §18.3 **Outcomes, ascending imposition:** **SILENT** — the default: do it quietly and journal it
   (a stale non-blind goal is let go with a journal line; the journal, not notifications, carries the
   value); **SUGGEST** — one composed line posted to the chat, waiting for the user's next glance,

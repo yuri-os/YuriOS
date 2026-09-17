@@ -97,6 +97,21 @@ class Goal:
         d = self.meta.get("dispatched")
         return d if isinstance(d, dict) else {}
 
+    @property
+    def product(self) -> dict:
+        """What this goal's dispatched work actually made, or `{}` (SPEC §18.2a).
+
+        `dispatched` is the call she is waiting on; this is what came back from
+        it and is still sitting in the gallery. The landing rule keeps the lab
+        from posting its own product, which is right — but it left the product
+        with nowhere to *be* between the render and the delivery, so a photo she
+        took for you could only ever be described, never sent. Kept in `meta`
+        for `dispatched`'s reason: it is the loop's bookkeeping, not a column
+        somebody reading `goals.md` as a checklist needs.
+        """
+        p = self.meta.get("product")
+        return p if isinstance(p, dict) else {}
+
 
 def _echo_words(text: str) -> set[str]:
     return {word for word in re.findall(r"[a-z]+", (text or "").lower())

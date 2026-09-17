@@ -21,6 +21,7 @@ import logging
 
 from yurios.app.memory import partner
 
+from . import goalwork
 from .selfedit import SoulShapeError
 from .util import day_of, iso_of
 from .vaultio import ConstitutionReadOnly
@@ -42,8 +43,10 @@ def day_rollover(loop, now: float) -> list[str]:
         return []
     loop.reconsidered_on = today
     loop.hands.roll()
-    notes = [f"let go of: {g.text} (the moment for it passed)"
-             for g in loop.goals.reconsider()]
+    dropped = loop.goals.reconsider()
+    notes = [f"let go of: {g.text} (the moment for it passed)" for g in dropped]
+    # …except for whatever they were holding for you (§18.2a).
+    notes += goalwork.rescue_pictures(loop, dropped)
     return notes + loop._file_maintenance()
 
 

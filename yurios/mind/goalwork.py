@@ -25,7 +25,7 @@ from yurios.app.core.assemble import age_tag
 from yurios.kernel import correlate
 
 from . import acts
-from .goals import Goal, night_owned
+from .goals import Goal, night_owned, trim
 from .hands import START_DONT_AWAIT, klass, parse_intent, stamp_contract
 from .util import iso_of
 
@@ -163,6 +163,59 @@ def context(loop, goal: Goal) -> str:
     return "\n\n".join(parts)
 
 
+def offer_the_picture(loop, goal: Goal) -> list[str]:
+    """A finished goal holding a photo hands it to a goal that can send it.
+
+    The landing rule (SPEC §18.2a) is right that the lab must not post its own
+    product — but a rendered picture then lived only in the gallery, and the
+    goal that made it had no way to pass it on. The news half said "it's in
+    goals/g-….md", so "show me" was answered with a file path, three separate
+    times, while the photo sat on the shelf. Now the follow-up carries the
+    picture itself and Gate 2 still decides whether it goes.
+
+    Filed on the way out of a goal whichever way it ends: a promise she gave up
+    on is still a promise whose photo exists and whom nobody has shown it to.
+    `single-minded`, unlike ordinary news, because news has a shelf life and is
+    better let go than opened with stale — a photo she promised *is* the
+    promise, and letting this one quietly expire unsent is the failure, not
+    good manners.
+    """
+    shot = str(goal.product.get("image_url") or "")
+    if not shot:
+        return []
+    # Her own words about the shot, NOT the goal's text. Quoting the goal is
+    # what `offer_to_tell` does and it is a trap here: `echoes()` merges any
+    # two open goals sharing three content words, so a follow-up that quoted
+    # its parent was silently deduplicated INTO its parent and never existed.
+    # The detail reads better in the checklist anyway — it says which picture.
+    detail = str(goal.product.get("detail") or "").strip()
+    sid = str(goal.product.get("selfie_id") or "").strip()
+    about = f" — {detail}" if detail else (f" ({sid})" if sid else "")
+    loop.goals.add(
+        trim("send them the picture I took for them" + about),
+        kind="reach_out", priority=0.7,
+        due=iso_of(loop.clock.now() + 24 * 3600),
+        commitment="single-minded", provenance=f"followup:{goal.id}",
+        meta={"product": dict(goal.product)})
+    return [f"…and it's for them, not the shelf: {shot}"]
+
+
+def rescue_pictures(loop, dropped) -> list[str]:
+    """Goals swept by `reconsider()` hand their photos on first (SPEC §18.2a).
+
+    `reconsider` drops a stale open-minded goal wholesale — in `pending` or
+    `waiting`, before it is ever given another working step — so a goal holding
+    a rendered picture went out the same door as one holding nothing, and the
+    picture went with it. Letting go of the intention is right; letting go of
+    the object she has already made *for them* is the failure §18.2a exists to
+    end. The follow-up outlives the goal.
+    """
+    notes: list[str] = []
+    for goal in dropped:
+        notes += offer_the_picture(loop, goal)
+    return notes
+
+
 def offer_to_tell(loop, goal: Goal) -> list[str]:
     """A promise she has now kept becomes something to say (§18.2, §22.1).
 
@@ -182,6 +235,8 @@ def offer_to_tell(loop, goal: Goal) -> list[str]:
     """
     if goal.kind != "task" or not goal.provenance.startswith("promise:"):
         return []
+    if (told := offer_the_picture(loop, goal)):
+        return told
     loop.goals.add(
         f"tell them what came of “{goal.text}” — it's in "
         f"{loop.GOAL_DESK.format(id=goal.id)}",
@@ -370,6 +425,8 @@ async def goal_work(loop, goal: Goal,
         if goal.commitment == "open-minded" and goal.is_stale(loop.clock):
             state = "abandoned"
             notes.append(f"let go of: {goal.text} (I gave it what I had)")
+            # Letting the goal go must not let the photo go with it.
+            notes += offer_the_picture(loop, goal)
         else:
             state = "waiting"
             loop.wakeups[goal.id] = loop.clock.now() + 12 * 3600

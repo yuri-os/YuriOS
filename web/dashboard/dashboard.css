@@ -457,10 +457,19 @@ h1, h2, p { margin-top: 0; }
   /* one poster per row on a phone: a 2:3 tile at full width scrolls forever, and
      the art is contained either way, so the tile can be squarer without losing any of it */
   .character-grid:not(.list) .character-card, .character-grid:not(.list) .skeleton { aspect-ratio: 4 / 5; }
-  .character-grid.list .character-card { min-height: 168px; grid-template-columns: 76px 1fr auto; gap: 14px; padding: 18px; }
+  .character-grid.list .character-card { min-height: 168px; grid-template-columns: 76px 1fr; gap: 14px; padding: 18px; }
   .character-grid.list .portrait { width: 64px; height: 64px; }
   .character-grid.list .card-description { display: none; }
-  .character-grid.list .card-footer { min-width: 0; grid-column: 2 / 4; width: 100%; padding-top: 14px; border-top: 1px solid var(--rule); }
+  /* Same break the wall makes on a narrow tile, for the same reason: four doors
+     and the record button no longer fit beside the switches on a phone, and the
+     row was clipping them off against the card's right edge. The footer drops
+     under the portrait for its full width, switches take the line above the
+     ways in, and nothing runs past the edge. */
+  .character-grid.list .card-footer {
+    min-width: 0; grid-column: 1 / -1; width: 100%; padding-top: 14px; border-top: 1px solid var(--rule);
+    grid-template-columns: minmax(0, 1fr) auto; row-gap: 14px; align-items: center;
+  }
+  .character-grid.list .loop-stack { grid-column: 1 / -1; gap: 7px 10px; }
   .detail-drawer { padding: 25px 20px 0; }
   .drawer-actions, .review-actions { grid-template-columns: 1fr; }
   .detail-tabs { margin-top: 28px; }

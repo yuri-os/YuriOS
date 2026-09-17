@@ -18,6 +18,16 @@ module does three jobs, all on the hot path:
      habit. Prompting (SPOKEN_STYLE_DIRECTIVE) asks the model not to narrate;
      this is the belt-and-suspenders that catches what leaks anyway.
 
+     Jobs 3 and 3d are **the spoken path's alone** (`strip_narration`, SPEC
+     §9.7). In a text chat `*she leans in*` is not markup to sand off, it is how
+     she shows a feeling in writing — the same reason §9.7 keeps
+     SPOKEN_STYLE_DIRECTIVE off a text turn's prompt. Stripping it there cost
+     whole words mid-sentence: `Keeping *us* working.` reached the chat as
+     "Keeping working.", because the span the voice rule drops is not always a
+     stage direction on its own line. So a text turn builds the parser with
+     `strip_narration=False` and gets jobs 1, 2, 3b and 3c only — tags still
+     drive her face and never appear, private model work is still never shown.
+
     3b. A reasoning model may ignore its no-think setting and emit a
       `<think>…</think>` block. This is private model work, never speech, so it
       is dropped even when its tags arrive in separate stream chunks.
@@ -119,6 +129,9 @@ class EmotionParser:
     half-open tag); `events` accumulates every expression change."""
 
     default: str = "neutral"
+    #: Drop `*…*` and over-long `[…]` narration (jobs 3/3d). True for the spoken
+    #: path; a text turn passes False — see the docstring above and SPEC §9.7.
+    strip_narration: bool = True
     clean: str = ""                                  # all clean text so far
     events: list[ExpressionEvent] = field(default_factory=list)
     _buf: str = ""                                   # open-tag buffer (after '[')
@@ -165,15 +178,21 @@ class EmotionParser:
                 elif len(self._buf) >= _MAX_TAG_LEN:
                     # too long to be a palette tag — this is bracketed *narration*
                     # (`[She goes still, …]`), which a chat model emits by habit.
-                    # Drop it to the closing ']' instead of speaking it, the same
-                    # rule TTS frontends apply to every […] span (never flush it
-                    # back as literal text — that is what made her read them aloud).
-                    self._buf, self._in_tag, self._drop_bracket = "", False, True
+                    # Aloud, drop it to the closing ']' instead of speaking it, the
+                    # same rule TTS frontends apply to every […] span (never flush
+                    # it back as literal text — that is what made her read them
+                    # aloud). On the page it is writing, so it is flushed back and
+                    # the rest of the span reads as the ordinary text it is.
+                    if self.strip_narration:
+                        self._buf, self._in_tag, self._drop_bracket = "", False, True
+                    else:
+                        self.clean += "[" + self._buf + ch
+                        self._buf, self._in_tag = "", False
                 else:
                     self._buf += ch
             elif ch == "[":
                 self._in_tag, self._buf = True, ""
-            elif ch == "*":
+            elif ch == "*" and self.strip_narration:
                 self._in_narr = True                # open a narration span, drop it
             else:
                 self.clean += ch

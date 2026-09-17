@@ -435,8 +435,11 @@ def test_a_line_the_walk_paged_in_can_still_be_read_out(cfg):
 
 def test_an_adopted_line_of_hers_is_drawn_as_a_line_not_as_tokens(tmp_path):
     """The old window store kept the model's own output, so her adopted lines
-    arrive with `[tags]` and `*narration*` in them — and the column has never
-    shown those. The page gets the line; the window keeps the tokens."""
+    arrive with `[tags]` in them — and the column has never shown those. The
+    page gets the line; the window keeps the tokens.
+
+    Her narration stays: a recovered line is drawn the way a live one is now
+    drawn, and on the page `*she looks up*` is writing, not markup (§9.7)."""
     state = tmp_path / "state"
     state.mkdir(parents=True)
     (state / "sessions.json").write_text(json.dumps({"sessions": {"a" * 32: {
@@ -446,7 +449,7 @@ def test_an_adopted_line_of_hers_is_drawn_as_a_line_not_as_tokens(tmp_path):
         encoding="utf-8")
 
     store = SessionStore(tmp_path)
-    assert store.log.entries()[0]["text"] == "It's by the door."
+    assert store.log.entries()[0]["text"] == "*she looks up* It's by the door."
     assert store.window("a" * 32, 10)[0]["content"] == \
         "[warm] *she looks up* It's by the door."
 
@@ -502,8 +505,8 @@ def test_it_repairs_a_log_that_was_adopted_before_drawing_existed(tmp_path):
     ]) + "\n", encoding="utf-8")
 
     log = ConversationLog(tmp_path)
-    assert [r["text"] for r in log.entries()] == ["did the parcel come?",
-                                                  "it's by the door."]
+    assert [r["text"] for r in log.entries()] == [
+        "did the parcel come?", "*she looks up* it's by the door."]
     # …and the window still gets the tokens it always had
     assert [m["content"] for m in log.window("a" * 32, 10)] == [
         "did the parcel come?", "[warm] *she looks up* it's by the door."]

@@ -1027,9 +1027,14 @@ STT/TTS/VAD SDK, and fakes implement each seam so the whole loop runs offline (�
   Both browser and native voice sockets **MUST** establish the voice channel for
   greetings and replies before the brain assembles their prompts.
   The parser (`yurios/desktop/voice/emotion.py`)
-  **MUST** strip tags from the spoken text, emit an expression event when a tag closes (the face
-  leads the voice), tolerate split tags, drop unknown tags silently, and also strip
-  `*asterisk narration*` (streaming-safe, dropping an unclosed span rather than speaking it).
+  **MUST** strip tags from the shown text on every channel, emit an expression event when a tag
+  closes (the face leads the voice), tolerate split tags, and drop unknown tags silently.
+  Narration — `*asterisk actions*` and bracketed stage directions — is the **spoken path's rule
+  alone** (streaming-safe, dropping an unclosed span rather than speaking it), for the same reason
+  the spoken-style block is: a text turn **MUST NOT** strip it. On the page it is not markup but
+  how she shows a feeling in writing, and the span the voice rule drops is not always a stage
+  direction on a line of its own — `Keeping *us* working.` reached the chat as "Keeping working.",
+  a word taken out of the middle of her sentence.
 - §9.8 **The greeting.** On connect she **SHOULD** greet from memory before the user speaks
   (continuity). The greeting **MUST NOT** be persisted and **MUST NOT** pollute the session
   window — but it **SHOULD** be assembled *over* the last few committed lines, which is
@@ -1138,7 +1143,10 @@ a frontend:
   transcript + `user_message` signal → the brain's token stream (expression tags to the puppet
   lane, stripped from the shown text, the clean text accumulating as a `draft` with its line
   breaks kept — a text is shown as it was written, so three lines are three bubbles, not one
-  sentence) → verbatim persist → `message` commit
+  sentence; but a line that was *entirely* stripped markup — an asterisk or bracketed stage
+  direction, a consumed `[[tool …]]` marker — leaves only its newlines behind, so the runner
+  **MUST** collapse a run of blank lines to one: the break she wrote survives, the hole does not)
+  → verbatim persist → `message` commit
   + `turn_committed` signal. A `draft` carries the whole reply so far rather than a delta, so the
   runner **MUST NOT** publish one per token: it accumulates per token and publishes on a sentence,
   a line break, or a bounded run of neither. Per-token drafts are quadratic in bytes on a bus whose

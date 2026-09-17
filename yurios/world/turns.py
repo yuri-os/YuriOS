@@ -17,7 +17,10 @@ One turn, end to end, mirroring the voice route's forks minus the audio:
     puppet lane (`controller.set_expression`, voice fork #5) and are stripped
     from the shown text; the clean text accumulates token by token with its line
     breaks kept (§10.5) — a text is shown as it was written — and goes out as a
-    `draft` on the hub a sentence or a line at a time (`_Drafts`);
+    `draft` on the hub a sentence or a line at a time (`_Drafts`). The parser
+    runs here with `strip_narration=False`: dropping `*she leans in*` is a rule
+    about what reaches TTS, and on the page it took words out of the middle of
+    her sentences (§9.7);
   - a clean turn persists the *verbatim* reply (tags kept, B2's corpus rule),
     commits the shown text as a `message`, and tees `turn_committed` onto the
     bus (the mind's REFLECT share: world model, promise extraction);
@@ -47,9 +50,19 @@ def _text_of(chunks: list[str]) -> str:
     `[happy] Hey. [tender] I missed you.` shows as `Hey. I missed you.` — the
     parser drops the tag and both spaces around it survive; runs of spaces
     collapse, and a line never starts or ends with one. Newlines stay: a
-    text is shown as it was written (§10.5)."""
+    text is shown as it was written (§10.5).
+
+    The gap closes vertically too, and for the same reason. Some of what the
+    parsers strip is a *whole line* — `*she reaches for her desk*`, a bracketed
+    stage direction like `[warm, settling in]`, a `[[append_note {…}]]` marker
+    the tool loop consumed — and what is left of that line is its two newlines.
+    Three or four of those in a row is the dead space she never wrote: the model
+    put a beat there, not a hole. So a run of blank lines collapses to one,
+    which is the paragraph break it meant and the only one markdown renders
+    anyway. Single breaks are untouched — three lines are still three bubbles."""
     text = re.sub(r"[ \t]{2,}", " ", "".join(chunks))
-    return re.sub(r"[ \t]*\n[ \t]*", "\n", text).strip()
+    text = re.sub(r"[ \t]*\n[ \t]*", "\n", text)
+    return re.sub(r"\n{3,}", "\n\n", text).strip()
 
 
 #: Sentence enders and the line break. Cadence only — this decides when the room
@@ -150,7 +163,12 @@ class TextTurns:
             cold = rt.brain.cold_open()
             if cold:
                 rt.hub.publish("draft", {"text": cold})
-            parser = EmotionParser(default=rt.cfg.expression_default)
+            # A text turn keeps her narration: `*she leans in*` is how she
+            # shows a feeling in writing, and §9.7 already keeps the
+            # spoken-style block off this prompt for that reason. Only TTS
+            # strips it — there it would be read aloud.
+            parser = EmotionParser(default=rt.cfg.expression_default,
+                                   strip_narration=False)
             drafts = _Drafts(rt.hub, enabled=not cold)   # …unless the text is given
             prev_events = 0
             try:
@@ -226,7 +244,12 @@ class TextTurns:
             # blocked here would be waiting on a park waiting on it.
             await rt.park_gate.wait()
             rt.turn_started()
-            parser = EmotionParser(default=rt.cfg.expression_default)
+            # A text turn keeps her narration: `*she leans in*` is how she
+            # shows a feeling in writing, and §9.7 already keeps the
+            # spoken-style block off this prompt for that reason. Only TTS
+            # strips it — there it would be read aloud.
+            parser = EmotionParser(default=rt.cfg.expression_default,
+                                   strip_narration=False)
             raw: list[str] = []          # model output verbatim (tags kept, for persist)
             drafts = _Drafts(rt.hub)     # clean text, tags stripped, line breaks kept
             prev_events = 0

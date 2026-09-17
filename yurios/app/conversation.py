@@ -517,18 +517,22 @@ def _speakable(text: str) -> str:
     """What the page would have drawn for a line only the window kept.
 
     The old window store held the model's own output, so an adopted line of hers
-    arrives with its `[expression]` tags and `*narration*` still in it — and the
-    column has never shown those. This is the same parser the voice pipeline
-    runs on the way to TTS (`desktop/voice/emotion.py`), so a recovered line is
-    drawn as the line it was, not as the tokens behind it. The original is kept
-    as `raw`, which is what the window wanted from it anyway.
+    arrives with its `[expression]` tags still in it — and the column has never
+    shown those. This is the same parser the voice pipeline runs on the way to
+    TTS (`desktop/voice/emotion.py`), so a recovered line is drawn as the line
+    it was, not as the tokens behind it. The original is kept as `raw`, which is
+    what the window wanted from it anyway.
+
+    `strip_narration=False`, because the column is a page and not a mouth: a
+    recovered line must be drawn the way a live one is now drawn (§9.7), and
+    `*she leans in*` is part of what she wrote there.
 
     Imported here rather than at module scope: `desktop` is built on `app`, and
     the dependency must not run the other way at import time.
     """
     try:
         from yurios.desktop.voice.emotion import EmotionParser
-        parser = EmotionParser()
+        parser = EmotionParser(strip_narration=False)
         parser.push(text)
         parser.finish()
         return parser.clean.strip() or text

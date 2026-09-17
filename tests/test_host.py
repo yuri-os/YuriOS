@@ -149,6 +149,37 @@ def test_every_body_of_a_character_is_reachable_by_her_own_id(tmp_path, monkeypa
         assert live2d.headers["location"] == "/live2d/?character=yuri"
 
 
+def test_the_boards_revalidate_their_own_entry_html(tmp_path, monkeypatch):
+    """`/assets/*` carries a content hash, so a changed file is a changed URL.
+    An entry `index.html` keeps its name across every rebuild, which is exactly
+    when a browser's heuristic freshness serves yesterday's page — and these
+    two sit under `StaticFiles` mounts, which send no `Cache-Control` at all.
+    The tray opens `/dashboard/` and the switchboard links `/studio/`, so the
+    directory URL is a route and everything beside it is still the mount."""
+    dist = tmp_path / "dist"
+    (dist / "dashboard").mkdir(parents=True)
+    (dist / "studio").mkdir(parents=True)
+    (dist / "dashboard" / "index.html").write_text("switchboard", encoding="utf-8")
+    (dist / "studio" / "index.html").write_text("studio", encoding="utf-8")
+    (dist / "studio" / "optimize.js").write_text("// beside it", encoding="utf-8")
+    registry = CharacterRegistry(tmp_path)
+    registry.add(record(tmp_path))
+    monkeypatch.setattr("yurios.world.host.hosting.create_app", fake_character_app)
+    monkeypatch.setattr("yurios.world.host.app.DIST_DIR", dist)
+    monkeypatch.setattr("yurios.world.host.pages.DIST_DIR", dist)
+    app = create_host_app(Config(data_dir=tmp_path), registry)
+
+    with TestClient(app) as client:
+        for url, body in (("/", "switchboard"), ("/dashboard/", "switchboard"),
+                          ("/studio/", "studio")):
+            page = client.get(url)
+            assert page.status_code == 200, url
+            assert page.text == body
+            assert page.headers["cache-control"] == "no-cache", url
+        # …and the mount still owns the rest of the bundle
+        assert client.get("/studio/optimize.js").status_code == 200
+
+
 def test_socket_for_a_parked_character_is_refused_in_websocket(tmp_path, monkeypatch):
     """A card imported from elsewhere is registered but not running until it has
     been reviewed (SPEC §28) — and her text room still opens and still dials

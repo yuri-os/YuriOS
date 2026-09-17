@@ -2440,7 +2440,12 @@ changes; a runtime does not know it has neighbours.
   tile per registered character with her portrait, name, state, model and voice, an import
   control, and a drawer with her journal, log and context history. Entering a character is a
   navigation to `/characters/<id>/sanctuary/`; **leaving her room returns to the board without
-  stopping her runtime** — a companion's life does not depend on being looked at.
+  stopping her runtime** — a companion's life does not depend on being looked at. Every entry
+  `index.html` the host serves — `/`, the board's own `/dashboard/`, the studio's `/studio/`
+  (§28.1), and each of a character's four pages (§6.6, §6.7, §24.3) — **MUST** send
+  `Cache-Control: no-cache`, for the same reason as the portrait route (§32.4): the hashed
+  `/assets/*` beside it change URL when they change, but these names survive every rebuild, and
+  a browser's heuristic freshness would otherwise serve yesterday's page until a hard refresh.
 - §32.2 **State is the truth, not a guess.** A character's reported state is `attention` when she
   is under review, else her mind's activity state when a runtime is up, else the host's own
   `offline` / `starting` / `ready` / `failed`. A failed character reports her error. The board

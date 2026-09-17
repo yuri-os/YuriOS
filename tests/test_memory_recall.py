@@ -4,10 +4,12 @@ It had no test at all, which was survivable while one caller used it and is not
 now that goal work asks it the same questions the conversation does (§22.4).
 
 Note what is and is not asserted here. The similarity floor and the tombstone
-filter decide *membership*, and both are pinned. Final *order* is MMR's, and MMR
-ranks on raw similarity — so the `similarity * salience * recency` sort it is
-handed does not survive into the returned order. That is worth knowing before
-anyone tunes `half_life_days` expecting the top of the list to move.
+filter decide *membership*, and both are pinned. Final *order* is MMR's — which
+now ranks on the blended `similarity * salience * recency` it is handed, so
+tuning `half_life_days` does move the list. It used to re-score from raw
+similarity and throw that sort away, which is how a fifteen-day-old line took a
+slot from an answer an hour old; `test_recency_decides_which_of_two_answers`
+is that bug, pinned.
 """
 from __future__ import annotations
 
@@ -100,3 +102,44 @@ def test_a_tombstoned_memory_is_gone_from_every_future_prompt(tmp_path):
     store.forget("the good knives are in the second drawer")
     assert not [m for m in store.recall("where are the good knives", 6)
                 if "knives" in m.text], "forgetting has to reach recall"
+
+
+def test_recency_decides_which_of_two_answers_is_recalled(tmp_path):
+    """MMR chooses on the blend, not raw similarity.
+
+    Two memories answer the question equally well and only their age differs.
+    While `_mmr` re-scored from `similarity`, the sort by
+    `similarity * salience * recency` above it was dead code and the older one
+    could win — recency was computed, reported on `Memory.score`, and never
+    allowed to decide anything.
+    """
+    store = _store(tmp_path)
+    _put(store, "stale", "the good knives are in the second drawer",
+         days_ago=120)
+    _put(store, "fresh", "the good knives are in the second drawer",
+         days_ago=0)
+    got = store.recall("where are the good knives", 1)
+    assert len(got) == 1
+    age_days = (datetime.datetime.now(datetime.UTC)
+                - datetime.datetime.fromisoformat(got[0].created_at)).days
+    assert age_days < 1, \
+        f"recall returned the {age_days}-day-old copy over today's"
+
+
+def test_the_answer_to_a_question_is_not_buried_as_a_duplicate_of_it(tmp_path):
+    """The shape that cost a promised photograph.
+
+    She asks something; they answer; the two turns are near-identical in
+    embedding space *because* one answers the other. Recall is then probed with
+    text containing the question, so the question's own turn scores best — and
+    MMR docks the answer for being a duplicate of it. Caller-side, goal work
+    drops the echo (mind/goalwork.py); here the floor is simply that both can
+    be returned when there is room for both.
+    """
+    store = _store(tmp_path)
+    _put(store, "asked", "do you want the private one or the one that hangs")
+    _put(store, "answered", "I want the private one, only I can see it")
+    got = [m.text for m in store.recall(
+        "do you want the private one or the one that hangs", 2)]
+    assert any("I want the private one" in t for t in got), \
+        f"the reply to the question never came back: {got}"

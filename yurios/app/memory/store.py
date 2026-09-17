@@ -165,11 +165,19 @@ class FileMemoryStore:
     def _journal_append(self, record: Record) -> tuple[str, str]:
         """Step 1: append the exchange to memory/episodic/<today>.md as a dated
         prose event. Append-only. Returns (vault-relative path, line span)."""
-        day = record.ts.strftime("%Y-%m-%d")
+        # `record.ts` is aware UTC — right for the index, whose recency math
+        # subtracts against `now(UTC)`. It is the wrong clock to *render*: every
+        # other writer of this file stamps her local wall reading (mind/journal.py
+        # `dt_of`), so an exchange landed nine hours adrift among her own lines,
+        # out of order, and — because the day was picked the same way — 38% of
+        # them landed in the previous day's file, which DREAM then consolidated
+        # under the wrong date. The file is her diary; it reads in her time.
+        when = record.ts.astimezone() if record.ts.tzinfo else record.ts
+        day = when.strftime("%Y-%m-%d")
         rel = f"memory/episodic/{day}.md"
         path = self.vault / rel
         one = lambda s: " / ".join(s.strip().splitlines())
-        entry = (f"### {record.ts.strftime('%H:%M')}  "
+        entry = (f"### {when.strftime('%H:%M')}  "
                  f"{self.user_name}: {one(record.user_msg)}  ⇄  "
                  f"{self.char_name}: {one(record.reply)}\n")
         before = path.read_text(encoding="utf-8").count("\n") if path.exists() else 0
@@ -330,11 +338,22 @@ class FileMemoryStore:
         return math.exp(-max(age, 0.0) / self.half_life_days)
 
     @staticmethod
-    def _mmr(chunks: list[Chunk], k: int, lam: float = MMR_LAMBDA) -> list[Chunk]:
+    def _mmr(chunks: list[Chunk], k: int, lam: float = MMR_LAMBDA,
+             relevance: dict[str, float] | None = None) -> list[Chunk]:
         """Maximal Marginal Relevance — diversify so recall surfaces the small
-        load-bearing detail, not k paraphrases of one memory (→ ch. 15)."""
+        load-bearing detail, not k paraphrases of one memory (→ ch. 15).
+
+        `relevance` is the blended §6.4 score the caller sorted by. It has to
+        be passed in, because this used to re-score from raw `similarity` and
+        so threw that sort away: recency was computed, reported on `Memory`,
+        and played no part in *choosing*. A fifteen-day-old line took a slot
+        over an answer an hour old. Scores are normalised to the pool's best,
+        so `lam` still trades a like-for-like relevance against a cosine.
+        """
         selected: list[Chunk] = []
         pool = list(chunks)
+        scores = relevance or {c.id: c.similarity for c in chunks}
+        top = max(scores.values(), default=0.0) or 1.0
         while pool and len(selected) < k:
             def mmr_score(c: Chunk) -> float:
                 redundancy = max(
@@ -342,7 +361,8 @@ class FileMemoryStore:
                            / ((np.linalg.norm(c.embedding) or 1)
                               * (np.linalg.norm(s.embedding) or 1)))
                      for s in selected), default=0.0)
-                return lam * c.similarity - (1 - lam) * redundancy
+                return lam * (scores.get(c.id, c.similarity) / top) \
+                    - (1 - lam) * redundancy
             best = max(pool, key=mmr_score)
             pool.remove(best)
             selected.append(best)
@@ -363,10 +383,12 @@ class FileMemoryStore:
         stones = [t.lower() for t in self.tombstones()]
         rows = [r for r in rows
                 if not any(t in r.text.lower() for t in stones)]
-        # blended rank, not raw similarity (§6.4)
-        rows.sort(key=lambda r: r.similarity * r.salience
-                  * self._recency(r.created_at, now), reverse=True)
-        rows = self._mmr(rows, k)
+        # blended rank, not raw similarity (§6.4) — and the same blend decides
+        # the selection below, which is the part that used to be dropped.
+        blended = {r.id: r.similarity * r.salience
+                   * self._recency(r.created_at, now) for r in rows}
+        rows.sort(key=lambda r: blended[r.id], reverse=True)
+        rows = self._mmr(rows, k, relevance=blended)
         return [Memory(text=r.text, source=f"{r.source_path}:{r.source_span}",
                        kind=r.kind, created_at=r.created_at,
                        similarity=r.similarity, salience=r.salience,

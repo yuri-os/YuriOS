@@ -87,16 +87,71 @@ def memories(loop, goal: Goal, facts: str) -> list:
     Anything already sitting in the facts block is dropped: the same
     sentence under two headings reads as two pieces of evidence.
     """
-    probe = " ".join(p for p in (goal.text,
-                                 str(goal.meta.get("about") or "").strip())
-                     if p)
+    parts = [p for p in (goal.text,
+                         str(goal.meta.get("about") or "").strip()) if p]
+    probe = " ".join(parts)
     try:
-        mems = loop.store.recall(probe, loop.cfg.retrieval_k)
+        # Ask for more than will be shown: the filter below throws some away,
+        # and a probe that costs itself two slots should not also shorten it.
+        mems = loop.store.recall(probe, loop.cfg.retrieval_k + 3)
     except Exception:  # noqa: BLE001 — a cold index is not a reason to
         log.debug("goal work: no recall", exc_info=True)   # skip the step
         return []
     seen = facts.lower()
-    return [m for m in mems if m.text.strip().lower() not in seen]
+    # The probe is built from text that is itself indexed, so recall's best
+    # matches were echoes of the question: a journal line reading "I took that
+    # on: <goal text>", and the very exchange `about` was copied from. Two of
+    # six slots spent restating the prompt above them — and worse, holding that
+    # exchange in the set let MMR suppress the *reply* to it as a near-
+    # duplicate (0.89 cosine), which is how the answer she was waiting for lost
+    # to a line fifteen days old. Anything quoting the probe is dropped.
+    echoes = [p.lower() for p in parts if len(p) >= 25]
+    out = []
+    for m in mems:
+        text = m.text.strip().lower()
+        if text in seen or any(e in text for e in echoes):
+            continue
+        out.append(m)
+    return out[:loop.cfg.retrieval_k]
+
+
+def said_since(loop, goal: Goal, limit: int = 6) -> str:
+    """What has actually been said in the room since this goal was taken on.
+
+    `context()` is deliberately the conversational prompt minus the
+    conversation, and for most goals that is right. But `about` freezes at the
+    moment the goal is filed, so a goal whose own text names a *later* turn —
+    "…once they answer the framing question" — could never see the answer. She
+    waited an hour for a reply that had already arrived, wrote "still waiting
+    on his answer" onto the desk, and that came back next tick under WHAT YOU
+    HAVE ALREADY WORKED OUT as evidence for itself.
+
+    Bounded and newest-last: a handful of lines, trimmed, so this stays a
+    glance at the room and does not quietly become the raw window.
+    """
+    sessions = getattr(getattr(loop.brain, "state", None), "sessions", None)
+    chatlog = getattr(sessions, "log", None)
+    if chatlog is None:
+        return ""
+    try:
+        rows = chatlog.tail(40)
+    except Exception:  # noqa: BLE001 — no transcript is not a failed step
+        log.debug("goal work: no transcript", exc_info=True)
+        return ""
+    them = getattr(loop.store, "user_name", None) or "they"
+    her = getattr(loop.store, "char_name", None) or "you"
+    since = str(goal.created or "")
+    out = []
+    for r in rows:
+        ts = str(r.get("ts") or "")
+        if since and ts <= since:
+            continue
+        text = " ".join(str(r.get("text") or "").split())
+        if not text:
+            continue
+        who = them if r.get("role") == "user" else her
+        out.append(f"{ts[11:16]} {who}: {trim(text, 240)}")
+    return "\n".join(out[-limit:])
 
 
 def context(loop, goal: Goal) -> str:
@@ -125,6 +180,15 @@ def context(loop, goal: Goal) -> str:
     about = str(goal.meta.get("about") or "").strip()
     if about:
         parts.append(f"WHERE THIS CAME FROM\n\nThey said: “{about}”")
+    # …and whatever has been said since. `about` is frozen at filing time, so
+    # without this a goal that waits on an answer can never be told it came.
+    since = said_since(loop, goal)
+    if since:
+        parts.append(
+            "WHAT HAS BEEN SAID SINCE YOU TOOK THIS ON (newest last)\n\n"
+            + since
+            + "\n\nIf this answers what the goal was waiting for, it is "
+              "answered \u2014 act on it rather than waiting to be told again.")
     desk = desk_read(loop, goal)
     if desk.strip():
         parts.append("WHAT YOU HAVE ALREADY WORKED OUT ON THIS\n\n" + desk.strip())

@@ -246,7 +246,13 @@ file-backed:
 - `recall(query, k)` (hot path): embed the query, ANN-search the index, rank by
   `similarity · salience · recency_decay(age)` (half-life default 30 days — old memories
   fade, never vanish), MMR-rerank to diversify, drop below `RETRIEVAL_MIN_SIM`, return top
-  k. An empty Vault returns `[]`; assembly proceeds on SOUL + `USER.md` alone.
+  k. An empty Vault returns `[]`; assembly proceeds on SOUL + `USER.md` alone. **The rank
+  MMR diversifies is that blended rank**, not raw similarity: the re-ranker re-scores every
+  candidate, so a re-ranker reading `similarity` alone silently discards the sort above it
+  and recency decides nothing. It did, and a line fifteen days old took a slot from an
+  answer an hour old — while `Memory.score` went on reporting a decay that had not been
+  allowed to matter. Scores are normalised to the pool's best so the relevance and
+  redundancy terms stay comparable.
 - `forget(selector)` is **supersede-not-delete**: remove the line from the working
   `USER.md`/`facts.md`, append a tombstone to `memory/semantic/forgotten.md`, and commit.
   Removal **MUST** include matching prose in `USER.md`, including derived copies in
@@ -1026,7 +1032,14 @@ STT/TTS/VAD SDK, and fakes implement each seam so the whole loop runs offline (�
   `*asterisk narration*` (streaming-safe, dropping an unclosed span rather than speaking it).
 - §9.8 **The greeting.** On connect she **SHOULD** greet from memory before the user speaks
   (continuity). The greeting **MUST NOT** be persisted and **MUST NOT** pollute the session
-  window, and **MUST** fire at most once per session — a reconnect or a second socket **MUST NOT**
+  window — but it **SHOULD** be assembled *over* the last few committed lines, which is
+  reading the window, not joining it. Greeting from `summary.md` alone is how she opens on
+  state that is stale by construction: the summary folds every `SUMMARY_EVERY_N` turns, so
+  the closing turns of a session are never folded at all, and it speaks in confident third
+  person. Hers still said she "hasn't gotten the answer" four minutes after it was given,
+  and she opened by asking for it a second time. A wordless entry (a selfie is a chat line
+  with no words in it) **MUST NOT** reach the prompt as a blank turn. The greeting **MUST**
+  fire at most once per session — a reconnect or a second socket **MUST NOT**
   speak a second greeting over the first. On the **first-ever** arrival there is no memory to
   open from: while `soul/BOOTSTRAP.md` is present and the journal is empty, the greeting **MUST**
   be that file's authored cold open, spoken verbatim, with no model call and no corpus line (the
@@ -1961,6 +1974,14 @@ optional due time, **provenance**, and a **commitment strategy**; lifecycle
   after "I'll", so the subject stays behind in their sentence, and a step handed "find out which one
   is faster" alone invents a subject for it with total confidence. A goal filed from an exchange
   **MUST** carry that exchange (`meta.about`), because the goal outlives the conversation.
+  **And what has been said since**: `meta.about` freezes at the moment of filing, so a goal whose
+  own text names a later turn — "…once they answer" — could never be told the answer came. A
+  working step **MUST** be shown the committed lines that postdate the goal's `created`, bounded
+  and newest-last; it is a glance at the room, not the raw window, and this clause does not
+  otherwise reopen §22.4's "minus the conversation". Nor may recall fill the gap: the probe is
+  built from the goal's own text, which is itself indexed, so recall's best matches are echoes of
+  the prompt above it — and holding the exchange `about` was copied from is what lets MMR suppress
+  the *reply* to it as a near-duplicate. A recalled memory quoting the probe **MUST** be dropped.
 - §22.5 **Provenance covers dispatched work.** `meta.dispatched` names the tool a `waiting` goal is
   blocked on and when it went out; `task_completion` (§16) returns the goal to `active`, and a
   scheduled `wakeup` is the floor under how long it may be stranded by a run that never reports.

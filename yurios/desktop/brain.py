@@ -37,6 +37,10 @@ from .voice.emotion import EXPRESSION_DIRECTIVE, SPOKEN_STYLE_DIRECTIVE
 log = logging.getLogger("desktop.brain")
 
 # She speaks first (SPEC §7) — the continuity opener, reusing Build #1's cue idea.
+#: How many of the previous conversation's lines a greeting opens on. Small on
+#: purpose: this is a glance back over her shoulder, not the raw window.
+GREETING_LOOKBACK = 6
+
 GREET_CUE = ("(({user} just opened the sanctuary and put their headset on — no "
              "words yet; you speak first. One short, warm spoken greeting in your "
              "own voice that surfaces something {user} told you before. Lead with "
@@ -366,10 +370,42 @@ class BrainAdapter:
             return None
         return soul.bootstrap
 
+    def _last_words(self) -> list[dict]:
+        """The tail of the conversation she is greeting them back into (§7.3).
+
+        A greeting used to assemble on `summary.md` alone. The summary folds
+        every `summary_every_n` turns, so the *last* turns of a session are
+        never folded at all — and it is confident third-person prose, so a
+        greeting can assert, flatly, something the transcript settled an hour
+        ago. It did: the summary still said she "hasn't gotten the answer" four
+        minutes after it was given, and she opened by asking for it again.
+
+        `raw or text` for `window()`'s reason — the model must see what it
+        produced. Empty lines are dropped: a selfie is a chat entry with no
+        words in it, and a blank turn in the window teaches her to send one.
+        """
+        chatlog = getattr(self.state.sessions, "log", None)
+        if chatlog is None:
+            return []
+        try:
+            rows = chatlog.tail(GREETING_LOOKBACK)
+        except Exception:  # noqa: BLE001 — no transcript is not a failed greeting
+            log.debug("greeting: no transcript to open on", exc_info=True)
+            return []
+        out = []
+        for r in rows:
+            content = (r.get("raw") or r.get("text") or "").strip()
+            if content:
+                out.append({"role": r.get("role", "assistant"),
+                            "content": content})
+        return out
+
     async def stream_greeting(self, session_id: str) -> AsyncIterator[str]:
-        """Stream the continuity opener. Self-contained: window=[] and the cue is
-        NOT appended to the transcript (an opener is not a turn the user took), so
-        it never pollutes the next window and is never persisted (§7).
+        """Stream the continuity opener. The cue itself is NOT appended to the
+        transcript (an opener is not a turn the user took), so it never pollutes
+        the next window and is never persisted (§7) — but the prompt opens on the
+        last few lines that WERE said, because a greeting assembled from the
+        rolling summary alone speaks confidently from state up to eight turns old.
 
         Except on the first-ever arrival, where there is no continuity to open
         from: `BOOTSTRAP.md` is present, so she speaks its authored cold open
@@ -390,7 +426,8 @@ class BrainAdapter:
             await self._retire_bootstrap()
 
         cue = GREET_CUE.format(user=self.cfg.user_name)
-        _soul, prompt = self._assemble(session_id, cue, window=[], lore=[])
+        _soul, prompt = self._assemble(session_id, cue,
+                                       window=self._last_words(), lore=[])
         # A greeting is never persisted — no corpus line, no transcript entry — so
         # without this the first thing she says every session leaves no record of
         # what it was grounded in.

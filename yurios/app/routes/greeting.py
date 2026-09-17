@@ -55,6 +55,40 @@ GREET_CUE = ("(({user} just opened the sanctuary — no message yet; you speak "
              "blocks are empty, just welcome them back warmly.))")
 
 
+#: How many of the previous conversation's lines a greeting opens on. Small on
+#: purpose: this is a glance back over her shoulder, not the raw window.
+GREETING_LOOKBACK = 6
+
+
+def _last_words(state) -> list[dict]:
+    """The tail of the conversation she is greeting them back into.
+
+    This was `[]`, and the greeting ran on `summary.md` alone — which folds
+    every `summary_every_n` turns, so the *last* turns of any session are never
+    folded at all and the summary can assert, in confident prose, something the
+    transcript settled an hour ago. It did: "she asked which one he saw and
+    hasn't gotten the answer", four minutes after he answered, and she opened
+    with "I never got my answer, you know."
+
+    `raw or text` for `window()`'s reason — the model must see what it
+    produced. Empty lines are dropped: a selfie is a chat entry with no words
+    in it, and a blank turn in the window teaches her to send one.
+    """
+    try:
+        # `SessionStore` keeps the per-session window; the whole room's
+        # transcript is the `ConversationLog` underneath it.
+        rows = state.sessions.log.tail(GREETING_LOOKBACK)
+    except Exception:  # noqa: BLE001 — no transcript is not a failed greeting
+        log.debug("greeting: no transcript to open on", exc_info=True)
+        return []
+    out = []
+    for r in rows:
+        content = (r.get("raw") or r.get("text") or "").strip()
+        if content:
+            out.append({"role": r.get("role", "assistant"), "content": content})
+    return out
+
+
 @router.get("/api/greeting")
 async def greeting(session_id: str, request: Request):
     state = request.app.state.mvw
@@ -88,7 +122,7 @@ async def greeting(session_id: str, request: Request):
     cue = GREET_CUE.format(user=state.cfg.user_name)
     prompt = asm.assemble(
         soul, user_md=user_md, summary=summary, memories=memories,
-        lore=[], window=[], user_msg=cue,
+        lore=[], window=_last_words(state), user_msg=cue,
         user_name=state.cfg.user_name,
         system_budget_tokens=state.cfg.system_budget_tokens,
         lorebook_budget_tokens=state.cfg.lorebook_budget_tokens)

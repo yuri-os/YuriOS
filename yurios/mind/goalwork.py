@@ -237,15 +237,26 @@ def offer_the_picture(loop, goal: Goal) -> list[str]:
     times, while the photo sat on the shelf. Now the follow-up carries the
     picture itself and Gate 2 still decides whether it goes.
 
-    Filed on the way out of a goal whichever way it ends: a promise she gave up
-    on is still a promise whose photo exists and whom nobody has shown it to.
-    `single-minded`, unlike ordinary news, because news has a shelf life and is
-    better let go than opened with stale — a photo she promised *is* the
-    promise, and letting this one quietly expire unsent is the failure, not
-    good manners.
+    Filed on every way out of a goal, and parking is one of them: finished,
+    let go at the horizon, swept by `reconsider`, or out of steps and waiting
+    on the world. A promise she gave up on is still a promise whose photo
+    exists and whom nobody has shown it to — and so is one she is still
+    holding, which is the case that actually happened. `single-minded`, unlike
+    ordinary news, because news has a shelf life and is better let go than
+    opened with stale — a photo she promised *is* the promise, and letting this
+    one quietly expire unsent is the failure, not good manners.
     """
     shot = str(goal.product.get("image_url") or "")
     if not shot:
+        return []
+    if goal.meta.get("offered"):
+        # Handed on already, and once is the whole point. Every way out of a
+        # goal files this now, and one goal can take more than one of them in
+        # its life — parked at the horizon, woken, worked, finished. But
+        # `already_carrying` only sees goals that are still *open*, so once the
+        # follow-up has been delivered and closed there is nothing left to
+        # dedupe against, and the next exit would file a second errand to send
+        # a photograph they have already been sent.
         return []
     # Her own words about the shot rather than the goal's text: in the
     # checklist it says *which* picture, which "tell them what came of …"
@@ -255,12 +266,17 @@ def offer_the_picture(loop, goal: Goal) -> list[str]:
     detail = str(goal.product.get("detail") or "").strip()
     sid = str(goal.product.get("selfie_id") or "").strip()
     about = f" — {detail}" if detail else (f" ({sid})" if sid else "")
-    loop.goals.add(
+    heir = loop.goals.add(
         trim("send them the picture I took for them" + about),
         kind="reach_out", priority=0.7,
         due=iso_of(loop.clock.now() + 24 * 3600),
         commitment="single-minded", provenance=f"followup:{goal.id}",
         meta={"product": dict(goal.product)})
+    # Which goal is carrying it, on the goal that made it — so the checklist
+    # says where the photograph went, and so the guard above has something to
+    # read that outlives the follow-up.
+    loop.goals.update(goal.id, meta={"offered": heir.id})
+    goal.meta["offered"] = heir.id      # …and on the copy the caller is holding
     return [f"…and it's for them, not the shelf: {shot}"]
 
 
@@ -299,8 +315,14 @@ def offer_to_tell(loop, goal: Goal) -> list[str]:
     """
     if goal.kind != "task" or not goal.provenance.startswith("promise:"):
         return []
-    if (told := offer_the_picture(loop, goal)):
-        return told
+    if goal.product.get("image_url"):
+        # The photograph *is* the news, and this is a test of the goal rather
+        # than of this call: an earlier exit may already have handed it on
+        # (parked, then woken, then finished), in which case `offer_the_picture`
+        # answers with nothing — and falling through to file "tell them what
+        # came of …" on top of a picture they have already been sent is the
+        # answer-with-a-file-path this whole rule exists to kill.
+        return offer_the_picture(loop, goal)
     loop.goals.add(
         f"tell them what came of “{goal.text}” — it's in "
         f"{loop.GOAL_DESK.format(id=goal.id)}",
@@ -496,6 +518,15 @@ async def goal_work(loop, goal: Goal,
             loop.wakeups[goal.id] = loop.clock.now() + 12 * 3600
             notes.append(f"parked: {goal.text} — I've taken it as far as I "
                          "can on my own for now")
+            # …and neither must parking. This is the exit her own promise
+            # actually took (`g-6233dc189e71`: single-minded, three steps,
+            # `waiting`) — out of steps, waiting on an answer, holding a
+            # finished photograph that only a `reach_out` can send. The other
+            # two exits were covered and this one is the common one: a
+            # single-minded goal never reaches the abandon branch above, and
+            # `reconsider` only sweeps open-minded ones, so the picture sat
+            # parked for twelve hours at a time and then parked again.
+            notes += offer_the_picture(loop, goal)
     else:
         state = "active"
 

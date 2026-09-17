@@ -1470,9 +1470,16 @@ them is precisely the always-interrupting-assistant failure.
   posting nothing is not the same as the product being unreachable.** A mind-started render still
   stamps `_deliver: "vault"` and the lab still posts nothing — but the `task_completion` it posts
   instead carries the product's `image_url`, and the goal that dispatched the work **MUST** keep it
-  (`Goal.product`). However that goal ends — kept or let go — a promise-derived one **MUST** hand
-  the picture to its follow-up `reach_out` goal rather than hand over a path to its own goal file,
-  and a Gate 2 delivery **MUST** carry it: posted with the SUGGEST line as one entry, or ahead of a
+  (`Goal.product`). However that goal ends — kept, let go, swept, or **parked at the horizon still
+  waiting on the world** — a promise-derived one **MUST** hand the picture to its follow-up
+  `reach_out` goal rather than hand over a path to its own goal file, and it **MUST** do so exactly
+  once however many of those exits it takes in its life (`Goal.meta.offered` names the heir; the
+  open-goal dedupe of §22.1 cannot see a follow-up that has already been delivered and closed).
+  Parking is named here because it is not a footnote but the common case, and the one the promise
+  that cost the three photographs actually took: a `single-minded` goal never reaches the let-go
+  branch and `reconsider` sweeps only `open-minded` ones, so out of steps and waiting on an answer
+  is where such a goal lives — and where, holding a finished photograph no `task` goal can send, it
+  would wait twelve hours at a time forever. A Gate 2 delivery **MUST** carry it: posted with the SUGGEST line as one entry, or ahead of a
   SPEAK, so that the line she says over it is true by the time she says it. This is not Gate 2
   bypassed, it is Gate 2 obeyed — the gate's question is whether *she* interrupts, it still asks and
   answers it, and all that changed is that when the answer is yes she arrives holding the thing

@@ -631,3 +631,76 @@ async def test_a_held_picture_is_never_let_go_of_quietly(cfg, seeded_vault):
         "the picture was let go of quietly — this is the whole failure"
     assert goal.id in {g.id for g in holding} or any(
         g.provenance.startswith("followup:") for g in holding)
+
+
+async def test_a_parked_promise_does_not_park_the_picture_with_it(
+        cfg, seeded_vault):
+    """The exit her own promise actually took, and the one the rule missed.
+
+    `g-6233dc189e71` — "Send the promised near-nude selfie … once the user
+    answers the framing question" — is `single-minded`, `steps: 3`, `waiting`.
+    It never reaches the let-go branch (that is `open-minded` only) and
+    `reconsider` never sweeps it (same reason), so with the picture landed on
+    it, it parks at the horizon holding a finished photograph no `task` goal
+    can send, wakes twelve hours later, and parks again. Found by
+    `scripts/live_check.py`, which drove the real lab and watched it happen.
+    """
+    rig = rig_with_hands(cfg, seeded_vault,
+                         *["think nothing more I can do from here."] * 6,
+                         allow="", mind_goal_max_steps=1)
+    goal = rig.mind.goals.add(
+        "send the one I promised once he answers", kind="task", priority=0.95,
+        commitment="single-minded", provenance="promise:her-own-words",
+        meta={"product": {"image_url": SHOT, "selfie_id": "e3110ba4",
+                          "detail": "the window seat, the lamp on the left"}})
+
+    await work(rig)
+
+    parked = rig.mind.goals.get(goal.id)
+    assert parked.state == "waiting", \
+        f"this test is about the parked exit and she took another: {parked.state}"
+    followup = next((g for g in rig.mind.goals.all()
+                     if g.provenance == f"followup:{goal.id}"), None)
+    assert followup is not None, \
+        "she parked holding the picture and nothing was filed to send it"
+    assert followup.kind == "reach_out"
+    assert followup.product["image_url"] == SHOT
+    assert parked.meta.get("offered") == followup.id, \
+        "the goal that made it should say where the picture went"
+
+
+async def test_the_picture_is_handed_on_once_however_many_exits_it_takes(
+        cfg, seeded_vault):
+    """Parked, sent, woken, finished — and not sent a second time.
+
+    Every way out of a goal files the follow-up now, and one goal can take
+    more than one of them. `already_carrying` dedupes on provenance but only
+    across *open* goals, so once Gate 2 has delivered the picture and closed
+    the errand, nothing would stop the next exit filing another one.
+    """
+    rig = rig_with_hands(cfg, seeded_vault,
+                         "think nothing more I can do from here.",
+                         "think that's it — goal complete.",
+                         *["think nothing more."] * 4,
+                         allow="", mind_goal_max_steps=1)
+    goal = rig.mind.goals.add(
+        "send the one I promised once he answers", kind="task", priority=0.95,
+        commitment="single-minded", provenance="promise:her-own-words",
+        meta={"product": {"image_url": SHOT, "selfie_id": "e3110ba4"}})
+
+    await work(rig)                                   # …parks, and files one
+    heir = next(g for g in rig.mind.goals.all()
+                if g.provenance == f"followup:{goal.id}")
+    rig.mind.goals.set_state(heir.id, "done")         # …Gate 2 sent it
+
+    # …the wake lands (`acts.wake_goal`) and this time she finishes.
+    rig.mind.goals.update(goal.id, state="active")
+    rig.mind.considered.pop(goal.id, None)
+    await work(rig)
+
+    assert rig.mind.goals.get(goal.id).state == "done"
+    heirs = [g for g in rig.mind.goals.all()
+             if g.provenance == f"followup:{goal.id}"]
+    assert len(heirs) == 1, \
+        f"the same photograph was filed to be sent {len(heirs)} times: " \
+        f"{[(g.id, g.state) for g in heirs]}"

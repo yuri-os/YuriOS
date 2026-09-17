@@ -55,6 +55,36 @@ def test_unresolved_finds_only_pending_or_loading():
     assert b.unresolved(("tts", "stt", "vad", "missing")) == ["tts", "stt"]
 
 
+def test_a_non_blocking_service_keeps_its_line_but_not_the_gate():
+    """The embedder's weights are mostly a module import, and it runs several
+    times slower while the rest of the node builds around it — a room held shut
+    for it turned a one-minute boot into a two-and-a-half-minute one. A recall
+    without it is an empty Vault, so the gate opens and it catches up (§6.4)."""
+    b = BootBoard()
+    b.declare("embed", "memory · embedding model", blocking=False)
+    b.declare("tools", "hands · tool server")
+    b.start("embed")
+    b.start("tools")
+    assert b.snapshot()["done"] is False           # the gate waits on the hands
+
+    b.done("tools", detail="mcp · 17 tools")
+    snap = b.snapshot()
+    assert snap["done"] is True                    # …and not on the weights
+    states = {s["key"]: s["state"] for s in snap["services"]}
+    assert states == {"embed": "loading", "tools": "ready"}   # still on the board
+
+    b.done("embed", detail="BAAI/bge-small-en-v1.5 · 384d")
+    assert b.snapshot()["done"] is True
+
+
+def test_a_board_of_nothing_but_non_blocking_services_is_not_done():
+    """`done` on an empty set is vacuously true, which would open the gate on a
+    board that has not started. The blocking set is the one that must be there."""
+    b = BootBoard()
+    b.declare("embed", "memory · embedding model", blocking=False)
+    assert b.snapshot()["done"] is False
+
+
 def test_empty_board_is_not_done():
     assert BootBoard().snapshot()["done"] is False
 

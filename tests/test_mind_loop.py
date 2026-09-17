@@ -152,6 +152,39 @@ async def test_goal_work_is_silent_and_journaled(cfg, seeded_vault):
     assert any("worked on: sort my notes" in p.read_text() for p in day_files)
 
 
+async def test_a_journal_line_does_not_wait_on_a_loading_embedder(cfg, seeded_vault):
+    """REFLECT runs on the tick's own coroutine, so a synchronous `embed()`
+    there would hold the event loop for whatever is left of a cold torch load
+    — and a host is one process holding every character's room (SPEC §2.4).
+    The day file is still written; only the index row is dropped."""
+    rig = make_mind(cfg, seeded_vault)
+    store = rig.mind.brain.state.store
+
+    waited = []
+
+    class Loading:
+        """What `SentenceTFEmbedder(wait=False)` is until the weights land:
+        `embed()` blocks on the load. Counted rather than raised — the index
+        write is wrapped in `except Exception`, which would swallow a raise
+        and leave the freeze invisible."""
+        dim = store.embedder.dim
+        ready = False
+
+        def embed(self, texts):
+            waited.append(texts)
+            return [[0.0] * self.dim for _ in texts]
+
+    store.embedder = Loading()
+    rig.mind.goals.add("sort my notes on the rain sounds", kind="maintenance",
+                       priority=0.8, provenance="maintenance:dream")
+    trace = await rig.mind.tick()
+
+    assert waited == []
+    assert trace["acted"]["what"] == "goal_work"
+    day_files = list((seeded_vault / "memory" / "episodic").glob("*.md"))
+    assert any("worked on: sort my notes" in p.read_text() for p in day_files)
+
+
 async def test_budget_is_debited_by_her_own_words(cfg, seeded_vault):
     rig = make_mind(cfg, seeded_vault)
     before = rig.mind.budget.snapshot()["spent_tokens"]

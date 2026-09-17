@@ -16,11 +16,18 @@ used to mean one full model load PER CHARACTER: three residents, three
 read-only after load, so one SentenceTransformer per model name is shared
 process-wide instead.
 
-The load itself is the slow part of a cold boot (a torch model, ~20–30 s the
-first time in a process) and **MUST NOT** hold up the rest of her (SPEC §2.4):
-construction kicks the thread off and returns, `embed()` waits, and a recall
-that arrives before the weights do behaves as an empty Vault rather than
-freezing the event loop.
+The load itself is the slow part of a cold boot (a torch model, ~20 s alone in
+a process and a good deal more with five characters building around it) and
+**MUST NOT** hold up the rest of her (SPEC §2.4): `begin_load` kicks the thread
+off and returns, `embed()` waits, and a recall that arrives before the weights
+do behaves as an empty Vault rather than freezing the event loop.
+
+Most of that time is `import sentence_transformers`, not the weights — which is
+why *when* the thread starts matters as much as that it is one. CPython holds a
+lock per module being imported, so a second thread importing anything the same
+chain touches blocks until the first is done. Kicked off from the constructor,
+this raced the build's own `import litellm` and the build waited on it; started
+after, both run alone. `world/runtime.build_brain` owns that ordering.
 """
 from __future__ import annotations
 
@@ -92,8 +99,9 @@ def begin_load(model_name: str) -> None:
     """Start loading this model if nobody has. Returns immediately (SPEC §2.4).
 
     The first caller in the process starts the thread; everyone else is a
-    no-op. Construction of ``SentenceTFEmbedder`` always calls this, so a
-    ``wait=False`` boot still has the weights on the way.
+    no-op. ``ensure_ready`` and ``embed`` both call it, so nothing that needs
+    a vector has to remember to; construction with ``wait=False`` deliberately
+    does *not*, because it is what decides when the import runs (see below).
     """
     with _shared_lock:
         if model_name in _shared or model_name in _done:
@@ -171,9 +179,13 @@ class SentenceTFEmbedder:
         self.model_name = model_name
         self.dim = dim
         self._model = None
-        begin_load(model_name)
         if wait:
             self.ensure_ready()
+        # `wait=False` leaves this inert: no thread, no import. The caller says
+        # when — `world/runtime.build_brain` does it once the brain's own
+        # imports are done, because two threads importing at the same time
+        # serialise on CPython's per-module lock and the build ends up paying
+        # for the load anyway (SPEC §2.4).
 
     @property
     def ready(self) -> bool:

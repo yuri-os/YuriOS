@@ -145,9 +145,17 @@ def build_brain(rt, *, chat_model, utility_model, embedder) -> ToolBrain:
     indexes her memory (SPEC §2.4): with the sentence-transformers default that
     is a cold torch model on the CPU, as slow to wake as the voice stack. The
     load runs off-thread so her hands and mind are not sitting behind it, and
-    the boot panel stays on `loading` until the weights land. A server-backed
-    embedder (ollama / lm_studio) has no local weights to load; it still gets
-    a line, so the panel names what indexes her.
+    the enter gate does not wait on it at all. A server-backed embedder
+    (ollama / lm_studio) has no local weights to load; it still gets a line, so
+    the panel names what indexes her.
+
+    **The load is kicked off after the brain is built, not before.** Both are
+    module imports — `sentence_transformers` on one thread, litellm behind
+    `build_chat_model` on this one — and CPython serialises imports on a lock
+    per module, so a thread is no escape from one: the build sat inside
+    `import litellm` waiting on a lock the embedder's thread held, and paid for
+    the load it was supposed to have handed off. Ordering them is the whole fix.
+    By the time the second character builds there is nothing left to import.
     """
     from yurios.app.main import _default_embedder    # lazy: torch lives behind it
     cfg = rt.cfg
@@ -155,29 +163,37 @@ def build_brain(rt, *, chat_model, utility_model, embedder) -> ToolBrain:
     if not rt.model_configured:
         rt.boot.declare("models", "mind · language model", state="skipped",
                         detail="choose a model to connect")
-    rt.boot.declare("embed", "memory · embedding model")
-    if embedder is None:
+    # Not `blocking`: a room whose embedder is still coming is a room (§6.4).
+    rt.boot.declare("embed", "memory · embedding model", blocking=False)
+    ours = embedder is None
+    if ours:
         rt.boot.start("embed", detail=cfg.embed_model)
         try:
-            embedder = _default_embedder(cfg, wait=False)
+            embedder = _default_embedder(cfg, wait=False)   # inert; see above
         except Exception as e:
             rt.boot.done("embed", state="failed", detail=str(e)[:80])
             raise
-        if getattr(embedder, "ready", True):
-            rt.boot.done("embed", detail=f"{cfg.embed_model} · {cfg.embed_dim}d")
-        else:
-            _announce_embedder(rt, embedder, cfg)
     else:
         rt.boot.done("embed", detail="injected")
-    return ToolBrain.build(
+    brain = ToolBrain.build(
         cfg, guard=rt.guard, timers=rt.timers,
         controller=rt.controller, selfies=rt.selfies,
         research=rt.research, chat_model=chat_model,
         utility_model=utility_model, embedder=embedder)
+    if ours:
+        if getattr(embedder, "ready", True):
+            rt.boot.done("embed", detail=f"{cfg.embed_model} · {cfg.embed_dim}d")
+        else:
+            _announce_embedder(rt, embedder, cfg)
+    return brain
 
 
 def _announce_embedder(rt, embedder, cfg: Config) -> None:
-    """Settle the boot line when the off-thread load finishes (SPEC §2.4)."""
+    """Start the weights, off-thread, and settle the line when they land (§2.4).
+
+    `ensure_ready` is what begins the load — the constructor deliberately does
+    not, so that this happens after the brain's own imports are done.
+    """
     def run() -> None:
         try:
             getattr(embedder, "ensure_ready", lambda: None)()

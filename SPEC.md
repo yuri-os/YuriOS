@@ -330,10 +330,19 @@ talking, log the truth) rather than crash.
 The in-process sentence-transformers embedder **MUST** load off-thread and **MUST NOT** hold
 up the rest of boot: building a character continues into her hands, her mind and her
 channels, and the host **MUST** open its port without waiting for the weights. The boot
-board (§6.4) stays on `loading` until they land (or the load fails), which is what the
-enter gate waits on. A recall that arrives before they do **MUST** behave as an empty
+board (§6.4) stays on `loading` until they land (or the load fails), and that line
+**MUST NOT** be one the enter gate waits on: most of the load is a module import, which
+runs several times slower while the other characters on the node are building, and a room
+held shut for it turns a one-minute boot into a two-and-a-half-minute one. Off-thread is
+not on its own enough, either — CPython locks per module being imported, so a load kicked
+off while the brain is still importing its own model provider is one the build then waits
+on. The load **MUST** be started after that, not before. A recall that arrives before the
+weights land **MUST** behave as an empty
 Vault — `[]`, no freeze of the event loop. `embed()` itself still waits, so a write that
-needs a vector (remember, reindex, ingest) never drops one. A failed load **MUST** settle
+needs a vector (remember, reindex, ingest) never drops one. The exception is a journal
+line's index row (§15): REFLECT runs on the tick's own coroutine, where waiting would hold
+every character on the node, and the day file is truth while the index is only its cache —
+so that one row **MUST** be skipped rather than waited for. A failed load **MUST** settle
 the board as failed and keep her talking.
 
 **Model residency.** Sharing one server has a cost that is not obvious: LM Studio JIT-loads
@@ -627,7 +636,12 @@ to every new subscriber before its first live event. Malformed JSON is logged an
   before connecting the sockets, so the `AudioContext` is user-activated and the greeting (§9)
   is audible. A **boot board** (`yurios/world/boot.py`) shows the kernel-boot log while she
   wakes; the SSE stream opens after the gesture and the enter gate polls `/api/health` for
-  readiness. Desktop mode (§6.5) auto-enters but **MUST** still resume a suspended context on
+  readiness. A service **MAY** declare itself non-blocking: it keeps its line on the board and
+  still lands terminal, but is left out of `done`, so the gate does not wait on it. That is for
+  a service the rooms genuinely degrade around and no other — the embedder is the one (§2.4),
+  because a recall without it is an empty Vault rather than a broken turn. Everything the gate
+  *does* wait on **MUST** still reach a terminal state, so nothing is left pending for an event
+  that may never come. Desktop mode (§6.5) auto-enters but **MUST** still resume a suspended context on
   first click, so the worst case is a quiet greeting, never a dead one.
 - §6.5 **Desktop presence — the room, set aside.** `python -m yurios.world --window` **MAY**
   host the served page in a frameless, transparent, always-on-top native window (pywebview;

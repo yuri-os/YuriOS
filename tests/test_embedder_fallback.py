@@ -138,10 +138,11 @@ def test_every_characters_embedder_shares_one_loaded_model(monkeypatch):
     assert first._model is second._model is third._model
 
 
-def test_construction_does_not_wait_for_the_model(monkeypatch):
-    """Boot kicks the load off and keeps going (SPEC §2.4). `embed()` is what
-    waits, so a write never drops a vector and a start is not sitting behind
-    a cold torch model."""
+def test_construction_neither_waits_for_the_model_nor_starts_it(monkeypatch):
+    """`wait=False` is inert: no thread, no import, nothing racing the build
+    that is about to import its own model provider (SPEC §2.4). `ensure_ready`
+    is what begins the load, and `embed()` is what waits for it — so a write
+    never drops a vector, and `build_brain` decides when the import runs."""
     import sys
     import threading
     from types import SimpleNamespace
@@ -170,11 +171,17 @@ def test_construction_does_not_wait_for_the_model(monkeypatch):
                         SimpleNamespace(SentenceTransformer=SentenceTransformer))
 
     embedder = sentence_tf.SentenceTFEmbedder(wait=False)
-    assert started.wait(timeout=5)
-    assert loaded == []
+    assert not started.wait(timeout=0.2), "construction must not import anything"
+    assert embedder.ready is False
+
+    done = threading.Thread(target=embedder.ensure_ready, daemon=True)
+    done.start()
+    assert started.wait(timeout=5)          # …and this is what starts it
+    assert loaded == []                     # still in there, weights not back
     assert embedder.ready is False
 
     release.set()
+    done.join(timeout=5)
     embedder.ensure_ready()
     assert embedder.ready is True
     assert loaded == [(sentence_tf.DEFAULT_MODEL, {"local_files_only": True})]

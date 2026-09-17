@@ -9,8 +9,14 @@ would otherwise sit on the enter gate with no sign of life. This board records
 each service as it moves pending → loading → ready | failed | skipped, with how
 long it took, and `/api/boot` serves the snapshot. A service that only loads on
 demand declares itself `skipped` and narrates itself later if it does run: the
-gate polls until every service is terminal, so nothing may be left pending for
-an event that might never come. The web boot panel (web/js/boot.js) polls it —
+gate polls until every service it waits on is terminal, so nothing may be left
+pending for an event that might never come. One service it does *not* wait on
+is the embedder (`blocking=False`): its weights are a GIL-bound import that
+runs a good deal slower while five characters are building around it, and a
+room that opened only when it landed made a sixty-second boot a two-and-a-half
+minute one. A recall before it lands is an empty Vault (§2.4), which is a room
+she is in, so the gate opens and her memory catches up behind
+it. The web boot panel (web/js/boot.js) polls it —
 deliberately *not* the /api/events bus, because that stream only opens after the
 enter gesture (SPEC §6.4), and the whole point is to show progress *before*
 she's ready to be entered.
@@ -21,9 +27,9 @@ the mind come up on the event loop, so both writers touch one lock.
 Every move is also narrated to the log, prefixed `boot:`. The panel is only
 visible once the server answers requests. A cold LM Studio chat model still
 loads before that; the in-process embedder and the MCP tool server do not —
-they warm without holding the rest of boot (SPEC §2.4, §7.2) and the board
-stays on `loading` until they land, which is what the enter gate waits on.
-Those lines are what `yurios start` watches to tell "still waking" from
+they warm without holding the rest of boot (SPEC §2.4, §7.2). The tool server
+is what the gate waits on; the embedder narrates itself to the log and to a
+panel already gone. Those lines are what `yurios start` watches to tell "still waking" from
 "wedged" (yurios/cli.py), and what the log has to show afterwards to explain
 where three minutes went.
 """
@@ -62,15 +68,24 @@ class BootBoard:
         self._order: list[str] = []
 
     def declare(self, key: str, label: str, *,
-                state: str = PENDING, detail: str = "") -> None:
+                state: str = PENDING, detail: str = "",
+                blocking: bool = True) -> None:
         """Register a service so it shows in the list from the first paint. A
         service known-resolved at construction (selfies, a disabled backend) can
-        declare straight into a terminal state."""
+        declare straight into a terminal state.
+
+        `blocking=False` keeps the line on the board — it still narrates itself
+        and still lands terminal — but leaves it out of `done`, so the enter
+        gate does not wait on it (SPEC §6.4). Only for a service the rooms
+        genuinely degrade around: the embedder, whose absence is an empty Vault
+        and not a broken turn (§2.4).
+        """
         with self._lock:
             if key not in self._svc:
                 self._order.append(key)
             self._svc[key] = {"key": key, "label": label, "state": state,
-                              "detail": detail, "seconds": None, "_start": None}
+                              "detail": detail, "seconds": None,
+                              "_start": None, "_blocking": blocking}
 
     def start(self, key: str, detail: str = "") -> None:
         with self._lock:
@@ -112,6 +127,8 @@ class BootBoard:
             services = [{k: v for k, v in self._svc[key].items()
                          if not k.startswith("_")}
                         for key in self._order]
+            waited_on = [self._svc[key] for key in self._order
+                         if self._svc[key].get("_blocking", True)]
             elapsed = round(self._clock() - self._t0, 1)
-        done = bool(services) and all(s["state"] in _DONE_STATES for s in services)
+        done = bool(waited_on) and all(s["state"] in _DONE_STATES for s in waited_on)
         return {"services": services, "done": done, "elapsed": elapsed}

@@ -65,7 +65,14 @@ class Journal:
             self.vault.append(rel, f"# Journal — {day}\n\n")
         line = f"### {dt_of(now).strftime('%H:%M')}  [she] {text}\n"
         self.vault.append(rel, line)
-        if self.store is not None:
+        # …and the index, unless the weights are still coming. REFLECT runs on
+        # the tick's own coroutine, so a synchronous `embed()` here would hold
+        # the event loop for whatever is left of a cold torch load — every
+        # other character's room on this host with it (SPEC §2.4). A journal
+        # row is the one embedding that may be dropped: the day file above is
+        # truth and the index is a cache, which is what the `except` below has
+        # always said. Recall falls back to the file until the next line.
+        if self.store is not None and getattr(self.store.embedder, "ready", True):
             try:
                 self.store.index.upsert(
                     id=f"act-{iso_of(now)}-{abs(hash(text)) % 10 ** 6}",

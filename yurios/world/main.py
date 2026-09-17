@@ -164,6 +164,13 @@ class Runtime:
         # An injected brain or an injected model belongs to the caller — a live
         # model swap moves the Config knobs and leaves the object alone.
         self._owns_models = brain is None and chat_model is None
+        # What indexes her memory, and whether it worked (SPEC §2.4). Written by
+        # runtime.build_brain and, once the weights land, by the thread that
+        # waits for them — so it outlives the boot line, which the enter gate no
+        # longer waits on and the panel takes away with it. A wrong EMBED_DIM
+        # leaves a companion who talks and never remembers; /api/health is where
+        # "why is she silent?" gets asked, so it has to be sayable there.
+        self.memory_status = "off"
         # `brain` is injectable for the same reason as B2's: the route tests run
         # against a FakeBrain (no Vault, no SQLite). The real one is a ToolBrain,
         # and building it loads models — runtime.build_brain.
@@ -651,6 +658,10 @@ class Runtime:
             # arrives before the board settles sees no hands, the same as
             # tools-off, rather than holding the host's port closed.
             self.boot.start("tools", detail=self.cfg.tools_backend)
+            # …and say so, rather than "off" — which is what /api/health and
+            # `yurios status` reported for the seconds a spawn takes, about a
+            # character whose hands were on their way.
+            self.tools_status = "loading"
             self._tool_runner = runner
             self._tasks.append(asyncio.create_task(
                 self._start_tools(runner), name="tools-boot"))

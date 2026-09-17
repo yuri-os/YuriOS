@@ -168,13 +168,16 @@ def build_brain(rt, *, chat_model, utility_model, embedder) -> ToolBrain:
     ours = embedder is None
     if ours:
         rt.boot.start("embed", detail=cfg.embed_model)
+        rt.memory_status = f"loading: {cfg.embed_model}"
         try:
             embedder = _default_embedder(cfg, wait=False)   # inert; see above
         except Exception as e:
             rt.boot.done("embed", state="failed", detail=str(e)[:80])
+            rt.memory_status = f"failed: {e}"
             raise
     else:
         rt.boot.done("embed", detail="injected")
+        rt.memory_status = "injected"
     brain = ToolBrain.build(
         cfg, guard=rt.guard, timers=rt.timers,
         controller=rt.controller, selfies=rt.selfies,
@@ -183,6 +186,7 @@ def build_brain(rt, *, chat_model, utility_model, embedder) -> ToolBrain:
     if ours:
         if getattr(embedder, "ready", True):
             rt.boot.done("embed", detail=f"{cfg.embed_model} · {cfg.embed_dim}d")
+            rt.memory_status = f"{cfg.embed_model} · {cfg.embed_dim}d"
         else:
             _announce_embedder(rt, embedder, cfg)
     return brain
@@ -198,8 +202,10 @@ def _announce_embedder(rt, embedder, cfg: Config) -> None:
         try:
             getattr(embedder, "ensure_ready", lambda: None)()
             rt.boot.done("embed", detail=f"{cfg.embed_model} · {cfg.embed_dim}d")
+            rt.memory_status = f"{cfg.embed_model} · {cfg.embed_dim}d"
         except Exception as e:
             rt.boot.done("embed", state="failed", detail=str(e)[:80])
+            rt.memory_status = f"failed: {e}"
             log.exception("embedding model failed to load")
     threading.Thread(target=run, daemon=True,
                      name=f"embed-boot-{cfg.character_id or 'house'}").start()

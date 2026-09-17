@@ -196,6 +196,7 @@ async def test_start_async_does_not_wait_for_the_tool_server(cfg, seeded_vault):
     assert began.is_set()
     tools = next(s for s in rt.boot.snapshot()["services"] if s["key"] == "tools")
     assert tools["state"] == "loading"
+    assert rt.tools_status == "loading"     # …and /api/health says so, not "off"
     assert rt.tool_count == 0
     release.set()
     for _ in range(50):

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import httpx
+import pytest
 
 from yurios.app import main
 from yurios.app.config import Config
@@ -219,3 +220,72 @@ def test_a_wait_false_embedder_still_shares_the_in_flight_load(monkeypatch):
     three.ensure_ready()
     assert len(loads) == 1
     assert one._model is two._model is three._model
+
+
+def test_a_wrong_embed_dim_is_never_ready(monkeypatch):
+    """The width check is per-config, and the model loads fine when it fails —
+    so asking the shared cache "are the weights here?" answered yes for an
+    embedder that could not produce a vector. `ready` was True while every
+    `embed()` raised, and recall, the shelf's search and a journal row all
+    sailed past the guard written to keep them out of that (SPEC §2.4)."""
+    import sys
+    from types import SimpleNamespace
+
+    sentence_tf.reset_shared()
+
+    class SentenceTransformer:
+        def __init__(self, model_name, **kwargs):
+            pass
+
+        def get_embedding_dimension(self):
+            return 384                       # what the model actually produces
+
+    monkeypatch.setitem(sys.modules, "sentence_transformers",
+                        SimpleNamespace(SentenceTransformer=SentenceTransformer))
+
+    embedder = sentence_tf.SentenceTFEmbedder(dim=768, wait=False)   # .env says 768
+    with pytest.raises(ValueError, match="EMBED_DIM=768"):
+        embedder.ensure_ready()
+
+    assert embedder.ready is False            # …and stays false: this cannot bind
+    with pytest.raises(ValueError, match="EMBED_DIM=768"):
+        embedder.embed(["anything"])
+    # the same answer, not a second load asking the model the same question
+    with pytest.raises(ValueError, match="EMBED_DIM=768"):
+        embedder.ensure_ready()
+
+
+def test_a_recall_through_a_broken_embedder_is_an_empty_vault(monkeypatch, tmp_path):
+    """The point of the `ready` guard, end to end: a misconfigured width is a
+    companion who talks and does not remember, not one who raises mid-turn."""
+    import sys
+    from types import SimpleNamespace
+
+    from yurios.app.memory.store import FileMemoryStore
+
+    sentence_tf.reset_shared()
+
+    class SentenceTransformer:
+        def __init__(self, model_name, **kwargs):
+            pass
+
+        def get_embedding_dimension(self):
+            return 384
+
+    monkeypatch.setitem(sys.modules, "sentence_transformers",
+                        SimpleNamespace(SentenceTransformer=SentenceTransformer))
+
+    embedder = sentence_tf.SentenceTFEmbedder(dim=32, wait=False)
+    try:
+        embedder.ensure_ready()
+    except ValueError:
+        pass                                  # what the boot thread logs and files
+
+    (tmp_path / "memory" / "semantic").mkdir(parents=True)
+    (tmp_path / "soul").mkdir(parents=True)
+    store = FileMemoryStore(tmp_path, embedder, embed_dim=32)
+    store.index.upsert(id="x", kind="turn", text="the good knives",
+                       source_path="t", source_span="",
+                       created_at="2026-01-01T00:00:00+00:00",
+                       salience=1.0, embedding=[1.0] + [0.0] * 31)
+    assert store.recall("knives", 6) == []

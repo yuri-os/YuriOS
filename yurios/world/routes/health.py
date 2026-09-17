@@ -26,7 +26,8 @@ def _degradations(rt) -> list[str]:
         out.append("no language model configured")
     for label, status in (("channels", rt.channels_status), ("tools", rt.tools_status),
                           ("mind", rt.mind_status), ("web", rt.research_status),
-                          ("selfies", rt.selfies_status)):
+                          ("selfies", rt.selfies_status),
+                          ("memory", rt.memory_status)):
         text = str(status or "")
         if "failed" in text:
             out.append(f"{label}: {text}")
@@ -53,7 +54,13 @@ async def health(request: Request) -> dict:
         # with no listeners is her at rest, not her broken — she loads them when
         # somebody opens /ws/voice.
         "voice": rt.voice.status(),
-        "tools": rt.tools_status,          # "mcp" | "fake" | "off" | "failed: …"
+        # What indexes her memory, and whether it worked (§2.4). The boot board
+        # carries this too, but the enter gate no longer waits on that line and
+        # the panel leaves with the gate — so a wrong EMBED_DIM, which is a
+        # companion who talks and never remembers, would otherwise be a log line
+        # that scrolled past. "loading: …" while the weights come.
+        "memory": rt.memory_status,        # "<model> · <n>d" | "loading: …" | "failed: …"
+        "tools": rt.tools_status,          # "mcp" | "fake" | "loading" | "off" | "failed: …"
         "tool_count": rt.tool_count,       # discovered calls admitted to the brain
         "mind": rt.mind_status,            # "running" | "disabled" | "failed: …" (§15)
         "activity": rt.mind.activity.state if rt.mind else None,

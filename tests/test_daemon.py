@@ -332,6 +332,32 @@ def test_health_names_the_seams_that_failed(cfg):
                                   "tools: failed: no such server"]
 
 
+def test_health_names_a_memory_that_never_loaded(cfg):
+    """The one failure with no other surface left. The boot board carries it,
+    but the enter gate no longer waits on that line (§6.4) and the panel goes
+    with the gate — so a wrong EMBED_DIM, which is a companion who talks and
+    never remembers, would otherwise be a log line that scrolled past."""
+    health = _health(cfg, model_configured=True,
+                     memory_status="failed: EMBED_DIM=768 but BAAI/bge-small-en-v1.5 "
+                                   "produces 384-d vectors")
+
+    assert health["ok"] is False
+    assert health["degraded"] == [
+        "memory: failed: EMBED_DIM=768 but BAAI/bge-small-en-v1.5 "
+        "produces 384-d vectors"]
+
+
+def test_loading_seams_are_not_degradations(cfg):
+    """A spawn in flight and weights on their way are boot, not breakage —
+    `/api/health` said "tools: off" about a character whose hands were coming."""
+    health = _health(cfg, model_configured=True, tools_status="loading",
+                     memory_status="loading: BAAI/bge-small-en-v1.5")
+
+    assert health["ok"] is True and health["degraded"] == []
+    assert health["tools"] == "loading"
+    assert health["memory"] == "loading: BAAI/bge-small-en-v1.5"
+
+
 def test_a_working_companion_on_fallbacks_is_still_ok(cfg):
     """Degrading loudly is her design (§3): a fake voice or a mock selfie lab is
     working, and must not read as broken."""

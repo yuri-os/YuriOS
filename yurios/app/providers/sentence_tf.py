@@ -179,6 +179,10 @@ class SentenceTFEmbedder:
         self.model_name = model_name
         self.dim = dim
         self._model = None
+        #: Why *this* embedder can't work, when the shared weights are fine.
+        #: The width check below is per-config, so it cannot live in `_errors`
+        #: beside the load failures every character on the node shares.
+        self._error: BaseException | None = None
         if wait:
             self.ensure_ready()
         # `wait=False` leaves this inert: no thread, no import. The caller says
@@ -189,32 +193,45 @@ class SentenceTFEmbedder:
 
     @property
     def ready(self) -> bool:
-        """True when ``embed()`` will not wait on a load.
+        """True when ``embed()`` will return a vector without waiting.
 
-        False while the weights are still coming, and false if the load
-        failed — a recall that checks this treats both as an empty Vault
-        rather than raising or freezing the event loop (SPEC §2.4).
+        *This* embedder, bound — not "the weights are somewhere in the
+        process". Asking the shared dict instead said yes to an embedder whose
+        width check had failed: the model loads fine when EMBED_DIM is wrong,
+        so `ready` was True while every `embed()` raised, and each of the
+        callers that guards on this (recall, the shelf's search, a journal row)
+        sailed past its guard into the exception it was written to avoid.
+        False while the weights are still coming, and false for good if this
+        one can never bind — both are the empty-Vault path (SPEC §2.4).
         """
-        if self._model is not None:
-            return True
-        with _shared_lock:
-            return self.model_name in _shared
+        return self._model is not None
 
     def ensure_ready(self) -> None:
-        """Block until the shared model is loaded, then bind and check dim."""
+        """Bind to the shared model, waiting for it and checking its width.
+
+        Raises the same answer every time once it has one: a wrong EMBED_DIM
+        is not something a retry improves, and re-deriving it would mean
+        loading the model again to ask it the same question.
+        """
         if self._model is not None:
             return
-        model = wait_loaded(self.model_name)
-        # Renamed in sentence-transformers 5.x; read whichever this install has.
-        dimension = getattr(model, "get_embedding_dimension", None) \
-            or model.get_sentence_embedding_dimension
-        actual = dimension()
-        if actual != self.dim:
-            raise ValueError(
-                f"EMBED_DIM={self.dim} but {self.model_name} produces {actual}-d "
-                "vectors — the index dimension is config, never hard-coded "
-                "(§2.4); fix .env"
-            )
+        if self._error is not None:
+            raise self._error
+        try:
+            model = wait_loaded(self.model_name)
+            # Renamed in sentence-transformers 5.x; read whichever this has.
+            dimension = getattr(model, "get_embedding_dimension", None) \
+                or model.get_sentence_embedding_dimension
+            actual = dimension()
+            if actual != self.dim:
+                raise ValueError(
+                    f"EMBED_DIM={self.dim} but {self.model_name} produces "
+                    f"{actual}-d vectors — the index dimension is config, "
+                    "never hard-coded (§2.4); fix .env"
+                )
+        except BaseException as e:
+            self._error = e
+            raise
         self._model = model
 
     def embed(self, texts: list[str]) -> list[list[float]]:

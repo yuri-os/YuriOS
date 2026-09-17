@@ -345,6 +345,15 @@ every character on the node, and the day file is truth while the index is only i
 so that one row **MUST** be skipped rather than waited for. A failed load **MUST** settle
 the board as failed and keep her talking.
 
+Whatever the callers guard on to make that choice **MUST** mean *this* embedder can return a
+vector now — not that weights are loaded somewhere in the process. A wrong `EMBED_DIM` loads
+the model perfectly and fails the width check that follows, so the two are not the same
+question, and answering the second one let every guarded caller through into the exception the
+guard exists to avoid. That failure **MUST** also reach `/api/health`, as a degradation and
+in a `memory` field: the boot board carries it, but the enter
+gate no longer waits on that line (§6.4) and the panel leaves with the gate, so a companion who
+talks and never remembers would otherwise be a log line that scrolled past.
+
 **Model residency.** Sharing one server has a cost that is not obvious: LM Studio JIT-loads
 whatever model a request names, and by default unloads the previously JIT-loaded one to do it.
 Every turn touches both models — the chat model streams the reply, the embedder recalls and

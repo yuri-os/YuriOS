@@ -12,6 +12,7 @@ them together or not at all.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from dataclasses import dataclass, field
@@ -461,7 +462,7 @@ class DreamContext:
 
     # ------------------------------------------------------------------ write
 
-    def put(self, rel: str, text: str) -> None:
+    async def put(self, rel: str, text: str) -> None:
         """Write to her desk — the only output path a job has.
 
         Jobs write to `workspace/`, never to `memory/` or `soul/`. A nightly
@@ -476,12 +477,18 @@ class DreamContext:
         No `mark_dirty()`: the desk is not versioned (§34.1), so a diary entry
         is not a commit. What a night *did* still reaches `git log`, through the
         journal line the job returns and the ledger the runner saves.
+
+        The write goes to a worker thread. `atomic_write` fsyncs, and on a slow
+        disk (a FUSE-mounted NTFS drive) that took 3–7 s — on the loop that
+        every other character on the node shares. One of those stalls held the
+        loop long enough to turn another character's `write_note` into a 14 s
+        timeout, though her note had landed fine.
         """
         self.writes.append(rel)
         if self.dry_run or self.workspace is None:
             return
         started = self.clock.now()
-        self.workspace.write(rel, text)
+        await asyncio.to_thread(self.workspace.write, rel, text)
         # Her hands wrote a file, so the audit says so — the same line
         # `write_note` leaves when she does it mid-conversation (§7.3), and the
         # reason the Tools page can answer "what did last night actually do to

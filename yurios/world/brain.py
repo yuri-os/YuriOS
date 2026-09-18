@@ -41,7 +41,7 @@ from .avatar.controller import VrmController
 from .situation import render_situation
 from .tools.client import (
     ToolRunner, ToolSpec, arg_names_from_specs, build_directive)
-from .tools.guard import Guard, Turn
+from .tools.guard import Guard, Turn, failure
 from .tools.timers import TimerBoard
 from .tooltags import ToolCall, ToolTagParser
 
@@ -465,8 +465,9 @@ class ToolBrain(BrainAdapter):
                 timeout=self.cfg.tool_timeout_s)
         except Exception as e:                     # timeout, tool error, transport
             dt = (self.guard.clock.now() - t0) * 1000
-            self.guard.audit(call.tool, call.args, "error", dt, str(e))
-            return f"error ({e})"
+            why = failure(e, self.cfg.tool_timeout_s)
+            self.guard.audit(call.tool, call.args, "error", dt, why)
+            return f"error ({why})"
         # Host realization needs the complete machine-readable contract. A
         # detailed selfie `look` can push that JSON beyond the model-facing
         # result cap; truncating first makes it invalid JSON and silently skips

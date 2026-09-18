@@ -39,6 +39,17 @@ def _fingerprint(tool: str, args: dict | None) -> str:
     return tool + "\0" + json.dumps(args or {}, sort_keys=True, default=str)
 
 
+def failure(e: BaseException, timeout_s: float) -> str:
+    """What a call that raised says, in the audit line and to her.
+
+    `str()` of a timeout is the empty string, so a call that ran out of time
+    used to read `error ()` in the desk note and `""` in `calls.jsonl` — no
+    way for her or anyone to tell a slow disk from a broken tool."""
+    if isinstance(e, TimeoutError):
+        return f"timed out after {timeout_s:g}s"
+    return str(e) or type(e).__name__
+
+
 class Turn:
     """One reply's worth of dedupe memory, handed out by `Guard.turn()`.
 

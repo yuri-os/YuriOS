@@ -4,7 +4,8 @@ from __future__ import annotations
 import json
 
 from yurios.kernel import correlate
-from yurios.world.tools.guard import RESULT_LIMITS, RESULT_MAX_CHARS, Guard
+from yurios.world.tools.guard import (RESULT_LIMITS, RESULT_MAX_CHARS, Guard,
+                                      failure)
 
 
 def test_allowlist_denies_tools_she_does_not_have(guard):
@@ -183,3 +184,12 @@ def test_allow_never_widens_the_bucket_on_a_hand_she_already_has(guard):
 def test_a_tool_that_was_never_discovered_is_still_denied(guard):
     guard.allow("scrape", 4)
     assert guard.check("rm_rf")[0] is False
+
+
+def test_a_failed_call_is_never_described_by_an_empty_string():
+    """`str()` of a timeout is "" — the audit line and her desk both used to
+    read as a blank error, indistinguishable from a broken tool (§7.3)."""
+    assert failure(TimeoutError(), 10.0) == "timed out after 10s"
+    assert failure(TimeoutError(), 2.5) == "timed out after 2.5s"
+    assert failure(RuntimeError("no such note"), 10.0) == "no such note"
+    assert failure(ConnectionResetError(), 10.0) == "ConnectionResetError"

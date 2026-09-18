@@ -404,13 +404,14 @@ async def tool_step(loop, goal: Goal, intent,
     # `goals.md` stays the complete, readable list of what her hands might do.
     loop.hands.spend(intent.tool, args)
     with correlate.scope(kind=correlate.MIND_TOOL):
-        result = await loop.hands.execute(
+        verdict, result = await loop.hands.execute(
             intent.tool, args, timeout_s=loop.cfg.tool_timeout_s)
         # Host-side realisation (§7.5) — the timer actually scheduled, the
         # render actually started. The stamp is what makes the product land
-        # in the Vault instead of in the chat (§18, principle 8).
+        # in the Vault instead of in the chat (§18, principle 8). A call that
+        # failed has no product to realise.
         realise = getattr(loop.brain, "realise", None)
-        if callable(realise):
+        if verdict == "ok" and callable(realise):
             try:
                 realise(intent.tool, result,
                         extra=stamp_contract({}, goal_id=goal.id))
@@ -418,7 +419,8 @@ async def tool_step(loop, goal: Goal, intent,
                 log.exception("mind tool realisation failed")
 
     dispatched: dict = {}
-    if intent.tool in START_DONT_AWAIT and '"started"' in result:
+    if (verdict == "ok" and intent.tool in START_DONT_AWAIT
+            and '"started"' in result):
         dispatched = {"tool": intent.tool, "at": iso_of(loop.clock.now())}
     # list_notes is a catalog: the listing IS the step. Clipping it to 160
     # characters of pretty JSON is how she spent days retrying the same
@@ -432,7 +434,9 @@ async def tool_step(loop, goal: Goal, intent,
     # happened to her rather than steps she took — and she re-does them.
     why = (intent.text or "").strip()
     desk_write(loop, goal, f"{why}\n\n{note}" if why else note)
-    return ({"tool": intent.tool, "verdict": "ok",
+    # The trace says what `calls.jsonl` says (§26.2): a step whose call
+    # failed is still a step, but it is not an `ok` one.
+    return ({"tool": intent.tool, "verdict": verdict,
              "class": klass(intent.tool), "dispatched": dispatched}, note)
 
 

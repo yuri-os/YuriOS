@@ -500,7 +500,7 @@ class ResearchJob(FileJob):
         if not report:
             out.result = f"gathered {opened} pages and wrote nothing of them"
             return out
-        rel = self._write(ctx, day, f"{report}\n")
+        rel = await self._write(ctx, day, f"{report}\n")
         out.changed = True
         # Why she stopped belongs in the result even when the night worked.
         # "out of pages" and "she had enough" are the same length of report and

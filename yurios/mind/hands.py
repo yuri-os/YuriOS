@@ -49,7 +49,7 @@ from dataclasses import dataclass, field
 
 from yurios.kernel import correlate
 from yurios.kernel.clock import Clock
-from yurios.world.tools.guard import Guard, _fingerprint
+from yurios.world.tools.guard import Guard, _fingerprint, failure
 
 from .policy import DORMANT, DREAM, ENGAGED
 from .util import day_of
@@ -451,9 +451,16 @@ class Hands:
 
     # ------------------------------------------------------------ the dispatch
 
-    async def execute(self, tool: str, args: dict, *, timeout_s: float) -> str:
+    async def execute(self, tool: str, args: dict, *,
+                      timeout_s: float) -> tuple[str, str]:
         """Guard → MCP → audit. Never raises: a failed hand is a sentence in the
         journal, not a dead heartbeat.
+
+        Returns `(verdict, text)` — `"ok"`, `"denied"` or `"error"`, and what
+        she reads. The verdict is returned rather than left for the caller to
+        infer from the text, because the caller used not to: a `write_note`
+        that timed out was `error` in `calls.jsonl` and `(ok)` in the tick
+        trace, two records of one call that disagreed.
 
         Deliberately the same shape as `ToolBrain._execute`, with one difference
         that matters and one that doesn't. The one that matters: the guard is
@@ -473,17 +480,18 @@ class Hands:
         if not ok or runner is None:
             reason = reason or "no tool server is running"
             self.guard.audit(tool, args, f"denied: {reason}", 0.0, "")
-            return f"denied ({reason})"
+            return "denied", f"denied ({reason})"
         try:
             text = await asyncio.wait_for(runner.call(tool, args),
                                           timeout=timeout_s)
         except Exception as e:                 # timeout, tool error, transport
             dt = (self.guard.clock.now() - t0) * 1000
-            self.guard.audit(tool, args, "error", dt, str(e))
-            return f"error ({e})"
+            why = failure(e, timeout_s)
+            self.guard.audit(tool, args, "error", dt, why)
+            return "error", f"error ({why})"
         dt = (self.guard.clock.now() - t0) * 1000
         self.guard.audit(tool, args, "ok", dt, self.guard.truncate(text))
-        return text
+        return "ok", text
 
     def deny(self, tool: str, args: dict, reason: str) -> None:
         """Audit a call the preconditions refused before it was ever dispatched.

@@ -371,7 +371,7 @@ class FileJob(DreamJob):
     def enabled(self, cfg) -> bool:
         return self._enabled
 
-    def _write(self, ctx: DreamContext, day: str, text: str) -> str:
+    async def _write(self, ctx: DreamContext, day: str, text: str) -> str:
         """Put one answer on the desk at this job's `output:`, and say where.
 
         `{day}` is the only substitution, and `Workspace.resolve` refuses the
@@ -379,7 +379,7 @@ class FileJob(DreamJob):
         by the person who owns the vault, but it is still a path from a file.
         """
         rel = self.output.format(day=day)
-        ctx.put(rel, text)
+        await ctx.put(rel, text)
         return rel
 
 
@@ -407,7 +407,7 @@ class PromptJob(FileJob):
         if not answer:
             out.result = "nothing came of it"
             return out
-        self._write(ctx, day, f"{answer}\n")
+        await self._write(ctx, day, f"{answer}\n")
         out.changed = True
         out.result = f"wrote {len(answer)} chars"
         out.note = f"{self.title.lower()}: wrote something for {day}"

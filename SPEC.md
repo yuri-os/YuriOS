@@ -740,8 +740,10 @@ to every new subscriber before its first live event. Malformed JSON is logged an
   JSON that names how many files there were. A folder that is not on the desk **MUST** say so
   rather than returning an empty listing that reads as "kept-memory is empty". Every call —
   allowed or denied — **MUST** append one JSONL audit line
-  (`ts, tool, args, verdict, duration_ms, result`) to `TOOL_LOG_DIR`. She can be *asked*
-  anything; the guard decides what her hands actually do.
+  (`ts, tool, args, verdict, duration_ms, result`) to `TOOL_LOG_DIR`. A call that ran out of time
+  **MUST** say so in that `result` and in what she reads ("timed out after 10s"), never an empty
+  string: a blank failure cannot be told apart from a broken tool. She can be *asked* anything; the
+  guard decides what her hands actually do.
 
   **The mind gets a second Guard, not a share of this one** (§26). Its `rates_per_min` is built
   from `TOOL_RATE_MIND_*` over `MIND_TOOL_ALLOWLIST` alone, so a night of autonomous work cannot
@@ -1763,7 +1765,10 @@ that set and a poor place to stop.
 - Jobs write to `workspace/` (§34) through `DreamContext.put`, never to `memory/` or `soul/`. A
   nightly job that could append to semantic memory would be a second, unaudited consolidator; one
   that could touch `soul/` would be §23.2 with the gate removed. `consolidate` writes to `memory/`
-  because it *is* the consolidator, through its own long-standing path.
+  because it *is* the consolidator, through its own long-standing path. `put` **MUST** do the
+  write on a worker thread: the write fsyncs, a slow disk makes that seconds, and the loop it would
+  hold is the one every other character on the node runs on. One such stall turned another
+  character's `write_note` into a timeout, although her note had landed.
 - Every model call goes through `DreamContext.ask`, which records it verbatim — the transcript is
   complete by construction, and is what §21.3 serves.
 
@@ -2160,7 +2165,9 @@ needs a sandbox.
 - §26.2 **A call is a step of a goal, never free-floating.** A `tool_step` act is reachable only
   from `_act_goal_work`, and every call carries the id of the open goal that wanted it — so
   `goals.md` stays the complete, readable list of what her hands might do. At most **one** call per
-  tick (§15's one-intention rule, applied one level down).
+  tick (§15's one-intention rule, applied one level down). The step's verdict in the tick trace
+  **MUST** be the call's verdict in `calls.jsonl` — `ok`, `denied` or `error` — and a call that
+  did not succeed **MUST NOT** be realised or counted as dispatched.
 - §26.3 **Preconditions are checked in DECIDE, not ACT.** Switches, allowlist membership, the cost
   class against the current activity state, budget pressure against `MIND_TOOL_PRESSURE_CEILING`,
   the daily cap `MIND_TOOL_CALLS_PER_DAY`, and the fingerprint cooldown. A blocked hand **MUST**

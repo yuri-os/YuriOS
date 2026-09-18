@@ -129,6 +129,39 @@ async def test_a_desk_hand_is_a_step_of_a_goal_and_lands_in_the_audit(
     assert rig.mind.goals.get(goal.id).steps == 1
 
 
+class _SlowRunner(FakeToolRunner):
+    """A hand whose answer never comes back in time — the shape a slow disk
+    takes from the host's side of the wire."""
+
+    async def call(self, tool, args):
+        self.calls.append((tool, dict(args)))
+        raise TimeoutError()
+
+
+async def test_a_hand_that_timed_out_says_so_in_the_trace_and_the_audit(
+        cfg, seeded_vault):
+    """One call, two records, and they used to disagree: `error` with a blank
+    result in `calls.jsonl`, `write_note (ok)` in the tick trace, and
+    `error ()` on her desk — a timeout nobody could read as one."""
+    rig = rig_with_hands(
+        cfg, seeded_vault,
+        'use write_note {"path": "goals/shed.md", "text": "measure it first"}',
+        tools=_SlowRunner())
+    goal = rig.mind.goals.add("plan the shed", kind="task", priority=0.95)
+
+    trace = (await work(rig))[0]
+    assert trace["acted"]["verdict"] == "error"
+    assert trace["acted"]["result"].endswith("write_note (error)")
+
+    line = audit_lines(rig)[-1]
+    assert line["verdict"] == "error"
+    assert line["result"].startswith("timed out after ")
+    desk = (seeded_vault / "workspace").rglob("*.md")
+    assert any("error (timed out after " in p.read_text() for p in desk)
+    # a failed step is still a step: the goal advanced, it did not vanish
+    assert rig.mind.goals.get(goal.id).steps == 1
+
+
 async def test_the_step_that_writes_the_file_can_be_the_step_that_finishes(
         cfg, seeded_vault):
     """Found live: she put "goal complete" inside the `append_note` text, where

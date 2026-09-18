@@ -8,6 +8,8 @@ that a job which raises doesn't take the night with it.
 """
 from __future__ import annotations
 
+import threading
+
 import pytest
 import yaml
 
@@ -262,6 +264,27 @@ async def test_a_nights_desk_writes_leave_an_audit_line(rig):
     tool, args, verdict, result = lines[0]
     assert args["path"] == "diary/2026-07-04.md" and args["bytes"] > 0
     assert verdict == "ok" and "diary/2026-07-04.md" in result
+
+
+async def test_a_nights_desk_write_does_not_hold_the_nodes_loop(rig):
+    """A desk write fsyncs, and on a FUSE-mounted NTFS drive that took 3–7 s —
+    on the event loop every character on the node shares. One such stall made
+    another character's `write_note` time out after her note had landed, so
+    the write goes to a worker thread (§21.2)."""
+    runner, _clock, vault = rig
+    _day_file(vault, "2026-07-04", ["you: hey  ⇄  her: [happy] hi"])
+    loop_thread = threading.get_ident()
+    threads = []
+    real = runner.workspace.write
+
+    def write(rel, text):
+        threads.append(threading.get_ident())
+        return real(rel, text)
+
+    runner.workspace.write = write
+    await runner.run(only="diary", token_budget=40000)
+    assert threads and loop_thread not in threads
+    assert (vault / "workspace" / "diary" / "2026-07-04.md").exists()
 
 
 async def test_a_dreamt_selfie_carries_the_corr_id_that_joins_it_to_its_photo(rig, cfg):

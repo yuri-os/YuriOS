@@ -268,7 +268,7 @@ class DiaryJob(DreamJob):
         if not entry or entry.strip().upper().startswith("NOTHING"):
             out.result = "nothing worth writing down"
             return out
-        ctx.put(f"diary/{day}.md", f"# {day}\n\n{entry}\n")
+        await ctx.put(f"diary/{day}.md", f"# {day}\n\n{entry}\n")
         out.changed = True
         out.result = f"wrote {len(entry)} chars"
         out.note = f"wrote a diary entry for {day}"
@@ -436,7 +436,7 @@ class StrategyJob(DreamJob):
             return out
         decision = parse_strategy_decision(thinking)
         note = decision.reflection
-        ctx.put(f"strategy/{day}.md", f"# Taking stock — {day}\n\n{note}\n")
+        await ctx.put(f"strategy/{day}.md", f"# Taking stock — {day}\n\n{note}\n")
         out.changed = True
         reviewed = f"reviewed {len(open_goals)} goal(s)"
         candidate = decision.next
@@ -518,7 +518,7 @@ class SelfieJob(DreamJob):
         if not look or look.strip().upper().startswith("NOTHING"):
             out.result = "no picture in that day"
             return out
-        ctx.put(f"dreams/{day}-selfie.md", f"# A picture from {day}\n\n{look}\n")
+        await ctx.put(f"dreams/{day}-selfie.md", f"# A picture from {day}\n\n{look}\n")
         out.changed = True
         if ctx.dry_run:
             # Say which of the two reasons stopped it. These used to share a

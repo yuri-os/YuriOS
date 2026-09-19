@@ -196,6 +196,10 @@ class Runtime:
             # sanctuary and the Live2D room count, the text room does not.
             self.brain.set_body_probe(lambda: self.hub.body_viewers > 0)
         self._tool_runner = tool_runner        # injected, or built at startup
+        # Set once tool discovery has an answer — wired, failed, or never
+        # started. The mind's first tick waits on it (bounded) so a restart's
+        # first appraisal is not made against hands that are seconds away.
+        self.tools_settled = asyncio.Event()
         self.tools_status = "off"
         self.tool_count = 0
         # the inbound inbox (SPEC §16): everything that happens to her becomes a
@@ -670,6 +674,8 @@ class Runtime:
         elif self.cfg.tools_backend != "off":
             # declared pending but no runner (e.g. a test brain) — settle it
             self.boot.done("tools", state="skipped", detail="no hands")
+        if runner is None:
+            self.tools_settled.set()           # nothing is on its way
 
         self.controller.set_rain(self.cfg.rain_intensity)   # the room's weather (§6.2)
 
@@ -690,6 +696,7 @@ class Runtime:
                                      post_message=self.post_message,
                                      park_gate=self.park_gate)
                 self.mind.set_hands_enabled(self._hands_granted)
+                self.mind.set_hands_boot(self.tools_settled)
                 self.mind_status = "running"
                 self.boot.done("mind", detail=f"running · {self.mind.activity.state}")
                 self._mind_task = asyncio.create_task(self.mind.run(), name="mind")
@@ -765,6 +772,8 @@ class Runtime:
             self.tool_count = 0
             self._tool_runner = None
             self.boot.done("tools", state="failed", detail=why[:80])
+        finally:
+            self.tools_settled.set()
 
     async def stop_async(self) -> None:
         self.stopping.set()                    # open SSE streams end themselves
@@ -867,6 +876,7 @@ class Runtime:
                     controller=self.controller, timers=self.timers, hub=self.hub,
                     speak=self.speak_ambient, post_message=self.post_message,
                     park_gate=self.park_gate)
+                self.mind.set_hands_boot(self.tools_settled)
             if self._mind_task is None or self._mind_task.done():
                 self._mind_task = asyncio.create_task(self.mind.run(), name="mind")
                 self._tasks.append(self._mind_task)

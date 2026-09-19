@@ -718,7 +718,9 @@ to every new subscriber before its first live event. Malformed JSON is logged an
   live on the event loop (anyio cancel scopes cannot move to a thread); only the wait is
   off the boot path. While the spawn is in flight `/api/health` **MUST** say so rather than
   `off`, which is the answer for a character who has no hands at all and not one whose hands
-  are seconds away; a stage still loading is **NOT** a degradation.
+  are seconds away; a stage still loading is **NOT** a degradation. Her mind is the one
+  exception to "see no tools rather than wait": its first tick **MAY** wait for discovery to
+  settle, bounded, and on its own task only (§26.3).
 
   `MCP_SERVERS` **MAY** name a JSON file in the conventional `{"mcpServers": {…}}` shape, whose
   servers are mounted alongside hers behind the same `ToolRunner` seam (`MultiToolRunner`), so the
@@ -2176,6 +2178,14 @@ needs a sandbox.
   work and is allowed in any state except ENGAGED; **expensive** (`research`, `read_page`,
   `web_search`, the two cameras) is one whole tick's intention and additionally requires its backend
   to be configured, budget pressure under the ceiling, and DORMANT/DREAM **or** the user absent.
+  Her tool server is spawned unawaited (§7.2), so the mind starts before her hands exist, and
+  the first tick after a restart is the one carrying the suspend gap and every overdue wakeup.
+  When her hands could be offered at all, that first tick **MUST** wait for discovery to answer —
+  wired or failed — for at most `HANDS_BOOT_WAIT_S` (30 s), on the mind's own task: boot, the
+  port and the other characters' rooms **MUST NOT** wait with it. A hand blocked because discovery
+  has not answered yet **MUST** say *her hands are still starting*, not that no tool server is
+  running: the second is the answer for a server that is absent or failed, and the trace must not
+  report a restart as an outage.
 - §26.4 **Hard caps, absolute.** `MIND_TOOL_CALLS_PER_DAY` is a cap and not a governor: unlike
   `MIND_DAILY_TOKENS`, which is a post-hoc estimate, it is checked *before* dispatch and refuses.
   It rolls at local midnight beside `MIND_MAX_INTERRUPTS_PER_DAY`. For the mind and only the mind,

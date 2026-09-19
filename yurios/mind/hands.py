@@ -230,6 +230,11 @@ class Hands:
     #: onto the brain at start-up and can be replaced (a failed MCP start leaves
     #: None), and the mind is built either side of that.
     runner: object = None
+    #: () -> bool: is her tool server still being spawned? A runner that is
+    #: None because discovery hasn't answered yet is not the same fact as one
+    #: that is None because there is no server, and the trace must not say the
+    #: second when the first is true.
+    starting: object = None
     #: The live per-character switch. Revoking it denies every subsequent call
     #: and says so in the audit; it cancels nothing already dispatched, because
     #: a kill switch that pretends to recall a running request is lying.
@@ -304,6 +309,12 @@ class Hands:
             return self.runner() if callable(self.runner) else self.runner
         except Exception:       # noqa: BLE001 — a brain mid-rebuild
             return None
+
+    def _starting(self) -> bool:
+        try:
+            return bool(self.starting()) if callable(self.starting) else False
+        except Exception:       # noqa: BLE001 — same rule as _runner
+            return False
 
     # ------------------------------------------------------------- the ledger
 
@@ -389,6 +400,8 @@ class Hands:
         if not self.allowlist:
             return Offer(reason="no hand is on MIND_TOOL_ALLOWLIST")
         if self.guard is None or self._runner() is None:
+            if self.guard is not None and self._starting():
+                return Offer(reason="her hands are still starting")
             return Offer(reason="no tool server is running")
         if state == ENGAGED:
             return Offer(reason="she is mid-conversation — those are the "

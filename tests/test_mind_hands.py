@@ -8,8 +8,12 @@ budget already said no to, or it keeps going after somebody flipped the switch.
 """
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 
+from yurios.kernel.clock import Clock
+from yurios.mind import loop as mind_loop
 from yurios.mind.hands import (CHEAP, EXPENSIVE, HANDS, Hands, describe_hands,
                                klass, parse_intent)
 from yurios.world.tools.fakes import FakeToolRunner
@@ -392,6 +396,93 @@ async def test_revoking_hands_mid_run_denies_the_next_call_and_audits_it(
     # nothing was cancelled and nothing was hidden: the denial is a line
     assert rig.mind.hands.offer(state="IDLE", pressure=0.0,
                                 user_present=False).reason
+
+
+# --- a restart: the mind starts before her hands do (SPEC §26.3) -------------------
+
+def rig_mid_spawn(cfg, vault, **extra):
+    """Her hands configured and granted, the tool server still coming up: the
+    runner is not on the brain yet and discovery has not answered."""
+    rig = rig_with_hands(cfg, vault, **extra)
+    rig.mind.brain.set_tools(None, [])
+    settled = asyncio.Event()
+    rig.mind.set_hands_boot(settled)
+    return rig, settled
+
+
+def first_tick_offer(rig):
+    """Stand in for `tick` and record what the first one would have been
+    offered, then stop the loop — the offer is the thing under test."""
+    seen = []
+
+    async def tick():
+        seen.append(rig.mind.hands.offer(state="DORMANT", pressure=0.0,
+                                         user_present=False))
+        raise asyncio.CancelledError
+    rig.mind.tick = tick
+    return seen
+
+
+async def test_hands_on_their_way_are_starting_not_absent(cfg, seeded_vault):
+    """The trace said "no tool server is running" on the first tick after
+    every restart, about a server that was eighteen seconds from ready."""
+    rig, settled = rig_mid_spawn(cfg, seeded_vault)
+    offer = rig.mind.hands.offer(state="DORMANT", pressure=0.0,
+                                 user_present=False)
+    assert not offer and offer.reason == "her hands are still starting"
+
+    settled.set()                              # discovery answered: it failed
+    offer = rig.mind.hands.offer(state="DORMANT", pressure=0.0,
+                                 user_present=False)
+    assert offer.reason == "no tool server is running"
+
+
+async def test_the_first_tick_waits_for_her_hands_to_arrive(
+        cfg, seeded_vault, monkeypatch):
+    rig, settled = rig_mid_spawn(cfg, seeded_vault)
+    monkeypatch.setattr(rig.clock, "sleep", Clock().sleep)  # a wait that waits
+    seen = first_tick_offer(rig)
+    task = asyncio.create_task(rig.mind.run())
+    for _ in range(5):
+        await asyncio.sleep(0)
+    assert seen == [], "the first tick must not appraise before discovery answers"
+
+    rig.mind.brain.set_tools(rig.runner, [])   # _start_tools wires, then settles
+    settled.set()
+    try:
+        await asyncio.wait_for(task, timeout=5)
+    except asyncio.CancelledError:
+        pass
+    assert "write_note" in seen[0].tools
+
+
+async def test_a_hung_spawn_does_not_stop_her_heart(cfg, seeded_vault, caplog):
+    """The wait is bounded: past it the tick goes ahead handless, and says why."""
+    rig, _ = rig_mid_spawn(cfg, seeded_vault)
+    seen = first_tick_offer(rig)
+    before = rig.clock.now()
+    with caplog.at_level(logging.WARNING, logger="mind.loop"):
+        try:
+            await rig.mind.run()
+        except asyncio.CancelledError:
+            pass
+    assert rig.clock.now() - before == mind_loop.HANDS_BOOT_WAIT_S
+    assert seen[0].reason == "her hands are still starting"
+    assert "has not answered" in caplog.text
+
+
+async def test_a_character_without_hands_does_not_wait_for_them(
+        cfg, seeded_vault):
+    rig, _ = rig_mid_spawn(cfg, seeded_vault)
+    rig.mind.set_hands_enabled(False)
+    seen = first_tick_offer(rig)
+    before = rig.clock.now()
+    try:
+        await rig.mind.run()
+    except asyncio.CancelledError:
+        pass
+    assert rig.clock.now() == before
+    assert len(seen) == 1
 
 
 # --- the pieces, unit-wise --------------------------------------------------------------

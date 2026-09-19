@@ -198,12 +198,42 @@ async def test_start_async_does_not_wait_for_the_tool_server(cfg, seeded_vault):
     assert tools["state"] == "loading"
     assert rt.tools_status == "loading"     # …and /api/health says so, not "off"
     assert rt.tool_count == 0
+    assert not rt.tools_settled.is_set()    # her mind's first tick waits on this
     release.set()
     for _ in range(50):
         if rt.tool_count:
             break
         await asyncio.sleep(0.02)
     assert rt.tool_count > 0
+    assert rt.tools_settled.is_set()
     tools = next(s for s in rt.boot.snapshot()["services"] if s["key"] == "tools")
     assert tools["state"] == "ready"
+    await rt.stop_async()
+
+
+async def test_a_failed_tool_server_still_settles_the_wait(cfg, seeded_vault):
+    """Her mind's first tick waits for discovery to *answer* (SPEC §26.3), and
+    a spawn that died is an answer — not thirty seconds of nothing."""
+    import asyncio
+
+    from yurios.world.tools.fakes import FakeToolRunner
+
+    from .conftest import CannedChat, FakeEmbedder, FakeUtility
+
+    class Dead(FakeToolRunner):
+        async def start(self):
+            raise RuntimeError("no such server")
+
+    app_cfg = cfg.model_copy(update={
+        "mind_enabled": False, "vault_dir": seeded_vault,
+        "embed_dim": FakeEmbedder.dim,
+        "corpus_dir": seeded_vault.parent / "corpus",
+        "trace_dir": seeded_vault.parent / "traces"})
+    app = create_app(app_cfg, chat_model=CannedChat(),
+                     utility_model=FakeUtility(), embedder=FakeEmbedder(),
+                     tool_runner=Dead(), manage_lifespan=False)
+    rt = app.state.rt
+    await rt.start_async()
+    await asyncio.wait_for(rt.tools_settled.wait(), timeout=5)
+    assert rt.tools_status.startswith("failed")
     await rt.stop_async()

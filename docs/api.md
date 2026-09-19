@@ -270,8 +270,8 @@ Served at `/characters/{id}/mind` (`web/mind/`), over a read-only API on the **h
 |---|---|
 | `GET …/debug/overview` | activity, budget, vault head, row counts, and a manifest of every log with a `rotated` flag |
 | `GET …/debug/activity?page=` | the activity-state timeline — one row per real transition, with the reason that fired it |
-| `GET …/debug/events?hours=&kinds=&limit=` | the merged "what has she been up to" window — vault commits, signals, non-REST ticks, tool audits, prompts — one newest-first list |
-| `GET …/debug/ticks?page=&state=&q=` | full tick records; `…/ticks/{tick_id}` joins the calls, prompts and signals it caused |
+| `GET …/debug/graph?days=` | the joined graph behind Map, Timeline, Space, Stories, Goals and Ledger (SPEC §24.4): every record in the window (`days` 7 by default, `0` for everything retained), the links between them — each `explicit` or `inferred`, with its reason — and the stories built from them; reads the rolled `.1` logs too |
+| `GET …/debug/ticks?page=&state=&q=` | full tick records; `…/ticks/{tick_id}` joins the calls, prompts and signals it caused, and adds the graph's `event` and `why` for it |
 | `GET …/debug/signals?page=&type=` · `…/debug/goals` · `…/debug/self-edits` | the inbox, her intentions, the queue waiting on your ruling |
 | `GET …/debug/calls?page=&tool=&verdict=&corr_id=` | the tool audit, with the rendered photo joined on `corr_id` |
 | `GET …/debug/selfies?page=` | the render ledger |
@@ -287,7 +287,8 @@ Two rules hold across all of it. Every route **reads files** — none needs her 
 stopped or crashed character is exactly the one you need to inspect; the only live value
 (`overview.live`) is `null` when she is down and never blended into history. And paging is
 newest-first over `mind/util.jsonl_page`, which reads backwards from the end of the file, so a
-32 MB prompt log is never pulled into memory to show its last twenty rows.
+32 MB prompt log is never pulled into memory to show its last twenty rows. The graph reads the same
+way and stops once rows are past its window's edge, so a week of a year-long log costs a week.
 
 The namespace is `debug/` and not `mind/` deliberately: `/api/characters/{id}/mind` already
 dispatches to the child app's `/api/mind` above, and a host route by that name would shadow it.

@@ -290,10 +290,15 @@ def _parse_log(out: str) -> list[dict]:
 
 
 def log_records(vault: Path, *, skip: int = 0, limit: int = 25,
-                rev: str | None = None, path: str | None = None) -> list[dict]:
-    """Structured commits, newest first, with per-file line counts."""
+                rev: str | None = None, path: str | None = None,
+                since: float | None = None) -> list[dict]:
+    """Structured commits, newest first, with per-file line counts. `since`
+    (epoch seconds) stops git at the edge of a window: `--numstat` costs a diff
+    per commit, and a week's worth is a fraction of a vault's history."""
     args = ["log", f"--skip={max(0, skip)}", f"-{max(1, limit)}",
             "--no-color", f"--pretty=format:{_FORMAT}", "--numstat"]
+    if since is not None:
+        args.append(f"--since=@{int(since)}")
     if rev:
         args.append(rev)
     if path:

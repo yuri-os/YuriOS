@@ -7,6 +7,10 @@
  * single-series or single-hue-by-magnitude for exactly that reason — a debug
  * page with eight hues on one axis is a page nobody can read. Every coloured
  * mark also carries a text label, so nothing is encoded by colour alone.
+ *
+ * The one exception is graph/graph.css: the joined views colour records by
+ * kind, because "what sort of record is this" is their question. It keeps the
+ * same rule underneath: shape, lane and label say it too.
  */
 :root {
   color-scheme: dark;

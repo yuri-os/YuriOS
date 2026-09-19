@@ -550,21 +550,45 @@ way back.
 
 ![The mind debug page: the tool-call audit, each call shown with the photo it produced.](img/mind-debug.png)
 
-Ten sections down the left — **Overview**, **Timeline**, **Ticks**, **Dreams**, **Context**,
-**Tools**, **Vault**, **Memory**, **Signals**, **Cost** — and two chips in the header that mean
+Fourteen sections down the left, in two groups, and two chips in the header that mean
 different things: the rung she is on, and whether this page's own event stream is `live` or
 `offline`. The second one going offline changes nothing about what you can read; the files are
 still there. The stream is a drain (`/api/events?presence=0`): watching this page is not being
 in the room with her.
 
+**What happened, joined** is six views of one graph (SPEC §24.4) — every record about her in a
+window, and what each is joined to. They share one window (Day, Week, Month, All), one range, one
+set of kind filters, one search and one selection, so the evening you zoom into on the Timeline is
+the evening the Ledger lists, and the record you picked stays picked. Keys `1`–`6` move between
+them, `←` `→` step record to record, `/` searches. Whatever is selected, the inspector beside it
+gives its why-record — for a decision, SENSE, the APPRAISE scores against her gate-1 line, DECIDE
+with its runners-up, ACT, Gate 2's factors — and everything joined to it, each join marked
+**Recorded** (the files say so: a shared tick, a `corr_id`, a `turn_id`, a commit naming its tick)
+or **Inferred** (matched by time, with the reason). When the tick's own account of a step and the
+call log disagree, it says so. **Open the full record** goes to the section below that holds it:
+the whole prompt, the tick trace, the commit's patch.
+
+- the **map** — the architecture, reactive body beside the tick, with the window's counts on it;
+- the **timeline** — swimlanes, one per kind of record, with her activity rung as the top band and
+  the REST majority as a density bar rather than a thousand dots; drag to pan, wheel to zoom;
+- **space** — the same records in three dimensions: time left to right, and work that shares a
+  tick or a correlation id clustered across it;
+- **stories** — one decision, one exchange, one reach-out at a time, each with its why in plain
+  words and its chain in the order it happened;
+- **goals** — each with where it came from, her rationale, what done looks like, the ticks that
+  served it, and the desk file she has been writing against (`workspace/goals/<id>.md`);
+- the **ledger** — every record, newest first, grouped by day.
+
+It reads each log's rolled `.1` generation too, which the sections below do not.
+
+**One log at a time** is the rest:
+
 - the **overview** — what is on disk for her, read without starting her: the state, the budget,
   the Vault head, row counts, and a manifest of every log with a `rotated` flag, because a page
   that reads only the live file should say so when an older one exists;
-- the **activity timeline** — every ENGAGED/IDLE/DORMANT/DREAM transition she actually made, with
-  the rung that fired it (`traces/activity.jsonl`, appended only on a real change);
 - the **tick traces**, in full — sensed, appraised with scores, decided with runners-up, acted,
   and the interrupt decision with its factors, which the tab summarises and the `/log` view throws
-  away;
+  away; one tick's page draws its phases the way the inspector does, and links to its story;
 - **every context window she was ever given** — not just committed turns. Self-talk, the arrival
   greeting, a reach-out being written, goal work and DREAM consolidation all call a model, and
   before `traces/prompts.jsonl` none of them left any record of what they were asked;
@@ -576,9 +600,8 @@ in the room with her.
   than waiting for 2 a.m. to come round again;
 - the **Vault's own history** — the commit list, any file now or at a revision, and every edit to
   one file (`soul/USER.md` is the usual reason you came);
-- **signals, goals and edits** — the inbox and the checklist of what she means to do, with a
-  control on each goal that opens the desk file she has been writing against
-  (`workspace/goals/<id>.md`);
+- **signals and edits** — the inbox, the self-edits waiting on your ruling, and the history of
+  changes to who she is;
 - the **recall index**, her semantic facts, beliefs, and the knowledge shelf;
 - and **what it costs** — context pressure over time, the budget, and what the small model
   produced versus what was quarantined.

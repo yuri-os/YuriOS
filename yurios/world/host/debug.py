@@ -19,7 +19,7 @@ from fastapi import FastAPI, HTTPException
 from yurios.app import vaultgit
 from yurios.mind.journal import canonical_day, is_canonical_day, parse_day_entries
 
-from .. import debug
+from .. import debug, debug_graph
 from .hosting import (JOURNAL_PAGE_SIZE, CharacterHost, _log_sort_key, _tail_jsonl)
 
 log = logging.getLogger("world.host")
@@ -92,14 +92,26 @@ def register(app: FastAPI, host: CharacterHost, require) -> None:
     async def debug_activity(character_id: str, page: int = 0, limit: int = 100):
         return debug.activity(require(character_id), page=page, limit=limit)
 
-    @app.get("/api/characters/{character_id}/debug/events")
-    async def debug_events(character_id: str, hours: float = 24,
-                           kinds: str | None = None, limit: int = 100):
-        """The merged "what has she been up to" window. The vault half shells
-        git, so it answers from a worker thread like the other vault views."""
-        chosen = [k for k in (kinds or "").split(",") if k] or None
-        return await asyncio.to_thread(debug.events, require(character_id),
-                                       hours=hours, kinds=chosen, limit=limit)
+    def graph_settings(record) -> dict:
+        """Her name, yours, and her gate-1 threshold — from her effective
+        config, so the page draws the line she actually decides against."""
+        try:
+            cfg = host.effective_config(record)
+        except ValueError:
+            cfg = host.base
+        return {"char_name": record.display.name or record.id,
+                "user_name": getattr(cfg, "user_name", "") or "you",
+                "act_threshold": float(cfg.mind_act_threshold)}
+
+    @app.get("/api/characters/{character_id}/debug/graph")
+    async def debug_graph_route(character_id: str, days: float | None = 7.0):
+        """Every record in the window, joined (SPEC §24.4). Reads every log,
+        the conversation and git: a worker thread, like the vault views.
+        `days` absent or 0 is everything retained."""
+        record = require(character_id)
+        window = None if not days or days <= 0 else min(days, debug_graph.MAX_DAYS)
+        return await asyncio.to_thread(debug_graph.graph, record, days=window,
+                                       **graph_settings(record))
 
     @app.get("/api/characters/{character_id}/debug/ticks")
     async def debug_ticks(character_id: str, page: int = 0, limit: int = 25,
@@ -109,9 +121,22 @@ def register(app: FastAPI, host: CharacterHost, require) -> None:
 
     @app.get("/api/characters/{character_id}/debug/ticks/{tick_id}")
     async def debug_tick(character_id: str, tick_id: str):
-        found = debug.tick_detail(require(character_id), tick_id)
+        record = require(character_id)
+        found = debug.tick_detail(record, tick_id)
         if found is None:
-            raise HTTPException(404, "no such tick in the live trace")
+            raise HTTPException(404, "no such tick in the trace")
+        # The same shape and sentence the graph gives this tick, so the detail
+        # view and the inspector never describe one decision two ways.
+        settings = graph_settings(record)
+        goals = [debug_graph.parse_goal(g) for g in debug.goals(record)["items"]]
+        by_id = {g["id"]: g for g in goals}
+        event = debug_graph.tick_event(found["tick"], by_id,
+                                       {g["title"].lower(): g["id"] for g in goals})
+        found["event"] = event
+        found["goal"] = by_id.get(event["goal"]) if event and event["goal"] else None
+        found["why"] = (debug_graph.explain_tick(event, by_id, settings["act_threshold"])
+                        if event and event["t"] is not None else "")
+        found["act_threshold"] = settings["act_threshold"]
         return found
 
     @app.get("/api/characters/{character_id}/debug/signals")

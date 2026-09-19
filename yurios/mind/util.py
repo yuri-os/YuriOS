@@ -152,6 +152,24 @@ def jsonl_count(path: Path) -> int:
     return count
 
 
+def jsonl_reverse(path: Path) -> Iterator[dict]:
+    """Every record newest-first, lazily — for a reader that stops on a
+    condition rather than a count (a time window: the debug graph reads back
+    until the rows are older than it asked for, and never touches the rest)."""
+    path = Path(path)
+    try:
+        size = path.stat().st_size
+    except OSError:
+        return
+    for raw in _reverse_lines(path, size):
+        try:
+            row = json.loads(raw)
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            continue
+        if isinstance(row, dict):
+            yield row
+
+
 def jsonl_page(path: Path, *, page: int = 0, limit: int = 50,
                match: Callable[[dict], bool] | None = None,
                shape: Callable[[dict], dict] | None = None,

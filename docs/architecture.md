@@ -114,7 +114,7 @@ key. Chat turns are the one deliberate split — `prompts.jsonl` holds an index 
 | **Every prompt she was given** | `mind/promptlog.py` → `traces/prompts.jsonl` |
 | **What caused what** | `kernel/correlate.py` — one `corr_id` per unit of work |
 | **The inner-life surface** | `world/routes/mind.py` + `web/js/mind.js` |
-| **The mind debug page** | `world/debug.py` + `web/mind/` (host routes under `…/debug/*`) |
+| **The mind debug page** | `world/debug.py` (one log at a time) + `world/debug_graph.py` (the joined graph) + `web/mind/` (host routes under `…/debug/*`) |
 | **The host + registry API** | `world/host/` — `hosting.py` is the host, `app.py` composes the routes |
 | **The character registry** | `characters/registry.py`, `characters/models.py` |
 | **The card parser / importer** | `characters/card.py`, `characters/importer.py` |

@@ -2111,6 +2111,27 @@ The product half of autonomy: what converts an always-on process from creepy to 
   (`/characters/{id}/mind`, `web/mind/`) **MUST** attach the bus as
   `GET /api/events?presence=0`: it is inspection, not company, and **MUST NOT**
   post `user_present` / `user_absent` (§10).
+- §24.4 **The joined views.** The debug page's Map, Timeline, Space, Stories, Goals and Ledger
+  sections are six views of one graph, `GET /api/characters/{id}/debug/graph?days=`
+  (`world/debug_graph.py`; `days` defaults to 7, and `0` is everything retained): every record about
+  her in the window — non-REST ticks (REST ticks as hourly density, never as events), the drawn
+  conversation, model calls, utility runs, tool calls, renders, her `[she]` lines, goals, activity
+  transitions and Vault commits — the links between them, and the stories built from them (one
+  decision, one exchange, one reach-out). It reads each log's rolled `.1` generation as well as the
+  live file, and it writes nothing: not a cache file, not the conversation log's one-time upgrade.
+  A link is **recorded** when the files state it — a shared `tick_id` or `corr_id`, the signal ids
+  SENSE wrote down, the goal a tick served, a reply's `turn_id` equal to a call's `messages_ref`, a
+  commit message that names its tick or its turn — and **inferred** when it is matched by time. An
+  inferred link **MUST** carry the reason it was matched, and every view **MUST** draw and label it
+  as inferred, distinct from a recorded one: nearness in time is not proof of cause, and a page that
+  drew the two alike would be stating a fact she never wrote down. The gate-1 line on an appraisal
+  is her effective `MIND_ACT_THRESHOLD`, never a default. A row without an id gets one derived from
+  its content, not its position, so rotation cannot move a bookmark onto a different record; and the
+  single-record lookups (`…/debug/ticks/{id}`, `…/debug/prompts/{id}`) fall back to the `.1`
+  generation, because the graph links into it. A tick's detail **MUST** describe the tick in the
+  same shape and sentence the graph does. The six views share one loaded window, one range, one set
+  of kind filters, one search and one selection, all carried in the hash; a bus event that means new
+  records marks them stale and says so, and **MUST NOT** redraw them under the reader.
 
 ## §25 — Config (the mind's knobs)
 

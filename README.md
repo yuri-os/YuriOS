@@ -65,8 +65,9 @@ on the machine.
 ![The card studio: editing Yuri's identity, with her face, prompt budget and what stays local.](docs/img/card-studio.png)
 
 **[The mind debug page](docs/mind.md#the-mind-debug-page)** is the honest one. The inner-life tab
-tells you what she did, in her words; this tells you *why*, in the machine's — every activity
-transition with the rung that fired it, whole tick traces with the scores and the runners-up, every
+tells you what she did, in her words; this tells you *why*, in the machine's — every record she
+left joined into one timeline, with each decision, exchange and reach-out told as a story whose
+links say whether the files record them or only the clock suggests them; whole tick traces with the scores and the runners-up, every
 context window any model was ever handed (self-talk, dreams and reach-outs, not just chat), the
 tool audit with the photo each call produced joined on its correlation id, the Vault's git history
 file by file, her recall index, and what the day cost. It reads files rather than a running mind, so the companion who just crashed is

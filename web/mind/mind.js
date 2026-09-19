@@ -1,6 +1,9 @@
 /* The mind debug page (SPEC §24.3).
  *
- * Nine sections over one read-only API. Three rules hold throughout:
+ * Fourteen sections over one read-only API. Six of them — Map, Timeline,
+ * Space, Stories, Goals, Ledger — are views of one joined graph and share a
+ * workspace (graph/workspace.js): one window, one range, one selection, one
+ * inspector. The rest each read one log. Three rules hold throughout:
  *
  *  - Hash routing, so every view is a link you can paste and reload into
  *    (`#/prompts/2026-08-06`, `#/vault/a1b2c3`). A debug page you cannot point
@@ -14,6 +17,10 @@
  */
 import { element, errorMessage, showToast } from "../shared/dom.js";
 import { debugApi, dreamApi } from "./api.js";
+import { tickSections } from "./graph/inspector.js";
+import {
+  GRAPH_SECTIONS, graphAttached, invalidateGraph, markStale, mountGraph, unmountGraph,
+} from "./graph/workspace.js";
 
 const { characterId, apiPath } = window.YuriOSRuntime;
 const $ = (selector) => document.querySelector(selector);
@@ -42,7 +49,7 @@ const STATE_COLOR = {
   DORMANT: "var(--dim)", DREAM: "var(--amber)",
 };
 
-const state = { route: null, request: null, cache: new Map() };
+const state = { route: null, request: null, cache: new Map(), graphMounted: false };
 
 // ---------------------------------------------------------------- small pieces
 
@@ -215,15 +222,15 @@ function meter(value, max, tone = "") {
 
 const SECTIONS = {
   overview: { title: "Overview", note: "What is on disk for this character, read without starting her.", render: renderOverview },
-  timeline: { title: "State timeline", note: "Her activity ladder over time — every transition she actually made, and why.", render: renderTimeline },
-  events: { title: "What she did", note: "One merged chronology: files written, signals, jobs she performed, her hands, and every model call.", render: renderEvents },
+  ...Object.fromEntries(Object.entries(GRAPH_SECTIONS).map(([name, meta]) =>
+    [name, { title: meta.title, note: meta.note, render: renderGraph, graph: true }])),
   ticks: { title: "Tick traces", note: "One record per tick: what she sensed, how she appraised it, what she chose, and what it did.", render: renderTicks },
   dreams: { title: "Dreams", note: "The jobs that run at night, what each still owes, and a way to try one now.", render: renderDreams },
   context: { title: "Context windows", note: "Every prompt she was given — conversation, self-talk, goal work, dreams. Pick a day, then a call.", render: renderContext },
   tools: { title: "Tool calls", note: "Every call her hands made, allowed or denied, with the photo it produced.", render: renderTools },
   vault: { title: "Vault", note: "The files that are her mind, and the commit history of how they changed.", render: renderVault },
   memory: { title: "Memory", note: "What she remembers, what she was told to forget, and what is in the recall index.", render: renderMemory },
-  signals: { title: "Signals, goals & edits", note: "Her inbox, her intentions, and the edits waiting on your ruling.", render: renderSignals },
+  signals: { title: "Signals & edits", note: "Her inbox, the edits waiting on your ruling, and the history of changes to who she is. Her goals have their own section.", render: renderSignals },
   economics: { title: "What it costs", note: "Context pressure, the daily budget, and what the small model did with its answers.", render: renderEconomics },
 };
 
@@ -261,140 +268,28 @@ async function renderOverview() {
 
   if ((data.files || []).some((f) => f.rotated)) {
     out.push(element("div", { className: "notice", text:
-      "Some logs have rolled over. This page reads only the live file, so records "
-      + "older than the last rotation are on disk (as .1) but are not shown here." }));
+      "Some logs have rolled over. The paged sections (Ticks, Context, Tools, Signals) "
+      + "read only the live file; the joined views — Timeline, Stories, Ledger and the "
+      + "rest — read the rolled .1 generation too." }));
   }
   return element("div", { className: "stage-body" }, ...out);
 }
 
-// --- timeline
+// --- the joined views
 
-async function renderTimeline(ctx) {
-  const data = await debugApi.activity(ctx.page);
-  const items = data.items || [];
-  const out = [];
-
-  /* The band reads left-to-right oldest-to-newest, so reverse the newest-first
-   * page. Each segment is as wide as she spent in that state, which is what
-   * makes a night of DORMANT look like a night. */
-  if (items.length > 1) {
-    const ordered = [...items].reverse();
-    const now = Date.now() / 1000;
-    const spans = ordered.map((row, i) => ({
-      ...row, span: Math.max(1, (ordered[i + 1]?.at ?? now) - row.at),
-    }));
-    const total = spans.reduce((sum, s) => sum + s.span, 0) || 1;
-    const band = element("div", { className: "band" });
-    for (const seg of spans) {
-      const node = element("div", {
-        className: "band-seg",
-        attrs: { title: `${seg.to} — ${clock(seg.at)} (${seg.reason})` },
-      });
-      node.style.setProperty("--state-color", STATE_COLOR[seg.to] || "var(--dim)");
-      node.style.flex = `${(seg.span / total) * 100} 0 auto`;
-      band.append(node);
-    }
-    const key = element("div", { className: "band-key" });
-    for (const name of [...new Set(spans.map((s) => s.to))]) {
-      const entry = element("span", {}, element("i"), document.createTextNode(name));
-      entry.firstChild.style.setProperty("--state-color", STATE_COLOR[name] || "var(--dim)");
-      key.append(entry);
-    }
-    out.push(panel(`This page · oldest to newest`,
-      element("div", { className: "panel-body" }, band, key)));
-  }
-
-  const list = rows(items, (row) => {
-    const node = element("div", { className: "row" },
-      element("div", { className: "row-top" },
-        element("span", { className: "row-title", text: `${row.from || "start"} → ${row.to}` }),
-        chip(row.reason || "tick"),
-        element("span", { className: "row-time", text: clock(row.at ?? row.ts) })),
-      element("div", { className: "row-body", text:
-        `cadence ${row.cadence_s ?? "?"}s${row.last_user_msg
-          ? ` · last heard from you ${relative(row.last_user_msg)}` : ""}` }));
-    node.style.setProperty("--event-color", STATE_COLOR[row.to] || "var(--dim)");
-    return node;
+/* Map, Timeline, Space, Stories, Goals, Ledger: one renderer, because they are
+ * one workspace. The workspace keeps its state across them; this only hands it
+ * the route's params and the three things it needs from the page. */
+async function renderGraph(ctx) {
+  const node = await mountGraph(ctx.section, ctx, {
+    load: (days) => debugApi.graph(days),
+    go,
+    toast,
+    readFile: (path) => debugApi.file(path),
   });
-  out.push(panel("Transitions", element("div", {}, list,
-    pager(data, (page) => go(`#/timeline/${page}`)))));
-  return element("div", { className: "stage-body" }, ...out);
-}
-
-// --- events
-
-/* Every section above sits on one log; this one folds them into the answer to
- * "what has she been up to": the Vault's commits, the signals she was handed,
- * the ticks that chose something (a REST tick is not an event and the backend
- * leaves it out), the tool audit, the model calls. The window and the kinds are
- * in the hash, so "the last three days of just her hands" is a pasteable link.
- */
-const EVENT_KINDS = Object.freeze(["vault", "signal", "tick", "call", "prompt"]);
-const EVENT_LABEL = Object.freeze({
-  vault: "files written", signal: "signals", tick: "her moves",
-  call: "tool calls", prompt: "model calls",
-});
-const WINDOWS = Object.freeze([[24, "24 hours"], [72, "3 days"], [168, "a week"],
-                               [744, "31 days"]]);
-
-function eventRow(event) {
-  const node = element("div", {
-      className: `row${event.ref?.hash ? " clickable" : ""}` },
-    element("div", { className: "row-top" },
-      element("span", { className: "row-title", text: event.title || event.kind }),
-      chip(EVENT_LABEL[event.kind] || event.kind),
-      ...(event.chips || []).filter(Boolean).map((c) => chip(c)),
-      element("span", { className: "row-time", text: clock(event.at) })),
-    event.detail ? element("div", { className: "row-body", text: event.detail }) : null);
-  if (event.ref?.hash) node.addEventListener("click", () => go(event.ref.hash));
+  state.graphMounted = true;
+  node.attached = graphAttached;
   return node;
-}
-
-async function renderEvents(ctx) {
-  const hours = Number(ctx.hours) || 24;
-  const picked = (ctx.kinds || "").split(",").filter(Boolean);
-  const data = await debugApi.events({ hours, kinds: picked });
-  const tail = queryTail({ kinds: (picked || []).join(",") });
-  const wrap = element("div", { className: "stage-body" });
-
-  // The window presets. Routed through the hash like everything else.
-  const windowButton = ([h, label]) => {
-    const node = element("button", {
-      className: `button button-quiet${h === hours ? " on" : ""}`,
-      text: label, attrs: { type: "button" },
-    });
-    node.addEventListener("click", () => go(`#/events/${h}${tail}`));
-    return node;
-  };
-  wrap.append(element("div", { className: "filters" }, ...WINDOWS.map(windowButton)));
-
-  // One toggle per kind. All-on (the default) encodes as no `kinds=` at all,
-  // so the link stays short when nothing is narrowed.
-  const counts = data.counts || {};
-  const kindButton = (kind) => {
-    const on = !picked.length || picked.includes(kind);
-    const next = on ? picked.filter((k) => k !== kind) : [...picked, kind];
-    const node = element("button", {
-      className: `button button-quiet${on ? " on" : ""}`,
-      text: `${EVENT_LABEL[kind]} (${counts[kind] ?? 0})`,
-      attrs: { type: "button" },
-    });
-    node.addEventListener("click", () =>
-      go(`#/events/${hours}${queryTail({ kinds: next.join(",") })}`));
-    return node;
-  };
-  wrap.append(element("div", { className: "filters" }, ...EVENT_KINDS.map(kindButton)));
-
-  const truncated = EVENT_KINDS.filter((kind) => data.truncated?.[kind]);
-  if (truncated.length) {
-    wrap.append(element("div", { className: "notice", text:
-      `${truncated.map((k) => EVENT_LABEL[k]).join(" and ")} hit the per-kind limit ` +
-      "in this window, so their newest rows are clipped. Narrow the window or the kinds." }));
-  }
-  const label = WINDOWS.find(([h]) => h === hours)?.[1] || `${hours}h`;
-  wrap.append(panel(`${number((data.items || []).length)} event(s) · last ${label}`,
-    element("div", {}, rows(data.items || [], eventRow))));
-  return wrap;
 }
 
 // --- dreams
@@ -955,9 +850,12 @@ async function renderTicks(ctx) {
 async function renderTickDetail(ctx) {
   const data = await debugApi.tick(ctx.id);
   const tick = data.tick || {};
+  const event = data.event;
   const wrap = element("div", { className: "stage-body" });
 
-  wrap.append(backLink("All ticks", "#/ticks"));
+  wrap.append(element("div", { className: "filters" },
+    linkButton("All ticks", "#/ticks", "back"),
+    linkButton("Its story", `#/stories?sel=${encodeURIComponent(ctx.id)}`)));
   wrap.append(element("div", { className: "tiles" },
     tile("State", tick.activity_state || "—"),
     tile("Chose", tick.decided?.intention || "REST",
@@ -966,13 +864,24 @@ async function renderTickDetail(ctx) {
     tile("Did", tick.acted?.what || "—", tick.acted?.result || ""),
     tile("When", clock(tick.ts))));
 
-  const phase = (name, value) => panel(name, element("div", { className: "panel-body" },
-    Array.isArray(value) && !value.length
-      ? element("p", { className: "muted", text: "nothing" }) : json(value)));
-  wrap.append(phase("Sensed", tick.sensed || []));
-  wrap.append(phase("Appraised", tick.appraised || []));
-  if (Object.keys(tick.interrupt || {}).length) {
-    wrap.append(phase("Interrupt decision (gate 2)", tick.interrupt));
+  /* The same phases, in the same words, the graph's inspector draws for this
+   * tick (graph/inspector.js) — one renderer, so the two cannot disagree. A
+   * REST tick has no event: it chose nothing, and its record is all there is. */
+  if (event) {
+    if (data.why) wrap.append(element("p", { className: "gx-ins-why wide", text: data.why }));
+    const phases = element("div", { className: "panel-body gx-phases" });
+    phases.innerHTML = tickSections(event, event.detail, {
+      threshold: data.act_threshold ?? 0.4,
+      goal: data.goal ? { id: data.goal.id, title: data.goal.title, state: data.goal.state } : null,
+      calls: (data.calls || []).map((c) => ({
+        id: c.call_id || "", tool: c.tool, verdict: c.verdict })),
+    });
+    // Anything it names opens in Stories, where the chain around it is drawn.
+    phases.addEventListener("click", (ev) => {
+      const jump = ev.target.closest("[data-jump]");
+      if (jump) go(`#/stories?sel=${encodeURIComponent(jump.dataset.jump)}`);
+    });
+    wrap.append(panel("How it decided", phases));
   }
 
   /* What the correlation id is for: before it, lining a tool call up with the
@@ -987,6 +896,8 @@ async function renderTickDetail(ctx) {
   if ((data.prompts || []).length) {
     wrap.append(panel("Models it asked", rows(data.prompts, promptRow)));
   }
+  wrap.append(panel("The record", element("div", { className: "panel-body" },
+    fold("The tick trace, as written", json(tick)))));
   return wrap;
 }
 
@@ -1355,8 +1266,8 @@ async function renderMemory(ctx) {
 // --- signals, goals, self-edits
 
 async function renderSignals(ctx) {
-  const [signals, goals, edits] = await Promise.all([
-    debugApi.signals(ctx.page), debugApi.goals(), debugApi.selfEdits(),
+  const [signals, edits] = await Promise.all([
+    debugApi.signals(ctx.page), debugApi.selfEdits(),
   ]);
   const wrap = element("div", { className: "stage-body" });
 
@@ -1373,60 +1284,6 @@ async function renderSignals(ctx) {
       "This page is read-only. Approve or reject these from the inner-life panel "
       + "in her room, where the decision goes through the mind as a signal." }));
   }
-
-  const goalRow = (goal) => {
-    const desk = `workspace/goals/${goal.id}.md`;
-    const holder = element("div");
-    const open = element("button", {
-      className: "button button-quiet",
-      text: "read it",
-      attrs: { type: "button" },
-    });
-    open.addEventListener("click", async () => {
-      if (holder.dataset.loaded) {
-        const hidden = holder.hidden;
-        holder.hidden = !hidden;
-        open.textContent = hidden ? "fold it away" : "read it";
-        return;
-      }
-      open.disabled = true;
-      open.textContent = "opening…";
-      try {
-        const file = await debugApi.file(desk);
-        holder.append(element("pre", { className: "json",
-          text: file.text || "(it is empty)" }));
-      } catch (error) {
-        holder.append(element("p", { className: "placeholder", text:
-          error?.status === 400 || error?.status === 404
-            ? "she hasn't written this one up yet."
-            : (errorMessage(error) || "could not open that file") }));
-      } finally {
-        holder.dataset.loaded = "1";
-        holder.hidden = false;
-        open.disabled = false;
-        open.textContent = "fold it away";
-      }
-    });
-    const vault = element("button", {
-      className: "button button-quiet",
-      text: "open in vault",
-      attrs: { type: "button" },
-    });
-    vault.addEventListener("click", () => go(`#/vault/file/${desk}`));
-    return element("div", { className: "row" },
-      element("div", { className: "row-top" },
-        element("span", { className: "row-title", text: goal.text }),
-        chip(goal.state || "pending", goal.state === "done" ? "ok"
-          : goal.state === "abandoned" ? "bad" : ""),
-        chip(goal.kind || "task"),
-        element("span", { className: "row-time",
-          text: goal.due ? `due ${relative(goal.due)}` : "" })),
-      element("div", { className: "row-body mono muted", text:
-        `priority ${goal.priority} · ${goal.commitment || "single-minded"} · from ${goal.provenance || "?"}` }),
-      element("div", { className: "row-actions" }, open, vault),
-      holder);
-  };
-  wrap.append(panel("Goals", rows(goals.items || [], goalRow)));
 
   wrap.append(panel("Signal inbox", element("div", {},
     rows(signals.items || [], signalRow),
@@ -1529,14 +1386,14 @@ function parseRoute(hash) {
   const [pathPart, queryPart] = (hash || "").replace(/^#\/?/, "").split("?");
   const parts = pathPart.split("/").filter(Boolean).map(decodeURIComponent);
   const params = Object.fromEntries(new URLSearchParams(queryPart || ""));
-  const section = parts[0] && SECTIONS[parts[0]] ? parts[0] : "overview";
+  // `#/events` was the merged chronology the Ledger replaced; old links land there.
+  const named = parts[0] === "events" ? "ledger" : parts[0];
+  const section = named && SECTIONS[named] ? named : "overview";
   const ctx = { section, page: 0, ...params };
 
   const rest = parts.slice(1);
-  if (section === "events") {
-    // `#/events/<hours>?kinds=vault,tick` — the window is in the path, like
-    // page numbers are for the other section lists.
-    ctx.hours = Number(rest[0]) || 24;
+  if (SECTIONS[section].graph) {
+    // `#/timeline?w=7&r=…&sel=…`: the workspace reads its own params.
   } else if (section === "ticks") {
     if (rest[0] === "detail") ctx.id = rest[1];
     else ctx.page = Number(rest[0]) || 0;
@@ -1574,6 +1431,10 @@ async function render() {
   for (const item of nodes.rail.querySelectorAll(".rail-item")) {
     item.classList.toggle("on", item.dataset.section === ctx.section);
   }
+  if (state.graphMounted && !meta.graph) {
+    unmountGraph();
+    state.graphMounted = false;
+  }
   nodes.body.replaceChildren(placeholder("Reading from disk…"));
 
   state.request?.abort();
@@ -1583,6 +1444,7 @@ async function render() {
     const node = await renderer(ctx)(ctx);
     if (mine.signal.aborted) return;
     nodes.body.replaceChildren(...(node.className === "stage-body" ? [...node.children] : [node]));
+    node.attached?.();
   } catch (error) {
     if (error?.name === "AbortError") return;
     const retry = element("button", { className: "button", text: "Try again", attrs: { type: "button" } });
@@ -1635,9 +1497,12 @@ function subscribe() {
       // Only when the ladder actually moved: `mind` fires every tick, and
       // re-rendering the page two seconds apart forever is exactly the polling
       // this is supposed to replace.
-      if (changed && ["overview", "timeline", "events"].includes(state.route?.section)
-          && !state.route?.page) render();
+      if (changed && state.route?.section === "overview") render();
+      // A tick that chose something wrote records; a REST tick only adds to a
+      // density bar. The joined views say "newer on disk" and wait for you.
+      if (changed || (payload.intention && payload.intention !== "REST")) markStale();
     }
+    if (payload?.type === "journal" || payload?.type === "message") markStale();
     if (payload?.type === "journal" && state.route?.section === "context"
         && !state.route?.page && !state.route?.id) render();
   });
@@ -1651,7 +1516,7 @@ function boot() {
   }
   nodes.brandSub.textContent = `mind · ${characterId}`;
   document.title = `YuriOS / ${characterId} / mind`;
-  nodes.refresh.addEventListener("click", () => { syncHeader(); render(); });
+  nodes.refresh.addEventListener("click", () => { invalidateGraph(); syncHeader(); render(); });
   window.addEventListener("hashchange", render);
   if (!location.hash) location.hash = "#/overview";
   syncHeader();

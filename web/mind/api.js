@@ -19,15 +19,14 @@ const get = (path, params, { signal } = {}) =>
 
 export const debugApi = Object.freeze({
   overview: (opts) => get("/overview", {}, opts),
-  activity: (page, opts) => get("/activity", { page, limit: 100 }, opts),
-  events: ({ hours, kinds, limit } = {}, opts) =>
-    get("/events", { hours, kinds: (kinds || []).join(","), limit }, opts),
+  // The joined graph behind the six workspace views (world/debug_graph.py).
+  // `days` 0 is everything retained.
+  graph: (days, opts) => get("/graph", { days }, opts),
 
   ticks: (page, { state, q } = {}, opts) => get("/ticks", { page, limit: 25, state, q }, opts),
   tick: (id, opts) => get(`/ticks/${encodeURIComponent(id)}`, {}, opts),
 
   signals: (page, { type } = {}, opts) => get("/signals", { page, limit: 50, type }, opts),
-  goals: (opts) => get("/goals", {}, opts),
   selfEdits: (opts) => get("/self-edits", {}, opts),
 
   calls: (page, { tool, verdict, corr_id } = {}, opts) =>

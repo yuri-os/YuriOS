@@ -144,72 +144,13 @@ class ConversationLog:
 
     def _fold(self) -> list[dict]:
         """Every line the log holds, oldest first, with its late halves folded
-        in. Caller holds the lock.
-
-        One pass, because the records that patch a line always follow it: a
-        `raw_for` merges into the row it names and an `unwind` flags it. A patch
-        naming a line that has fallen off the front is simply dropped — the line
-        it belonged to is already gone.
-        """
+        in. Caller holds the lock."""
         path = self.path
-        if path is None or not path.exists():
+        if path is None:
             return []
-        rows: list[dict] = []
-        index: dict[str, dict] = {}
-        records = 0
-        try:
-            with open(path, encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        rec = json.loads(line)
-                    except ValueError:
-                        continue      # a torn tail line after a crash; skip it
-                    if not isinstance(rec, dict):
-                        continue
-                    records += 1
-                    target = (rec.get("raw_for") or rec.get("drawn_for")
-                              or rec.get("unwind"))
-                    if target:
-                        row = index.get(target)
-                        if row is None:
-                            continue
-                        if rec.get("unwind"):
-                            row["unwound"] = True
-                        elif rec.get("drawn_for"):
-                            # The page's half landing second overwrites `text`,
-                            # and on a line the window created that text *is*
-                            # the model's own. Keep it before it is restated:
-                            # the greeting is written this way round, and
-                            # without this her `*narration*` would vanish out of
-                            # the next prompt the moment the page drew her.
-                            if (rec.get("text") is not None and row.get("w")
-                                    and row.get("raw") is None
-                                    and rec["text"] != row.get("text")):
-                                row["raw"] = row.get("text")
-                            row["d"] = 1          # the page has a line to draw
-                            for field in _DRAWN_ONLY:
-                                if rec.get(field) is not None:
-                                    row[field] = rec[field]
-                        else:
-                            row["w"] = 1          # admitted to the window (§7.1)
-                            for field in _WINDOW_ONLY:
-                                if rec.get(field) is not None:
-                                    row[field] = rec[field]
-                        continue
-                    if not rec.get("id"):
-                        continue
-                    rows.append(rec)
-                    index[rec["id"]] = rec
-        except OSError:
-            # An unreadable log is an empty one. Refusing to start her because
-            # the scrollback is corrupt would be the worse bug.
-            log.warning("conversation log at %s is unreadable; starting empty",
-                        path, exc_info=True)
-            return []
-        self._lines = records
+        rows, records = fold(path)
+        if records is not None:
+            self._lines = records
         return rows
 
     def entries(self) -> list[dict]:
@@ -493,6 +434,85 @@ class ConversationLog:
             log.warning("couldn't retire the legacy stores under %s",
                         self.vault, exc_info=True)
         return len(fresh)
+
+def fold(path: Path) -> tuple[list[dict], int | None]:
+    """Every line a conversation log holds, oldest first, with its late halves
+    folded in; and how many records that took (None when there was no file to
+    count). Module-level so a reader that must not write — the debug page,
+    which reads a stopped character — folds the same way the log does without
+    building a handle, whose `upgrade()` may migrate files on construction.
+
+    One pass, because the records that patch a line always follow it: a
+    `raw_for` merges into the row it names and an `unwind` flags it. A patch
+    naming a line that has fallen off the front is simply dropped — the line
+    it belonged to is already gone.
+    """
+    if not path.exists():
+        return [], None
+    rows: list[dict] = []
+    index: dict[str, dict] = {}
+    records = 0
+    try:
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                except ValueError:
+                    continue      # a torn tail line after a crash; skip it
+                if not isinstance(rec, dict):
+                    continue
+                records += 1
+                target = (rec.get("raw_for") or rec.get("drawn_for")
+                          or rec.get("unwind"))
+                if target:
+                    row = index.get(target)
+                    if row is None:
+                        continue
+                    if rec.get("unwind"):
+                        row["unwound"] = True
+                    elif rec.get("drawn_for"):
+                        # The page's half landing second overwrites `text`, and
+                        # on a line the window created that text *is* the
+                        # model's own. Keep it before it is restated: the
+                        # greeting is written this way round, and without this
+                        # her `*narration*` would vanish out of the next prompt
+                        # the moment the page drew her.
+                        if (rec.get("text") is not None and row.get("w")
+                                and row.get("raw") is None
+                                and rec["text"] != row.get("text")):
+                            row["raw"] = row.get("text")
+                        row["d"] = 1          # the page has a line to draw
+                        for field in _DRAWN_ONLY:
+                            if rec.get(field) is not None:
+                                row[field] = rec[field]
+                    else:
+                        row["w"] = 1          # admitted to the window (§7.1)
+                        for field in _WINDOW_ONLY:
+                            if rec.get(field) is not None:
+                                row[field] = rec[field]
+                    continue
+                if not rec.get("id"):
+                    continue
+                rows.append(rec)
+                index[rec["id"]] = rec
+    except OSError:
+        # An unreadable log is an empty one. Refusing to start her because the
+        # scrollback is corrupt would be the worse bug.
+        log.warning("conversation log at %s is unreadable; starting empty",
+                    path, exc_info=True)
+        return [], None
+    return rows, records
+
+
+def read_entries(vault: Path | str) -> list[dict]:
+    """`ConversationLog.entries()` without a handle: every drawn line, oldest
+    first, folded — and nothing written, not even the one-time upgrade."""
+    rows, _ = fold(Path(vault) / "state" / "conversation.jsonl")
+    return [r for r in rows if r.get("d")]
+
 
 def _from_sessions(sessions: dict) -> list[dict]:
     """The §7.1 window as it was kept before this file: per session, and raw."""

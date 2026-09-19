@@ -34,7 +34,7 @@ a section are folded into it.
 | **§21** — DREAM consolidation | `yurios/mind/dream.py`<br>`yurios/mind/dreamjobs/filedsl.py`<br>`yurios/ctl/dreams.py`<br>`yurios/mind/dreamjobs/__init__.py`<br>*+5 more* | `tests/test_dreamjobs.py`<br>`tests/test_mind_routes.py`<br>`tests/test_cli_dreams.py`<br>*+1 more* |
 | **§22** — Goals and intentions | `yurios/mind/goals.py`<br>`yurios/mind/prompts.py`<br>`scripts/live_check.py`<br>`yurios/mind/goalwork.py`<br>*+5 more* | `tests/test_mind_goals.py`<br>`tests/test_mind_routes.py`<br>`tests/test_mind_soul.py`<br>*+1 more* |
 | **§23** — The SOUL split and gated self-edits | `yurios/mind/selfedit.py`<br>`yurios/world/tools/server.py` | `tests/test_selfedit.py`<br>`tests/test_mind_goals.py` |
-| **§24** — The journal, the trace, and the inner-life surface | `yurios/world/debug.py`<br>`yurios/world/main.py`<br>`yurios/world/routes/mind.py`<br>`scripts/live_check.py`<br>*+16 more* | `tests/test_host_debug.py`<br>`tests/test_mind_routes.py`<br>`tests/test_correlate.py`<br>*+2 more* |
+| **§24** — The journal, the trace, and the inner-life surface | `yurios/world/debug.py`<br>`yurios/world/main.py`<br>`yurios/world/routes/mind.py`<br>`scripts/live_check.py`<br>*+17 more* | `tests/test_host_debug.py`<br>`tests/test_mind_routes.py`<br>`tests/test_correlate.py`<br>*+2 more* |
 | **§25** — Config (the mind's knobs) | — | — |
 | **§26** — Omissions (normative) | `yurios/mind/loop.py`<br>`yurios/mind/hands.py`<br>`yurios/world/host/hosting.py`<br>`web/dashboard/dashboard.js`<br>*+4 more* | `tests/test_mind_hands.py`<br>`tests/test_boot.py`<br>`tests/test_characters_registry.py`<br>*+1 more* |
 | **§27** — Tests (the hard gate) | `scripts/live_check.py`<br>`web/js/stage/sanctuary/Cat.js`<br>`yurios/kernel/clock.py`<br>`yurios/world/tools/client.py`<br>*+4 more* | `tests/conftest.py`<br>`tests/test_forge_diffusers.py`<br>`tests/test_forge_krea2.py`<br>*+2 more* |
@@ -48,4 +48,4 @@ a section are folded into it.
 | **§35** — Pictures you send her | `yurios/world/main.py`<br>`yurios/world/channels/telegram.py`<br>`yurios/world/routes/chat.py`<br>`web/js/chat.js`<br>*+11 more* | `tests/test_channels.py`<br>`tests/test_context_meter.py`<br>`tests/test_integration.py`<br>*+1 more* |
 | **§36** — Command-line control | `yurios/ctl/__init__.py`<br>`yurios/ctl/characters.py`<br>`yurios/ctl/client.py`<br>`yurios/world/host/switchboard.py`<br>*+1 more* | `tests/test_cli_camera.py`<br>`tests/test_cli_characters.py` |
 
-*789 citation sites over 110 sections.*
+*790 citation sites over 110 sections.*

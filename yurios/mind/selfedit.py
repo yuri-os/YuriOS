@@ -10,8 +10,10 @@ stopped being true. This module is the one door those writes go through:
   high risk  (any soul/*.md — her identity)           → queued for YOUR approval
 
 The pending queue lives at `state/pending_edits.json` — rendered by the
-inner-life panel with the full proposed content and a diff-shaped reason; the
-decision arrives back as a `selfedit_decision` signal the loop consumes. Every
+inner-life panel as a diff against the file as it stands, with the full
+proposed content folded under it; the decision arrives back as a
+`selfedit_decision` signal the loop consumes, and an approval may carry your
+own rewrite of the proposal in place of hers. Every
 applied edit is a git commit, so drift is never silent: `git -C vault log`
 shows every time she changed, and `git revert` undoes any of it.
 
@@ -22,6 +24,7 @@ the pen that rewrites them.
 """
 from __future__ import annotations
 
+import difflib
 from dataclasses import dataclass
 
 from yurios.app.memory import partner
@@ -32,6 +35,10 @@ from .util import iso_of, new_id, read_json, write_json
 from .vaultio import ConstitutionReadOnly, MindVault
 
 LOW_RISK_PREFIXES = ("memory/", "world/", "knowledge/")
+
+#: The longest rewrite of a queued edit a person may hand back with an approval.
+#: A soul file is a few thousand characters; this is a ceiling, not a budget.
+MAX_REVISION_CHARS = 200_000
 
 
 class SoulShapeError(ValueError):
@@ -54,6 +61,7 @@ class EditResult:
     outcome: str          # applied | queued | rejected
     surface: str
     reason: str
+    revised: bool = False     # applied with your rewrite, not her proposal
 
 
 class SelfEdit:
@@ -103,6 +111,44 @@ class SelfEdit:
     def pending(self) -> list[dict]:
         return read_json(self.pending_path, []) or []
 
+    def pending_view(self) -> list[dict]:
+        """The queue as the inner-life panel reads it (SPEC §24.3): each entry
+        plus `diff`, the changed lines against the file as it stands.
+
+        A persona proposal is the whole new file, and what it changes is two
+        lines at the bottom of it. Showing the file meant showing its
+        frontmatter and its unchanged opening, cut off long before the change —
+        so the one thing you are asked to rule on was the thing you could not
+        see. The hunk headers are dropped: line numbers are the plumbing's."""
+        out = []
+        for entry in self.pending():
+            current = self.vault.read(entry["surface"])
+            diff = difflib.unified_diff(
+                current.splitlines(), str(entry.get("content", "")).splitlines(),
+                n=2, lineterm="")
+            lines = [line for line in diff
+                     if not line.startswith(("---", "+++"))]
+            out.append({**entry, "diff": ["…" if line.startswith("@@") else line
+                                          for line in lines]})
+        return out
+
+    def check_revision(self, edit_id: str, content: str) -> None:
+        """Would your rewrite of a queued edit be accepted? Raises KeyError for
+        an edit no longer waiting, ValueError past the size ceiling, and
+        `SoulShapeError` for a rewrite that drops what `soul.yaml` points at —
+        the same rule her own proposal passed, because a character your edit
+        bricked cannot start any more than one hers did. Asked by the route
+        before the approval is posted, so the refusal reaches you, not a tick."""
+        entry = next((p for p in self.pending() if p["id"] == edit_id), None)
+        if entry is None:
+            raise KeyError(edit_id)
+        if len(content) > MAX_REVISION_CHARS:
+            raise ValueError(f"that rewrite is {len(content):,} characters; "
+                             f"the ceiling is {MAX_REVISION_CHARS:,}")
+        complaint = self._shape_complaint(entry["surface"], content)
+        if complaint:
+            raise SoulShapeError(complaint)
+
     def withdraw(self, edit_id: str) -> None:
         """An obsolete proposal must no longer be approvable."""
         pending = self.pending()
@@ -111,12 +157,21 @@ class SelfEdit:
             write_json(self.pending_path, kept)
             self.vault.mark_dirty()
 
-    def decide(self, edit_id: str, approve: bool) -> EditResult | None:
+    def decide(self, edit_id: str, approve: bool,
+               content: str | None = None) -> EditResult | None:
         """Consume one queued edit. Called from the loop when the user's
-        `selfedit_decision` signal arrives (the /api/mind/edits route posts it)."""
+        `selfedit_decision` signal arrives (the /api/mind/edits route posts it).
+
+        `content` is your rewrite of the proposal, applied in place of hers.
+        The route checked it; it is checked again here because the soul it was
+        checked against can change before the tick — and a rewrite that no
+        longer fits stays queued rather than being applied or thrown away."""
         pending = self.pending()
         entry = next((p for p in pending if p["id"] == edit_id), None)
         if entry is None:
+            return None
+        revised = content if approve else None
+        if revised is not None and self._shape_complaint(entry["surface"], revised):
             return None
         write_json(self.pending_path, [p for p in pending if p["id"] != edit_id])
         self.vault.mark_dirty()
@@ -130,5 +185,8 @@ class SelfEdit:
                 return None
         if not approve:
             return EditResult(edit_id, "rejected", entry["surface"], entry["reason"])
-        self.vault.write(entry["surface"], entry["content"], gate=True)
-        return EditResult(edit_id, "applied", entry["surface"], entry["reason"])
+        self.vault.write(entry["surface"],
+                         revised if revised is not None else entry["content"],
+                         gate=True)
+        return EditResult(edit_id, "applied", entry["surface"], entry["reason"],
+                          revised=revised is not None)

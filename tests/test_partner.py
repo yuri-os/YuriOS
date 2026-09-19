@@ -14,7 +14,7 @@ import subprocess
 import pytest
 
 from yurios.app.core.soul import SoulLoader
-from yurios.characters.soulfiles import parse_md_text
+from yurios.characters.soulfiles import parse_md_text, split_sections
 from yurios.app.memory import partner
 from yurios.app.memory.partner import Op
 from yurios.app.memory.store import FileMemoryStore, Record
@@ -336,7 +336,8 @@ def test_a_persona_delta_is_queued_not_silently_applied(tmp_path, legacy, early_
         phase="mid",
         reason="they asked for a Yandere-lite register",
     )
-    partner.write_persona_delta(vault_dir, delta)
+    partner.write_persona_delta(vault_dir, delta, restated={
+        delta.lines[0]: "She is Yandere-lite: bold about reaching out."})
     vault = MindVault(vault_dir)
     clock = VirtualClock(start=SIM_START.timestamp())
     selfedit = SelfEdit(vault, clock)
@@ -364,18 +365,113 @@ def test_a_persona_delta_is_queued_not_silently_applied(tmp_path, legacy, early_
         (vault_dir / partner.PERSONA_DELTA_PATH).write_text(json.dumps(data))
     corrected = partner.PersonaDelta(
         lines=["Yandere-lite: do not reach out."], phase="mid", reason="correction")
-    partner.write_persona_delta(vault_dir, corrected, merge=True)
+    partner.write_persona_delta(vault_dir, corrected, merge=True, restated={
+        corrected.lines[0]: "She is Yandere-lite: she does not reach out."})
     if early_click:
         assert selfedit.decide(old_id, True) is None
         assert vault.read("soul/PERSONA.md") == persona
     assert propose_learned_persona(Loop())
     pending = selfedit.pending()
     assert len(pending) == 1 and pending[0]["id"] != old_id
-    assert "do not reach out" in pending[0]["content"]
+    assert "does not reach out" in pending[0]["content"]
     assert "bold about reaching out" not in pending[0]["content"]
     assert selfedit.decide(old_id, True) is None
     selfedit.decide(pending[0]["id"], True)
-    assert "do not reach out" in vault.read("soul/PERSONA.md")
+    assert "does not reach out" in vault.read("soul/PERSONA.md")
+
+
+def _persona_vault(tmp_path):
+    vault_dir = tmp_path / "vault"
+    (vault_dir / "soul").mkdir(parents=True)
+    (vault_dir / "state").mkdir(parents=True)
+    for name in ("PERSONA.md", "soul.yaml"):
+        (vault_dir / "soul" / name).write_text(
+            (SOUL_SRC / name).read_text(encoding="utf-8"), encoding="utf-8")
+    subprocess.run(["git", "-C", str(vault_dir), "init", "-q"], check=True)
+    vault = MindVault(vault_dir)
+    selfedit = SelfEdit(vault, VirtualClock(start=SIM_START.timestamp()))
+
+    class Loop:
+        cfg = type("C", (), {"vault_dir": vault_dir})()
+
+    loop = Loop()
+    loop.selfedit, loop.vault = selfedit, vault
+    return vault_dir, loop
+
+
+def test_a_learned_line_waits_to_be_restated_before_it_is_proposed(tmp_path):
+    """The persona edit of 2026-09-19: four USER.md bullets — "Describes their
+    desired level of devotion as 'Yandere-lite'", "Wants Yuri to be bold about
+    reaching out", "…wait for Grant to come back" — proposed into PERSONA.md
+    word for word, where they would have sat in her backbone as notes about
+    somebody else. A line nobody has said of her yet is not proposed at all."""
+    vault_dir, loop = _persona_vault(tmp_path)
+    raw = "Describes their desired level of devotion/personality as 'Yandere-lite'."
+    partner.write_persona_delta(vault_dir, partner.PersonaDelta(
+        lines=[raw], phase="mid", reason="asked"))
+    assert propose_learned_persona(loop) == []
+    assert loop.selfedit.pending() == []
+
+    said = "She is devoted in a 'Yandere-lite' way."
+    partner.write_persona_delta(vault_dir, partner.PersonaDelta(
+        lines=[raw], phase="mid", reason="asked"), restated={raw: said})
+    assert propose_learned_persona(loop)
+    (edit,) = loop.selfedit.pending()
+    learned = split_sections(parse_md_text(edit["content"])[1])["Learned"]
+    assert said in learned and "Describes their" not in learned
+
+
+def test_a_new_restatement_replaces_a_queued_raw_proposal(tmp_path):
+    """The fingerprint is over what PERSONA.md would say — so restating a
+    direction already queued in its raw words is a new proposal, and the old
+    one is withdrawn rather than left to be approved."""
+    vault_dir, loop = _persona_vault(tmp_path)
+    raw = "Wants her to be bold about reaching out."
+    partner.write_persona_delta(vault_dir, partner.PersonaDelta(
+        lines=[raw], phase="mid", reason="asked"), restated={raw: raw.replace("Wants her to be", "She is")})
+    propose_learned_persona(loop)
+    (first,) = loop.selfedit.pending()
+    partner.write_persona_delta(vault_dir, partner.PersonaDelta(
+        lines=[raw], phase="mid", reason="asked"),
+        restated={raw: "She reaches out first, and boldly."})
+    assert propose_learned_persona(loop)
+    (second,) = loop.selfedit.pending()
+    assert second["id"] != first["id"]
+    assert "She reaches out first, and boldly." in second["content"]
+
+
+def test_parse_restated_keeps_only_lines_said_of_her():
+    lines = ["Wants her to be bold.", "Likes tea.", "Asked for pet names.", "Other."]
+    raw = ("<think>hm</think>" + json.dumps({"lines": {
+        "1": "She is bold.", "2": "Wants tea.", "3": "She uses pet names\nalways.",
+        "9": "She is out of range."}}))
+    assert partner.parse_restated(raw, lines) == {"Wants her to be bold.": "She is bold."}
+    assert partner.parse_restated("not json", lines) == {}
+
+
+async def test_dream_restates_the_learned_lines_once_and_shows_her_file(tmp_path):
+    """One utility call a night for the lines it has not restated yet; the
+    model sees her persona file as the house style, minus the Learned section
+    the raw lines used to sit in."""
+    helps = "Wants her to start conversations herself."
+    utility = ScriptedUtility(
+        json.dumps({"labels": {"1": "learned"}}),
+        json.dumps({"lines": {"1": "She starts conversations herself."}}))
+    store = _store(tmp_path, utility)
+    (tmp_path / "soul" / "PERSONA.md").write_text(
+        "---\nsoul: persona\n---\n\n## Manner\n\nShe is shy.\n\n"
+        "## Learned\n\n- Wants something old.\n", encoding="utf-8")
+    store.user_md_path.write_text(
+        f"---\nsoul: user\n---\n\n## {partner.HELPS}\n\n- {helps}\n", encoding="utf-8")
+
+    await store.evolve_partner(days_together=9)
+    delta = partner.read_persona_delta(tmp_path)
+    assert partner.restated_lines(delta) == {helps: "She starts conversations herself."}
+    asked = json.dumps(utility.calls[-1])
+    assert "She is shy." in asked and "Wants something old" not in asked
+
+    await store.evolve_partner(days_together=9)
+    assert len(utility.calls) == 2, "a restated line is not paid for twice"
 
 
 async def test_forget_removes_derived_name_from_prompt(tmp_path, monkeypatch):

@@ -324,8 +324,29 @@ class FileMemoryStore:
         if changed:
             vaultgit.atomic_write(self.user_md_path, new_md)
         if delta is not None:
-            partner.write_persona_delta(self.vault, delta)
+            restated = await self._restated(delta.lines)
+            partner.write_persona_delta(self.vault, delta, restated=restated)
         return changed
+
+    async def _restated(self, lines: list[str]) -> dict[str, str]:
+        """`restate_learned`, cached on the lines already restated in the
+        pending delta — a night that learned one new direction pays for one
+        line. A failed call restates nothing: those lines wait for the next
+        night rather than reaching PERSONA.md in a note-taker's words."""
+        known = partner.restated_lines(partner.read_persona_delta(self.vault) or {})
+        fresh = [line for line in lines if line not in known]
+        if fresh and self.utility is not None:
+            persona_path = self.vault / "soul" / "PERSONA.md"
+            try:
+                persona = persona_path.read_text(encoding="utf-8")
+            except OSError:
+                persona = ""
+            try:
+                known.update(await partner.restate_learned(self.utility, fresh, persona))
+            except Exception:
+                log.exception("restating the learned lines failed — they wait "
+                              "for the next night")
+        return {line: known[line] for line in lines if line in known}
 
     # -- recall (§6.4, the hot path) ---------------------------------------------
 

@@ -423,11 +423,14 @@ class MindLoop:
                         if note:
                             reflect_notes.append(note)
             elif sig.type == "selfedit_decision":
-                res = self.selfedit.decide(sig.payload.get("id", ""),
-                                           bool(sig.payload.get("approve")))
+                content = sig.payload.get("content")
+                res = self.selfedit.decide(
+                    sig.payload.get("id", ""), bool(sig.payload.get("approve")),
+                    content if isinstance(content, str) else None)
                 if res:
                     reflect_notes.append(
-                        f"you {res.outcome} my edit to {res.surface}")
+                        f"you {res.outcome} my edit to {res.surface}"
+                        + (", in your own words" if res.revised else ""))
             elif sig.type == "goal_decision":
                 goal = self.goals.get(str(sig.payload.get("id", "")))
                 if (goal is not None and sig.payload.get("abandon")
@@ -917,7 +920,7 @@ class MindLoop:
                        "provenance": g.provenance,
                        "desk": self.GOAL_DESK.format(id=g.id)}
                       for g in self.goals.all()][-30:],
-            "pending_edits": self.selfedit.pending(),
+            "pending_edits": self.selfedit.pending_view(),
             # Goals of her own (§22.1), as the inner-life panel reads them.
             # `open` counts only hers against the cap, so the panel can say
             # "2 of 3" rather than leaving you to work out which of the goals

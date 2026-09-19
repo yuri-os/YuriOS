@@ -463,6 +463,102 @@ async def classify_bullets(utility, bullets: list[str]) -> dict[str, str]:
     return parse_labels(raw, bullets)
 
 
+RESTATE_SYSTEM = """\
+You keep a companion character's persona file. It describes who she is, in the
+third person and the present tense: "She is shy…", "She loves {{user}}…".
+
+After the file come notes that a note-taker wrote about what {{user}} asked of
+her. The notes describe {{user}} ("Wants her to…", "Describes their…") and may
+name either of them. Rewrite each note as ONE line for the file's Learned
+section: a statement about HER — how she is, what she does — that carries out
+what was asked.
+
+Rules:
+- Third person, present tense, about her: every line starts with "She".
+- Call the user {{user}}, never by name, and never write her name.
+- Keep every specific the note gives: a word in quotes, how often, a limit, who
+  decides. Add nothing the note does not say. Do not soften it, and do not push
+  it further than it goes.
+- No talk about the asking: never "asked", "wants her to", "was told",
+  "learned", "the user", "the note".
+- Match the file's register, not the note's.
+
+Answer with JSON only, one entry per note, numbered to match:
+{"lines": {"1": "She …", "2": "She …"}}"""
+
+RESTATE_FINGERPRINT = hashlib.sha1(
+    RESTATE_SYSTEM.encode("utf-8")).hexdigest()[:12]
+_RESTATED_MAX = 500
+
+
+def _persona_reference(persona_md: str) -> str:
+    """Her persona file as the restatement's style reference: the prose that
+    says who she is, without the frontmatter and without the Learned section —
+    the lines being restated are the ones that used to sit there raw, and a
+    model shown them as the house style writes more of them."""
+    _, body = parse_md_text(persona_md or "")
+    sections = split_sections(body)
+    return "\n\n".join(f"## {heading}\n\n{text.strip()}"
+                       for heading, text in sections.items()
+                       if heading != LEARNED_HEADING and text.strip())
+
+
+async def restate_learned(utility, lines: list[str], persona_md: str = ""
+                          ) -> dict[str, str]:
+    """One utility call — DREAM only, never the hot path (§21). Returns
+    {learned line: the same direction as a line about her}; `{}` with no model.
+
+    The learned lines are USER.md bullets, written by a note-taker about the
+    user — "Describes their desired level of devotion as 'Yandere-lite'",
+    "Wants Yuri to be bold about reaching out". Copied into PERSONA.md as they
+    are, they sat in her prompt backbone as notes about somebody else, next to
+    prose that says who *she* is. What the file needs is the same direction,
+    said of her."""
+    if utility is None or not lines:
+        return {}
+    numbered = "\n".join(f"{i}. {t}" for i, t in enumerate(lines, 1))
+    reference = _persona_reference(persona_md)
+    prompt = ((f"Her persona file:\n\n{reference}\n\n" if reference else "")
+              + f"The notes:\n{numbered}")
+    raw = await utility.complete([
+        {"role": "system", "content": RESTATE_SYSTEM},
+        {"role": "user", "content": prompt},
+    ])
+    return parse_restated(raw, lines)
+
+
+def parse_restated(raw: str, lines: list[str]) -> dict[str, str]:
+    """Tolerant parse of a restate reply into {learned line: restated line}.
+
+    A line that did not come back as a statement about her — not starting with
+    "She", or spilling over several lines, or running long — is absent, and an
+    absent line is restated again next night rather than proposed raw."""
+    raw = re.sub(r"<think>.*?</think>", "", raw or "", flags=re.DOTALL | re.IGNORECASE)
+    start, end = raw.find("{"), raw.rfind("}")
+    if start < 0 or end < 0:
+        return {}
+    try:
+        data = json.loads(raw[start:end + 1])
+    except json.JSONDecodeError:
+        return {}
+    restated = data.get("lines") if isinstance(data, dict) else None
+    if not isinstance(restated, dict):
+        return {}
+    out: dict[str, str] = {}
+    for key, value in restated.items():
+        try:
+            idx = int(str(key).strip().rstrip("."))
+        except ValueError:
+            continue
+        if not 1 <= idx <= len(lines) or not isinstance(value, str):
+            continue
+        text = value.strip().lstrip("-• ").strip()
+        if (text.startswith("She") and "\n" not in text
+                and len(text) <= _RESTATED_MAX):
+            out[lines[idx - 1]] = text
+    return out
+
+
 def label_of(text: str, labels: dict[str, str], names=()) -> str | None:
     """Look a bullet up in a classification. Exact first, then same-slot: the
     per-turn path labels the *op* text, and `_collapse` may since have rewritten
@@ -820,17 +916,35 @@ def read_persona_delta(vault: Path) -> dict | None:
         return None
 
 
+def restated_lines(data: dict) -> dict[str, str]:
+    """The restatements a pending delta carries, or {} when they were written
+    under a restate prompt that has since changed — a changed prompt is a cold
+    cache, the same rule the filing pass keeps."""
+    if data.get("restate_rules") != RESTATE_FINGERPRINT:
+        return {}
+    known = data.get("restated") or {}
+    return {k: v for k, v in known.items()
+            if isinstance(k, str) and isinstance(v, str)} if isinstance(known, dict) else {}
+
+
 def write_persona_delta(vault: Path, delta: PersonaDelta, *,
-                        merge: bool = False, names=()) -> None:
+                        merge: bool = False, names=(),
+                        restated: dict[str, str] | None = None) -> None:
     """Write the pending PERSONA.md proposal.
 
     `merge=True` unions onto what is already pending — the per-turn path only
     ever sees this turn's op, so replacing would drop everything the last four
     weeks learned. DREAM's compact has read the whole file and replaces.
+
+    `restated` is DREAM's {learned line: line about her} (`restate_learned`).
+    Restatements already on file are kept for the lines still pending; the
+    fingerprint is over what PERSONA.md would actually say, so a new
+    restatement of the same direction is a new proposal, not a repeat.
     """
     path = Path(vault) / PERSONA_DELTA_PATH
     path.parent.mkdir(parents=True, exist_ok=True)
     existing = read_persona_delta(vault) or {}
+    known = {**restated_lines(existing), **(restated or {})}
     if merge:
         lines = [str(x) for x in existing.get("lines") or []]
         for line in delta.lines:
@@ -843,14 +957,19 @@ def write_persona_delta(vault: Path, delta: PersonaDelta, *,
         # the reason describes the lines, so merging the lines rewrites it
         delta = PersonaDelta(lines=lines, phase=delta.phase,
                              reason=persona_reason(lines))
+    known = {line: known[line] for line in delta.lines if line in known}
+    fingerprint = PersonaDelta(lines=[known.get(line, line) for line in delta.lines],
+                               phase=delta.phase, reason=delta.reason).fingerprint()
     # A rejected or already-queued fingerprint is not rewritten into a nag.
-    if existing.get("fingerprint") == delta.fingerprint() and existing.get("queued"):
+    if existing.get("fingerprint") == fingerprint and existing.get("queued"):
         return
     vaultgit.atomic_write(path, json.dumps({
         "lines": delta.lines,
         "phase": delta.phase,
         "reason": delta.reason,
-        "fingerprint": delta.fingerprint(),
+        "restated": known,
+        "restate_rules": RESTATE_FINGERPRINT,
+        "fingerprint": fingerprint,
         "queued": False,
         "edit_id": existing.get("edit_id"),
         # Older queued deltas did not retain their approval id. Carry their

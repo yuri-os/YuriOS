@@ -78,8 +78,15 @@ def propose_learned_persona(loop) -> list[str]:
     lines = [str(x).strip() for x in data.get("lines") or [] if str(x).strip()]
     if not lines:
         return []
+    # What lands in PERSONA.md is each direction said of her, which DREAM
+    # writes (one utility call a night). A line learned today and not restated
+    # yet waits for tonight: the raw bullet is a note about the user, and in
+    # her prompt backbone it read as one.
+    restated = partner.restated_lines(data)
+    if any(line not in restated for line in lines):
+        return []
     delta = partner.PersonaDelta(
-        lines=lines,
+        lines=[restated[line] for line in lines],
         phase=str(data.get("phase") or "mid"),
         reason=str(data.get("reason")
                    or partner.persona_reason(lines)),

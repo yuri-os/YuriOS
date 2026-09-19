@@ -570,30 +570,7 @@ svg{ width:1.1em; height:1.1em; fill:none; stroke:currentColor; stroke-width:1.7
 .il-sw.on:disabled{ opacity:1; }
 .il-shelf li{ margin:0 0 7px; color:var(--soft); font:10px var(--font-mono); }
 
-/* a queued self-edit: hers to ask, yours to allow (SPEC §24.3) */
-.il-edit{
-  margin:0 0 12px; padding:13px; border:1px solid var(--rule);
-  border-left:2px solid var(--acid-dark); background:var(--panel);
-}
-.il-surface{ color:var(--acid); font:9px var(--font-mono); letter-spacing:.1em; text-transform:uppercase; }
-.il-reason{ margin:8px 0 10px; color:var(--soft); font-size:12px; line-height:1.6; }
-.il-content{
-  max-height:11em; overflow:auto; margin-bottom:12px; padding:10px;
-  background:var(--void); border:1px solid var(--rule);
-  font:10px/1.6 var(--font-mono); white-space:pre-wrap;
-  scrollbar-width:thin; scrollbar-color:var(--rule) transparent;
-}
-.il-ok,.il-no{
-  min-height:30px; display:inline-flex; align-items:center; padding:0 13px;
-  border:1px solid var(--rule); border-radius:2px; background:transparent;
-  cursor:pointer; font:9px var(--font-mono); letter-spacing:.08em; text-transform:uppercase;
-  transition:.18s ease;
-}
-.il-ok{ border-color:var(--acid); background:var(--acid); color:#10140a; font-weight:700; }
-.il-ok:hover{ background:#e1ff7b; }
-.il-no{ color:var(--soft); }
-.il-no:hover{ border-color:var(--soft); color:var(--ink); }
-.il-ok:disabled,.il-no:disabled{ opacity:.45; cursor:wait; }
+/* a queued self-edit: web/selfedit.css, shared with the text client */
 
 /* ---- desktop-pet mode (:root.desktop, set by ?desktop=1 — SPEC §6.5) --------
    world/window.py hosts this page in a frameless transparent window; main.js

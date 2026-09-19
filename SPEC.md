@@ -1681,7 +1681,13 @@ turn** — separate files, separate indexes, separate `inspect()`.
   no utility model the rest of the compact still runs. Preferences about her that
   the compact labels `learned` **MUST** be proposed as a gated `soul/PERSONA.md`
   edit (`## Learned`, `relationship_phase` frontmatter) the same night, not left
-  in USER.md forever.
+  in USER.md forever. What lands in `## Learned` **MUST** be each direction said
+  *of her* — third person, present tense, `{{user}}` for the user, no talk about
+  the asking — never the USER.md bullet itself, which is a note-taker's line about
+  the user and reads as one in her prompt backbone. The restatement is **one
+  utility call** (`restate_learned`), DREAM's to spend, cached per line and stamped
+  with its prompt like the filing pass; a line not yet restated **MUST** wait for
+  the night rather than be proposed raw.
   With learned claims in `USER.md` (beyond the untouched seed), consolidation
   **MUST** expose pending work once per
   calendar night even if its journal backlog is empty. A successful pass records
@@ -2055,7 +2061,11 @@ reviewably.
   its full content and reason, rendered by the inner-life panel with approve/reject. The decision
   returns as a `selfedit_decision` signal the loop consumes (§16.2) — applied edits are git commits,
   so drift is never silent and `git revert` undoes any of it; the ruling itself is journaled ("you
-  applied/rejected my edit to …").
+  applied/rejected my edit to …"). An approval **MAY** carry your own rewrite of the proposal
+  (`content`), applied in its place: the queue entry stays as she wrote it, and your version rides
+  the ruling. It **MUST** pass the same shape check her proposal did, and the route **MUST** answer
+  a rewrite that fails it with 422 before posting anything, so the refusal reaches you rather than a
+  tick; the journal line says the edit was applied in your words.
 - §23.3 **The door has a caller: `propose_edit`.** A conversational MCP tool (`surface`, `content`,
   `reason`), advertised only where the mind runs — the queue it writes into is only ever read there
   — and rationed by `TOOL_RATE_SELFEDIT`, because a proposal a minute is not deliberation, it is a
@@ -2080,9 +2090,13 @@ The product half of autonomy: what converts an always-on process from creepy to 
   The scenario tests (§27.2) are queries over this file; the "why did she…" answer is always in it.
 - §24.3 **The surface.** `GET /api/mind` (state, cadence, budget, goals, shelf, pending edits),
   `GET /api/mind/journal?days=` (her `[she]` lines by day), `GET /api/mind/trace?n=`,
-  `POST /api/mind/edits/{id}` (`{"approve": bool}` → a signal, §23.2). The browser page's chat column
+  `POST /api/mind/edits/{id}` (`{"approve": bool, "content"?: str}` → a signal, §23.2). Each pending
+  edit in the snapshot **MUST** carry `diff`, its changed lines against the file as it stands: a
+  whole-file proposal whose change is two lines at the bottom must show those two lines, not the
+  file's opening. The browser page's chat column
   grows a second tab — **inner life** (`web/js/mind.js`): right-now state and budget, edits waiting on
-  you (with content and one-click approve/reject), goals with provenance and a one-click control
+  you (what each changes, the whole file folded under it, one-click approve/reject, and an edit
+  control that lets you rewrite it before approving), goals with provenance and a one-click control
   that opens the matching desk file (`workspace/goals/<id>.md`, §22.3) through
   `GET /api/mind/workspace/file`, the shelf, and the journal,
   refreshed live off the same one bus (`journal`/`mind` events). Everything reads *through* the mind's

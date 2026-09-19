@@ -1,0 +1,75 @@
+/* A queued self-edit (SPEC §23.2, §24.3): hers to ask, yours to allow.
+
+   js/mind.js renders it in both rooms that carry the inner-life panel — the
+   sanctuary and the text client — so, like files.css and gallery.css, it has
+   one stylesheet both pages link. It used to be copied into each page's own
+   sheet, and the copy that missed an update rendered the diff as a bare <pre>:
+   no wrapping, and her whole persona file running out past the column. */
+
+.il-edit{
+  min-width:0; margin:0 0 12px; padding:13px; border:1px solid var(--rule);
+  border-left:2px solid var(--acid-dark); background:var(--panel);
+}
+.il-surface{ color:var(--acid); font:9px var(--font-mono); letter-spacing:.1em; text-transform:uppercase; }
+.il-reason{ margin:8px 0 12px; color:var(--soft); font-size:12px; line-height:1.6; overflow-wrap:anywhere; }
+.il-label{
+  margin:0 0 6px; color:var(--dim); font:9px var(--font-mono);
+  letter-spacing:.1em; text-transform:uppercase;
+}
+
+/* What changes: one line per row, the +/− in a gutter of its own so a wrapped
+   line hangs under its text rather than under the marker. */
+.il-diff,.il-content{
+  max-height:22em; overflow:auto; margin:0 0 12px; padding:8px 0;
+  background:var(--void); border:1px solid var(--rule);
+  font:10px/1.6 var(--font-mono); color:var(--soft);
+  scrollbar-width:thin; scrollbar-color:var(--rule) transparent;
+}
+/* the diff is what you came to read, and it is short: show it whole, and only
+   scroll one that rewrites most of a file */
+.il-diff{ max-height:70vh; }
+.il-content{ padding:10px; white-space:pre-wrap; overflow-wrap:anywhere; }
+.il-diff span{
+  display:block; min-height:1.6em; padding:0 10px 0 calc(10px + 2ch); text-indent:-2ch;
+  white-space:pre-wrap; overflow-wrap:anywhere;
+}
+.il-diff span::before{ content:"  "; display:inline-block; width:2ch; text-indent:0; white-space:pre; }
+.il-diff .il-add{ color:var(--acid); background:rgb(215 255 88 / .07); }
+.il-diff .il-add::before{ content:"+ "; }
+.il-diff .il-del{ color:var(--dim); text-decoration:line-through; }
+.il-diff .il-del::before{ content:"− "; }
+.il-diff .il-gap{ padding:2px 10px; text-indent:0; color:var(--dim); }
+.il-diff .il-gap::before{ content:none; }
+
+.il-whole{ margin:0 0 12px; }
+.il-whole summary{
+  cursor:pointer; margin-bottom:8px; color:var(--soft);
+  font:9px var(--font-mono); letter-spacing:.08em; text-transform:uppercase;
+}
+.il-whole summary:hover{ color:var(--ink); }
+
+/* your version, while you rewrite it */
+.il-draft{
+  display:block; width:100%; min-height:22em; margin:0 0 6px; padding:10px;
+  resize:vertical; background:var(--void); color:var(--ink);
+  border:1px solid var(--acid-dark); border-radius:2px;
+  font:10px/1.6 var(--font-mono); white-space:pre-wrap; overflow-wrap:anywhere;
+}
+.il-draft:focus{ outline:none; border-color:var(--acid); }
+.il-edit .il-off{ margin:0 0 12px; }
+.il-err{ margin:0 0 12px; color:var(--red); font-size:12px; line-height:1.5; overflow-wrap:anywhere; }
+
+.il-actions{ display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+.il-ok,.il-no,.il-aside{
+  min-height:30px; display:inline-flex; align-items:center; padding:0 13px;
+  border:1px solid var(--rule); border-radius:2px; background:transparent;
+  cursor:pointer; font:9px var(--font-mono); letter-spacing:.08em; text-transform:uppercase;
+  white-space:nowrap; transition:.18s ease;
+}
+.il-ok{ border-color:var(--acid); background:var(--acid); color:#10140a; font-weight:700; }
+.il-ok:hover{ background:#e1ff7b; }
+.il-no{ color:var(--soft); }
+.il-no:hover{ border-color:var(--soft); color:var(--ink); }
+.il-aside{ margin-left:auto; border-color:transparent; color:var(--soft); }
+.il-aside:hover{ border-color:var(--rule); color:var(--acid); }
+.il-ok:disabled,.il-no:disabled{ opacity:.45; cursor:wait; }

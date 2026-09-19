@@ -120,6 +120,33 @@ async def test_edit_decision_rides_the_signal_bus(client_with_mind):
     assert any("you applied my edit" in p.read_text() for p in day_files)
 
 
+async def test_you_can_approve_your_own_version_of_her_edit(client_with_mind):
+    """The panel shows what an edit changes, and lets you rewrite it before
+    approving: her proposal stays as she wrote it in the queue, your version
+    rides the ruling, and the one that lands is yours."""
+    c, rig = client_with_mind
+    persona = ("---\nsoul: persona\nmutable: true\npersonality: \"quiet\"\n"
+               "---\n# Persona\n\n## Appearance\n\nv2\n\n## Manner\n\nv2\n")
+    edit = rig.mind.selfedit.propose("soul/PERSONA.md", persona, reason="grown")
+    (shown,) = c.get("/api/mind").json()["pending_edits"]
+    assert "+v2" in shown["diff"] and shown["content"] == persona
+
+    # a rewrite that drops what soul.yaml points at is refused to you, now
+    broken = "---\nsoul: persona\n---\n# Persona\n\nno headings left\n"
+    r = c.post(f"/api/mind/edits/{edit.id}", json={"approve": True, "content": broken})
+    assert r.status_code == 422
+    assert rig.mind.selfedit.pending()[0]["content"] == persona
+
+    mine = persona.replace("## Manner\n\nv2", "## Manner\n\nmine")
+    r = c.post(f"/api/mind/edits/{edit.id}", json={"approve": True, "content": mine})
+    assert r.json() == {"queued": True, "id": edit.id, "revised": True}
+    await rig.mind.tick()
+    assert rig.mind.selfedit.pending() == []
+    assert rig.mind.vault.read("soul/PERSONA.md") == mine
+    day_files = list((rig.mind.vault.vault / "memory" / "episodic").glob("*.md"))
+    assert any("in your own words" in p.read_text() for p in day_files)
+
+
 def test_unknown_edit_is_404(client_with_mind):
     c, _ = client_with_mind
     assert c.post("/api/mind/edits/nope", json={"approve": True}).status_code == 404

@@ -20,6 +20,7 @@ from yurios.mind.dreamjobs import (BUILTIN_NAMES, JOB_KINDS, JOB_NAME_RE,
                                   DreamRunner, load_job_files,
                                   validate_job_file)
 from yurios.mind.journal import canonical_day
+from yurios.mind.selfedit import SoulShapeError
 from yurios.mind.workspace import DeskFull, OutsideTheDesk, Workspace
 
 router = APIRouter()
@@ -396,17 +397,36 @@ async def dream_job_delete(name: str, request: Request) -> dict:
 
 @router.post("/api/mind/edits/{edit_id}")
 async def decide_edit(edit_id: str, request: Request) -> dict:
-    """Rule on a queued self-edit. Body: {"approve": true|false}. The decision
-    is a signal; the loop applies (or rejects) it on its next tick, commits it,
-    and journals what you decided — so even your rulings leave a trail."""
+    """Rule on a queued self-edit. Body: {"approve": true|false, "content"?: str}.
+    The decision is a signal; the loop applies (or rejects) it on its next
+    tick, commits it, and journals what you decided — so even your rulings
+    leave a trail.
+
+    `content` on an approval is your rewrite of what she proposed, applied in
+    its place: the queue entry is hers and stays as she wrote it, and what you
+    sent goes out with the ruling. It is checked here, against the same shape
+    rule her proposal passed, so a rewrite that would stop her starting is
+    refused to you now (422) rather than dropped on a tick you aren't watching.
+    """
     body = await request.json()
     mind = _mind(request)
     if not any(p["id"] == edit_id for p in mind.selfedit.pending()):
         raise HTTPException(404, f"no pending edit {edit_id}")
-    request.app.state.rt.signals.post(
-        "selfedit_decision",
-        {"id": edit_id, "approve": bool(body.get("approve"))}, source="user")
-    return {"queued": True, "id": edit_id}
+    approve = bool(body.get("approve"))
+    decision = {"id": edit_id, "approve": approve}
+    content = body.get("content")
+    if approve and content is not None:
+        if not isinstance(content, str):
+            raise HTTPException(422, "content must be the whole file, as text")
+        try:
+            await asyncio.to_thread(mind.selfedit.check_revision, edit_id, content)
+        except KeyError:
+            raise HTTPException(404, f"no pending edit {edit_id}") from None
+        except (SoulShapeError, ValueError) as e:
+            raise HTTPException(422, str(e)) from None
+        decision["content"] = content
+    request.app.state.rt.signals.post("selfedit_decision", decision, source="user")
+    return {"queued": True, "id": edit_id, "revised": "content" in decision}
 
 
 @router.post("/api/mind/goals/filing")

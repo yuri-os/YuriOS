@@ -38,6 +38,13 @@ import { STATE_META, canonicalState } from '../shared/activity-state.js';
   const deskCache = new Map();    // id -> { text, missing }
   const deskPending = new Map();  // id -> request token; superseded fetches are ignored
   const deskPaths = new Map();
+  // A queued self-edit you are rewriting: id -> the text so far. Kept here, not
+  // in the DOM, because the panel is rebuilt every few seconds while you type.
+  const editDrafts = new Map();
+  const editErrors = new Map();   // id -> why the server refused your version
+  const wholeOpen = new Set();    // ids whose "whole file" fold is open
+  const pendingById = new Map();  // id -> the entry as last fetched
+  let lastHtml = '';
   const SLOW = 20000;             // DORMANT ticks are slow
   const FAST = 2000;              // a passage takes seconds; a bar should move
 
@@ -273,7 +280,7 @@ import { STATE_META, canonicalState } from '../shared/activity-state.js';
     } catch {
       busy = false;              // nothing to watch; back to the slow cadence
       markTab(0);
-      panel.innerHTML = '<p class="il-off">the mind isn’t running — ' +
+      lastHtml = ''; panel.innerHTML = '<p class="il-off">the mind isn’t running — ' +
         'MIND_ENABLED=false, or she booted without a brain</p>';
       return;
     }
@@ -292,16 +299,14 @@ import { STATE_META, canonicalState } from '../shared/activity-state.js';
     // something spending the machine *while you read it*
     html += readingSection(read);
 
-    if ((state.pending_edits || []).length) {
-      html += section('she asks — edits waiting on you',
-        state.pending_edits.map(e =>
-          `<div class="il-edit" data-id="${esc(e.id)}">` +
-          `<p class="il-surface">${esc(e.surface)}</p>` +
-          `<p class="il-reason">${esc(e.reason)}</p>` +
-          `<pre class="il-content">${esc(e.content).slice(0, 1200)}</pre>` +
-          `<button class="il-ok" data-id="${esc(e.id)}">approve</button> ` +
-          `<button class="il-no" data-id="${esc(e.id)}">reject</button></div>`
-        ).join(''));
+    const edits = state.pending_edits || [];
+    pendingById.clear();
+    for (const e of edits) pendingById.set(e.id, e);
+    for (const id of [...editDrafts.keys()]) {
+      if (!pendingById.has(id)) { editDrafts.delete(id); editErrors.delete(id); }
+    }
+    if (edits.length) {
+      html += section('she asks — edits waiting on you', edits.map(editBlock).join(''));
     }
 
     const goals = (state.goals || []).filter(g => g.state !== 'done');
@@ -335,7 +340,76 @@ import { STATE_META, canonicalState } from '../shared/activity-state.js';
       ).join('') || '<p class="il-off">nothing yet — she hasn’t been ' +
         'alone with her thoughts long enough</p>');
 
+    repaint(html);
+  }
+
+  // What a queued edit changes, then the whole file folded under it. A persona
+  // proposal is the entire new file; the change is usually a few lines at the
+  // end of it, and the reader came to rule on the change.
+  function diffHtml(e) {
+    const lines = e.diff || [];
+    if (!lines.length) return '<p class="il-off">no change to the file as it stands</p>';
+    // One block per line and nothing between them: the marker is drawn by the
+    // stylesheet, in a gutter, so a wrapped line hangs under its own text.
+    return `<div class="il-diff" data-keep="diff-${esc(e.id)}">` + lines.map(line => {
+      if (line === '…') return '<span class="il-gap">…</span>';
+      const cls = line[0] === '+' ? 'il-add' : line[0] === '-' ? 'il-del' : 'il-ctx';
+      return `<span class="${cls}">${esc(line.slice(1))}</span>`;
+    }).join('') + '</div>';
+  }
+
+  function editBlock(e) {
+    const id = esc(e.id);
+    const drafting = editDrafts.has(e.id);
+    const error = editErrors.get(e.id);
+    const body = drafting
+      ? `<textarea class="il-draft" data-draft="${id}" data-keep="draft-${id}" ` +
+        `spellcheck="false" aria-label="your version of ${esc(e.surface)}">` +
+        `${esc(editDrafts.get(e.id))}</textarea>` +
+        '<p class="il-off">approving applies your version instead of hers, ' +
+        'checked by the same rules hers passed</p>'
+      : '<p class="il-label">what changes</p>' + diffHtml(e) +
+        `<details class="il-whole" data-whole="${id}"${wholeOpen.has(e.id) ? ' open' : ''}>` +
+        '<summary>the whole file after</summary>' +
+        `<pre class="il-content" data-keep="whole-${id}">${esc(e.content)}</pre></details>`;
+    return `<div class="il-edit" data-id="${id}">` +
+      `<p class="il-surface">${esc(e.surface)}</p>` +
+      `<p class="il-reason">${esc(e.reason)}</p>` + body +
+      (error ? `<p class="il-err" role="alert">${esc(error)}</p>` : '') +
+      '<div class="il-actions">' +
+      `<button class="il-ok" data-id="${id}">${drafting ? 'approve my version' : 'approve'}</button>` +
+      `<button class="il-no" data-id="${id}">reject</button>` +
+      (drafting
+        ? `<button class="il-aside" data-unrevise="${id}">discard my changes</button>`
+        : `<button class="il-aside" data-revise="${id}">edit</button>`) +
+      '</div></div>';
+  }
+
+  // The panel is rebuilt on every refresh (seconds apart while she reads) and
+  // on every journal or state event. Whatever you were reading or typing in it
+  // must survive that: nothing is touched when nothing changed, and otherwise
+  // each scroll box keeps its place and the box you were typing in keeps its
+  // focus and caret.
+  function repaint(html) {
+    if (html === lastHtml) return;
+    lastHtml = html;
+    const scrolls = new Map();
+    panel.querySelectorAll('[data-keep]').forEach(el => scrolls.set(el.dataset.keep, el.scrollTop));
+    const active = document.activeElement;
+    const focusKey = active && panel.contains(active) ? active.dataset?.keep : null;
+    const caret = focusKey && typeof active.selectionStart === 'number'
+      ? [active.selectionStart, active.selectionEnd, active.selectionDirection] : null;
     panel.innerHTML = html;
+    panel.querySelectorAll('[data-keep]').forEach(el => {
+      if (scrolls.has(el.dataset.keep)) el.scrollTop = scrolls.get(el.dataset.keep);
+    });
+    if (focusKey) {
+      const el = panel.querySelector(`[data-keep="${CSS.escape(focusKey)}"]`);
+      if (el) {
+        el.focus({ preventScroll: true });
+        if (caret) el.setSelectionRange(...caret);
+      }
+    }
   }
 
   // stop / resume. The stop button carries the run id, or "" for "whatever she
@@ -378,16 +452,55 @@ import { STATE_META, canonicalState } from '../shared/activity-state.js';
     const id = ev.target?.dataset?.id;
     if (!id || !(ev.target.classList.contains('il-ok') ||
                  ev.target.classList.contains('il-no'))) return;
+    const approve = ev.target.classList.contains('il-ok');
+    const decision = { approve };
+    if (approve && editDrafts.has(id)) decision.content = editDrafts.get(id);
     ev.target.disabled = true;
     try {
       await runtimeReady;
-      await fetch(apiPath(`/api/mind/edits/${encodeURIComponent(id)}`), {
+      const res = await fetch(apiPath(`/api/mind/edits/${encodeURIComponent(id)}`), {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ approve: ev.target.classList.contains('il-ok') }),
+        body: JSON.stringify(decision),
       });
+      if (res.status === 422) {
+        // your version was refused: keep it, say why, let you fix it
+        const why = await res.json().catch(() => ({}));
+        editErrors.set(id, `not applied — ${why.detail || 'the server refused it'}`);
+        ev.target.disabled = false;
+        render();
+        return;
+      }
+      editDrafts.delete(id);
+      editErrors.delete(id);
     } catch { /* the next refresh shows the truth either way */ }
     setTimeout(render, 1500);           // the loop applies it on its next tick
   });
+
+  // Rewrite a queued edit before ruling on it: the proposal becomes a text box
+  // holding her whole file, and approving sends your version instead.
+  panel.addEventListener('click', (ev) => {
+    const revise = ev.target?.dataset?.revise;
+    const unrevise = ev.target?.dataset?.unrevise;
+    if (revise && pendingById.has(revise)) {
+      editDrafts.set(revise, String(pendingById.get(revise).content ?? ''));
+      render().then(() => panel.querySelector(
+        `[data-draft="${CSS.escape(revise)}"]`)?.focus({ preventScroll: true }));
+    } else if (unrevise) {
+      editDrafts.delete(unrevise);
+      editErrors.delete(unrevise);
+      render();
+    }
+  });
+  panel.addEventListener('input', (ev) => {
+    const id = ev.target?.dataset?.draft;
+    if (id && editDrafts.has(id)) editDrafts.set(id, ev.target.value);
+  });
+  // `toggle` doesn't bubble; capture it so an open fold stays open on refresh
+  panel.addEventListener('toggle', (ev) => {
+    const id = ev.target?.dataset?.whole;
+    if (!id) return;
+    if (ev.target.open) wholeOpen.add(id); else wholeOpen.delete(id);
+  }, true);
 
   // The desk file behind a one-line goal (SPEC §22.3, §24.3). Same fetch as
   // a report card in the transcript: folded until asked for, cached after.

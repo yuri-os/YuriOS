@@ -64,7 +64,7 @@ async def health(request: Request) -> dict:
         "tool_count": rt.tool_count,       # discovered calls admitted to the brain
         "mind": rt.mind_status,            # "running" | "disabled" | "failed: …" (§15)
         "activity": rt.mind.activity.state if rt.mind else None,
-        "selfies": rt.selfies_status,      # "openrouter" | "mock" | "mock (no key…)" | "off" (§7.6)
+        "selfies": rt.selfies_status,      # "openrouter" | "diffusers" | "mock" | "<backend> (unavailable — …)" | "off" (§7.6)
         # whether she can be *sent* a picture, and why we think so (§35) — the
         # composer takes this off the bus, but "why is there no paperclip?" is
         # exactly the kind of question this endpoint exists to answer

@@ -165,7 +165,7 @@ def test_capabilities_say_what_a_local_checkpoint_is(backend):
     assert "lemonPie" in caps.notes
 
 
-# ---- build_forge wiring (the loud degrade rule, B2 §3) ----
+# ---- build_forge wiring (a camera that can't run says so; §7.6) ----
 
 def test_a_working_local_camera_is_wired_from_config(cfg, tmp_path, monkeypatch):
     ckpt = tmp_path / "pie.safetensors"
@@ -181,18 +181,22 @@ def test_a_working_local_camera_is_wired_from_config(cfg, tmp_path, monkeypatch)
     assert forge.backend.steps == 20 and forge.backend.hires is False
 
 
-def test_a_missing_checkpoint_degrades_to_mock_loudly(cfg, tmp_path, monkeypatch, caplog):
+def test_a_missing_checkpoint_keeps_the_local_camera_and_says_why(
+        cfg, tmp_path, monkeypatch, caplog):
+    """A checkpoint on a drive that isn't mounted: never swapped for the mock
+    (§7.6) — the camera stays hers, and health names the file it can't find."""
     monkeypatch.setattr(DiffusersBackend, "deps_available", staticmethod(lambda: True))
+    gone = tmp_path / "gone.safetensors"
     cfg = cfg.model_copy(update={"selfie_backend": "diffusers",
-                                 "selfie_local_model": str(tmp_path / "gone.safetensors")})
+                                 "selfie_local_model": str(gone)})
     with caplog.at_level("WARNING"):
         forge, status = build_forge(cfg)
-    assert status.startswith("mock") and "diffusers unavailable" in status
-    assert forge.backend.name == "mock"
+    assert forge.backend.name == "diffusers"
+    assert status == f"diffusers (unavailable — its checkpoint isn't there ({gone}))"
     assert any("SELFIE_LOCAL_MODEL" in r.message for r in caplog.records)
 
 
-def test_missing_deps_degrade_to_mock_loudly(cfg, tmp_path, monkeypatch, caplog):
+def test_missing_deps_keep_the_local_camera_and_say_why(cfg, tmp_path, monkeypatch, caplog):
     ckpt = tmp_path / "pie.safetensors"
     ckpt.write_bytes(b"x")
     monkeypatch.setattr(DiffusersBackend, "deps_available", staticmethod(lambda: False))
@@ -200,7 +204,8 @@ def test_missing_deps_degrade_to_mock_loudly(cfg, tmp_path, monkeypatch, caplog)
                                  "selfie_local_model": str(ckpt)})
     with caplog.at_level("WARNING"):
         forge, status = build_forge(cfg)
-    assert forge.backend.name == "mock"
+    assert forge.backend.name == "diffusers"
+    assert "dependencies aren't installed" in status
     assert any("forge-local" in r.message for r in caplog.records)
 
 

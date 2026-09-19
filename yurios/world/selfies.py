@@ -20,9 +20,12 @@ The generator behind it is the forge (./forge, → ch. 26): the locked
 register + the selfie template library + provenance, with the backend swappable.
 Default is `openrouter` on a cheap image model (seedream — the GPU stays free
 for her voice; point SELFIE_MODEL at riverflow for the brand-art register);
-`mock` renders deterministic placeholder cards for tests and keyless machines.
-A missing key degrades to mock with one loud WARNING, the same
-graceful-fallback rule as the voice stack (B2 §3).
+`mock` renders deterministic placeholder cards, and only when it is what
+`SELFIE_BACKEND` names — the tests pin it. A real camera that can't run (no key,
+no deps, a checkpoint on a drive that isn't mounted) is never swapped for the
+mock: a placeholder delivered as her photo is a picture she didn't take. The
+camera keeps the backend it was given, asks it before every shot whether it can
+run, and a shot it can't take fails like any other render.
 
 A failed render is a quiet `message` in the chat and an audit-style log line —
 never a crash, and never silence about a promise she made.
@@ -77,6 +80,28 @@ def book_path(own: str | Path | None) -> Path:
 ANNOUNCE_CUE = (
     "((The {noun} you just took is ready — it's visible in the chat now "
     "({detail}). Say one short, warm line about it, nothing else.))")
+
+
+class CameraUnavailable(RuntimeError):
+    """The configured camera can't run this shot (SPEC §7.6) — the message says
+    why, in the words the chat line and the log use."""
+
+
+def why_unavailable(backend) -> str:
+    """Why `backend.health()` said no, as specifically as the backend lets us
+    tell: the deps, the setting, or the file. A backend with nothing more to say
+    gets a plain "it can't run"."""
+    if getattr(backend, "name", "") == "openrouter":
+        return "no OpenRouter key"
+    deps = getattr(backend, "deps_available", None)
+    if callable(deps) and not deps():
+        return f"the {backend.name} dependencies aren't installed"
+    if hasattr(backend, "model_path"):
+        if not backend.model_path:
+            return "SELFIE_LOCAL_MODEL is unset"
+        if not Path(backend.model_path).is_file():
+            return f"its checkpoint isn't there ({backend.model_path})"
+    return f"the {getattr(backend, 'name', 'image')} backend can't run"
 
 
 def _lightweight(exc: Exception) -> Exception:
@@ -157,7 +182,13 @@ def _identity(cfg):
 
 def build_forge(cfg) -> tuple["ImageForge", str]:
     """The forge behind the lab, from config. Returns (forge, status) where
-    status is what /api/health reports: "openrouter" | "mock" | "mock (…)"."""
+    status is what /api/health reports: "openrouter" | "diffusers" | "mock" |
+    "<backend> (unavailable — why)".
+
+    A backend that can't run at boot stays the backend (SPEC §7.6): the lab asks
+    it again before every shot, so mounting the drive or setting the key brings
+    the camera back without a restart, and until then each shot fails loudly
+    rather than rendering a placeholder."""
     from yurios.forge import ImageForge, SelfieBook, make_backend
 
     character = _identity(cfg)
@@ -179,12 +210,12 @@ def build_forge(cfg) -> tuple["ImageForge", str]:
     if name == "openrouter":
         backend = make_backend("openrouter", model=cfg.selfie_model,
                                api_key=cfg.openrouter_api_key)
-        if not backend.health():               # no key anywhere → degrade loudly
+        if not backend.health():               # no key anywhere → fail loudly
             log.warning(
-                "selfies: no OpenRouter key found — degrading to the mock "
-                "backend (placeholder cards). Set OPENROUTER_API_KEY in .env "
-                "to give her a real camera.")
-            backend, status = make_backend("mock"), "mock (no key — placeholder)"
+                "selfies: no OpenRouter key found — every shot will fail until "
+                "one is set; no placeholder is sent in its place. Set "
+                "OPENROUTER_API_KEY in .env to give her a real camera.")
+            status = "openrouter (unavailable — no key)"
     elif name in ("diffusers", "krea2"):
         # One knob, two architectures: SELFIE_LOCAL_MODEL may be an SDXL UNet
         # or a Krea 2 transformer, and they need entirely different loaders.
@@ -225,10 +256,12 @@ def build_forge(cfg) -> tuple["ImageForge", str]:
                     "checkpoint (e.g. a Pie Model from Civitai — see "
                     ".env.example).")
 
-        if not backend.health():               # no deps/checkpoint → degrade loudly
-            log.warning("selfies: the %s backend can't run — degrading to the "
-                        "mock backend (placeholder cards). %s", name, hint)
-            backend, status = make_backend("mock"), f"mock ({name} unavailable — placeholder)"
+        if not backend.health():               # no deps/checkpoint → fail loudly
+            why = why_unavailable(backend)
+            log.warning("selfies: the %s backend can't run (%s) — every shot "
+                        "will fail until it can; no placeholder is sent in its "
+                        "place. %s", name, why, hint)
+            status = f"{name} (unavailable — {why})"
     else:
         backend = make_backend(name)
 
@@ -360,6 +393,18 @@ class SelfieLab:
         if error is not None:
             raise error
         return result
+
+    def _ready(self) -> None:
+        """Refuse the shot when the configured camera can't run (SPEC §7.6).
+
+        Asked per shot rather than once at boot, so a drive mounted or a key
+        set after she started brings the camera back without a restart — and a
+        camera that can't run fails the shot instead of rendering a placeholder.
+        """
+        backend = getattr(self.forge, "backend", None)
+        health = getattr(backend, "health", None)
+        if callable(health) and not health():
+            raise CameraUnavailable(why_unavailable(backend))
 
     def _can_stay_warm(self) -> bool:
         """Ask the parker whether a warm pipeline still leaves room for her
@@ -550,6 +595,10 @@ class SelfieLab:
         failed = False
         gate = self._gate()
         try:
+            # Before the park: a camera that can't run must not unload her
+            # brain first. Off the loop, because the answer is a file stat, and
+            # on a FUSE drive a stat is not free.
+            await asyncio.to_thread(self._ready)
             if (self.parker is not None and self.quiet is not None
                     and self.parker.applicable() and self.parker.needs_park()):
                 log.info("selfie: parking needs the GPU — waiting for a quiet "
@@ -598,8 +647,9 @@ class SelfieLab:
                 if c.get("_client_id"):
                     post_kw["client_id"] = c["_client_id"]
                 post_kw["selfie_id"] = str(c.get("id", ""))
-                self.post("assistant",
-                          f"(the {noun} didn't come out — {type(e).__name__})",
+                why = (f"the camera can't run: {e}"
+                       if isinstance(e, CameraUnavailable) else type(e).__name__)
+                self.post("assistant", f"(the {noun} didn't come out — {why})",
                           **post_kw)
             self._status(c, "error")
             # A goal waiting on this must not wait forever: the failure is a

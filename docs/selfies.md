@@ -34,9 +34,13 @@ SELFIE_BACKEND=openrouter         # openrouter | diffusers | krea2 | mock | off
 
 With `SELFIE_BACKEND=off` neither tool is advertised to the model: no hand, rather than a dead one.
 
-**Any backend that can't run degrades to `mock` with one loud WARNING** — no key, missing
-dependencies, a missing checkpoint, or no access to a gated repo. She keeps working and
-`/api/health` reports the truth (`"mock (no key — placeholder)"`).
+**A backend that can't run is never swapped for `mock`** — no key, missing dependencies, a
+missing checkpoint (say, on a drive that isn't mounted), or no access to a gated repo. Boot logs
+one loud WARNING and `/api/health` reports the truth (`"diffusers (unavailable — its checkpoint
+isn't there (…))"`). Each shot she takes meanwhile fails with a quiet note in the chat saying why,
+rather than arriving as a placeholder card. The camera asks again before every shot, so fixing
+the cause — mounting the drive, setting the key — brings it back without a restart. `mock` only
+renders when `SELFIE_BACKEND=mock` asks for it.
 
 ## OpenRouter (the default)
 

@@ -879,8 +879,13 @@ to every new subscriber before its first live event. Malformed JSON is logged an
   (`forge/backends/sniff.py`), so `SELFIE_BACKEND=diffusers` names *the local camera*, not one
   architecture. Any backend that cannot run — `openrouter` with no key, a local one missing deps,
   its checkpoint, or (krea2) access to the gated companion repo its text encoder and VAE come
-  from — **MUST** degrade to `mock` with one loud WARNING; a failed render **MUST** become a
-  quiet chat message, never a crash and never silence.
+  from — **MUST** say so with one loud WARNING at boot and report `<backend> (unavailable — why)`
+  as its status, and **MUST NOT** be replaced by `mock`: a placeholder delivered as her photo is a
+  picture she did not take. `mock` renders only when `SELFIE_BACKEND` names it. The lab **MUST**
+  ask the backend whether it can run before every shot, and before any park, so a drive mounted
+  or a key set after boot brings the camera back without a restart; a shot it cannot take fails
+  like any other render. A failed render **MUST** become a quiet chat message, never a crash and
+  never silence — one refused for an unavailable camera names why.
 
   The same lab is reachable from owner HTTP without going through a hand: `POST /api/selfie` and
   `POST /api/picture` (and the per-character forms under `/api/characters/<id>/…`) start a render
@@ -1254,8 +1259,9 @@ however it was started, and what it claims lives in `.yurios/` (`yurios/daemon.p
 
 Typed (`yurios/world/config.py`), read once from env/`.env`, extending the voice config (which
 extends the brain's). Every knob in `.env.example` **MUST** have a default and the default stack
-**MUST** need no key (`SELFIE_BACKEND=openrouter` without a key degrades to mock — §7.6 — so the
-no-key rule survives it). The port is **8768**. The brain knobs (model routes, `LMSTUDIO_BASE_URL`,
+**MUST** need no key (the camera defaults to `off`, and `SELFIE_BACKEND=openrouter` without a key
+fails its shots with a chat note rather than failing the boot — §7.6 — so the no-key rule
+survives it). The port is **8768**. The brain knobs (model routes, `LMSTUDIO_BASE_URL`,
 the reasoning switches, `CONTEXT_LENGTH` and the context readout it feeds — §3, `EMBED_BACKEND`
 and its auto-reindex, retrieval and summary budgets, the
 Vault dir) are inherited; the body knobs are `COMPANION_NAME`, `TOOLS_BACKEND=mcp|fake|off`, the
@@ -2216,7 +2222,8 @@ brain with fake models.
   bounds, the `take_selfie` slot contract — named template keys render from the
   library, anything else passes through verbatim, the contract refuses nothing); the selfie lab (a started contract becomes a PNG + provenance
   sidecar and an `image_url` message in sim time; the announce cue offered and dropped when busy; a
-  broken forge becomes a quiet message; no key degrades openrouter → mock loudly); timer scheduling
+  broken forge becomes a quiet message; a camera that can't run fails its shot by name and is
+  never swapped for mock); timer scheduling
   and queued announcements; every §4 op's event shape including `rain`/`music`; the hub (typed
   fan-out, sticky replayed last-write-wins, a full queue drops without blocking, thread-safe publish);
   the SSE route and the world `/ws/voice` route (greeting-once, noise-drop, barge-in, ambient

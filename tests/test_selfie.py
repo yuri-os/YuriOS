@@ -1,5 +1,5 @@
 """Her camera (SPEC §7.6) — the SelfieLab's start-don't-await realisation, the
-forge builder's degrade rule, the guard's price on the shutter, and the tool
+forge builder's can't-run rule, the guard's price on the shutter, and the tool
 loop wiring. Entirely offline: the mock backend renders placeholder cards."""
 from __future__ import annotations
 
@@ -544,8 +544,9 @@ async def test_an_unparked_render_does_not_wait(cfg, clock, forge):
     assert rec.posts and rec.posts[0]["image_url"]
 
 
-def test_no_key_degrades_openrouter_to_mock_loudly(cfg, tmp_path, monkeypatch, caplog):
-    """The voice-fakes philosophy (B2 §3): she still works, the log names the fix."""
+def test_no_key_keeps_openrouter_and_says_so_loudly(cfg, tmp_path, monkeypatch, caplog):
+    """No key is a camera that can't run, not a mock one (§7.6): the log names
+    the fix, health says why, and the backend is still the one she was given."""
     monkeypatch.delenv("OPENROUTER_TOKEN", raising=False)
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path / "nohome")
@@ -553,9 +554,38 @@ def test_no_key_degrades_openrouter_to_mock_loudly(cfg, tmp_path, monkeypatch, c
                                  "openrouter_api_key": ""})
     with caplog.at_level("WARNING"):
         forge, status = build_forge(cfg)
-    assert status.startswith("mock") and "no key" in status
+    assert status == "openrouter (unavailable — no key)"
     assert any("OPENROUTER_API_KEY" in r.message for r in caplog.records)
-    assert forge.backend.name == "mock"
+    assert forge.backend.name == "openrouter"
+
+
+async def test_a_camera_that_cant_run_fails_the_shot_instead_of_faking_it(
+        cfg, clock, forge, monkeypatch):
+    """The fake dream selfie of 2026-09-19: her checkpoint's drive wasn't
+    mounted, the camera became the mock, and a placeholder card arrived in the
+    chat as her photo. A camera that can't run fails the shot by name (§7.6),
+    never unloads her brain for it, and still answers a goal waiting on it —
+    and it is asked again next shot, so mounting the drive is the whole fix."""
+    ready = [False]
+    monkeypatch.setattr(forge.backend, "health", lambda: ready[0])
+    rec, parker, signals = Recorder(), SpyParker(), []
+    lab = SelfieLab(forge, clock=clock, post=rec.post, speak=rec.speak,
+                    parker=parker,
+                    signal=lambda kind, payload, **kw: signals.append(payload))
+    lab.start({"id": "n1", "status": "started"})
+    await settle(lab)
+
+    (post,) = rec.posts
+    assert post["image_url"] is None
+    assert "didn't come out — the camera can't run" in post["text"]
+    assert parker.events == []
+    assert list(cfg.selfie_dir.glob("*.png")) == []
+    assert signals[0]["error"] == "CameraUnavailable"
+
+    ready[0] = True                                     # the drive is mounted
+    lab.start({"id": "n2", "status": "started"})
+    await settle(lab)
+    assert rec.posts[-1]["image_url"].endswith("-n2.png")
 
 
 def test_a_configured_key_keeps_the_real_camera(cfg):

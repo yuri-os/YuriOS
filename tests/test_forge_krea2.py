@@ -367,7 +367,7 @@ def test_build_forge_still_routes_sdxl_to_the_diffusers_backend(
     assert forge.backend.name == "diffusers"
 
 
-def test_build_forge_degrades_loudly_without_the_krea2_deps(
+def test_build_forge_says_so_loudly_without_the_krea2_deps(
         monkeypatch, cfg, tmp_path, caplog):
     monkeypatch.setattr(Krea2Backend, "deps_available", staticmethod(lambda: False))
     ckpt = write_safetensors_header(
@@ -378,6 +378,6 @@ def test_build_forge_degrades_loudly_without_the_krea2_deps(
 
     with caplog.at_level("WARNING"):
         forge, status = build_forge(cfg)
-    assert forge.backend.name == "mock"
-    assert "krea2" in status
+    assert forge.backend.name == "krea2"         # never swapped for mock (§7.6)
+    assert status.startswith("krea2 (unavailable") and "dependencies" in status
     assert "forge-krea2" in caplog.text          # names the extra to install

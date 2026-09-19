@@ -94,8 +94,8 @@ def build_camera(rt) -> tuple[SelfieLab | None, str]:
     from .vram import LLMParker
     # The floor comes off the backend that was actually built, not off
     # the config: SELFIE_BACKEND=diffusers resolves to either local
-    # camera depending on the checkpoint, and a degrade-to-mock says
-    # None — nothing resident, nothing to park for.
+    # camera depending on the checkpoint. One that can't run yet keeps
+    # its floor — the lab refuses its shots before the parker is asked.
     lab = SelfieLab(forge, clock=rt.clock,
                     post=rt.post_message,
                     speak=rt.speak_ambient,

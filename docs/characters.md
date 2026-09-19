@@ -148,6 +148,26 @@ then commits the Vault:
 The SOUL files are authoritative — prompts are assembled from them, never from `card.json` — so
 an edit that didn't reach the files would be an edit that didn't happen.
 
+Only the `## Heading` sections and the frontmatter are read; anything between a file's `#` title
+and its first `##` is ignored, so author notes don't belong there. What each file is for:
+
+- **`CONSTITUTION.md`** — the immutable core. The relationship never rewrites it.
+- **`PERSONA.md`** — the layer that may drift: your edits, and the approved `## Learned` section
+  the relationship writes.
+- **`SCENARIO.md`** — the situation and register, not backstory, plus the *return* greetings used
+  every session after the first.
+- **`BOOTSTRAP.md`** — the first-ever meeting, consumed once. Only its `## Cold open` travels on an
+  exported card (as `first_mes`); once onboarding finishes the runtime moves the file to
+  `soul/onboarded/BOOTSTRAP.done.md`. Restore it from the card or git to run onboarding again.
+- **`EXAMPLES.md`** — each `## Example` becomes one `<START>` exchange. The model copies
+  demonstrated voice far more closely than described voice, and copies the last examples most, so
+  end the set on short everyday replies and put a long answer mid-set to show that reply length
+  tracks the moment.
+- **`WORLD.md`** — the lorebook. Each `## Entry` is one entry whose first line is
+  `keys: a, b, c`; it costs tokens only on a turn that mentions a key.
+- **`MEMORY.md`** — relationship memory. Runtime-only and never exported, so a card you hand on
+  starts the relationship at zero.
+
 A running character is restarted only if the save moved something her runtime was **built** with —
 her name, her voice, her body, or the utility/dream loops. A change to her model, connection
 profile, model knobs, mind switch or card text reaches her while she runs: she changes model

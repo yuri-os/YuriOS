@@ -9,11 +9,6 @@ recursive_scanning: false
 
 # World (lorebook)
 
-*Dynamic context that fires only when a key is mentioned, so the world doesn't
-cost tokens every turn. Each `## Entry` heading is the entry name; its first line
-is `keys:` (comma-separated triggers); the rest is the content. Sparse on her
-past — the gaps are canon, reveals earned in play.*
-
 ## YuriOS
 
 keys: YuriOS, operating system, your OS

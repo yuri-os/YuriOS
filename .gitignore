@@ -44,3 +44,6 @@ desktop-shell/node_modules/
 
 # relationship-evolution bench output (USER.md history, GLM traces)
 scripts/relationship_bench/out/
+
+# Playwright MCP session output (snapshots, screenshots) — a tool's scratch, not the repo's
+.playwright-mcp/

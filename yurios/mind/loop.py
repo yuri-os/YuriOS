@@ -70,7 +70,7 @@ SUSPEND_GAP_S = 2 * 3600.0
 # How long the first tick waits for her tool server to answer (SPEC §26.3). A
 # spawn takes 9–18 s on a node booting several characters; past this bound the
 # tick goes ahead handless rather than letting a hung spawn stop her heart.
-HANDS_BOOT_WAIT_S = 30.0
+HANDS_BOOT_WAIT_S = 60.0
 
 # scene canon, carried over from the idle machine it replaced (SPEC §15.5):
 # when she rain-gazes, this is the window the scene builds — the corner glass on

@@ -213,7 +213,7 @@ async def test_start_async_does_not_wait_for_the_tool_server(cfg, seeded_vault):
 
 async def test_a_failed_tool_server_still_settles_the_wait(cfg, seeded_vault):
     """Her mind's first tick waits for discovery to *answer* (SPEC §26.3), and
-    a spawn that died is an answer — not thirty seconds of nothing."""
+    a spawn that died is an answer — not a minute of nothing."""
     import asyncio
 
     from yurios.world.tools.fakes import FakeToolRunner

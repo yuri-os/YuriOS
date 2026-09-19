@@ -2181,7 +2181,7 @@ needs a sandbox.
   Her tool server is spawned unawaited (§7.2), so the mind starts before her hands exist, and
   the first tick after a restart is the one carrying the suspend gap and every overdue wakeup.
   When her hands could be offered at all, that first tick **MUST** wait for discovery to answer —
-  wired or failed — for at most `HANDS_BOOT_WAIT_S` (30 s), on the mind's own task: boot, the
+  wired or failed — for at most `HANDS_BOOT_WAIT_S` (60 s), on the mind's own task: boot, the
   port and the other characters' rooms **MUST NOT** wait with it. A hand blocked because discovery
   has not answered yet **MUST** say *her hands are still starting*, not that no tool server is
   running: the second is the answer for a server that is absent or failed, and the trace must not

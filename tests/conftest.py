@@ -361,10 +361,13 @@ class MindRig:
         self.controller = controller
         self.chat = chat
 
-    def say(self, text: str, reply: str = "Mm. I'm here.") -> None:
+    def say(self, text: str, reply: str = "Mm. I'm here.", *,
+            tool_outcomes: list[dict] | None = None) -> None:
         """One committed exchange, as the forked voice route tees it."""
         self.mind.bus.post("user_message", {"text": text}, source="voice")
-        self.mind.bus.post("turn_committed", {"text": text, "reply": reply},
+        self.mind.bus.post("turn_committed", {
+            "text": text, "reply": reply,
+            "tool_outcomes": tool_outcomes or []},
                            source="voice")
 
     def proactive_messages(self):

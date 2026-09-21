@@ -19,14 +19,18 @@ class LoopBrain:
     def __init__(self, tb):
         self.tb = tb
         self.persist_calls: list[tuple[str, str]] = []
+        self.outcomes: list[dict] = []
 
     async def stream_reply(self, session_id: str, text: str):
         async for tok in self.tb._stream_with_tools(
-                [{"role": "user", "content": text}], []):
+                [{"role": "user", "content": text}], [], self.outcomes):
             yield tok
 
-    async def persist(self, session_id: str, user_text: str, reply: str) -> None:
+    async def persist(self, session_id: str, user_text: str,
+                      reply: str) -> list[dict]:
         self.persist_calls.append((user_text, reply))
+        outcomes, self.outcomes = self.outcomes, []
+        return outcomes
 
 
 class BlockingRunner(FakeToolRunner):
@@ -59,7 +63,9 @@ async def test_first_audio_precedes_tool_execution(cfg, guard, timers, controlle
                         mask_latency=False)
 
     kinds, texts = [], []
+    terminal = None
     async for ev in tc.run_turn("s1", "set a timer"):
+        terminal = ev
         kinds.append(ev.kind)
         if ev.kind == "audio":
             texts.append(ev.text)
@@ -73,6 +79,8 @@ async def test_first_audio_precedes_tool_execution(cfg, guard, timers, controlle
     assert kinds[-1] == "done"
     assert runner.finished
     assert any("counting" in (t or "") for t in texts)   # the continuation spoke
+    assert terminal is not None
+    assert terminal.tool_outcomes[0]["tool"] == "set_timer"
 
 
 async def test_bargein_mid_continuation_cancels_and_persists_nothing(

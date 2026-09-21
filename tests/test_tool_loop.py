@@ -23,8 +23,10 @@ async def test_one_call_result_reaches_the_continuation(cfg, guard, timers,
     tb = make_toolbrain(cfg, guard, timers, controller, chat, runner=runner)
 
     raw: list[str] = []
+    outcomes: list[dict] = []
     spoken = "".join(await collect(
-        tb._stream_with_tools([{"role": "user", "content": "set a tea timer"}], raw)))
+        tb._stream_with_tools([{"role": "user", "content": "set a tea timer"}],
+                              raw, outcomes)))
 
     # the marker was never spoken; both passes' speech joined the same turn
     assert spoken == "Sure — one sec. Ten minutes, counting."
@@ -41,6 +43,10 @@ async def test_one_call_result_reaches_the_continuation(cfg, guard, timers,
     # the raw record keeps the marker + result for the corpus (§7.4)
     joined = "".join(raw)
     assert TIMER_MARKER in joined and "set_timer → " in joined
+    assert outcomes[0]["tool"] == "set_timer"
+    assert outcomes[0]["args"] == {"minutes": 10, "label": "tea"}
+    assert outcomes[0]["verdict"] == "ok"
+    assert json.loads(outcomes[0]["result"])["seconds"] == 600
 
 
 async def test_per_turn_cap_second_call_runs_third_denied(cfg, guard, timers,
@@ -87,10 +93,31 @@ async def test_tool_error_still_completes_the_turn(cfg, guard, timers, controlle
     ])
     runner = FakeToolRunner(errors={"list_notes": "disk gone"})
     tb = make_toolbrain(cfg, guard, timers, controller, chat, runner=runner)
-    spoken = "".join(await collect(tb._stream_with_tools([], [])))
+    outcomes: list[dict] = []
+    spoken = "".join(await collect(tb._stream_with_tools([], [], outcomes)))
 
     assert spoken.endswith("I can't reach my desk right now.")
     assert "error (disk gone)" in chat.calls[1][-1]["content"]
+    assert outcomes == [{"tool": "list_notes", "args": {},
+                         "verdict": "error", "result": "error (disk gone)"}]
+
+
+async def test_a_note_listing_is_explicitly_only_an_index(
+        cfg, guard, timers, controller):
+    chat = ScriptedChat([
+        ['checking [[list_notes {"folder":"goals"}]]'],
+        ["I can only report the index."],
+    ])
+    result = '{"count":24,"files":[{"path":"goals/a.md","bytes":10}]}'
+    tb = make_toolbrain(
+        cfg, guard, timers, controller, chat,
+        runner=FakeToolRunner(results={"list_notes": result}))
+
+    await collect(tb._stream_with_tools([], []))
+
+    cue = chat.calls[1][-1]["content"]
+    assert "only an index of paths and sizes" in cue
+    assert "Do not say you read or reviewed those files" in cue
 
 
 async def test_no_runner_marker_stripped_single_pass(cfg, guard, timers, controller):

@@ -46,8 +46,9 @@ class ConversationalBrain(Protocol):
         """The continuity opener. Not a turn, so it is never persisted."""
         ...
 
-    async def persist(self, session_id: str, user_text: str, reply: str) -> None:
-        """Commit the turn: corpus line, journal, index, USER.md, one git commit."""
+    async def persist(self, session_id: str, user_text: str,
+                      reply: str) -> list[dict]:
+        """Commit the turn and return its structured tool outcomes."""
         ...
 
     def abandon(self, session_id: str) -> None:

@@ -164,6 +164,7 @@ reactive body (Part II gates who may edit it, §23).
 3. SCENARIO / PLACE       (SCENARIO#Scenario)
 4. LORE (if fired)        (matched WORLD.md entries, keyword-triggered)
 5. WHO YOU ARE TO HER     (vault/soul/USER.md facts — not YAML, seed headings, or empty `_(…)_` slots)
+5b. WHAT YOU'RE WORKING ON (the open entries in vault/goals.md — §22.6)
 6. WHAT YOU'VE TALKED ABOUT (vault/memory/summary.md)
 7. THINGS THAT MAY BE RELEVANT (recall(user_msg, k), each tagged with age)
 8. WHAT YOU'VE READ       (knowledge.search(user_msg, k), each with its citation — §20.2)
@@ -179,7 +180,8 @@ verbatim bullets onto the user line made a one-word check-in look like a hundred
 The raw window **MUST** stay small
 (long raw context degrades middle recall); the rolling summary carries older context
 cheaply. On overflow, **drop the examples first, then knowledge, then recalled memories, then
-the lorebook; never drop the voice law, persona, `USER.md`, or the honesty constraint.**
+the lorebook, then open goals; never drop the voice law, persona, `USER.md`, or the honesty
+constraint.**
 Knowledge goes before memory in that order because a chunk is a paragraph rather than a line
 (so one buys back what a dozen memories would), because the shelf is on disk and the same
 search runs again next turn, and because of the three it is the least *hers*.
@@ -788,6 +790,9 @@ to every new subscriber before its first live event. Malformed JSON is logged an
   On a closed marker: guard-check → MCP
   call → a **continuation stream** (original messages + the partial reply + a `((tool result:
   …))` cue) the model finishes as the same turn — so she *speaks to* what her hands found.
+  A catalog is evidence only of its catalog: after `list_notes`, the continuation **MUST** say
+  that paths and sizes are not file contents, **MUST NOT** invite a claim that those files were
+  read, and **MUST** direct her to `read_note` or to state the scope she could not inspect.
   A continuation **MUST NOT** repeat what the previous pass already said: the model reads
   "continue from where you left off" as "say it again, then continue", so the echo is matched
   against that pass and dropped (`_EchoSkipper`). Matching **MUST** hold rather than swallow, so
@@ -1384,7 +1389,10 @@ surface between turns.
   *observer and consequence*: a `user_message` signal **MUST** preempt the activity state to
   ENGAGED from any state, mid-sleep if necessary (the bus wake), and a committed exchange
   arrives as a `turn_committed` signal whose REFLECT share is the world-model update and the
-  promise scan (§22.1). One mind at two cadences: the loop owns everything between turns; the
+  promise scan (§22.1). That signal **MUST** carry the committed turn's structured tool outcomes
+  (tool, arguments, verdict and model-facing result), and an abandoned turn **MUST** discard
+  them rather than hand them to the next exchange. One mind at two cadences: the loop owns
+  everything between turns; the
   turn pipeline stays the ENGAGED fast path. (The full one-loop unification — the reply
   generated *by* ACT — is a named next rung, §28.)
 - §15.4 **Rehydration and the suspend gap.** The engine's cursor state (`state/engine.json`:
@@ -2003,6 +2011,12 @@ optional due time, **provenance**, and a **commitment strategy**; lifecycle
   ever a `task`, so goal work and her hands had no subject and she talked about work she had not
   done. **A `task` she finishes on her own promise MUST file the news half** (`followup:<goal>`,
   `open-minded`) rather than closing silently, or the split loses the half you were waiting for.
+  Quoted examples of first-person promises **MUST NOT** become candidates. Semantic review
+  **MUST** receive the tool outcomes from the completed turn and **MUST NOT** accept narration as
+  proof of an action: `list_notes` proves an index, `read_note` proves only its returned path and
+  range, and a quantified claim requires outcomes covering its scope. Errors and denials prove no
+  work completed; a `status: started` result proves dispatch, not the eventual product. Pending
+  reviews **MUST** retain this evidence across retry and restart.
 - §22.2 **Commitment governs staleness:** `blind` is defended past due (a birthday is a birthday),
   `single-minded` drops only when moot, `open-minded` is abandoned the moment it stops being timely.
   The suspend-gap catch-up (§15.4) applies these in one pass, and so **MUST** the local-day
@@ -2050,10 +2064,14 @@ optional due time, **provenance**, and a **commitment strategy**; lifecycle
   morning's reconciliation. For DREAM the timing is load-bearing: the daily reconciliation runs
   at the local-midnight rollover, the very tick yesterday's journal becomes new backlog, so it
   alone can never observe the leftover cleared while any conversation happens.
-- §22.6 **Her open goals are in the conversational prompt** (§7.1, block 5b). Without them the
+- §22.6 **Her open goals are in the conversational prompt** (§2.1, block 5b). Without them the
   talking-self and the intending-self are two people who have never met, and she re-promises what
   she is already working on. The block is droppable on overflow — last, after the lorebook — and
-  `USER.md` never is.
+  `USER.md` never is. Every shown goal is still open: `waiting` means blocked, not done, and
+  `workspace/goals/*.md` are working notes rather than the standing list. A surviving block
+  **MUST** mark itself `COMPLETE` only when every open goal is present; if `GOALS_IN_PROMPT` or
+  overflow omitted any, it **MUST** mark itself `PARTIAL` and forbid presenting the snapshot as a
+  complete review.
 
 ## §23 — The SOUL split and gated self-edits
 

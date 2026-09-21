@@ -214,7 +214,8 @@ async def _in_the_room(ws: WebSocket, rt, session_id: str, safe_send,
                         if user_text:                  # the SignalBus tee
                             rt.signals.post("turn_committed",
                                             {"text": user_text,
-                                             "reply": " ".join(spoken)},
+                                             "reply": " ".join(spoken),
+                                             "tool_outcomes": ev.tool_outcomes},
                                             source="voice")
                     elif ev.kind in ("cancelled", "error"):   # no trace
                         rt.hub.publish("draft_cancel", {})

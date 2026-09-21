@@ -26,7 +26,7 @@ from .util import iso_of, jsonl_append, new_id
 # the open enum (SPEC §16.2). Unknown types are legal — they appraise low.
 SIGNAL_TYPES = (
     "user_message",     # a committed user turn (text; the voice route tees it)
-    "turn_committed",   # a full exchange committed (payload: text, reply)
+    "turn_committed",   # committed exchange (text, reply, tool_outcomes)
     "user_present",     # a chat room or the live CLI attached to /api/events
     "user_absent",      # the last chat-room / CLI viewer detached
     "timer",            # a TimerBoard countdown landed (payload: label, late_s)

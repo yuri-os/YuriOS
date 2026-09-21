@@ -411,6 +411,9 @@ class MindLoop:
                             "user_text": trim(user_text, 1000),
                             "reply": trim(reply, 3000),
                             "candidates": normalized,
+                            "tool_outcomes": [dict(item) for item in
+                                              sig.payload.get("tool_outcomes", [])
+                                              if isinstance(item, dict)],
                             "attempts": 0,
                         })
                         # The signal bus is not replayed after restart. Persist

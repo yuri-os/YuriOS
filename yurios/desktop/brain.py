@@ -101,25 +101,27 @@ class BrainAdapter:
         """
         self.goals = store
 
-    def _open_goals(self) -> list[str]:
+    def _open_goals(self) -> tuple[list[str], bool]:
         """Her open goals, newest last, as one line each. Never raises: a
         `goals.md` somebody hand-edited into nonsense is a turn without the
         block, not a turn that doesn't happen (the shelf's rule)."""
-        if self.goals is None or getattr(self.cfg, "goals_in_prompt", 12) <= 0:
-            return []
+        limit = getattr(self.cfg, "goals_in_prompt", 12)
+        if self.goals is None or limit <= 0:
+            return [], True
         try:
             open_goals = self.goals.open_goals()
         except Exception:       # noqa: BLE001 — a mangled goals.md
             log.warning("goal list failed; assembling without it", exc_info=True)
-            return []
+            return [], True
         lines: list[str] = []
-        for goal in open_goals[-getattr(self.cfg, "goals_in_prompt", 12):]:
+        selected = open_goals[-limit:]
+        for goal in selected:
             # The state is worth a word: "waiting" is the difference between a
             # thing she has not started and a thing she is blocked on, and only
             # one of those is worth asking them about.
             mark = "" if goal.state == "pending" else f" ({goal.state})"
             lines.append(f"{goal.text}{mark}")
-        return lines
+        return lines, len(selected) == len(open_goals)
 
     def set_workspace(self, workspace, skills, on_write=None) -> None:
         """Wire her desk and her skills into the prompt (SPEC §34.3).
@@ -225,13 +227,15 @@ class BrainAdapter:
                   lore) -> object:
         """One assembled prompt (Build #1) + the Build #2 expression block (§6)."""
         soul = self.state.soul_loader.load()                  # read every turn (§5)
+        goals, goals_complete = self._open_goals()
         prompt = asm.assemble(
             soul,
             user_md=self.state.store.read_user_md(),
             summary=self.state.store.read_summary(),
             memories=self.state.store.recall(text, self.cfg.retrieval_k),
             knowledge=self._recall_knowledge(text),
-            goals=self._open_goals(),
+            goals=goals,
+            goals_complete=goals_complete,
             lore=lore,
             window=window,
             user_msg=text,
@@ -298,12 +302,13 @@ class BrainAdapter:
             return
         self.state.sessions.drop_last(session_id, "user")
 
-    async def persist(self, session_id: str, user_text: str, reply: str) -> None:
+    async def persist(self, session_id: str, user_text: str,
+                      reply: str) -> list[dict]:
         """Build #1's post-turn pipeline, verbatim: corpus line, then journal +
         index + USER.md + summary + exactly one git commit (SPEC §2, §4.4)."""
         pend = self._pending.pop(session_id, None)
         if pend is None:
-            return
+            return []
         turn_id = self.state.corpus.log_turn(
             session_id=session_id, turn_index=pend.turn_index,
             messages=pend.prompt.messages, completion=reply,
@@ -331,6 +336,7 @@ class BrainAdapter:
         record = Record(session_id=session_id, turn_index=pend.turn_index,
                         user_msg=user_text, reply=reply)
         await post_turn(self.state, record, session_id, pend.turn_index + 1)
+        return []
 
     # -- the greeting: she speaks first (SPEC §7) -------------------------------
     def _has_history(self) -> bool:

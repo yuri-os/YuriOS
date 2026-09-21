@@ -88,6 +88,7 @@ class FakeBrain:
         self.abandon_calls: list[str] = []                    # …and every one rolled back
         self.cold: str | None = None      # set it to be a first-ever arrival (§5.4)
         self.images: list[str | None] = []                    # …and every picture shown
+        self.tool_outcomes: list[dict] = []
         self._gate: asyncio.Event | None = None
 
     def cold_open(self) -> str | None:
@@ -124,12 +125,16 @@ class FakeBrain:
     def resolve_session(self, session_id: str | None) -> str:
         return session_id or "0" * 32
 
-    async def persist(self, session_id: str, user_text: str, reply: str) -> None:
+    async def persist(self, session_id: str, user_text: str,
+                      reply: str) -> list[dict]:
         self.persisted = (session_id, user_text, reply)
         self.persist_calls.append((session_id, user_text, reply))
+        outcomes, self.tool_outcomes = self.tool_outcomes, []
+        return outcomes
 
     def abandon(self, session_id: str) -> None:
         self.abandon_calls.append(session_id)   # the rollback spy, persist's twin
+        self.tool_outcomes = []
 
 
 def _wordish(text: str) -> list[str]:

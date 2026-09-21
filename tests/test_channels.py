@@ -41,6 +41,9 @@ def signal_types(rt) -> list[tuple[str, str]]:
 
 def test_api_chat_runs_one_committed_turn(cfg):
     brain = FakeBrain()
+    outcome = {"tool": "list_notes", "args": {"folder": "goals"},
+               "verdict": "ok", "result": '{"count":2}'}
+    brain.tool_outcomes = [outcome]
     app = make_app(cfg, brain)
     with TestClient(app) as c:
         r = c.post("/api/chat", json={
@@ -63,6 +66,9 @@ def test_api_chat_runs_one_committed_turn(cfg):
         # the mind's tee: preempt + REFLECT share, stamped with the medium
         assert ("user_message", "cli") in signal_types(rt)
         assert ("turn_committed", "cli") in signal_types(rt)
+        signals, _ = rt.signals.next(0, limit=64)
+        committed = next(s for s in signals if s.type == "turn_committed")
+        assert committed.payload["tool_outcomes"] == [outcome]
 
 
 def test_api_chat_hides_reasoning_blocks_from_the_message(cfg):

@@ -40,7 +40,7 @@ from yurios.app.memory.store import Memory
 from yurios.characters.soulfiles import H2_RE, parse_md_text, split_sections
 
 # bump whenever the assembly layout changes — stamped on every corpus record (§8.2)
-TEMPLATE_VERSION = "b1-assemble-v2"
+TEMPLATE_VERSION = "b1-assemble-v3"
 
 # §7.4 — the honesty constraint, fixed text, verified by the golden transcript test
 HONESTY = """\
@@ -75,7 +75,10 @@ What you are already working on — your own standing list, the same one the \
 quiet hours between conversations work through. These are commitments you have \
 ALREADY made, so don't promise them again as though they were new; refer to \
 one, ask about it, or say where it got to. If you take on something new here, \
-say so plainly and it will be added."""
+say so plainly and it will be added. Every goal shown below is still open: a \
+goal marked waiting is blocked, not finished. Files under workspace/goals/ are \
+working notes and may include old, completed, or abandoned work; they are not \
+this standing list."""
 
 
 class Known(Protocol):
@@ -252,6 +255,7 @@ def assemble(soul: Soul, *, user_md: str, summary: str, memories: list[Memory],
              user_name: str = "you",
              knowledge: Sequence[Known] = (),
              goals: Sequence[str] = (),
+             goals_complete: bool = True,
              system_budget_tokens: int = 8000,
              lorebook_budget_tokens: int = 400,
              knowledge_budget_tokens: int = 900) -> AssembledPrompt:
@@ -273,6 +277,7 @@ def assemble(soul: Soul, *, user_md: str, summary: str, memories: list[Memory],
 
     memories = list(memories)
     goals = list(goals)
+    supplied_goal_count = len(goals)
     dropped_memories = dropped_lore = dropped_knowledge = dropped_goals = 0
 
     def build_system(mems: list[Memory], lore_now: list[LoreEntry],
@@ -292,9 +297,17 @@ def assemble(soul: Soul, *, user_md: str, summary: str, memories: list[Memory],
             apply_macros(user_md_for_prompt(user_md) or "(nothing yet)",
                          soul.name, user_name)))
         if goals_now:
+            complete = goals_complete and len(goals_now) == supplied_goal_count
+            status = (
+                "List status: COMPLETE — every open goal is shown below."
+                if complete else
+                "List status: PARTIAL — other open goals are omitted from this "
+                "prompt. Do not present this as a complete review."
+            )
             blocks.append(_block(
                 "WHAT YOU'RE WORKING ON",
                 apply_macros(GOALS_NOTE, soul.name, user_name) + "\n\n"
+                + status + "\n\n"
                 + "\n".join(f"- {g}" for g in goals_now)))
         if summary.strip():
             blocks.append(_block("WHAT YOU'VE TALKED ABOUT", summary))

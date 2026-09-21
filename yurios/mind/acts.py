@@ -173,7 +173,9 @@ async def promise_review(loop, offer=None) -> tuple[dict, dict, list[str]]:
     messages = promise_review_messages(
         user_text=str(review.get("user_text", "")),
         reply=str(review.get("reply", "")), candidates=candidates,
-        capabilities=list(offer.tools) if offer else [])
+        capabilities=list(offer.tools) if offer else [],
+        tool_outcomes=(review.get("tool_outcomes")
+                       if isinstance(review.get("tool_outcomes"), list) else []))
     try:
         with correlate.scope(kind=correlate.UTILITY):
             raw = await loop._utility(

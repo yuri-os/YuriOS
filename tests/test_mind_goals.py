@@ -32,10 +32,21 @@ def test_assemble_carries_her_open_goals():
                              "read the paddleboard thing (waiting)"])
     assert "WHAT YOU'RE WORKING ON" in prompt.system
     assert "ask how the interview went" in prompt.system
+    assert "List status: COMPLETE" in prompt.system
+    assert "still open" in prompt.system
+    assert "working notes" in prompt.system
     # the state is in the line, because "waiting" and "not started" are
     # different things to bring up
     assert "(waiting)" in prompt.system
     assert prompt.dropped_goals == 0
+
+
+def test_a_capped_goal_snapshot_says_it_is_partial():
+    prompt = assemble(_soul(), user_md="They are called Sam.", summary="",
+                      memories=[], lore=[], window=[], user_msg="review these",
+                      goals=["newer goal", "newest goal"], goals_complete=False)
+    assert "List status: PARTIAL" in prompt.system
+    assert "Do not present this as a complete review" in prompt.system
 
 
 def test_goals_are_dropped_before_user_md_on_overflow():
@@ -60,6 +71,22 @@ async def test_the_prompt_she_talks_through_carries_the_goal_store(cfg, seeded_v
     system = prompt.messages[0]["content"]
     assert "WHAT YOU'RE WORKING ON" in system
     assert "find out what happened with the landlord" in system
+
+
+async def test_goals_in_prompt_cap_marks_the_snapshot_partial(cfg, seeded_vault):
+    cfg = cfg.model_copy(update={"goals_in_prompt": 1})
+    rig = make_mind(cfg, seeded_vault)
+    rig.mind.goals.add("the older open goal", kind="task")
+    rig.mind.goals.add("the newest open goal", kind="task")
+    session = rig.mind.brain.resolve_session(None)
+
+    _soul_, prompt = rig.mind.brain._assemble(session, "review your goals",
+                                               window=[], lore=[])
+
+    system = prompt.messages[0]["content"]
+    assert "the newest open goal" in system
+    assert "the older open goal" not in system
+    assert "List status: PARTIAL" in system
 
 
 # --- the promise scan, in the register she actually promises in ----------------

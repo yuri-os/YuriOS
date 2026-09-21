@@ -174,6 +174,8 @@ def wait_for(pred, timeout=5.0):
 
 def test_turns_commit_to_the_transcript_greeting_is_proactive(rig):
     client, rt, brain = rig
+    outcome = {"tool": "read_note", "args": {"path": "goals/a.md"},
+               "verdict": "ok", "result": '{"path":"goals/a.md"}'}
     with client.websocket_connect("/ws/voice") as ws:
         ws.send_json({"type": "hello", "session_id": None})
         handshake(ws)                                   # session (past any warm notice)
@@ -183,6 +185,7 @@ def test_turns_commit_to_the_transcript_greeting_is_proactive(rig):
         assert greet["role"] == "assistant" and greet["proactive"] is True
         assert "there you are" in greet["text"]         # tag stripped, text kept
         assert greet["channel"] == "voice"
+        brain.tool_outcomes = [outcome]
 
         ws.send_json({"type": "text", "text": "talk to me",
                       "client_id": "browser-1"})
@@ -206,6 +209,10 @@ def test_turns_commit_to_the_transcript_greeting_is_proactive(rig):
         # connection cannot make an otherwise successful spoken reply textless.
         assert done["client_id"] == "browser-1"
         assert done["message"] == rt.transcript[2]
+        assert "tool_outcomes" not in done
+        signals, _ = rt.signals.next(0, limit=64)
+        committed = next(s for s in signals if s.type == "turn_committed")
+        assert committed.payload["tool_outcomes"] == [outcome]
 
 
 def test_the_cold_open_is_committed_as_written_not_as_spoken(rig):

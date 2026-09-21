@@ -316,9 +316,11 @@ class TextTurns:
                 # model it is talking to (§7.6). No `wait` first: the turn came
                 # through the gate at the top, and this is the same turn.
                 async with rt.park_gate.hold():
-                    await rt.brain.persist(session_id, text, "".join(raw))
+                    tool_outcomes = await rt.brain.persist(
+                        session_id, text, "".join(raw))
                 rt.signals.post("turn_committed",
-                                {"text": text, "reply": reply}, source=channel)
+                                {"text": text, "reply": reply,
+                                 "tool_outcomes": tool_outcomes}, source=channel)
             selfies = rt.selfies.active_ids(client_id) if rt.selfies else []
             return {"session_id": session_id, "message": entry,
                     "user_message": user_entry, "active_selfies": selfies}

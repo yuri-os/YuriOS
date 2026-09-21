@@ -196,6 +196,9 @@ class ToolBrain(BrainAdapter):
         # model-verbatim record per session (markers + results), for persist():
         # the corpus should see what the model actually did, not the cleaned speech
         self._raw: dict[str, str] = {}
+        # Structured evidence for REFLECT's promise review. Kept beside `_raw`
+        # because it has the same lifetime: commit hands it off, abandon drops it.
+        self._tool_outcomes: dict[str, list[dict]] = {}
 
     @classmethod
     def build(cls, cfg, *, guard: Guard, timers: TimerBoard,
@@ -301,30 +304,37 @@ class ToolBrain(BrainAdapter):
         self._pending[session_id] = _Pending(prompt, turn_index, soul)
 
         raw: list[str] = []
+        outcomes: list[dict] = []
         # The image part goes on the wire only (`with_image` copies): the
         # continuation passes below carry it too, so a tool she reaches for
         # halfway through does not cost her the picture she was looking at.
         messages = asm.with_image(prompt.messages, image) if image \
             else prompt.messages
         try:
-            async for token in self._stream_with_tools(messages, raw):
+            async for token in self._stream_with_tools(messages, raw, outcomes):
                 yield token
         finally:
             self._raw[session_id] = "".join(raw)
+            self._tool_outcomes[session_id] = outcomes
 
     def abandon(self, session_id: str) -> None:
         """B1's rollback, plus this subclass's own half-turn state: the verbatim
         record of a turn that didn't happen must not survive to be persisted
         against the next one (§7.4)."""
         self._raw.pop(session_id, None)
+        self._tool_outcomes.pop(session_id, None)
         super().abandon(session_id)
 
-    async def persist(self, session_id: str, user_text: str, reply: str) -> None:
+    async def persist(self, session_id: str, user_text: str,
+                      reply: str) -> list[dict]:
         """B1's post-turn pipeline, but the corpus gets the model-verbatim record
         — markers and tool results included — so the training log reflects what
         actually happened in the turn, not just what was spoken (§7.4)."""
+        pending = session_id in self._pending
         raw = self._raw.pop(session_id, None)
+        outcomes = self._tool_outcomes.pop(session_id, [])
         await super().persist(session_id, user_text, raw or reply)
+        return outcomes if pending else []
 
     # -- ambient speech (SPEC §8.3): the greeting pattern, with any cue ---------
     async def stream_ambient(self, session_id: str, cue: str) -> AsyncIterator[str]:
@@ -353,8 +363,9 @@ class ToolBrain(BrainAdapter):
                     template_version=prompt.template_version)
 
     # -- the loop of passes (SPEC §7.4) -----------------------------------------
-    async def _stream_with_tools(self, messages: list[dict],
-                                 raw: list[str]) -> AsyncIterator[str]:
+    async def _stream_with_tools(self, messages: list[dict], raw: list[str],
+                                  outcomes: list[dict] | None = None
+                                  ) -> AsyncIterator[str]:
         messages = list(messages)
         calls_made = 0
         retried = False                # one re-emit per turn for a broken marker
@@ -388,8 +399,12 @@ class ToolBrain(BrainAdapter):
                         call = closed[0]           # first closed marker ends the pass
                         break
                     for extra in closed:           # markers past the cap: denied, dropped
-                        self.guard.audit(extra.tool, extra.args,
-                                         "denied: per-turn cap", 0.0, "")
+                        verdict = "denied: per-turn cap"
+                        result = "denied (per-turn cap)"
+                        self.guard.audit(extra.tool, extra.args, verdict, 0.0, result)
+                        if outcomes is not None:
+                            outcomes.append({"tool": extra.tool, "args": extra.args,
+                                             "verdict": verdict, "result": result})
             finally:
                 await stream.aclose()
 
@@ -435,15 +450,29 @@ class ToolBrain(BrainAdapter):
 
             calls_made += 1
             prev_spoken = "".join(spoken_this_pass)
-            result = await self._execute(call, turn)
+            result = await self._execute(call, turn, outcomes=outcomes)
             raw.append(f'\n[[{call.tool} → {result}]]\n')
             # the continuation: her partial reply + the result, back to the model
             # as the SAME turn (§7.4). The partial must be in the messages or she
             # restarts the sentence.
+            index_warning = ""
+            if call.tool == "list_notes":
+                try:
+                    payload = json.loads(result)
+                    if isinstance(payload, dict) and isinstance(payload.get("files"), list):
+                        index_warning = (
+                            " This result is only an index of paths and sizes, not "
+                            "the contents of any file. Do not say you read or reviewed "
+                            "those files. Call read_note for a file you actually need; "
+                            "if the requested scope exceeds this turn, say exactly what "
+                            "you did and did not inspect."
+                        )
+                except ValueError:
+                    pass
             messages = messages + [
                 {"role": "assistant", "content": prev_spoken},
                 {"role": "user", "content":
-                    f"(({call.tool} returned: {result}. Continue the same spoken "
+                    f"(({call.tool} returned: {result}.{index_warning} Continue the same spoken "
                     "reply from where you left off — weave the result in "
                     "naturally, never read data formats aloud"
                     + (", and your tool budget for this turn is now spent — "
@@ -451,14 +480,20 @@ class ToolBrain(BrainAdapter):
                     + ".))"},
             ]
 
-    async def _execute(self, call: ToolCall, turn: Turn | None = None) -> str:
+    async def _execute(self, call: ToolCall, turn: Turn | None = None, *,
+                       outcomes: list[dict] | None = None) -> str:
         """Guard → MCP → audit → host-side realisation. Never raises: a denied or
         failed call becomes a short result string the model can speak to (§7.3)."""
         t0 = self.guard.clock.now()
         ok, reason = self.guard.check(call.tool, call.args, turn=turn)
         if not ok:
-            self.guard.audit(call.tool, call.args, f"denied: {reason}", 0.0, "")
-            return f"denied ({reason})"
+            verdict = f"denied: {reason}"
+            result = f"denied ({reason})"
+            self.guard.audit(call.tool, call.args, verdict, 0.0, result)
+            if outcomes is not None:
+                outcomes.append({"tool": call.tool, "args": call.args,
+                                 "verdict": verdict, "result": result})
+            return result
         try:
             text = await asyncio.wait_for(
                 self.runner.call(call.tool, call.args),
@@ -467,7 +502,11 @@ class ToolBrain(BrainAdapter):
             dt = (self.guard.clock.now() - t0) * 1000
             why = failure(e, self.cfg.tool_timeout_s)
             self.guard.audit(call.tool, call.args, "error", dt, why)
-            return f"error ({why})"
+            result = f"error ({why})"
+            if outcomes is not None:
+                outcomes.append({"tool": call.tool, "args": call.args,
+                                 "verdict": "error", "result": result})
+            return result
         # Host realization needs the complete machine-readable contract. A
         # detailed selfie `look` can push that JSON beyond the model-facing
         # result cap; truncating first makes it invalid JSON and silently skips
@@ -476,6 +515,9 @@ class ToolBrain(BrainAdapter):
         text = self.guard.truncate(full_text, tool=call.tool)
         dt = (self.guard.clock.now() - t0) * 1000
         self.guard.audit(call.tool, call.args, "ok", dt, text)
+        if outcomes is not None:
+            outcomes.append({"tool": call.tool, "args": call.args,
+                             "verdict": "ok", "result": text})
         self._realise(call, full_text)
         return text
 

@@ -396,6 +396,11 @@ _TRAILING_OFFER = re.compile(
     r",?\s*\b(?:if|unless)\s+(?:you|you'd|you would)\s+"
     r"(?:want|like|wish|prefer|care)\b.*$", re.I)
 
+# Quoted examples are evidence about what somebody said, not a new commitment in
+# the reply that quotes them. Straight/curly double quotes and Markdown code spans
+# cover the live false positive without treating the apostrophe in "I'll" as a quote.
+_QUOTED = re.compile(r'"[^"\n]*"|“[^”\n]*”|`[^`\n]*`')
+
 
 def _clean(text: str) -> str:
     return text.strip().rstrip(",;:").strip()
@@ -444,7 +449,14 @@ another task or invent work. If every candidate is framing, return null.
 
 The final state at the END of the assistant reply controls. If the reply later gives
 the result, confirmation, answer, artifact, or explicitly says the work is complete,
-return null even when an earlier sentence said "I will" or "let me" do that work.
+return null even when an earlier sentence said "I will" or "let me" do that work —
+but only when completion is supported by the supplied exchange or tool outcomes.
+Do not treat the assistant's own narration as proof that an action happened. An `ok`
+tool outcome proves only what that tool returned: `list_notes` proves an index of paths
+and sizes, not that any file was read; `read_note` proves only the returned file and
+line range; and quantified work such as "read them all" requires outcomes covering the
+claimed scope. An error or denial proves nothing completed. A result whose status is
+`started` proves dispatch, not that the resulting work finished.
 
 Return exactly one JSON object and no prose:
 {"goal": null}
@@ -496,6 +508,12 @@ PROMISE_REVIEW_RESPONSE_FORMAT = {
 
 def discover_promise_candidates(reply: str, user_msg: str) -> list[PromiseCandidate]:
     """Find possible commitments in source order; make no semantic decision."""
+    reply = reply or ""
+    quoted = [(match.start(), match.end()) for match in _QUOTED.finditer(reply)]
+
+    def is_quoted(start: int) -> bool:
+        return any(left <= start < right for left, right in quoted)
+
     raw: list[tuple[int, str, str, str, str]] = []
     seen: set[tuple[str, str]] = set()
 
@@ -525,8 +543,10 @@ def discover_promise_candidates(reply: str, user_msg: str) -> list[PromiseCandid
     )
     found: list[tuple[int, str, str, str, str]] = []
     for pattern, confidence in patterns:
-        for match in pattern.finditer(reply or ""):
-            if _CONDITIONAL.search((reply or "")[:match.start()].rsplit("\n", 1)[-1]):
+        for match in pattern.finditer(reply):
+            if is_quoted(match.start()):
+                continue
+            if _CONDITIONAL.search(reply[:match.start()].rsplit("\n", 1)[-1]):
                 continue
             found.append((match.start(), match.group(1),
                           "promise:her-own-words", match.group(0), confidence))
@@ -551,12 +571,14 @@ def fallback_promises(candidates: list[PromiseCandidate]) -> list[PromiseCandida
 
 
 def promise_review_messages(*, user_text: str, reply: str,
-                            candidates: list[dict], capabilities: list[str]) -> list[dict]:
+                             candidates: list[dict], capabilities: list[str],
+                             tool_outcomes: list[dict] | None = None) -> list[dict]:
     payload = {
         "user_request": user_text,
         "assistant_reply": reply,
         "candidates": candidates,
         "available_capabilities": capabilities,
+        "tool_outcomes": tool_outcomes or [],
     }
     return [{"role": "system", "content": PROMISE_REVIEW_SYSTEM},
             {"role": "user", "content": json.dumps(payload, ensure_ascii=False)}]

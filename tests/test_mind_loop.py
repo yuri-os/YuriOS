@@ -21,12 +21,14 @@ class ReviewUtility(FakeUtility):
         self.reviews = list(reviews)
         self.review_calls = 0
         self.review_params = []
+        self.review_messages = []
 
     async def complete(self, messages, **params):
         system = messages[0].get("content", "") if messages else ""
         if "reviewing possible commitments" in system.lower():
             self.review_calls += 1
             self.review_params.append(params)
+            self.review_messages.append([dict(message) for message in messages])
             return self.reviews.pop(0)
         return await super().complete(messages, **params)
 
@@ -269,6 +271,15 @@ def test_promise_candidates_keep_source_order_across_openers():
     ]
 
 
+def test_promise_candidates_ignore_quoted_examples():
+    reply = ('None of the "I\'ll get to it" routine. '
+             '“I will read it” is exactly what I said before. '
+             "I'll check the real file now.")
+    candidates = discover_promise_candidates(reply, "review it")
+    assert [candidate.text for candidate in candidates] == [
+        "check the real file now"]
+
+
 def test_promise_review_parser_is_strict():
     valid = review_goal("verify the release calendar")
     decision = parse_promise_review(valid, candidate_count=1)
@@ -328,13 +339,33 @@ async def test_yuriquant_fragments_become_one_canonical_goal(cfg, seeded_vault):
     assert utility.review_params[0]["response_format"]["type"] == "json_schema"
 
 
+async def test_promise_review_receives_the_calls_that_actually_ran(
+        cfg, seeded_vault):
+    utility = ReviewUtility(review_goal("read every goal file"))
+    rig = make_mind(cfg, seeded_vault, utility=utility)
+    outcome = {"tool": "list_notes", "args": {"folder": "goals"},
+               "verdict": "ok", "result": '{"count":24,"files":[]}'}
+    rig.say("review every goal file",
+            reply="I'll read them all. I read every one.",
+            tool_outcomes=[outcome])
+
+    await rig.mind.tick()
+
+    payload = json.loads(utility.review_messages[0][-1]["content"])
+    assert payload["tool_outcomes"] == [outcome]
+    assert "list_notes` proves an index" in utility.review_messages[0][0]["content"]
+
+
 async def test_promise_reviews_are_fifo_and_survive_restart(cfg, seeded_vault):
     utility = ReviewUtility(
         review_goal("check the first source"),
         review_goal("check the second source"))
     rig = make_mind(cfg, seeded_vault, utility=utility)
     rig.say("first", reply="I'll check the first source.")
-    rig.say("second", reply="I'll check the second source.")
+    second_outcome = {"tool": "web_search", "args": {"query": "second"},
+                      "verdict": "ok", "result": '{"results":[]}'}
+    rig.say("second", reply="I'll check the second source.",
+            tool_outcomes=[second_outcome])
 
     await rig.mind.tick()
     assert [goal.text for goal in rig.mind.goals.open_goals()] == [
@@ -343,9 +374,12 @@ async def test_promise_reviews_are_fifo_and_survive_restart(cfg, seeded_vault):
 
     restarted = make_mind(cfg, seeded_vault, clock=rig.clock, utility=utility)
     assert len(restarted.mind.promise_reviews) == 1
+    assert restarted.mind.promise_reviews[0]["tool_outcomes"] == [second_outcome]
     await restarted.mind.tick()
     assert [goal.text for goal in restarted.mind.goals.open_goals()] == [
         "check the first source", "check the second source"]
+    payload = json.loads(utility.review_messages[-1][-1]["content"])
+    assert payload["tool_outcomes"] == [second_outcome]
 
 
 async def test_invalid_review_rotates_without_blocking_later_turns(cfg, seeded_vault):

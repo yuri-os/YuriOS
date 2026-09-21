@@ -51,6 +51,9 @@ class OutEvent:
     audio: AudioChunk | None = None
     text: str | None = None
     detail: dict | None = None
+    # Internal handoff to the host's SignalBus; encode_event never puts this on
+    # the websocket wire because results may contain private note/page content.
+    tool_outcomes: list[dict] = field(default_factory=list)
 
     @staticmethod
     def filler(chunk: AudioChunk) -> "OutEvent":
@@ -204,10 +207,13 @@ class TurnController:
 
         rep = trace.finish(barged_in=False, trace_dir=self.trace_dir)
         # persist off the hot path (Build #1's post-turn pipeline), verbatim reply
+        tool_outcomes: list[dict] = []
         if persist:
-            await self.brain.persist(session_id, text, "".join(raw_reply))
+            tool_outcomes = await self.brain.persist(
+                session_id, text, "".join(raw_reply))
         yield OutEvent("done", detail={"latency": rep,
-                                       "expression": parser.current_expression()})
+                                       "expression": parser.current_expression()},
+                       tool_outcomes=tool_outcomes)
 
     def speak(self, text: str) -> AsyncIterator[OutEvent]:
         """Say a line that is already written — a replay of something she said.

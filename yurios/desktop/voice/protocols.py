@@ -99,9 +99,11 @@ class ReplyBrain(Protocol):
         one, so a brain that has no use for it need not mention it."""
         ...
 
-    async def persist(self, session_id: str, user_text: str, reply: str) -> None:
+    async def persist(self, session_id: str, user_text: str,
+                      reply: str) -> list[dict]:
         """Run Build #1's post-turn pipeline (journal, index, USER.md, commit,
-        corpus) off the hot path. Never called on a barged-in (incomplete) turn."""
+        corpus) off the hot path and return tool outcomes for REFLECT. Never
+        called on a barged-in (incomplete) turn."""
         ...
 
     def abandon(self, session_id: str) -> None:

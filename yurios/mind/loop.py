@@ -136,7 +136,8 @@ class MindLoop:
         #: (key, rendered, when) for `_soul_text` — see there.
         self._soul_cache: tuple = ((None, None), "", -1e18)
         self.selfedit = SelfEdit(self.vault, clock)
-        brain.set_goals(self.goals)            # §22: her standing list joins the
+        brain.set_goals(self.goals, on_write=self._goal_written)
+                                               # §22: her standing list joins the
                                                # conversational prompt, so the
                                                # talking-self and the intending-
                                                # self stop being two people
@@ -291,6 +292,12 @@ class MindLoop:
     def workspace_written(self, path: str) -> None:
         """Record a human editor write with the same journal semantics as a tool."""
         self._desk_written("write_note", {"path": path}, notify=False)
+
+    def _goal_written(self, goal: Goal) -> None:
+        """Refresh open inner-life surfaces after a conversational goal write."""
+        self.hub.publish("mind", {"state": self.activity.state,
+                                  "intention": "goal_created",
+                                  "goal": goal.id})
 
     def _brain_session(self) -> str:
         if self._session is None:

@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -51,6 +52,7 @@ class MindVault:
     def __init__(self, vault: Path):
         self.vault = Path(vault)
         self._dirty = False
+        self._commit_lock = threading.Lock()
 
     def _check(self, rel: str, *, gate: bool) -> Path:
         p = (self.vault / rel).resolve()
@@ -103,10 +105,11 @@ class MindVault:
         tick made: those must not wait out the Vault's daily window, because
         waiting means being swept into the next tick's commit and labelled with
         it (§2.1)."""
-        if not self._dirty:
-            return
-        self._dirty = False
-        try:
-            vaultgit.commit(self.vault, message, now=now)
-        except Exception:  # noqa: BLE001 — never let bookkeeping kill the loop
-            log.debug("vault commit skipped (not a repo?)", exc_info=True)
+        with self._commit_lock:
+            if not self._dirty:
+                return
+            self._dirty = False
+            try:
+                vaultgit.commit(self.vault, message, now=now)
+            except Exception:  # noqa: BLE001 — never let bookkeeping kill the loop
+                log.debug("vault commit skipped (not a repo?)", exc_info=True)

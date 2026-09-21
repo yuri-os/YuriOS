@@ -745,6 +745,12 @@ class Runtime:
         from .tools.client import start_failure
         try:
             specs = await runner.start()
+            # `GOALS_ENABLED` gets the spawned server ready while the mind is
+            # still booting. If that boot failed (or the fake runner advertised
+            # everything), do not tell the model it has a hand with no GoalStore
+            # behind it.
+            if getattr(self.brain, "goals", None) is None:
+                specs = [spec for spec in specs if spec.name != "create_goal"]
             # Discovery is the allowlist for tools nobody here could name in
             # advance (§7.3) — that is, a third-party server's. Hers are
             # deliberately NOT admitted this way: the rates in __init__ are

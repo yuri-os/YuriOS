@@ -77,6 +77,8 @@ class BrainAdapter:
         # Without it the goals block simply isn't assembled — which is Build #1's
         # behaviour and every mindless runtime's.
         self.goals = None
+        self._on_goal_write = None
+        self.goal_creation_available = False
 
     def set_prompt_log(self, prompt_log) -> None:
         """Wire the sink that records what she was actually asked (SPEC §24.2)."""
@@ -91,7 +93,7 @@ class BrainAdapter:
         """
         self.knowledge = store
 
-    def set_goals(self, store) -> None:
+    def set_goals(self, store, on_write=None) -> None:
         """Wire her own standing list into the §7.1 assembly (the §22 block).
 
         Late-bound like the shelf and the desk, and for the same reason: the
@@ -100,6 +102,7 @@ class BrainAdapter:
         up promising the same thing three evenings running.
         """
         self.goals = store
+        self._on_goal_write = on_write
 
     def _open_goals(self) -> tuple[list[str], bool]:
         """Her open goals, newest last, as one line each. Never raises: a
@@ -236,6 +239,7 @@ class BrainAdapter:
             knowledge=self._recall_knowledge(text),
             goals=goals,
             goals_complete=goals_complete,
+            goal_creation_available=self.goal_creation_available,
             lore=lore,
             window=window,
             user_msg=text,

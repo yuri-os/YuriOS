@@ -73,6 +73,13 @@ def test_the_self_edit_door_needs_a_mind_to_be_a_door():
         v for k, v in with_mind.items() if k != "propose_edit")
 
 
+def test_conversational_goal_creation_needs_the_host_goal_store():
+    with_mind = runtime.tool_rates(conf(mind_enabled=True))
+    without = runtime.tool_rates(conf(mind_enabled=False))
+    assert with_mind["create_goal"] == with_mind["set_timer"]
+    assert "create_goal" not in without
+
+
 # ---- the camera and the reading desk ----
 
 def _half_built(cfg, clock):

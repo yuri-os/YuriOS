@@ -100,6 +100,12 @@ _GOAL_COMPLETION_STATUS = re.compile(
     r"\bhave\b.{0,40}\bgoals?\b.{0,20}\bbeen\s+(?:completed|finished|met)\b"
     r")",
     re.I)
+_GOAL_MUTATION = re.compile(
+    r"\b(?:set|create|add|file)\s+(?:me\s+)?"
+    r"(?:(?:a|an|this|the)\s+)?(?:new\s+)?goals?\b",
+    re.I)
+_GOAL_MUTATION_PAST = re.compile(
+    r"\b(?:did|have)\s+you\s+(?:set|create|add|file)\b", re.I)
 
 
 def is_goal_status_request(text: str) -> bool:
@@ -116,6 +122,18 @@ def is_goal_status_request(text: str) -> bool:
         or _GOAL_COMPLETION_STATUS.search(value))
 
 
+def is_goal_mutation_request(text: str) -> bool:
+    """Whether an explicit turn asks to add a standing goal.
+
+    Kept separate from status detection because one request can do both: "list
+    my goals and add a goal" still needs the authoritative status reminder, but
+    it also needs the conversational tools block so `create_goal` is reachable.
+    "Did you create a goal?" is history, not another creation request.
+    """
+    value = text or ""
+    return bool(_GOAL_MUTATION.search(value) and not _GOAL_MUTATION_PAST.search(value))
+
+
 def goal_status_note(goals: Sequence[str], *, complete: bool) -> str:
     """The authoritative standing-list reminder fused after conversation history."""
     status = (
@@ -130,6 +148,16 @@ def goal_status_note(goals: Sequence[str], *, complete: bool) -> str:
         "goal is still open; waiting means blocked, not done. Do not call "
         "list_notes or read_note: workspace/goals contains historical working "
         f"notes, not the standing list. {status}\n{rows}]"
+    )
+
+
+def goal_creation_note() -> str:
+    """The lifecycle-write correction placed after misleading history."""
+    return (
+        "[system note — goal creation, read after conversation history: This "
+        "request asks you to create a standing goal. Call create_goal. Do not "
+        "substitute write_note: a workspace/goals file is only a working note "
+        "and does not enter the standing Goals list.]"
     )
 
 
@@ -305,9 +333,10 @@ def soul_preamble(soul: Soul, *, user_md: str = "", user_name: str = "you",
 def assemble(soul: Soul, *, user_md: str, summary: str, memories: list[Memory],
              lore: list[LoreEntry], window: list[dict], user_msg: str,
              user_name: str = "you",
-             knowledge: Sequence[Known] = (),
-             goals: Sequence[str] = (),
-             goals_complete: bool = True,
+              knowledge: Sequence[Known] = (),
+              goals: Sequence[str] = (),
+              goals_complete: bool = True,
+              goal_creation_available: bool = False,
              system_budget_tokens: int = 8000,
              lorebook_budget_tokens: int = 400,
              knowledge_budget_tokens: int = 900) -> AssembledPrompt:
@@ -421,6 +450,8 @@ def assemble(soul: Soul, *, user_md: str, summary: str, memories: list[Memory],
     if goals and is_goal_status_request(user_msg):
         final_user += "\n\n" + goal_status_note(
             goals, complete=goals_complete and dropped_goals == 0)
+    if goal_creation_available and is_goal_mutation_request(user_msg):
+        final_user += "\n\n" + goal_creation_note()
     if soul.hard_limits.strip():
         note = post_history_limits(soul.hard_limits)
         final_user = (f"{final_user}\n\n"

@@ -41,6 +41,7 @@ LIST_NOTES_MAX_CHARS = 4_000
 # here, so the schema, the docstring and the error can never disagree.
 MusicAction = Literal["play", "stop"]
 MusicTrack = Literal["warm_pad", "night_piano"]
+GoalKind = Literal["task", "reach_out"]
 MUSIC_ACTIONS: tuple[str, ...] = get_args(MusicAction)
 MUSIC_TRACKS: tuple[str, ...] = get_args(MusicTrack)
 
@@ -98,10 +99,11 @@ def build_server(*, max_minutes: float | None = None,
                  fetcher: PageFetcher | None = None,
                  results: int | None = None,
                  max_pages: int | None = None,
-                 workspace: "Workspace | None" = None,
-                 skills: "SkillStore | None" = None,
-                 selfedit: bool | None = None,
-                 settings: ToolServerEnv | None = None) -> FastMCP:
+                  workspace: "Workspace | None" = None,
+                  skills: "SkillStore | None" = None,
+                  selfedit: bool | None = None,
+                  goals: bool | None = None,
+                  settings: ToolServerEnv | None = None) -> FastMCP:
     """Build the FastMCP server. Args are the test seams; `python -m` reads env.
 
     Every setting that crosses the spawn boundary is read once, here, through
@@ -148,6 +150,8 @@ def build_server(*, max_minutes: float | None = None,
     # the queue this writes into is only *read* where the mind is running.
     if selfedit is None:
         selfedit = env.selfedit
+    if goals is None:
+        goals = env.goals
 
     mcp = FastMCP("world-companion-tools")
 
@@ -194,6 +198,26 @@ def build_server(*, max_minutes: float | None = None,
         return {"playing": action == "play",
                 "track": track if action == "play" else None,
                 "volume": volume}
+
+    if goals:
+
+        @mcp.tool(description=(
+            "Create a real standing goal in the authoritative goal list. Use this "
+            "when the user explicitly asks to set, create, add, or file a goal. "
+            "`text` is the concise outcome to work toward; `kind` is `task` for "
+            "work or `reach_out` when telling the user is the whole outcome. The "
+            "host assigns and returns the exact goal id. Never substitute "
+            "`write_note`: files under workspace/goals are working notes and do "
+            "not appear in the standing Goals view."))
+        def create_goal(text: str, kind: GoalKind = "task") -> dict:
+            text = " ".join((text or "").split())
+            if not text:
+                raise ValueError("text must say what the standing goal is")
+            if len(text) > 200:
+                raise ValueError("text must be 200 characters or fewer")
+            if "|" in text:
+                raise ValueError("text cannot contain the goal field separator |")
+            return {"status": "ready", "text": text, "kind": kind}
 
     if search is not None and fetcher is not None:
         # The web (SPEC §7.7). Three hands that go together: find it, read it,
@@ -450,7 +474,9 @@ def build_server(*, max_minutes: float | None = None,
             are made for you. `text` REPLACES the whole file, so read it first
             if you mean to add to it — or use `append_note`, which doesn't.
             This is your own space: you don't need permission and you don't need
-            to mention it out loud."""
+            to mention it out loud. This does NOT create a standing goal, even
+            when `path` starts with goals/; use `create_goal` when the user asks
+            to set or add a goal."""
             try:
                 entry = workspace.write(path, text)
             except (OutsideTheDesk, DeskFull) as e:

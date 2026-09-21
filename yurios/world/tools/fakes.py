@@ -23,6 +23,12 @@ SPECS = [
                              "track": {"type": "string"},
                              "volume": {"type": "number"}},
               "required": ["action"]}),
+    ToolSpec("create_goal", "Create a real standing goal in the authoritative "
+             "goal list when the user explicitly asks to set or add one.",
+             {"properties": {"text": {"type": "string"},
+                              "kind": {"type": "string",
+                                       "enum": ["task", "reach_out"]}},
+              "required": ["text"]}),
     # Her desk and her skills (§34.2). Advertised here because they are the hands
     # the loop reaches for most, and a fake tool set that omitted them let the
     # loop's tests pass over the exact shape — a whole document as a JSON string
@@ -148,7 +154,11 @@ class FakeToolRunner:
         if tool == "play_music":
             return json.dumps({"playing": args.get("action") == "play",
                                "track": args.get("track", "warm_pad"),
-                               "volume": args.get("volume", 0.4)})
+                                "volume": args.get("volume", 0.4)})
+        if tool == "create_goal":
+            return json.dumps({"status": "ready",
+                               "text": " ".join(str(args.get("text") or "").split()),
+                               "kind": args.get("kind") or "task"})
         if tool == "list_notes":
             return json.dumps({"folder": args.get("folder") or "",
                                "notes": [{"path": "research/learning_you.md",

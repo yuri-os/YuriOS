@@ -76,14 +76,16 @@ def test_an_absent_key_is_the_standalone_servers_answer_not_a_configs():
     assert bare.selfies is True            # describable; the host takes the photo
     assert bare.vault_path is None         # no desk, so the desk tools are absent
     assert bare.selfedit is False          # nothing would ever read the queue
+    assert bare.goals is False             # no host-owned standing list
 
 
 def test_zero_is_off_and_everything_else_is_on():
     """The flag convention the host writes to, pinned: `0` is the only off."""
     on = ToolServerEnv.from_environ({"WORKSPACE_ENABLED": "1",
                                      "SKILLS_ENABLED": "true",
-                                     "SELFEDIT_ENABLED": ""})
-    assert (on.workspace, on.skills, on.selfedit) == (True, True, True)
+                                     "SELFEDIT_ENABLED": "",
+                                     "GOALS_ENABLED": "yes"})
+    assert (on.workspace, on.skills, on.selfedit, on.goals) == (True, True, True, True)
     off = ToolServerEnv.from_environ({"WORKSPACE_ENABLED": "0",
                                       "SKILLS_ENABLED": "0",
                                       "SELFIE_ENABLED": "0"})

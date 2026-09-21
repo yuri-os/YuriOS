@@ -259,6 +259,29 @@ async def test_set_timer_returns_the_contract():
         assert data["goal_id"] == "g-timer" and data["completes_goal"] is True
 
 
+async def test_create_goal_validates_a_host_realisation_contract():
+    srv = build_server(goals=True)
+    async with create_connected_server_and_client_session(srv._mcp_server) as s:
+        tools = {tool.name: tool for tool in (await s.list_tools()).tools}
+        goal = tools["create_goal"]
+        assert set(goal.inputSchema["properties"]) == {"text", "kind"}
+        assert goal.inputSchema["properties"]["kind"]["enum"] == ["task", "reach_out"]
+        assert "write_note" in goal.description and "Goals view" in goal.description
+
+        result = await s.call_tool("create_goal", {
+            "text": "  make Grant a cup of coffee  ", "kind": "task"})
+        assert json.loads(result_text(result)) == {
+            "status": "ready", "text": "make Grant a cup of coffee",
+            "kind": "task"}
+        assert (await s.call_tool("create_goal", {"text": "   "})).isError
+
+
+async def test_create_goal_is_absent_without_a_mind():
+    srv = build_server(goals=False)
+    async with create_connected_server_and_client_session(srv._mcp_server) as s:
+        assert "create_goal" not in {tool.name for tool in (await s.list_tools()).tools}
+
+
 async def test_set_timer_default_label_and_bounds():
     async with create_connected_server_and_client_session(server()._mcp_server) as s:
         r = await s.call_tool("set_timer", {"minutes": 1})

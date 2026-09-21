@@ -223,9 +223,12 @@ class ToolBrain(BrainAdapter):
                 specs, user_name=self.cfg.user_name,
                 max_calls=self.cfg.tool_max_calls_per_turn)
             self._arg_names = arg_names_from_specs(specs)
+            self.goal_creation_available = any(
+                spec.name == "create_goal" for spec in specs)
         else:
             self._directive = ""
             self._arg_names = {}
+            self.goal_creation_available = False
 
     def set_selfedit(self, selfedit) -> None:
         """Wire the §23 self-edit door, so `propose_edit` has somewhere to land.
@@ -294,7 +297,9 @@ class ToolBrain(BrainAdapter):
             window=self.state.sessions.window(session_id, self.cfg.raw_window_turns),
             lore=self.state.soul_loader.load().lorebook_hits(text))
         goal_status = asm.is_goal_status_request(text)
-        if self._directive and not goal_status:    # the tools directive (§7.4); the
+        goal_mutation = asm.is_goal_mutation_request(text)
+        if self._directive and (not goal_status or goal_mutation):
+                                                   # the tools directive (§7.4); the
                                                    # situation block rides _assemble (§2.5)
             prompt.messages[0]["content"] += f"\n\n## TOOLS\n\n{self._directive}"
         if image:                                  # a picture you sent (§35)
@@ -315,7 +320,8 @@ class ToolBrain(BrainAdapter):
             blocked = {"list_notes", "read_note", "count_note_lines"} \
                 if goal_status else set()
             async for token in self._stream_with_tools(
-                    messages, raw, outcomes, blocked_tools=blocked):
+                    messages, raw, outcomes, blocked_tools=blocked,
+                    goal_about=text):
                 yield token
         finally:
             self._raw[session_id] = "".join(raw)
@@ -369,7 +375,8 @@ class ToolBrain(BrainAdapter):
     # -- the loop of passes (SPEC §7.4) -----------------------------------------
     async def _stream_with_tools(self, messages: list[dict], raw: list[str],
                                   outcomes: list[dict] | None = None, *,
-                                  blocked_tools: set[str] | None = None
+                                  blocked_tools: set[str] | None = None,
+                                  goal_about: str = ""
                                   ) -> AsyncIterator[str]:
         messages = list(messages)
         blocked_tools = blocked_tools or set()
@@ -466,7 +473,8 @@ class ToolBrain(BrainAdapter):
                     outcomes.append({"tool": call.tool, "args": call.args,
                                      "verdict": verdict, "result": result})
             else:
-                result = await self._execute(call, turn, outcomes=outcomes)
+                result = await self._execute(
+                    call, turn, outcomes=outcomes, goal_about=goal_about)
             raw.append(f'\n[[{call.tool} → {result}]]\n')
             # the continuation: her partial reply + the result, back to the model
             # as the SAME turn (§7.4). The partial must be in the messages or she
@@ -503,7 +511,8 @@ class ToolBrain(BrainAdapter):
             ]
 
     async def _execute(self, call: ToolCall, turn: Turn | None = None, *,
-                       outcomes: list[dict] | None = None) -> str:
+                       outcomes: list[dict] | None = None,
+                       goal_about: str = "") -> str:
         """Guard → MCP → audit → host-side realisation. Never raises: a denied or
         failed call becomes a short result string the model can speak to (§7.3)."""
         t0 = self.guard.clock.now()
@@ -529,6 +538,19 @@ class ToolBrain(BrainAdapter):
                 outcomes.append({"tool": call.tool, "args": call.args,
                                  "verdict": "error", "result": result})
             return result
+        goal_created = False
+        if call.tool == "create_goal":
+            try:
+                text, goal_created = self._create_goal(text, about=goal_about)
+            except Exception as e:                     # malformed contract/store failure
+                dt = (self.guard.clock.now() - t0) * 1000
+                why = failure(e, self.cfg.tool_timeout_s)
+                self.guard.audit(call.tool, call.args, "error", dt, why)
+                result = f"error ({why})"
+                if outcomes is not None:
+                    outcomes.append({"tool": call.tool, "args": call.args,
+                                     "verdict": "error", "result": result})
+                return result
         # Host realization needs the complete machine-readable contract. A
         # detailed selfie `look` can push that JSON beyond the model-facing
         # result cap; truncating first makes it invalid JSON and silently skips
@@ -539,9 +561,53 @@ class ToolBrain(BrainAdapter):
         self.guard.audit(call.tool, call.args, "ok", dt, text)
         if outcomes is not None:
             outcomes.append({"tool": call.tool, "args": call.args,
-                             "verdict": "ok", "result": text})
+                              "verdict": "ok", "result": text})
         self._realise(call, full_text)
+        if goal_created:
+            # The write, event and audit above have no await between them: a
+            # barge-in cannot leave a real goal with no audit line. The git
+            # process stays off-loop, but once started is allowed to finish so
+            # the user's named edit gets its own history entry.
+            commit = asyncio.create_task(asyncio.to_thread(
+                self.goals.vault.commit_if_dirty,
+                f"goal: add {json.loads(full_text)['text'][:60]}", now=True))
+            try:
+                await asyncio.shield(commit)
+            except asyncio.CancelledError:
+                await asyncio.shield(commit)
+                raise
         return text
+
+    def _create_goal(self, result: str, *, about: str = "") -> tuple[str, bool]:
+        """Realise the MCP contract against the host-owned GoalStore (SPEC §7.5).
+
+        `goals.md` is one read-modify-write lifecycle store, so its owning process
+        performs the mutation rather than the spawned tool server. The returned
+        payload replaces the validation contract in the continuation: Yuri sees
+        the actual id and whether an equivalent open goal already existed.
+        """
+        data = json.loads(result)
+        if data.get("status") != "ready" or self.goals is None:
+            raise RuntimeError("the standing goal store is unavailable")
+        text = " ".join(str(data.get("text") or "").split())
+        kind = str(data.get("kind") or "task")
+        if not text or len(text) > 200 or "|" in text:
+            raise ValueError("invalid standing goal text")
+        if kind not in ("task", "reach_out"):
+            raise ValueError("invalid standing goal kind")
+        before = {goal.id for goal in self.goals.open_goals()}
+        goal = self.goals.add(
+            text, kind=kind,
+            priority=0.7, commitment="single-minded", provenance="user:chat",
+            meta={"about": about} if about else None)
+        created = goal.id not in before
+        if created:
+            if self._on_goal_write is not None:
+                self._on_goal_write(goal)
+        payload = json.dumps({"status": "created" if created else "existing",
+                              "id": goal.id, "text": goal.text, "kind": goal.kind,
+                              "state": goal.state}, ensure_ascii=False)
+        return payload, created
 
     def realise(self, tool: str, result: str, *, extra: dict | None = None) -> None:
         """`_realise` for a caller that has a tool name and a result string

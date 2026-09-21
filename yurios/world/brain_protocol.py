@@ -100,7 +100,7 @@ class AutonomousBrain(ConversationalBrain, Protocol):
         """Her desk and her skills (SPEC §34.3)."""
         ...
 
-    def set_goals(self, store: Any) -> None:
+    def set_goals(self, store: Any, on_write: Any = None) -> None:
         """Her standing list, into the conversational prompt (SPEC §22)."""
         ...
 

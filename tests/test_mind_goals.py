@@ -9,7 +9,11 @@ hours and nothing shorter can check it.
 """
 from __future__ import annotations
 
+import asyncio
 import json
+import threading
+
+import pytest
 
 from yurios.app.core.assemble import assemble
 from yurios.app.core.soul import Soul
@@ -97,6 +101,28 @@ def test_a_goal_completion_status_question_uses_the_authoritative_list():
         prompt.messages[-1]["content"]
 
 
+def test_goal_mutation_is_distinct_from_goal_creation_history():
+    from yurios.app.core.assemble import is_goal_mutation_request
+
+    assert is_goal_mutation_request("List my goals and add a goal to call Sam")
+    assert is_goal_mutation_request("Set a new goal for making coffee")
+    assert not is_goal_mutation_request("Did you create a goal for making coffee?")
+
+
+def test_goal_creation_correction_follows_misleading_history():
+    prompt = assemble(
+        _soul(), user_md="", summary="", memories=[], lore=[],
+        window=[{"role": "assistant",
+                 "content": "I made goals by writing workspace notes."}],
+        user_msg="Set a goal for making coffee",
+        goal_creation_available=True)
+
+    final = prompt.messages[-1]["content"]
+    assert "goal creation, read after conversation history" in final
+    assert "Call create_goal" in final
+    assert "Do not substitute write_note" in final
+
+
 def test_goal_status_and_hard_limits_both_survive_after_history():
     soul = _soul()
     soul.hard_limits = "- Stay in character."
@@ -175,6 +201,25 @@ async def test_goal_completion_action_keeps_the_conversational_tools(
 
     assert "## TOOLS" in chat.calls[0][0]["content"]
     assert "goal status, read after conversation history" not in \
+        chat.calls[0][-1]["content"]
+
+
+async def test_a_mixed_goal_status_and_creation_request_keeps_tools(
+        cfg, seeded_vault):
+    from yurios.world.tools.fakes import FakeToolRunner
+
+    chat = ScriptedChat([["I can list them and add that."]])
+    rig = make_mind(cfg, seeded_vault, chat=chat, tools=FakeToolRunner())
+    rig.mind.goals.add("one existing goal")
+    session = rig.mind.brain.resolve_session(None)
+
+    await collect(rig.mind.brain.stream_reply(
+        session, "List my goals and add a goal to call Sam"))
+
+    assert "## TOOLS" in chat.calls[0][0]["content"]
+    assert "goal status, read after conversation history" in \
+        chat.calls[0][-1]["content"]
+    assert "goal creation, read after conversation history" in \
         chat.calls[0][-1]["content"]
 
 
@@ -578,6 +623,68 @@ async def test_a_conversational_timer_closes_its_explicit_goal_after_realisation
     assert "seconds" in result
     assert rig.mind.goals.get(goal.id).state == "done"
     assert rig.mind.timers.pending()[0].label == "the promised timer"
+
+
+async def test_an_explicit_chat_goal_enters_the_standing_store(
+        cfg, seeded_vault, monkeypatch):
+    from yurios.world.tools.fakes import FakeToolRunner, SPECS
+    from yurios.world.tooltags import ToolCall
+
+    rig = make_mind(cfg, seeded_vault)
+    events = []
+    monkeypatch.setattr(rig.mind.hub, "publish",
+                        lambda type_, payload: events.append((type_, payload)))
+    rig.mind.brain.set_tools(FakeToolRunner(), list(SPECS))
+    rig.mind.brain.guard.allow("create_goal", 6)
+
+    result = json.loads(await rig.mind.brain._execute(ToolCall(
+        "create_goal", {"text": "make Grant a cup of coffee", "kind": "task"}),
+        goal_about="set a goal for making me a cup of coffee"))
+
+    assert result["status"] == "created" and result["id"].startswith("g-")
+    goal = rig.mind.goals.get(result["id"])
+    assert goal is not None
+    assert goal.text == "make Grant a cup of coffee"
+    assert goal.provenance == "user:chat" and goal.state == "pending"
+    assert goal.meta["about"] == "set a goal for making me a cup of coffee"
+    assert events == [("mind", {"state": rig.mind.activity.state,
+                                  "intention": "goal_created", "goal": goal.id})]
+
+    again = json.loads(await rig.mind.brain._execute(ToolCall(
+        "create_goal", {"text": "make Grant a cup of coffee"})))
+    assert again["status"] == "existing" and again["id"] == goal.id
+    assert len([g for g in rig.mind.goals.all() if g.text == goal.text]) == 1
+
+
+async def test_goal_creation_is_audited_before_cancellation_can_land(
+        cfg, seeded_vault, monkeypatch):
+    from yurios.world.tools.fakes import FakeToolRunner, SPECS
+    from yurios.world.tooltags import ToolCall
+
+    rig = make_mind(cfg, seeded_vault)
+    rig.mind.brain.set_tools(FakeToolRunner(), list(SPECS))
+    rig.mind.brain.guard.allow("create_goal", 6)
+    started = threading.Event()
+    release = threading.Event()
+
+    def slow_commit(*_args, **_kwargs):
+        started.set()
+        release.wait(timeout=5)
+
+    monkeypatch.setattr(rig.mind.goals.vault, "commit_if_dirty", slow_commit)
+    task = asyncio.create_task(rig.mind.brain._execute(ToolCall(
+        "create_goal", {"text": "make coffee"}), goal_about="set that goal"))
+    assert await asyncio.to_thread(started.wait, 5)
+    task.cancel()
+    release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert any(goal.text == "make coffee" for goal in rig.mind.goals.all())
+    audits = [json.loads(line) for line in
+              (rig.mind.cfg.tool_log_dir / "calls.jsonl").read_text().splitlines()]
+    assert audits[-1]["tool"] == "create_goal"
+    assert audits[-1]["verdict"] == "ok"
 
 
 def test_a_research_run_the_mind_started_posts_nothing_into_the_chat(cfg, clock):

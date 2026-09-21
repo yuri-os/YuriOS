@@ -2,7 +2,7 @@
 
 Her hands are reached over a real **MCP** connection: an in-repo MCP server
 (`yurios/world/tools/server.py`, FastMCP over stdio) that the brain connects to as a genuine MCP
-client, discovering the calls with `list_tools` rather than hardcoding them. There are eighteen
+client, discovering the calls with `list_tools` rather than hardcoding them. There are nineteen
 built-in calls when every optional group is enabled, plus any third-party MCP calls you mount.
 Disabled groups are not advertised at all.
 
@@ -25,6 +25,7 @@ reports the truth (`"mcp"` / `"fake"` / `"off"` / `"failed: …"`).
 |---|---|---|---|
 | `set_timer` | `minutes` (0 < m <= `TIMER_MAX_MINUTES`), `label?` | schedules a spoken announcement | always |
 | `play_music` | `action`, `track?`, `volume?` | drives browser-side synthesized ambience | always |
+| `create_goal` | `text`, `kind?` | adds or deduplicates a standing goal and returns its exact ID | the mind is on |
 | `take_selfie` | `look?`, `scene?`, `framing?`, `lighting?`, `mood?`, `wardrobe?`, `avoid?` | starts a render off-turn | `SELFIE_BACKEND` is not `off` |
 | `show_picture` | `subject`, `avoid?` | starts a render of something other than Yuri | `SELFIE_BACKEND` is not `off` |
 | `web_search` | `query`, `k?` | returns titles, links, and snippets from SearXNG | `SEARCH_BACKEND` is not `off` |
@@ -65,6 +66,16 @@ while `MIND_ENABLED=false` or while no model is configured.
 ```ini
 TIMER_MAX_MINUTES=1440
 TOOL_RATE_TIMER=6                 # calls per minute
+```
+
+### create_goal
+
+Explicit requests such as "set a goal to…" use `create_goal`, which writes through the host-owned
+standing `GoalStore` and returns the exact `g-…` ID. A file under `workspace/goals/` is only a
+working note and never becomes a goal by resembling one. The tool is absent when the mind is off.
+
+```ini
+TOOL_RATE_GOAL=6
 ```
 
 ### play_music

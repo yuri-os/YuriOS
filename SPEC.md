@@ -704,12 +704,13 @@ to every new subscriber before its first live event. Malformed JSON is logged an
 
 ## §7 — Tools via MCP: the hands
 
-- §7.1 **Four tools, real MCP.** An in-repo MCP server (`yurios/world/tools/server.py`, FastMCP
+- §7.1 **Built-in tools, real MCP.** An in-repo MCP server (`yurios/world/tools/server.py`, FastMCP
   over stdio) exposes exactly:
 
   | tool | args | returns | side effect |
   |---|---|---|---|
   | `set_timer` | `minutes` (0 < m ≤ `TIMER_MAX_MINUTES`), `label?` | `{id, label, seconds, due}` | host schedules the announcement (§7.5) |
+  | `create_goal` | `text`, `kind?` (`task` or `reach_out`) | validation contract, then `{status, id, text, kind, state}` after host realisation | host adds or deduplicates an authoritative standing goal (§7.5, §22.1) |
   | `play_music` | `action`, `track?`, `volume?` | `{playing, track}` | `music` event to the stage (§4) |
   | `take_selfie` | `look?` (the whole picture in her own words), `scene?`, `framing?`, `lighting?`, `mood?`, `wardrobe?`, `avoid?` (template keys or free-form — carried verbatim, never refused; unnamed slots are left unnamed, never rolled) | `{id, look, scene, framing, lighting, mood, wardrobe, avoid, kind:"selfie", status:"started"}` | host renders off-turn, posts the photo (§7.6) |
   | `show_picture` | `subject` (required — the whole picture in her own words; no library, no slots), `avoid?` | `{id, subject, avoid, kind:"picture", status:"started"}` | host renders off-turn *without her likeness*, posts the picture (§7.6) |
@@ -846,6 +847,16 @@ to every new subscriber before its first live event. Malformed JSON is logged an
   **and** no viewer, the line **MUST** still land, stamped `unheard`, so the
   inbox and the doorbell (§18.4) carry the promise instead of the tick
   re-queuing it until someone walks in.
+  `create_goal` **MUST** be advertised only when the mind is on. The server validates a concise
+  goal and its kind, but the host-owned `GoalStore` **MUST** perform the mutation: `goals.md` is
+  one lifecycle read-modify-write store and the spawned tool process must not race the mind for
+  it. The continuation **MUST** receive the actual assigned id and whether an equivalent open
+  goal already existed. A `write_note` under `workspace/goals/` **MUST NOT** claim or imply that
+  it created a standing goal. A request that both reviews existing goals and creates one **MUST**
+  retain the tools block while still receiving §22.6's authoritative status reminder. Because a
+  recent failed turn may show `write_note` masquerading as creation, an explicit creation request
+  **MUST** repeat the `create_goal`, not-workspace rule on the post-history user turn whenever that
+  hand is available.
   A conversational tool that satisfies the whole of an open standing goal **MAY** carry that
   goal's exact id plus `completes_goal=true`. Open-goal prompt lines **MUST** expose the ids, and
   tool descriptions **MUST** reserve the flag for the entire observable success, never one step.
@@ -1979,7 +1990,8 @@ optional due time, **provenance**, and a **commitment strategy**; lifecycle
 `pending → active → waiting → done | abandoned`.
 
 - §22.1 **Goal genesis is designed, not assumed.** Sources, stamped as provenance: the user's
-  explicit asks (`user:remind-me`, scanned from their turns); **her own promises**
+  explicit asks (`user:remind-me`, scanned from their turns, and `user:chat`, created through
+  the conversational `create_goal` hand when they explicitly ask to set or add a goal); **her own promises**
   (`promise:her-own-words`) — REFLECT scans every committed reply for first-person commitments
   ("I'll look into that") and files each one, because a companion who forgets her own promises is
   worse than one who forgets yours; maintenance (DREAM backlog, shelf drops); and **her own

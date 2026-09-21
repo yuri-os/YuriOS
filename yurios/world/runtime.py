@@ -54,6 +54,8 @@ def tool_rates(cfg: Config) -> dict[str, int]:
     """
     rates = {"set_timer": cfg.tool_rate_timer,
              "play_music": cfg.tool_rate_music}
+    if cfg.mind_enabled:
+        rates["create_goal"] = cfg.tool_rate_goal
     if cfg.selfie_backend != "off":
         rates["take_selfie"] = cfg.tool_rate_selfie
         rates["show_picture"] = cfg.tool_rate_picture

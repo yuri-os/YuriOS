@@ -32,6 +32,7 @@ class Config(VoiceConfig):
     tool_log_dir: Path = Path("./tool-logs")    # JSONL audit, one line per call (§7.3)
     tool_rate_timer: int = 6                    # calls/minute, token bucket (§7.3)
     tool_rate_music: int = 6
+    tool_rate_goal: int = 6                     # explicit conversational goals
     tool_rate_desk: int = 20                    # her workspace + skills (§34.2):
                                                 #   local writes, no outside party
                                                 #   — a loop-catcher, not a ration

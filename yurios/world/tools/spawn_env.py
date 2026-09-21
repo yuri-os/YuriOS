@@ -3,7 +3,7 @@
 Her hands run in a *separate process*. The host spawns
 `python -m yurios.world.tools.server` and the only thing it can hand across
 that boundary is a dict of strings — no config object, no runtime, no shared
-memory. Fifteen keys, and until this module existed they were written out
+memory. Seventeen keys, and until this module existed they were written out
 twice: once in `world/main.py` as `str(cfg.something)`, and once in
 `server.py` as `os.environ.get("SOMETHING", "a-default-typed-out-again")`.
 
@@ -20,8 +20,9 @@ perform alone.
 **The absent-key defaults are the standalone server's, not a Config's**, and
 three of them differ on purpose. Run by hand with no host, the server has no
 camera to reach (`selfies` on — it can still describe the hand), no Vault
-(`vault_dir` empty, so the desk tools are unadvertised), and no mind to read a
-self-edit queue (`selfedit` off). A `Config` answers all three differently
+(`vault_dir` empty, so the desk tools are unadvertised), and no mind to own
+standing goals or read a self-edit queue (`goals` and `selfedit` off). A `Config`
+answers all four differently
 because a host *does* have those things. That is not drift; it is the
 difference between the two ways this process starts.
 """
@@ -95,6 +96,9 @@ class ToolServerEnv:
     #: The self-edit door (§23) — off without a mind, because the queue it
     #: writes into is only ever read by the loop and the inner-life panel.
     selfedit: bool = False
+    #: Standing goals (§22) belong to the mind's GoalStore. The server validates
+    #: the request; the host performs the read-modify-write after the call.
+    goals: bool = False
 
     @property
     def vault_path(self) -> Path | None:
@@ -121,6 +125,7 @@ class ToolServerEnv:
             workspace=bool(cfg.workspace_enabled),
             skills=bool(cfg.skills_enabled),
             selfedit=bool(cfg.mind_enabled),
+            goals=bool(cfg.mind_enabled),
         )
 
     @classmethod
@@ -144,6 +149,7 @@ class ToolServerEnv:
             workspace=_read_flag(env, "WORKSPACE_ENABLED", True),
             skills=_read_flag(env, "SKILLS_ENABLED", True),
             selfedit=_read_flag(env, "SELFEDIT_ENABLED", False),
+            goals=_read_flag(env, "GOALS_ENABLED", False),
         )
 
     def to_environ(self) -> dict[str, str]:
@@ -165,6 +171,7 @@ class ToolServerEnv:
             "WORKSPACE_ENABLED": _flag(self.workspace),
             "SKILLS_ENABLED": _flag(self.skills),
             "SELFEDIT_ENABLED": _flag(self.selfedit),
+            "GOALS_ENABLED": _flag(self.goals),
         }
 
 

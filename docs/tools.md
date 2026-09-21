@@ -2,7 +2,7 @@
 
 Her hands are reached over a real **MCP** connection: an in-repo MCP server
 (`yurios/world/tools/server.py`, FastMCP over stdio) that the brain connects to as a genuine MCP
-client, discovering the calls with `list_tools` rather than hardcoding them. There are fifteen
+client, discovering the calls with `list_tools` rather than hardcoding them. There are eighteen
 built-in calls when every optional group is enabled, plus any third-party MCP calls you mount.
 Disabled groups are not advertised at all.
 
@@ -40,6 +40,7 @@ reports the truth (`"mcp"` / `"fake"` / `"off"` / `"failed: …"`).
 | `read_skill` | `name` | reads a skill's full instructions | `SKILLS_ENABLED=true` |
 | `write_skill` | `name`, `description`, `instructions` | saves or replaces a skill | `SKILLS_ENABLED=true` |
 | `delete_skill` | `name` | removes a skill | `SKILLS_ENABLED=true` |
+| `propose_edit` | `surface`, `content`, `reason` | queues a change to one of her soul files for your approval | the mind is on |
 
 Third-party calls configured through `MCP_SERVERS` are discovered and admitted through the same
 guard, with `TOOL_RATE_EXTERNAL` as their default rate. The surface doesn't grow a shell. Heavy
@@ -48,12 +49,18 @@ sandboxed hands are a named later rung, not an omission to be patched around.
 ### set_timer
 
 The MCP server is the *contract and audit point* — it validates and records — but the **host**
-schedules the wake, because only the host owns her voice. When a timer elapses she announces it
-through the ambient seam, queued until it's deliverable: a live voice socket, or a chat viewer
-(the text room and the terminal never open `/ws/voice` while muted, so the line lands in the
-transcript as `proactive`). If nobody is there at all, it waits rather than being lost. Timer
-announcements are delivered by the mind loop, so they are not announced while `MIND_ENABLED=false`
-or while no model is configured.
+schedules the wake, because only the host owns her voice. The board is written to
+`<vault>/state/timers.json` on every change and reloaded at boot; `due` is a wall epoch, so a
+restart does not drop a pending timer, and one that came due while she was down is simply already
+due. Past a day (`STALE_AFTER_S`) a restored timer is leftover, not a promise still owed, and is
+dropped rather than announced.
+
+When a timer elapses she announces it through the ambient seam if a voice socket or a chat
+viewer is there (the text room and the terminal never open `/ws/voice` while muted, so the line
+lands in the transcript as `proactive`). If nobody is in the room at all, the line still lands,
+stamped `unheard`, so the inbox and the doorbell deliver it instead of re-queuing "nobody to
+tell" every tick. Timer announcements are delivered by the mind loop, so they are not announced
+while `MIND_ENABLED=false` or while no model is configured.
 
 ```ini
 TIMER_MAX_MINUTES=1440
@@ -102,6 +109,16 @@ for the storage layout and prompt behavior.
 WORKSPACE_ENABLED=true             # false = no note calls or desk context
 SKILLS_ENABLED=true                # false = no skill calls or catalog context
 TOOL_RATE_DESK=20                  # calls per minute across notes and skills
+```
+
+### propose_edit
+
+The one hand that reaches at her identity. The MCP server validates the surface and returns
+"asked", not "done"; the host queues the proposal for you. `CONSTITUTION.md` is not on the
+list and never will be. See [The mind → self-edits](mind.md#self-edits).
+
+```ini
+TOOL_RATE_SELFEDIT=1
 ```
 
 ### web_search, read_page and research
@@ -378,8 +395,18 @@ can't see, like `SELFIE_BACKEND=off` leaving the camera out of the buckets.
 **Mounting a server gives her its hands, rate-limited but not reviewed.** That is the trade the
 knob exists to make; make it deliberately.
 
-## The mind does not use tools
+## Her hands in the loop
 
-Her always-on [mind](mind.md) never *initiates* tool calls — her hands stay conversational. A
-tool-bearing autonomous act needs the broker that comes with the sandboxed workshop, which is a
-named next rung rather than a thing quietly half-built.
+The mind *can* reach for these same hands, as a step of an open goal — never free-floating, at
+most one call per tick. It ships **off**. `MIND_TOOLS_ENABLED` is the house switch;
+`MIND_TOOL_ALLOWLIST` names the permitted tools explicitly and is empty even once the switch is
+true; her tile's `hands` toggle is the per-character grant, live, without a restart. Cheap
+hands (the desk, `set_timer`) are a goal step; expensive ones (`research`, `read_page`,
+`web_search`, the cameras) take the whole tick and are simply not offered over
+`MIND_TOOL_PRESSURE_CEILING`. `MIND_TOOL_CALLS_PER_DAY` is a cap, checked before the call.
+
+Nothing she makes this way is sent to you. It goes on her shelf, in her gallery, or on her
+desk. `tool-logs/calls.jsonl` marks every one of them `mind_tool`. The remaining omission is
+the *workshop* — code execution and a shell — not mind-initiated tools. See
+[The mind → her hands in the loop](mind.md#her-hands-in-the-loop) and
+[the cost note](README.md#experimental--and-it-can-spend).

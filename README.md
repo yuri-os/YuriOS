@@ -43,18 +43,19 @@ read, so "what did you do while I was gone?" is a page you open, not a vibe.
 
 **[The switchboard](docs/characters.md#the-switchboard)** is the front door: one tile per
 companion, her portrait, the rung of the ladder she is actually on — `ENGAGED`, `IDLE`, `DORMANT`,
-`DREAM`, in the mind loop's own words — and her three loop switches on the tile itself, so one
-companion can be a fully autonomous mind while the one beside her stays reactive-only. Enter her
-room, leave it again, and she keeps running: her life doesn't depend on being looked at.
+`DREAM`, in the mind loop's own words — and her four loop switches on the tile itself (`mind`,
+`utility`, `dream`, `hands`), so one companion can be a fully autonomous mind while the one
+beside her stays reactive-only. Enter her room, leave it again, and she keeps running: her life
+doesn't depend on being looked at.
 
 ![The switchboard: two companions, their states and their mind / utility / dream switches.](docs/img/switchboard.png)
 
 **[The card studio](docs/characters.md#the-card-studio)** is where a companion is written.
 **Import** takes a SillyTavern V2/V3 character card — an ordinary `.PNG` with the card JSON in a
 text chunk — reads the card's own section headers to file that wall of description into identity,
-history, appearance and manner, and then leaves any card that isn't already a YuriOS one *disabled*
-until you have read what came in: a card off the internet does not get a mind, tools and a Telegram
-bot before you've looked at it.
+history, appearance and manner, and then leaves **every** imported card *disabled* until you have
+read what came in, including one that declares itself a YuriOS card: a card off the internet does
+not get a mind, tools and a Telegram bot before you've looked at it.
 **Create character** opens the same page on the shape of a working companion instead of eight
 empty boxes. There you write her against a live per-field prompt budget, give her a face, and edit
 her own [selfie library](docs/selfies.md#a-library-of-her-own) — the scenes, framings and outfits

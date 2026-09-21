@@ -195,7 +195,7 @@ platform and selected CPU/CUDA build:
 | `.[tts]` | her voice: kokoro — the CPU default, needs `espeak-ng` | 1.3 GB |
 | `.[vad]` | turn-taking: silero-vad — torch, shared with `tts` | — |
 | `.[test,llm,voice]` | direct GGUF runtime plus `stt` + `tts` + `vad`: **the default install** | local embeddings included |
-| `.[all]` | all non-GPU voice backends | local embeddings included |
+| `.[all]` | the voice stack plus the direct GGUF runtime — still no qwen, no Qt | local embeddings included |
 | `.[tts-sovits]` | `TTS_BACKEND=gpt_sovits` — client for a server you run | +2 MB |
 | `.[forge-local]` | `SELFIE_BACKEND=diffusers` — local SDXL in-process, **wants CUDA**; checkpoint (~7 GB) is user-supplied | +0.1 GB |
 | `.[forge-krea2]` | the same camera for a Krea 2 checkpoint (INT4, **wants CUDA**); also needs HF access to the gated `krea/Krea-2-Raw` | +40 MB |

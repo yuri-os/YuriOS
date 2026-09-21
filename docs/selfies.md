@@ -21,16 +21,16 @@ never a crash, and never silence about a promise she made.
 ## Choosing a backend
 
 ```ini
-SELFIE_BACKEND=openrouter         # openrouter | diffusers | krea2 | mock | off
+SELFIE_BACKEND=off                # openrouter | diffusers | krea2 | mock | off
 ```
 
 | Backend | Where it renders | Needs |
 |---|---|---|
-| **`openrouter`** *(default)* | hosted — the GPU stays free for her voice | `OPENROUTER_API_KEY` |
+| **`off`** *(default)* | no camera at all | — |
+| `openrouter` | hosted — the GPU stays free for her voice | `OPENROUTER_API_KEY` |
 | `diffusers` | **your** GPU, in-process: an SDXL checkpoint | `.[forge-local]` + a checkpoint |
 | `krea2` | **your** GPU, in-process: a Krea 2 transformer, INT4 | `.[forge-krea2]` + a checkpoint + HF access |
-| `mock` | deterministic placeholder cards | nothing — keyless, offline |
-| `off` | no camera at all | — |
+| `mock` | deterministic placeholder cards | nothing — keyless, offline. Only when this name is set |
 
 With `SELFIE_BACKEND=off` neither tool is advertised to the model: no hand, rather than a dead one.
 
@@ -42,7 +42,7 @@ rather than arriving as a placeholder card. The camera asks again before every s
 the cause — mounting the drive, setting the key — brings it back without a restart. `mock` only
 renders when `SELFIE_BACKEND=mock` asks for it.
 
-## OpenRouter (the default)
+## OpenRouter
 
 ```ini
 SELFIE_BACKEND=openrouter

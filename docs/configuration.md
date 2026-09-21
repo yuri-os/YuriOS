@@ -86,7 +86,7 @@ name of the variable holding it. The same fields are on the switchboard's profil
 | `CONTEXT_LENGTH` | `32768` in `.env.example`, `0` in code | her context window in tokens; `0` = the provider's default |
 | `CHAT_THINKING` | `false` | the reply's `<think>` pass — off, so voice stays real-time |
 | `UTILITY_THINKING` | `true` | on: it runs off the hot path, where quality beats latency |
-| `UTILITY_MAX_TOKENS` | `2048` | room for the `<think>` block *and* the JSON answer |
+| `UTILITY_MAX_TOKENS` | `10048` | room for the `<think>` block *and* the JSON answer |
 | `MAX_REPLY_TOKENS` | `1600` | a roomy ceiling, not a target |
 | `TEMPERATURE` | `0.9` | |
 
@@ -174,9 +174,9 @@ used by migration; they do not relocate an existing registered character.
 |---|---|---|
 | `MIND_DREAM_TICK_TOKENS` | `40000` | one DREAM tick's allowance, shared by the roster in priority order |
 | `MIND_DREAM_RESEARCH_TOKENS` | `120000` | the research lane's own allowance — a night of reading the web is an order of magnitude past a diary entry, so it is billed apart or it eats consolidation |
-| `MIND_DREAM_RESEARCH_SEARCHES` | `10` | house ceiling on one research job's searches in a night |
-| `MIND_DREAM_RESEARCH_PAGES` | `10` | …and on the pages it opens |
-| `MIND_DREAM_RESEARCH_STEPS` | `12` | …and on the rounds it gets before it must write |
+| `MIND_DREAM_RESEARCH_SEARCHES` | `8` | house ceiling on one research job's searches in a night |
+| `MIND_DREAM_RESEARCH_PAGES` | `6` | …and on the pages it opens |
+| `MIND_DREAM_RESEARCH_STEPS` | `16` | …and on the rounds it gets before it must write |
 
 The three ceilings are the house's. A job file in `vault/dreams/` may ask for less and never for
 more — the same two-switch rule that stops a file switching on a camera the house doesn't have.
@@ -254,10 +254,11 @@ Backend-specific keys (`QWEN_*`, `SOVITS_*`) are in [Voice](voice.md).
 | `TOOL_MAX_CALLS_PER_TURN` | `2` | |
 | `TOOL_TIMEOUT_S` | `10` | |
 | `TOOL_RATE_TIMER` / `_MUSIC` / `_SELFIE` / `_PICTURE` / `_DESK` | `6` / `6` / `2` / `2` / `20` | calls per minute |
-| `TIMER_MAX_MINUTES` | `1440` | `set_timer`'s ceiling, in minutes — a day. Pending timers live in memory, so a restart drops them. |
+| `TIMER_MAX_MINUTES` | `1440` | `set_timer`'s ceiling, in minutes — a day. The board is `<vault>/state/timers.json`; a restart does not drop pending timers. |
 | `WORKSPACE_ENABLED` | `true` | enables `list_notes`, `read_note`, `count_note_lines`, `write_note`, `append_note`, `edit_note`, and `delete_note` |
 | `WORKSPACE_DIGEST_FILES` | `20` | newest workspace files named in Yuri's prompt |
 | `SKILLS_ENABLED` | `true` | enables `read_skill`, `write_skill`, and `delete_skill` |
+| `TOOL_RATE_SELFEDIT` | `1` | `propose_edit` — the one hand that reaches at her identity |
 | `MCP_SERVERS` | *(unset)* | path to `mcp-servers.json` — third-party servers |
 | `TOOL_RATE_EXTERNAL` | `4` | default bucket for a tool found by discovery |
 
@@ -293,7 +294,7 @@ reliably goes wrong when you point her at an instance you already run.
 
 | Key | Default | |
 |---|---|---|
-| `SELFIE_BACKEND` | `openrouter` | `openrouter` · `diffusers` · `krea2` · `mock` · `off` |
+| `SELFIE_BACKEND` | `off` | `openrouter` · `diffusers` · `krea2` · `mock` · `off`. New installs leave her camera off. |
 | `SELFIE_MODEL` | `bytedance-seed/seedream-4.5` | the hosted route's model |
 | `SELFIE_TEMPLATES_EXTRA` | *(empty)* | your own template overlay yaml |
 | `SELFIE_TEMPLATES` | *(empty)* | a library that **replaces** the shipped one (a character runtime points this at her own `selfie.yaml`) |
@@ -311,8 +312,23 @@ See [Selfies](selfies.md).
 
 ## The mind
 
-All of `MIND_*`, plus the reflex windows — the full table with explanations is in
-[The mind → the knobs](mind.md#the-knobs).
+Cadences, gates, DREAM hours, and the rest of `MIND_*` — the full table is in
+[The mind → the knobs](mind.md#the-knobs). The ones that decide whether she can act unasked:
+
+| Key | Default | |
+|---|---|---|
+| `MIND_TOOLS_ENABLED` | `false` | house switch: may anything on this machine reach for a tool unasked? |
+| `MIND_TOOL_ALLOWLIST` | *(empty)* | explicit names; empty even when the switch is on. `yurios settings MIND_TOOL_ALLOWLIST` prints the vocabulary |
+| `MIND_TOOL_CALLS_PER_DAY` | `8` | a cap, checked before the call |
+| `MIND_TOOL_PRESSURE_CEILING` | `0.5` | over it, the expensive hands are not offered |
+| `MIND_TOOL_COOLDOWN_CHEAP_S` | `21600` | desk / `set_timer` fingerprint (six hours) |
+| `MIND_TOOL_COOLDOWN_EXPENSIVE_S` | `172800` | web / camera (two days) |
+| `TOOL_RATE_MIND_DESK` / `_WEB` / `_CAMERA` / `_OTHER` | `4` / `1` / `1` / `1` | the mind's own buckets, not conversation's |
+| `MIND_ENGAGED_CADENCE_S` | `10` | tick while talking |
+| `MIND_DREAM_CADENCE_S` | `120` | DREAM works in capped chunks |
+
+See [the cost note](README.md#experimental--and-it-can-spend) before turning the house switch on
+against a metered API. Her tile's `hands` toggle is the per-character grant and takes effect live.
 
 ## Channels
 
@@ -324,6 +340,7 @@ All of `MIND_*`, plus the reflex windows — the full table with explanations is
 | `TELEGRAM_SEND_NON_TELEGRAM` | `false` | copy web/voice/CLI/API replies to Telegram |
 | `NOTIFY_ENABLED` | `false` | desktop notifications when she reaches out |
 | `NOTIFY_BACKEND` | `auto` | `auto` · `shell` · `libnotify` · `off` |
+| `TRAY_ENABLED` | `true` | the daemon's tray icon. Not company: it never counts as you being in the room |
 
 See [Channels](channels.md).
 

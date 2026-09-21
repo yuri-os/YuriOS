@@ -170,17 +170,20 @@ way to tell the two apart.
 - The mic doesn't work in the WSL window — the WSL VM's address isn't a secure context. The shell
   passes a per-run switch scoped to exactly that origin; the Edge fallback doesn't.
 
-## Selfies come out as placeholder cards
+## Selfies fail instead of arriving as placeholder cards
 
-`/api/health`'s `selfies` field says which case you're in:
+An unavailable camera is never swapped for `mock`. `/api/health`'s `selfies` field names the
+backend and why it can't run; each shot she takes meanwhile fails with a quiet note in the chat
+saying so, and never a placeholder card. Boot logs one WARNING with the fix. The camera asks
+again before every shot, so setting the key or mounting the drive brings it back without a
+restart.
 
 | Value | Cause |
 |---|---|
-| `mock (no key — placeholder)` | `SELFIE_BACKEND=openrouter` with no `OPENROUTER_API_KEY` |
-| `mock (diffusers unavailable — placeholder)` | missing `.[forge-local]`, or `SELFIE_LOCAL_MODEL` doesn't point at a checkpoint |
-| `mock (krea2 unavailable — placeholder)` | missing `.[forge-krea2]`, or no Hugging Face access to the gated `krea/Krea-2-Raw` |
-
-Every one of them also logged a WARNING at startup with the fix.
+| `off` | `SELFIE_BACKEND=off` — the shipped default; neither camera hand is advertised |
+| `openrouter (unavailable — no key)` | `SELFIE_BACKEND=openrouter` with no `OPENROUTER_API_KEY` |
+| `diffusers (unavailable — …)` | missing `.[forge-local]`, or `SELFIE_LOCAL_MODEL` doesn't point at a checkpoint |
+| `krea2 (unavailable — …)` | missing `.[forge-krea2]`, or no Hugging Face access to the gated `krea/Krea-2-Raw` |
 
 **Renders take ~70 s** — the pipeline is being CPU-offloaded because VRAM is full. Turn on
 `SELFIE_LLM_PARK` (the default) to lend the LLM's VRAM for the render's duration; it drops to
@@ -275,7 +278,7 @@ never moved, so nothing is lost while you sort it out.
 
 ## Still stuck
 
-- `git -C data/characters/<id>/vault log` — every change she made to herself, one commit per tick.
+- `git -C data/characters/<id>/vault log` — every change she made to herself (history at most once a day; the files themselves are current).
 - `data/characters/<id>/tool-logs/calls.jsonl` — every tool call, allowed or denied.
 - `data/characters/<id>/traces/ticks.jsonl` — why she did or didn't do a thing.
 - `signals.jsonl` — what woke her.

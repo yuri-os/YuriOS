@@ -11,11 +11,18 @@ These examples were run against a live node. Substitute your character id.
 ## House: start, status, `.env`
 
 ```bash
+yurios                                # same as start
 yurios status                         # daemon, every character, models, mind, camera
 yurios start                          # supervisor in the background
 yurios start --foreground             # attached logs
+yurios stop
 yurios restart                        # stop, then start
 yurios log -f                         # follow the daemon log
+yurios doctor                         # what's wired vs what's missing
+yurios configure                      # pick a model (and optionally a camera)
+yurios pair                           # owner token + QR for a phone
+yurios tray                           # why the icon is or isn't there
+yurios download                       # the recommended GGUF, or pass an id
 ```
 
 Every `.env` knob this build has is on `yurios settings` — the same table the
@@ -43,6 +50,7 @@ registry row and apply live:
 ```bash
 yurios character set yuri model openrouter/z-ai/glm-5.2
 yurios character set yuri mind false
+yurios character set yuri hands false   # live; utility and dream restart her
 ```
 
 ## Characters
@@ -79,8 +87,8 @@ yurios character set cliprobe setting "a terminal window, green text on black"
 yurios character set cliprobe mind false
 ```
 
-Long text and JSON fields take `--file`. Studio writes restart her; loop
-switches (`mind`, `hands`) land live.
+Long text and JSON fields take `--file`. Studio writes restart her; `mind` and
+`hands` land live; `utility`, `dream` and `notify` restart her.
 
 Export is identity, never intimacy. A character who has grown will often refuse
 until you have read the overlapping passages:

@@ -325,9 +325,10 @@ normative rules keep it affordable and legible:
 2. **APPRAISE is cheap by construction.** Salience is scored by pure heuristics every tick and
    *must not* call a model; the model is invoked only inside ACT, on work already judged worth
    it. This is what makes an always-on loop cost-viable.
-3. **Everything is journaled and traced, and every Vault-changing tick is one git commit.** An
-   uneventful tick commits nothing. Time is *injected* (no wall-clock reads, no bare sleeps
-   anywhere in the mind), which makes the whole engine deterministically testable (§6).
+3. **Everything is journaled and traced.** Writes land immediately; the Vault's git history is
+   at most one commit a day. An uneventful tick writes nothing. Time is *injected* (no
+   wall-clock reads, no bare sleeps anywhere in the mind), which makes the whole engine
+   deterministically testable (§6).
 
 Conversation is deliberately *not* generated inside the loop. The sub-second reply pipeline
 (§4) remains the fast path; the loop is that path's **observer and consequence**. A user
@@ -517,7 +518,7 @@ Representative scenarios:
 | *The dark weekend* | User gone 60 h: zero messages, but DREAM consolidates the week into facts; DORMANT and REST-majority visible in the trace. |
 | *The machine sleeps* | A 10-hour power-off yields exactly one `suspend_gap` catch-up, journaled — not re-sensed as a backlog. |
 | *Her own promise* | "I'll sleep on cat names" becomes a reach-out goal with promise provenance and a due time, journaled as made. |
-| *A timer is a promise* | An announcement queues while nobody can hear and delivers when a page attaches. |
+| *A timer is a promise* | An announcement into an empty room still lands, stamped `unheard`, so the inbox delivers it rather than re-queuing. |
 
 ---
 
@@ -526,11 +527,12 @@ Representative scenarios:
 This runtime is a reference implementation of *initiative*, and it draws its scope boundaries
 deliberately.
 
-- **No sandboxed workshop yet.** The mind never initiates tool calls, and there is no code
-  execution, shell, or autonomous build capability. The intended design delegates heavy work to
-  an **embedded, swappable coding harness** running in a separate, firewalled `yuri-workspace/`
-  sandbox under the host broker, with results crossing back into the mind only through the gated
-  self-edit flow. This is the primary next rung.
+- **No sandboxed workshop yet.** Mind-initiated *reading* and desk work ship, default-off
+  (`MIND_TOOLS_ENABLED`). There is no code execution, shell, or autonomous build capability.
+  The intended design delegates heavy work to an **embedded, swappable coding harness** running
+  in a separate, firewalled `yuri-workspace/` sandbox under the host broker, with results
+  crossing back into the mind only through the gated self-edit flow. This is the primary next
+  rung.
 - **No multimodal sensing.** SENSE reads text, time, files, and its own completions — no vision,
   no voice prosody — which is nonetheless sufficient to demonstrate a disciplined interrupt
   threshold.

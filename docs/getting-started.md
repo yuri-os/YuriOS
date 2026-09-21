@@ -59,9 +59,11 @@ the room returns to the switchboard *without* stopping that character's backgrou
 
 ![The character switchboard](img/switchboard.png)
 
-It is also where companions arrive and leave: **Import** takes a SillyTavern V2/V3 `.PNG` card,
-**Create character** opens the [card studio](characters.md#the-card-studio) on a blank one, and the
-switches on each tile turn her mind, utility and dream loops on and off while she runs.
+It is also where companions arrive and leave: **Import** takes a SillyTavern V2/V3 `.PNG` card
+(every import lands under review, including a YuriOS one), **Create character** opens the
+[card studio](characters.md#the-card-studio) on the shape of a working companion (`soul-src`,
+not eight empty boxes), and the switches on each tile turn her mind, utility, dream and hands
+loops on and off while she runs.
 
 On the first 0.2 start, an existing 0.1 install's `vault/`, `corpus/`, `traces/`, `tool-logs/`
 and `selfies/` are copied into a registered `yuri` character before any mind wakes. The old

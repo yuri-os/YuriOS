@@ -43,8 +43,13 @@ Python; the browser is a render-and-control client.
 | `yurios/mind` | the autonomy engine |
 | `yurios/kernel` | below all of them: the injected clock, the `corr_id`, the one event bus — stdlib only |
 | `yurios/characters` | the registry, the card parser/importer, connection profiles |
+| `yurios/chat` | the terminal client (`yurios chat` / `python -m yurios.chat`) |
+| `yurios/ctl` | the HTTP client behind `yurios character`, `selfie`, `gallery`, `dream` |
 | `soul-src/` | the SOUL she's seeded from |
 | `web/` | the frontends: the VRM stage, the Live2D client, the switchboard, the shared chrome |
+
+The console entry point is `yurios/cli.py`; the supervisor is `yurios/daemon.py`. Pairing, the
+doctor, and 0.1 → 0.2 migration live next to them (`pairing.py`, `doctor.py`, `migrate.py`).
 
 ## The Vault
 
@@ -66,6 +71,8 @@ vault/
 ```
 
 Human-readable, greppable, diffable, revertable. Moving her is copying a folder.
+Writes land immediately; git history is at most one commit a day unless the message names
+something a person just did (`now=True`).
 
 Beside the Vault, and deliberately outside it, sit the records *about* her — derived, rotating,
 never part of what she is:
@@ -212,14 +219,13 @@ The seams past this build are already shaped:
 - **The two-tier split** — promote the stores' contracts to a wire protocol and the engine to a
   supervised per-character process. That brings the broker (the guard's grown-up form), the model
   router's privacy boundary, and true one-loop conversation with it.
-- **The workshop** — a sandboxed workspace beside the Vault where ACT dispatches real work and
+- **The workshop** — a sandboxed workspace beside the Vault where ACT dispatches *code* and
   never awaits it (the selfie lab's start-don't-await rule, generalised), with the gated self-edit
   flow as the one door from work-product to self. Distinct from `vault/workspace/`, which is
-  already built: that one is *hers* and inert; this one is where code runs, and it lives outside
-  the Vault for exactly that reason.
+  already built: that one is *hers* and inert. Mind-initiated reading and desk work already
+  ship, default-off; this seam is where a shell would run, and it lives outside the Vault for
+  exactly that reason.
 - **The temporal knowledge graph** behind `WorldModelStore`'s unchanged contract.
-- **The card studio** — export the Vault's SOUL as a `.PNG` that boots on someone else's machine,
-  which is the point of the whole design.
 
 New provider? Write one `ImageBackend` and register it (`forge/backends/__init__.py`). New medium?
 Write one `Channel` (`world/channels/base.py`). New model route? It's a LiteLLM prefix.

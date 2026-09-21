@@ -28,6 +28,34 @@ What stands between you and that:
 - **The inner-life tab is the meter.** Every run, the document being read right now, its passage
   and model-call counts, and a stop button that keeps what she has already read.
 - **`RESEARCH_MAX_PAGES` and `TOOL_RATE_RESEARCH`** bound how far one run and one minute can reach.
+- **`MIND_TOOLS_ENABLED=false` is the default**, and it is the switch that decides whether
+  any of this can happen *without you in the room*. Everything above assumes you said
+  something first. With this off — the shipped state — her background loop thinks and
+  writes to her journal and never reaches for a tool at all. Turning it on is two
+  decisions, not one: the switch, and then `MIND_TOOL_ALLOWLIST`, which names the permitted
+  hands explicitly and is empty even once the switch is true. You do not have to know the
+  names — `yurios settings MIND_TOOL_ALLOWLIST` prints every hand this build has, what each
+  one does and whether its backend is on, and the settings panel renders the same list as
+  tick-boxes. A gentle first setting is her desk alone:
+  `write_note,append_note,read_note,list_notes`.
+
+Once you do turn it on, the numbers that actually stop a runaway night are different from
+the ones above, because they are *preconditions* rather than estimates:
+
+- **`MIND_TOOL_CALLS_PER_DAY` (8) is a cap, not a governor.** It is checked before the call
+  and it refuses. `MIND_TOOL_PRESSURE_CEILING` (0.5) does the same thing with the budget:
+  over it, the expensive hands — `research`, `read_page`, `web_search`, the cameras — are
+  simply not offered.
+- **The same call is refused for hours.** A persistent fingerprint ledger survives restarts,
+  so "she re-dispatched the same research every tick all night" cannot happen.
+- **Her buckets are not your buckets.** The mind gets its own rate limits
+  (`TOOL_RATE_MIND_*`), so a busy night cannot leave your morning request denied.
+- **Nothing she makes this way is sent to you.** It goes on her shelf, in her gallery, or on
+  her desk. Whether you ever hear about it is the same reach-out gate as everything else,
+  with the same quiet hours and the same daily cap.
+- **`tool-logs/calls.jsonl` marks every one of them `mind_tool`.** "What did she do at 4am"
+  is a file you read, not a vibe — and the switchboard's fourth toggle revokes her hands
+  before her next tick, without restarting her.
 
 If you point her at a paid API — chat, utility or embeddings — set a spend limit with the provider
 as well. For the first few days, watch the numbers on the inner-life tab.
@@ -51,7 +79,7 @@ as well. For the first few days, watch the numbers on the inner-life tab.
 | [Voice](voice.md) | Ears, voice and turn-taking: faster-whisper, kokoro, Qwen3-TTS, GPT-SoVITS, silero |
 | [Selfies](selfies.md) | Her camera: OpenRouter, local SDXL, Krea 2, the template library, provenance |
 | [Tools](tools.md) | Every built-in and third-party MCP call, the guard, the audit log |
-| [The mind](mind.md) | The tick loop, activity states, the two gates, goals, DREAM, the shelf, self-edits, the debug page |
+| [The mind](mind.md) | The tick loop, activity states, the two gates, goals, DREAM, her hands in the loop, the shelf, self-edits, the debug page |
 | [Channels](channels.md) | The web page, the terminal client, Telegram, and what's planned |
 
 ## Reference

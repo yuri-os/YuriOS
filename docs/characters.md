@@ -30,7 +30,7 @@ said `DORMANT` was describing one fact in two languages. A character with no min
 reaches the ladder at all and keeps the host's process words instead — those are a different fact
 (is she up), not another name for a rung.
 
-The tile also carries her three [loop switches](#loop-switches), live, and the four ways in beside
+The tile also carries her four [loop switches](#loop-switches), live, and the four ways in beside
 them: **Enter** for the 3D sanctuary, then her Live2D body, the text-only room, and her
 [mind debug page](mind.md#the-mind-debug-page). That last one is not a room — it reads her files,
 so it stays open on a character who is down, which is the one you want to look inside before
@@ -130,7 +130,7 @@ can't quietly get a mind, tools and a Telegram bot before you've read it.
 
 Her profile drawer edits name, description, personality, scenario, first message, chat model,
 utility model, voice, connection profile, body backend and rig, and her
-three loop switches. The model and connection fields are also on the gear panel inside her room,
+four loop switches. The model and connection fields are also on the gear panel inside her room,
 and blank means "inherit the node's `.env`".
 
 Saving writes `card.json` **and** rewrites the matching sections of her SOUL files in the Vault,
@@ -353,16 +353,18 @@ merely warned would ship silently.
 
 ## Loop switches
 
-Each character carries three switches, independent of the house defaults:
+Each character carries four switches, independent of the house defaults:
 
 | Switch | Effect |
 |---|---|
 | `mind` | her always-on tick loop. Toggling it takes effect live, with no restart |
 | `utility` | the off-hot-path model work: fact extraction, summarisation |
 | `dream` | nightly consolidation |
+| `hands` | may she reach for a tool unasked. Live, no restart. In series with the house switch `MIND_TOOLS_ENABLED` — with that off, the tile control is inert |
 
 One companion can be a fully autonomous mind while another stays reactive-only. `utility` and
-`dream` are wired at construction, so changing them restarts her runtime.
+`dream` are wired at construction, so changing them restarts her runtime. `mind` and `hands` do
+not. See [The mind → her hands in the loop](mind.md#her-hands-in-the-loop).
 
 ## Connection profiles
 
@@ -395,27 +397,27 @@ with her registry id upper-cased — `TELEGRAM_BOT_TOKEN_MIA`, `TELEGRAM_CHAT_ID
 The gear in *her own room* edits exactly that pair and nobody else's, so pasting a token there
 can never take over another companion's chat. Full detail in [Channels](channels.md#telegram).
 
-## Archiving and purging
+## Archiving, cloning and purging
 
-Two different acts, deliberately:
+Three different acts, deliberately:
 
 - **Archive** stops her runtime and renames her root to `data/archives/<id>-<timestamp>`. Her
   files survive; she leaves the board. The folder carries `archive.json` — a snapshot of her
   registry row — so `POST /api/archives/<name>/restore` (or `yurios character unarchive`) can put
   her back with the same models, loops and lifecycle. If the registry commit fails, the rename is
   rolled back.
-
-**Clone** (`POST /api/characters/<id>/clone`, `yurios character clone`) copies the whole companion
-— Vault, memory, journal, dreams, selfies — under a new id. Export + import is the identity-only
-duplicate.
-
-The terminal is a first-class client of these same routes — create, import, approve, export,
-clone, archive, unarchive, get/set — with working examples in [Command line](cli.md).
+- **Clone** (`POST /api/characters/<id>/clone`, `yurios character clone`) copies the whole
+  companion — Vault, memory, journal, dreams, selfies — under a new id. Export + import is the
+  identity-only duplicate.
 - **Purge** is two-phase: prepare a short-lived high-entropy challenge, then send it once in the
   JSON body of the DELETE. The root is first atomically renamed under `data/.purging/`; only then
   is the registry committed and the tombstone removed. A registry failure restores both the root
   and a previously running runtime. A failed final cleanup leaves an unregistered tombstone for
   safe manual recovery instead of exposing a half-deleted active character.
+
+The terminal is a first-class client of these same routes — create, import, approve, export,
+clone, archive, unarchive, start, stop, get/set — with working examples in
+[Command line](cli.md).
 
 Nothing else in YuriOS deletes a character root.
 

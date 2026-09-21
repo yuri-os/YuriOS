@@ -65,7 +65,7 @@ Websockets follow the same shape: `/ws/voice` and `/ws/characters/<id>/voice`.
 | `PATCH /api/characters/{id}/profile` | edit; also accepts the review |
 | `POST /api/characters/{id}/approve` | accept the review and start her: `{character, started, error}` |
 | `PATCH /api/characters/{id}/loop` | `{"enabled": bool}` — her mind, live |
-| `PATCH /api/characters/{id}/controls` | `{"mind"?, "utility"?, "dream"?}` |
+| `PATCH /api/characters/{id}/controls` | `{"mind"?, "utility"?, "dream"?, "hands"?, "notify"?}` — `mind` and `hands` apply live; `utility`, `dream` and `notify` restart her |
 | `GET /api/characters/{id}/portrait` | PNG, `Cache-Control: no-cache` |
 | `GET /api/characters/{id}/export` | her V2+V3 card PNG, as a download, with defaults |
 | `GET /api/characters/{id}/selfies/{name}` | one saved photo |
@@ -91,7 +91,10 @@ A character summary looks like:
   "id": "yuri", "name": "Yuri", "description": "…", "creator": "", "tags": [],
   "state": "engaged", "runtime_state": "ready", "error": null,
   "enabled": true, "review_required": false, "loop_enabled": true,
-  "loops": {"mind": true, "utility": true, "dream": true},
+  "loops": {"mind": true, "utility": true, "dream": true, "hands": true},
+  "hands": {"enabled": true, "available": false},
+  "notify": {"enabled": false, "available": true},
+  "unread": 0,
   "model": "lm_studio/…", "voice": "kokoro", "connection_profile": "default",
   "body_backend": "vrm", "body_model": "",
   "portrait_url": "/api/characters/yuri/portrait",
@@ -143,7 +146,7 @@ has to act on it — see [Characters → When the export refuses](characters.md#
 |---|---|
 | `POST /api/chat` | `{text, session_id?, channel?, client_id?, image_id?}` → `{session_id, user_message, message, active_selfies}`. Mirrors the voice route minus audio; `telegram` is a reserved origin |
 | `POST /api/chat/cancel` | `{client_id, selfie_ids?}` → cancel that browser turn and its correlated camera work |
-| `POST /api/greeting` | `{session_id?, channel?}` → `{session_id, message}`. She speaks first: the voice route greets on connect, a text client asks. Committed `proactive`, never persisted, once per session per run (`message: null` after that). The first-ever call plays her cold open |
+| `POST /api/greeting` | `{session_id?, channel?}` → `{session_id, message}`. She speaks first: the voice route greets on connect, a text client asks. Committed `proactive`, never persisted. A new `session_id` is **not** an arrival if another viewer is already in the room, or if the last one left within 60 s (`GREET_REJOIN_S`) — the skip still marks the session greeted (`message: null`) so a flap does not fire again. The first-ever call plays her cold open |
 | `GET /api/history?limit=&before=` | `{messages, has_more}`, oldest first, `Cache-Control: no-store`. No arguments is the end of the conversation (100 entries) — the catch-up window a reconnecting page asks for. A page *opening* asks for `limit=6`, the same six the walk-back control loads, so one earlier line is enough to offer it. Either way it survives a restart: the ring is seeded from `<vault>/state/conversation.jsonl`, the one log the chat column and the §7.1 window are both read from. `before=<message id>` is the `limit` entries just *older* than that one — the walk back at the top of the column, six a press. `limit` is capped at 200 |
 | `GET /api/inbox` | `{entries, unread}`, `Cache-Control: no-store` — what she reached out about while the room was empty, oldest first. `?all=1` includes what has already been seen |
 | `POST /api/inbox/read` | `{marked, unread}` — everything pending has now been seen. Owner-gated |
@@ -153,10 +156,12 @@ never the bytes. `text` may be empty when one is attached. An id that no longer 
 `404` rather than a turn with the words alone, and a model that cannot be sent pictures answers
 `409`. See [Models](models.md#can-she-see-pictures).
 
-`/api/history` is an in-memory ring and does not survive a restart; the inbox is on disk and does.
-A page opening merges the two by message id and shows what it has not seen under a *while you were
-away* rule, then marks it read — being in her room is the acknowledgement, so there is no
-per-entry dismiss. See [The mind](mind.md) and [Channels](channels.md#desktop-notifications).
+`/api/history` is an in-memory ring **seeded from** `<vault>/state/conversation.jsonl` at boot, so
+the catch-up window survives a restart. The inbox is a separate file, on disk, of lines she
+started into a room that may have been empty. A page opening merges the two by message id and
+shows what it has not seen under a *while you were away* rule, then marks it read — being in her
+room is the acknowledgement, so there is no per-entry dismiss. See [The mind](mind.md) and
+[Channels](channels.md#desktop-notifications).
 
 Text turns from all channels serialise on one lock. HTTP text and session fields are
 bounded, and each character admits one active HTTP turn plus two waiters; further
@@ -172,7 +177,8 @@ events. The stream pings while idle and ends itself on shutdown, so an open tab 
 hostage. **A chat room attaching counts as presence**: it posts `user_present` to the mind, and
 the last room or live-CLI detach posts `user_absent`. Telegram, notify, and the mind debug page
 (`?presence=0`) drain the same bus and are not viewers — `/api/health`'s `viewers` is the room
-count, not every hub subscriber.
+count, not every hub subscriber. The text room attaches with `?body=0` so it is company without
+claiming a body on a screen.
 
 | Event | Payload |
 |---|---|
@@ -186,6 +192,7 @@ count, not every hub subscriber.
 | `mind` | activity/budget/goal updates for the inner-life tab |
 | `context` | current `{used, limit, limit_source, reserve, exact, pct}` context-meter snapshot; sticky |
 | `selfie_status` | `{id, state, client_id?}` for asynchronous camera work: `started`, `done`, `cancelled`, or `error` |
+| `workspace` | a desk file was written (`{action: "write", path, …}`) |
 
 Publishes are non-blocking (a stalled client loses events, never blocks the publisher) and
 thread-safe.
@@ -206,8 +213,9 @@ deliver.
   frame may carry `image_id` (from `POST /api/uploads`) — the id, never the bytes, which is what
   keeps a picture turn on the path that has TTS on the end of it.
 - **Down:** `session`, `warming`, `ready`, `processing`, `filler` / `audio` (base64 PCM plus the
-  sentence text, for visemes), `done`, `cancelled`, `error`. `ready` means the voice stack is
-  available; `processing` includes the accepted turn's optional `client_id`.
+  sentence text, for visemes), `speaking` / `spoken` (a replayed line was accepted, or why it
+  wasn't), `done`, `cancelled`, `error`. `ready` means the voice stack is available;
+  `processing` includes the accepted turn's optional `client_id`.
 
 Turn expressions are re-routed onto the event bus, so the face has exactly one lane.
 
@@ -239,6 +247,11 @@ set a timer?" gets answered without reading logs.
 | `GET /api/mind/reading` | research runs, the document being read right now with its passage and model-call counts, and everything held |
 | `POST /api/mind/reading/stop` | `{"run": "<id>"}` to stop a research run, `{}` to stop just the read in flight |
 | `POST /api/mind/reading/resume` | `{"doc": "<name>"}` — let a held document be read again, from where it stopped |
+| `GET /api/mind/workspace` | `{files: […]}` — her desk listing |
+| `GET /api/mind/workspace/file?path=` | `{path, text}` — one desk file; the same GET a chat-line control and a report card make |
+| `PUT /api/mind/workspace/file` | `{"path", "text"}` — write a desk file; publishes `workspace` |
+| `GET /api/mind/research` · `…/research/file?name=` | the research corpus, and one document |
+| `GET /api/mind/dream` | tonight's roster, builtins and files folded together |
 | `POST /api/mind/dream/run` | manually run DREAM; `day` must be canonical `YYYY-MM-DD`, and `budget` is typed then clamped to `1..MIND_DREAM_TICK_TOKENS` |
 | `GET /api/mind/dream/jobs` | every job file on disk, parsed, plus the kinds and builtin names this build knows |
 | `GET /api/mind/dream/jobs/{name}` | one job file, raw |

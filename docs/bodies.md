@@ -125,7 +125,8 @@ What you keep:
 - the **inner life** tab (journal, goals, queued self-edits), the **gallery** tab (every picture
   her camera has made, paged, each one ratable out of ten) and the `.env` settings panel;
 - the context gauge and the first-audio latency readout;
-- the [mute-her-voice switch](voice.md#muting-her), which starts **off** in here.
+- the [mute-her-voice switch](voice.md#muting-her), which starts **muted** here as on every
+  other page.
 
 Telegram forwarding is configured with `TELEGRAM_SEND_NON_TELEGRAM`; see
 [Channels → Cross-chat forwarding](channels.md#cross-chat-forwarding).

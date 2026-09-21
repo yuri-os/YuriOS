@@ -826,7 +826,10 @@ to every new subscriber before its first live event. Malformed JSON is logged an
   Deliverable is a voice injector **or** a chat viewer (a text room or the
   terminal, which do not open `/ws/voice` while muted). With no injector the
   announcement **MUST** land as a proactive chat line on the EventHub rather
-  than wait forever for a socket that page never opens.
+  than wait forever for a socket that page never opens. With no injector
+  **and** no viewer, the line **MUST** still land, stamped `unheard`, so the
+  inbox and the doorbell (§18.4) carry the promise instead of the tick
+  re-queuing it until someone walks in.
   `play_music` drives the browser-side synthesized ambience (§6.2) —
   a generative pad, not a media library; the seam is the point.
 - §7.6 **Her camera: `take_selfie` / `show_picture`, start-don't-await.** The two hands that
@@ -1062,7 +1065,9 @@ STT/TTS/VAD SDK, and fakes implement each seam so the whole loop runs offline (�
   and she opened by asking for it a second time. A wordless entry (a selfie is a chat line
   with no words in it) **MUST NOT** reach the prompt as a blank turn. The greeting **MUST**
   fire at most once per session — a reconnect or a second socket **MUST NOT**
-  speak a second greeting over the first. On the **first-ever** arrival there is no memory to
+  speak a second greeting over the first. A new session id minted inside a
+  short rejoin of the last viewer leaving (an SSE flap, a switch of rooms)
+  **MUST NOT** count as an arrival either. On the **first-ever** arrival there is no memory to
   open from: while `soul/BOOTSTRAP.md` is present and the journal is empty, the greeting **MUST**
   be that file's authored cold open, spoken verbatim, with no model call and no corpus line (the
   text is SOUL, not a completion); once the journal shows she has met someone, the bootstrap
@@ -1535,7 +1540,8 @@ arrives.
   `<vault>/state/inbox.json`, oldest first, capped. `unheard` **MUST** be set by the caller and
   never inferred from subscriber counts: channel adapters subscribe to the hub too, so "no
   subscribers" stops meaning "nobody is home" the moment Telegram is configured. It is set at the
-  mind's two reach-out deliveries and on an unprompted selfie; a **greeting never carries it**,
+  mind's two reach-out deliveries, on an unprompted selfie, and on a timer
+  announcement that found no viewer (§7.5); a **greeting never carries it**,
   because a greeting is answered *to* somebody who has just arrived.
 - §18.4.2 **It is delivery state, not memory, and MUST NOT dirty the Vault.** What she *said* is
   already committed — the mind journals every reach-out — so the file adds only pending-or-seen,

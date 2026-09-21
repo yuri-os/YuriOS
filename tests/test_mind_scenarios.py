@@ -176,21 +176,23 @@ async def test_finishing_promised_work_files_the_telling(cfg, seeded_vault):
     assert rig.post.proactive() == [], "filing it is not saying it"
 
 
-# --- a timer is a promise: queued until deliverable ---------------------------------
+# --- a timer is a promise: delivered, spoken or unheard ---------------------------------
 
-async def test_timer_announce_queues_until_someone_can_hear(cfg, seeded_vault):
+async def test_timer_announce_lands_unheard_when_the_room_is_empty(
+        cfg, seeded_vault):
+    """A timer is a promise: with no mouth and no viewer it still lands,
+    stamped unheard, so the inbox and the doorbell carry it (SPEC §7.5)."""
     rig = make_mind(cfg, seeded_vault)
     rig.timers.add(id="t1", label="tea", seconds=60.0)
     rig.clock.advance(61)
     rig.timers.poll()
     rig.speak.connected = False                    # nobody in the room
     await rig.mind.tick()
-    assert rig.mind._pending_announce, "the promise stays queued"
-    rig.speak.connected = True                     # a page attaches
-    rig.clock.advance(30)
-    await rig.mind.tick()
-    assert not rig.mind._pending_announce
-    assert any("tea" in c["cue"] for c in rig.speak.calls if c["delivered"])
+    assert not rig.mind._pending_announce, "the promise was delivered"
+    posted = rig.post.proactive()
+    assert posted and posted[-1].get("unheard") is True
+    assert posted[-1]["text"]
+    assert not any(c["delivered"] for c in rig.speak.calls)
 
 
 async def test_a_timer_restored_across_a_restart_is_not_called_punctual(

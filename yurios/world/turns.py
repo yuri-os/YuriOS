@@ -150,6 +150,11 @@ class TextTurns:
             session_id = rt.brain.resolve_session(session_id)
             if session_id in rt.greeted:
                 return {"session_id": session_id, "message": None}
+            # A new session_id is not proof of arrival: an SSE flap or a
+            # switch of rooms mints one while they never left (§9.8).
+            if rt.still_in_the_room():
+                rt.greeted.add(session_id)
+                return {"session_id": session_id, "message": None}
             # NOT marked greeted yet: a greeting that dies mid-stream is a
             # greeting that did not happen, and rolls back like every other turn
             # here. Marking on entry meant one failed stream cost her the

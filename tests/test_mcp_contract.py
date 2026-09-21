@@ -38,6 +38,7 @@ async def test_list_tools_is_exactly_the_hands_she_has():
         timer = next(t for t in listed.tools if t.name == "set_timer")
         assert "minutes" in timer.inputSchema["properties"]
         assert "minutes" in timer.inputSchema.get("required", [])
+        assert "180" in (timer.description or "")
 
 
 async def test_the_web_hands_appear_only_when_search_is_configured():

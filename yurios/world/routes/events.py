@@ -84,6 +84,9 @@ async def events(request: Request, presence: bool = Query(default=True),
             # a phantom folder for a character no longer in the registry.
             if (presence and rt.hub.viewers == 0
                     and not rt.stopping.is_set()):
+                # so a session minted on the way back in is a reconnect, not
+                # an arrival (SPEC §9.8)
+                rt.presence_left_at = rt.clock.now()
                 rt.signals.post("user_absent", {}, source="frontend")
 
     return StreamingResponse(stream(), media_type="text/event-stream")

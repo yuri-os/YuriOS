@@ -151,10 +151,11 @@ def build_server(*, max_minutes: float | None = None,
 
     mcp = FastMCP("world-companion-tools")
 
-    @mcp.tool()
+    @mcp.tool(description=(
+        "Set a countdown timer. `minutes` must be in (0, "
+        f"{max_minutes:g}]; `label` is what the timer is for "
+        '("tea", "the oven") and is spoken back when it finishes.'))
     def set_timer(minutes: float, label: str = "") -> dict:
-        """Set a countdown timer. `minutes` must be positive; `label` is what the
-        timer is for ("tea", "the oven") and is spoken back when it finishes."""
         if not (0 < minutes <= max_minutes):
             raise ValueError(f"minutes must be in (0, {max_minutes:g}]")
         seconds = round(minutes * 60)

@@ -29,7 +29,11 @@ class BudgetGovernor:
         today = day_of(self.clock.now())
         st = read_json(self.path, None) or {}
         if st.get("date") != today:
+            # SPEC §17.3: the ledger rolls at local midnight. Rolling only
+            # inside debit() left yesterday's spend on disk through a REST-only
+            # day, and the debug page reads the file.
             st = {"date": today, "spent_tokens": 0, "calls": 0}
+            write_json(self.path, st)
         return st
 
     def debit(self, prompt_text: str, reply_text: str = "") -> None:

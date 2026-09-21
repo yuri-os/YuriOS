@@ -282,15 +282,17 @@ def journal_events(episodic: Path, since: float | None) -> list[Event]:
 # --- one tick, shaped ---------------------------------------------------------
 
 def tick_event(row: dict, goal_by_id: dict[str, dict],
-               goal_by_title: dict[str, str]) -> Event | None:
-    """A non-REST tick as an event, or None for REST (a heartbeat that chose
-    nothing is density, not an event). Shared with the tick detail view so the
-    two never describe one tick differently."""
+               goal_by_title: dict[str, str], *,
+               include_rest: bool = False) -> Event | None:
+    """A tick as an event, or None for REST (a heartbeat that chose nothing is
+    density, not an event). The graph keeps that filter. The tick detail page
+    passes `include_rest=True` so APPRAISE is still drawn — that is the page
+    you open to ask why she rested."""
     decided = row.get("decided") or {}
     acted = row.get("acted") or {}
     intention = decided.get("intention") or "REST"
     bucket = intention_bucket(intention)
-    if bucket == "REST" or acted.get("result") == "rest":
+    if not include_rest and (bucket == "REST" or acted.get("result") == "rest"):
         return None
     tid = row.get("tick_id") or stable_id("t", row)
     appraisals = [

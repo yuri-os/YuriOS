@@ -181,6 +181,19 @@ def test_rest_is_density_not_events(tmp_path):
     assert graph["stats"]["rest"] == 1
 
 
+def test_tick_event_can_shape_rest_for_the_detail_page():
+    row = {"tick_id": "t-rest", "ts": iso(50), "activity_state": "DORMANT",
+           "sensed": [],
+           "appraised": [{"what": "tool_step:nights", "score_to_act": 0.24,
+                          "why": "priority 0.4"}],
+           "decided": {"intention": "REST", "runners_up": []},
+           "acted": {"result": "rest"}}
+    assert debug_graph.tick_event(row, {}, {}) is None
+    ev = debug_graph.tick_event(row, {}, {}, include_rest=True)
+    assert ev["bucket"] == "REST"
+    assert ev["detail"]["appraised"][0]["score"] == 0.24
+
+
 def test_a_decision_explains_itself_against_her_own_threshold(tmp_path):
     rec = record(tmp_path)
     write_jsonl(rec.paths.traces / "ticks.jsonl", [tick("t-1", 10)])

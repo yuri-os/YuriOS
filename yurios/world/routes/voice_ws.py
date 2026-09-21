@@ -303,13 +303,15 @@ async def _in_the_room(ws: WebSocket, rt, session_id: str, safe_send,
 
     # she speaks first (B2 §7): greet from memory the moment the headset goes on —
     # but only once per session. Check-and-mark is atomic on the event loop.
+    # still_in_the_room: a new session after an SSE flap is not an arrival.
     if session_id not in rt.greeted:
         rt.greeted.add(session_id)
-        turn_task = asyncio.create_task(run(
-            controller.run_turn(session_id, "", persist=False,
-                                tokens=brain.stream_greeting(session_id)),
-            proactive=True,                        # she speaks first
-            commit_text=brain.cold_open()))        # …and on the first-ever
+        if not rt.still_in_the_room():
+            turn_task = asyncio.create_task(run(
+                controller.run_turn(session_id, "", persist=False,
+                                    tokens=brain.stream_greeting(session_id)),
+                proactive=True,                    # she speaks first
+                commit_text=brain.cold_open()))    # …and on the first-ever
                                                    # arrival, from the card (§5.4)
 
     try:

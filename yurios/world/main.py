@@ -250,12 +250,32 @@ class Runtime:
         # but a *reconnect* is not a new arrival — and during a voice warm several
         # connections release together, so without this they would all greet.
         self.greeted: set[str] = set()
+        # When the last viewer left. A new session inside GREET_REJOIN_S is a
+        # flap (SSE reconnect, room switch), not someone walking in.
+        self.presence_left_at: float | None = None
 
     # The voice stack used to be four attributes on the Runtime and everything
     # downstream reads them by name (the route, /api/health, the desktop route's
     # shape). It moved behind `self.voice` when it became load-on-demand; these
     # keep every reader working and reading the *current* stack rather than a
     # stale reference to weights that have since been freed.
+
+    #: A page that was here this recently did not leave. SSE reconnects and
+    #: room switches mint a new session_id; without this they greet again.
+    GREET_REJOIN_S = 60.0
+
+    def still_in_the_room(self) -> bool:
+        """True when a greeting would be a reconnect, not an arrival (§9.8).
+
+        Another page is already open, or the last viewer left inside
+        GREET_REJOIN_S. The arriving page is itself a viewer, so the count
+        that means "already company" is more than one.
+        """
+        if self.hub.viewers > 1:
+            return True
+        if self.presence_left_at is None:
+            return False
+        return (self.clock.now() - self.presence_left_at) < self.GREET_REJOIN_S
 
     @property
     def tts(self):

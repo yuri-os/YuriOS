@@ -158,6 +158,33 @@ async def test_progress_is_per_job_and_resumable(rig):
     assert ledger["consolidate"]["backlog"] == ["2026-07-04"]
 
 
+def test_the_debug_card_reads_consolidate_progress_not_the_empty_ledger(rig):
+    """Shipped vaults keep consolidate days in dream_progress.json. The runner
+    ledger's consolidate row stays empty on purpose (`owns_ledger`) — without
+    this overlay the Dreams page reports a month of nights as never run."""
+    runner, _clock, vault = rig
+    path = vault / "state" / "dream_progress.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        '{"consolidated_days": ["2026-07-04", "2026-07-05"],'
+        ' "partner_evolved_on": "2026-07-05"}\n',
+        encoding="utf-8")
+    card = {j["name"]: j for j in runner.status()}["consolidate"]
+    assert card["days"] == 2
+    assert card["last_run"]
+    assert "folded" in (card.get("last_result") or "")
+
+
+async def test_a_consolidate_run_records_last_run_on_the_debug_card(rig):
+    runner, _clock, vault = rig
+    _day_file(vault, "2026-07-04", ["user: remember the boat  ⇄  yuri: noted"])
+    await runner.run(only="consolidate")
+    card = {j["name"]: j for j in runner.status()}["consolidate"]
+    assert card["days"] >= 1
+    assert card["last_run"]
+    assert card["runs"] >= 1
+
+
 async def test_a_once_a_night_job_does_not_walk_backwards_through_history(rig):
     """A `per_day=False` job asks "has the most recent finished day been seen",
     not "which days are unseen" — the second walks the archive one night at a

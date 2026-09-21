@@ -249,7 +249,9 @@ async function renderOverview() {
     tile("Last heard from you", activity.last_user_msg ? relative(activity.last_user_msg) : "—"),
     tile("Context now", used != null ? number(used) : "—",
       data.live ? `of ${number(data.live.context.limit)} tokens` : "she is not running"),
-    tile("Spent today", number(budget.spent_tokens ?? 0), `${number(budget.calls ?? 0)} calls`),
+    tile("Spent today", number(budget.spent_tokens ?? 0),
+      [budget.date ? `on ${budget.date}` : null,
+       `${number(budget.calls ?? 0)} calls`].filter(Boolean).join(" · ")),
     tile("Vault commits", number(data.vault?.commits ?? 0),
       data.vault?.head ? data.vault.head.slice(0, 8) : "not a repo yet")));
 
@@ -865,8 +867,9 @@ async function renderTickDetail(ctx) {
     tile("When", clock(tick.ts))));
 
   /* The same phases, in the same words, the graph's inspector draws for this
-   * tick (graph/inspector.js) — one renderer, so the two cannot disagree. A
-   * REST tick has no event: it chose nothing, and its record is all there is. */
+   * tick (graph/inspector.js) — one renderer, so the two cannot disagree.
+   * REST is density on the graph, but the detail page still draws APPRAISE
+   * so you can see why she rested. */
   if (event) {
     if (data.why) wrap.append(element("p", { className: "gx-ins-why wide", text: data.why }));
     const phases = element("div", { className: "panel-body gx-phases" });

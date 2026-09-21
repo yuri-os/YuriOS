@@ -365,8 +365,17 @@ class DreamRunner:
             except Exception:  # noqa: BLE001
                 log.exception("DREAM job %s: backlog failed", job.name)
                 pending = []
+            summary = self.ledger.summary(job.name)
+            if job.owns_ledger:
+                folded = self._consolidator.progress_summary()
+                summary["days"] = folded["days"]
+                if not summary.get("last_run"):
+                    if folded.get("last_run"):
+                        summary["last_run"] = folded["last_run"]
+                    if folded.get("last_result"):
+                        summary["last_result"] = folded["last_result"]
             out.append({**job.as_dict(), "enabled": enabled,
-                        "backlog": pending, **self.ledger.summary(job.name)})
+                        "backlog": pending, **summary})
         return out
 
     # -------------------------------------------------------------------- run
@@ -445,13 +454,20 @@ class DreamRunner:
                 # `days` is handled, not produced — see JobReport. A job that
                 # decided there was nothing to write still finished with that
                 # day, and must not be asked about it again tomorrow.
-                if out.days and not out.failed and not dry_run \
-                        and not job.owns_ledger:
-                    touched = True
-                    for finished in out.days:
-                        self.ledger.mark(job.name, finished)
-                    self.ledger.note_run(job.name, at=iso_of(self.clock.now()),
-                                         result=out.result)
+                if not out.failed and not dry_run:
+                    # Days live on the consolidator's own file when
+                    # `owns_ledger`; marking them here would double-ledger and
+                    # could re-run nights. last_run still belongs on this
+                    # ledger — without it the debug card reads "never run".
+                    if out.days and not job.owns_ledger:
+                        touched = True
+                        for finished in out.days:
+                            self.ledger.mark(job.name, finished)
+                    if out.days or (job.owns_ledger and out.changed):
+                        touched = True
+                        self.ledger.note_run(
+                            job.name, at=iso_of(self.clock.now()),
+                            result=out.result)
             report.exchanges.extend(ctx.exchanges)
             report.steps.extend(ctx.steps)
             report.writes.extend(ctx.writes)

@@ -109,6 +109,26 @@ class DreamConsolidator:
                       if is_canonical_day(p.stem) and p.stem < today)
         return [d for d in days if d not in done]
 
+    def progress_summary(self) -> dict:
+        """Days already folded — what the debug card reads for this job.
+
+        The runner's ledger does not own consolidate (`owns_ledger`); without
+        this overlay the Dreams page reports a month of nights as never run.
+        """
+        progress = read_json(self.progress_path, {}) or {}
+        done = list(progress.get("consolidated_days") or [])
+        out: dict = {"days": len(done)}
+        if done:
+            # No clock on the progress file. The last night it marked, or the
+            # newest day it folded, is the closest the card can name until the
+            # runner records a real last_run.
+            # max, not `or`: a stale partner_evolved_on must not hide a newer
+            # folded day.
+            out["last_run"] = max(filter(None, [progress.get("partner_evolved_on"),
+                                                max(done)]))
+            out["last_result"] = f"{len(done)} day(s) folded into kept memory"
+        return out
+
     def partner_backlog(self) -> list[str]:
         """One partner rewrite per calendar night, even without a journal (§21)."""
         needs_evolution = getattr(self.store, "partner_evolution_pending", None)

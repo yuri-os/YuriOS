@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import threading
 import time
 from types import SimpleNamespace
 
@@ -290,6 +291,51 @@ def test_a_greeting_that_failed_is_retried_on_the_next_arrival(cfg):
         entry = c.post("/api/greeting", json={"channel": "cli"}).json()["message"]
         assert entry is not None and entry["text"] == "Oh, there you are."
         assert [m["role"] for m in app.state.rt.transcript] == ["assistant"]
+
+
+def test_a_greeting_right_after_the_last_page_left_is_a_reconnect(cfg):
+    """SSE flaps and room switches mint a new session_id. That is not arrival
+    (SPEC §9.8) — she already said hello a few seconds ago."""
+    app = make_app(cfg)
+    with TestClient(app) as c:
+        rt = app.state.rt
+        rt.presence_left_at = rt.clock.now()
+        data = c.post("/api/greeting", json={"channel": "cli"}).json()
+        assert data["message"] is None
+        assert data["session_id"] in rt.greeted
+        assert rt.transcript == []
+
+
+def test_a_greeting_after_the_rejoin_window_is_an_arrival(cfg):
+    app = make_app(cfg)
+    with TestClient(app) as c:
+        rt = app.state.rt
+        rt.presence_left_at = rt.clock.now() - rt.GREET_REJOIN_S - 1
+        data = c.post("/api/greeting", json={"channel": "cli"}).json()
+        assert data["message"] is not None
+        assert data["message"]["text"] == "Oh, there you are."
+
+
+def test_a_second_open_page_does_not_greet_over_the_first(cfg):
+    """Two rooms at once (headset + text, two tabs) share one hello."""
+    app = make_app(cfg)
+    with TestClient(app) as c:
+        first = c.post("/api/greeting", json={"channel": "cli"}).json()
+        assert first["message"] is not None
+        rt = app.state.rt
+        attached = threading.Event()
+
+        def attach():
+            rt.hub.subscribe(viewer=True)
+            rt.hub.subscribe(viewer=True)
+            attached.set()
+
+        rt.loop.call_soon_threadsafe(attach)
+        assert attached.wait(1)
+        again = c.post("/api/greeting", json={
+            "channel": "cli", "session_id": "b" * 32}).json()
+        assert again["message"] is None
+        assert [m["role"] for m in rt.transcript] == ["assistant"]
 
 
 # ---- the Telegram adapter ---------------------------------------------------

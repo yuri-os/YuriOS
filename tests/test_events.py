@@ -217,6 +217,7 @@ async def test_the_last_page_leaving_still_posts_user_absent(client):
     assert rt.hub.subscribers == 0
     assert not rt.stopping.is_set()
     assert "user_absent" in _types(rt)
+    assert rt.presence_left_at is not None
 
 
 async def test_a_channel_adapter_does_not_keep_the_room_occupied(client):

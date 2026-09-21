@@ -130,8 +130,10 @@ def register(app: FastAPI, host: CharacterHost, require) -> None:
         settings = graph_settings(record)
         goals = [debug_graph.parse_goal(g) for g in debug.goals(record)["items"]]
         by_id = {g["id"]: g for g in goals}
-        event = debug_graph.tick_event(found["tick"], by_id,
-                                       {g["title"].lower(): g["id"] for g in goals})
+        event = debug_graph.tick_event(
+            found["tick"], by_id,
+            {g["title"].lower(): g["id"] for g in goals},
+            include_rest=True)
         found["event"] = event
         found["goal"] = by_id.get(event["goal"]) if event and event["goal"] else None
         found["why"] = (debug_graph.explain_tick(event, by_id, settings["act_threshold"])

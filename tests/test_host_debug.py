@@ -215,6 +215,27 @@ def test_a_tick_that_sensed_nothing_joins_nothing(client):
     assert body["signals"] == [] and body["calls"] == [] and body["prompts"] == []
 
 
+def test_a_rest_tick_still_shows_why_she_rested(client):
+    """REST is density on the graph, but the detail page is where you ask why.
+    Gate 1 at 0.4 vs a 0.24 leftover is the whole answer; hiding APPRAISE
+    made a quiet night look like a missing record."""
+    write_jsonl(client.record.paths.traces / "ticks.jsonl", [
+        {"tick_id": "t-rest", "ts": "2026-08-01T10:00:00",
+         "activity_state": "DORMANT",
+         "sensed": [],
+         "appraised": [{"what": "tool_step:catch up on the nights",
+                        "score_to_act": 0.24, "why": "priority 0.4"}],
+         "decided": {"intention": "REST", "runners_up": [
+             "tool_step:catch up on the nights"]},
+         "acted": {"what": None, "result": "rest"}, "interrupt": {}}])
+    body = get(client, "/ticks/t-rest")
+    event = body["event"]
+    assert event["bucket"] == "REST"
+    assert event["detail"]["intention"] == "REST"
+    assert event["detail"]["appraised"][0]["score"] == 0.24
+    assert "Gate 1" in body["why"]
+
+
 def test_an_unknown_tick_is_a_404(client):
     seed(client.record)
     assert client.get("/api/characters/yuri/debug/ticks/t-nope").status_code == 404

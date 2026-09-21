@@ -648,6 +648,7 @@ MIND_DREAM_END_HOUR=6
 
 # her hands in the loop (SPEC §26) — inert until the first is true
 MIND_TOOLS_ENABLED=false          # house switch: may anything on this machine act unasked?
+MIND_TOOLS_DURING_CHAT=auto       # auto | on | off — stand down mid-conversation only when the utility model is local
 MIND_TOOL_ALLOWLIST=              # explicit names; empty even when the switch is on
 MIND_TOOL_CALLS_PER_DAY=8         # a cap, checked before the call
 MIND_TOOL_PRESSURE_CEILING=0.5    # over it, the expensive hands are not offered
@@ -693,10 +694,14 @@ the conversational allowlist, **empty even when the house switch is on**.
 whether its backend is on. A gentle first setting is her desk alone:
 `write_note,append_note,read_note,list_notes`.
 
-Cheap hands (the desk, `set_timer`) are a step of goal work in any state except ENGAGED.
+Cheap hands (the desk, `set_timer`) are a step of goal work in any state. While she is talking
+they stand down only when `MIND_TOOLS_DURING_CHAT` says so: `off` always, `on` never, and `auto`
+(the default) exactly when `UTILITY_MODEL` is local (`ollama/`, `lm_studio/`, `gguf/`). A local
+utility model is the machine her reply is using, and it cannot do both; a hosted one can, so the
+desk keeps working through the conversation.
 Expensive ones (`research`, `read_page`, `web_search`, the cameras) take the whole tick, need
 their backend, budget pressure under `MIND_TOOL_PRESSURE_CEILING`, and DORMANT/DREAM **or** you
-absent. `MIND_TOOL_CALLS_PER_DAY` is a cap, not a governor: it is checked before the call and
+absent — including while she is talking. `MIND_TOOL_CALLS_PER_DAY` is a cap, not a governor: it is checked before the call and
 it refuses. The same call is refused for hours by a fingerprint ledger that survives restarts.
 Nothing she makes this way is sent to you — it goes on her shelf, in her gallery, or on her
 desk. Whether you hear about it is the same reach-out gate as everything else.

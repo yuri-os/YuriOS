@@ -318,6 +318,7 @@ Cadences, gates, DREAM hours, and the rest of `MIND_*` — the full table is in
 | Key | Default | |
 |---|---|---|
 | `MIND_TOOLS_ENABLED` | `false` | house switch: may anything on this machine reach for a tool unasked? |
+| `MIND_TOOLS_DURING_CHAT` | `auto` | `auto` stands down mid-conversation only when `UTILITY_MODEL` is local; `on` keeps working; `off` always stands down |
 | `MIND_TOOL_ALLOWLIST` | *(empty)* | explicit names; empty even when the switch is on. `yurios settings MIND_TOOL_ALLOWLIST` prints the vocabulary |
 | `MIND_TOOL_CALLS_PER_DAY` | `8` | a cap, checked before the call |
 | `MIND_TOOL_PRESSURE_CEILING` | `0.5` | over it, the expensive hands are not offered |

@@ -2174,7 +2174,7 @@ timeouts `MIND_{ENGAGED,IDLE,DORMANT,DREAM}_CADENCE_S`, `MIND_ENGAGED_TIMEOUT_S`
 `MIND_DISPATCH_TIMEOUT_S`, `GOALS_IN_PROMPT`; and goals of her own (§22.1b):
 `MIND_GOAL_FILING_ENABLED` (**true**) with `MIND_SELF_GOALS_MAX`. Her hands in the loop (§26) — every one of these is
 inert until the first is true: `MIND_TOOLS_ENABLED` (**false**), `MIND_TOOL_ALLOWLIST` (**empty**),
-`MIND_TOOL_CALLS_PER_DAY`, `MIND_TOOL_PRESSURE_CEILING`,
+`MIND_TOOLS_DURING_CHAT` (**auto**), `MIND_TOOL_CALLS_PER_DAY`, `MIND_TOOL_PRESSURE_CEILING`,
 `MIND_TOOL_COOLDOWN_{CHEAP,EXPENSIVE}_S` plus the per-tool `MIND_TOOL_COOLDOWN_S` override, and the
 mind guard's own buckets `TOOL_RATE_MIND_{DESK,WEB,CAMERA,OTHER}`. The self-edit door (§23) is
 rationed by `TOOL_RATE_SELFEDIT`. The DREAM pipeline's per-job switch is not a knob but a file:
@@ -2244,9 +2244,15 @@ needs a sandbox.
   the daily cap `MIND_TOOL_CALLS_PER_DAY`, and the fingerprint cooldown. A blocked hand **MUST**
   appear in the tick trace as a scored runner-up carrying its reason, not as an exception inside an
   act that already committed. Two cost classes: **cheap** (the desk, `set_timer`) is a step in goal
-  work and is allowed in any state except ENGAGED; **expensive** (`research`, `read_page`,
-  `web_search`, the two cameras) is one whole tick's intention and additionally requires its backend
-  to be configured, budget pressure under the ceiling, and DORMANT/DREAM **or** the user absent.
+  work and is allowed in any state. While she is ENGAGED, cheap hands **MUST** stand down when
+  `MIND_TOOLS_DURING_CHAT` says so: `off` always, `on` never, and `auto` (the default) exactly when
+  `UTILITY_MODEL` names a local route (`ollama/`, `lm_studio/`, `gguf/`). A local utility model is
+  the machine her reply is using, and it cannot do both; a hosted one can, so her hands keep
+  working through the conversation. An unrecognised value **MUST** be read as `auto`. **expensive**
+  (`research`, `read_page`, `web_search`, the two cameras) is one whole tick's intention and
+  additionally requires its backend to be configured, budget pressure under the ceiling, and
+  DORMANT/DREAM **or** the user absent — including while she is talking, when the cheap hands are
+  not standing down.
   Her tool server is spawned unawaited (§7.2), so the mind starts before her hands exist, and
   the first tick after a restart is the one carrying the suspend gap and every overdue wakeup.
   When her hands could be offered at all, that first tick **MUST** wait for discovery to answer —

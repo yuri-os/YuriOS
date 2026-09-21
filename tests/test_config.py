@@ -93,6 +93,7 @@ def test_the_example_ships_her_hands_off_and_empty():
 
     assert not cfg.mind_tools_enabled
     assert cfg.mind_tool_allowlist == ""
+    assert cfg.mind_tools_during_chat == "auto"
     # …and even were both flipped, the caps are the shipped ones
     assert cfg.mind_tool_calls_per_day == 8
     assert cfg.mind_tool_pressure_ceiling == 0.5

@@ -278,6 +278,14 @@ class Config(VoiceConfig):
     # anything on this machine may act unasked, hers decides whether she is one
     # of the ones that may, and she can never talk her way past the house.
     mind_tools_enabled: bool = False
+    # While she is mid-conversation, do her hands keep working? A local utility
+    # model is the same machine her reply is using, and it cannot do both; a
+    # hosted one can. `auto` (the default) stands down only when UTILITY_MODEL
+    # is local (`ollama/`, `lm_studio/`, `gguf/`). `on` keeps working through a
+    # conversation even on a local model. `off` is the old rule: always stand
+    # down while she is talking. The expensive class still waits for an empty
+    # room either way (SPEC §26.3).
+    mind_tools_during_chat: str = "auto"
     # Explicit names, comma-separated. No wildcard, no inheritance from the
     # conversational allowlist, and EMPTY BY DEFAULT even when the switch above
     # is on — turning the capability on and choosing which hands are two

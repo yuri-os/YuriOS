@@ -295,7 +295,10 @@ def test_the_doctor_agrees_with_the_real_router_about_what_is_hosted():
     only thing stopping it — the doctor would otherwise cheerfully tell someone
     their local model is being billed to OpenRouter, or say nothing while it is."""
     from yurios.app.providers.openrouter import _route
-    from yurios.doctor import _hosted_on_openrouter
+    from yurios.doctor import _LOCAL_PREFIXES, _hosted_on_openrouter
+    from yurios.models import LOCAL_MODEL_PREFIXES
+
+    assert _LOCAL_PREFIXES == LOCAL_MODEL_PREFIXES
 
     for model in ("gemma-4", "openrouter/z-ai/glm-5", "lm_studio/gemma-4",
                   "ollama/qwen3", "openai/gpt-5.2", "anthropic/claude-opus-4"):

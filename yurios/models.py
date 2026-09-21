@@ -28,6 +28,22 @@ class ModelCheck:
     detail: str
 
 
+#: Routes that run on this machine. A bare id is OpenRouter
+#: (`providers/openrouter._route`); `openai/` and `anthropic/` are hosted too.
+#: `doctor._LOCAL_PREFIXES` is the same tuple, kept there so the doctor does
+#: not import this module.
+LOCAL_MODEL_PREFIXES = ("ollama/", "lm_studio/", "gguf/")
+
+
+def model_is_local(model: str) -> bool:
+    """True when this id runs on this machine (Ollama, LM Studio, or GGUF).
+
+    Unset (`NONE`) is not local: there is no model on this machine to contend
+    with. A bare id is OpenRouter.
+    """
+    return (model or "").strip().startswith(LOCAL_MODEL_PREFIXES)
+
+
 def is_configured(model: str) -> bool:
     return bool(model and model.strip() and model.strip().upper() != NONE)
 

@@ -49,6 +49,7 @@ from dataclasses import dataclass, field
 
 from yurios.kernel import correlate
 from yurios.kernel.clock import Clock
+from yurios.models import model_is_local
 from yurios.world.tools.guard import Guard, _fingerprint, failure
 
 from .policy import DORMANT, DREAM, ENGAGED
@@ -87,10 +88,11 @@ class Hand:
 #: means. The classes and the backend requirements are read off it below.
 #:
 #: Cheap is a step *in* goal work, not a whole tick's intention: local, and with
-#: no outside party on the other end. Allowed wherever she isn't mid-conversation.
-#: Expensive is one whole tick's intention — money, somebody else's server, or
-#: her GPU — and therefore a pressure ceiling, a stricter state rule, and a
-#: cooldown in days.
+#: no outside party on the other end. Allowed in any state, including while she
+#: is talking, unless `MIND_TOOLS_DURING_CHAT` says her utility model has to
+#: stand down for the reply (SPEC §26.3). Expensive is one whole tick's
+#: intention — money, somebody else's server, or her GPU — and therefore a
+#: pressure ceiling, a stricter state rule, and a cooldown in days.
 HANDS: dict[str, Hand] = {
     "write_note": Hand(
         "cheap", "start a new note in her Vault",
@@ -162,6 +164,34 @@ def klass(tool: str) -> str:
     permission model's read/write/internet axis in this first cut."""
     hand = HANDS.get(tool)
     return hand.klass if hand else ""
+
+
+#: `MIND_TOOLS_DURING_CHAT`. `on` keeps her hands through a conversation; `off`
+#: is the old rule and always stands down; anything else, including a typo, is
+#: `auto` so a misspelt knob cannot turn the yield off on a local model.
+_DURING_CHAT_ON = frozenset({"on", "true", "yes", "1", "always"})
+_DURING_CHAT_OFF = frozenset({"off", "false", "no", "0", "never"})
+_during_chat_warned: set[str] = set()
+
+
+def stands_down_while_talking(cfg: object) -> bool:
+    """Whether ENGAGED refuses her hands (SPEC §26.3).
+
+    `auto` stands down only when the utility model is local. That model is the
+    machine her reply is using, and one local model cannot talk and do this
+    work at the same time. A hosted utility model is somebody else's machine,
+    so the hands keep working through the conversation.
+    """
+    mode = str(getattr(cfg, "mind_tools_during_chat", "auto") or "auto").strip().lower()
+    if mode in _DURING_CHAT_ON:
+        return False
+    if mode in _DURING_CHAT_OFF:
+        return True
+    if mode != "auto" and mode not in _during_chat_warned:
+        _during_chat_warned.add(mode)
+        log.warning("MIND_TOOLS_DURING_CHAT: %r is not auto, on, or off — "
+                    "treating it as auto", mode)
+    return model_is_local(str(getattr(cfg, "utility_model", "") or ""))
 
 
 def available(tool: str, cfg: object) -> bool:
@@ -403,7 +433,7 @@ class Hands:
             if self.guard is not None and self._starting():
                 return Offer(reason="her hands are still starting")
             return Offer(reason="no tool server is running")
-        if state == ENGAGED:
+        if state == ENGAGED and stands_down_while_talking(self.cfg):
             return Offer(reason="she is mid-conversation — those are the "
                                 "conversational hands' turn")
         cap = int(getattr(self.cfg, "mind_tool_calls_per_day", 8))

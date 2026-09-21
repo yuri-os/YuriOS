@@ -32,6 +32,8 @@ def test_every_config_knob_is_in_the_table_and_typed_from_its_annotation():
     assert any(g["group"] == "You" and any(f["key"] == "USER_NAME" for f in g["fields"])
                for g in envfile.groups_for(cfg))
     assert table["MIND_ENABLED"]["type"] == "bool"
+    assert table["MIND_TOOLS_DURING_CHAT"]["type"] == "select"
+    assert table["MIND_TOOLS_DURING_CHAT"]["options"] == ["auto", "on", "off"]
     assert table["MIND_SEED"]["type"] == "number"
     assert table["MIND_ACT_THRESHOLD"]["step"] == "any"        # a float, not an int
     assert table["SEARXNG_URL"]["type"] == "text"

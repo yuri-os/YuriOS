@@ -294,13 +294,80 @@ async def test_a_hand_the_house_never_installed_is_not_on_the_allowlist(
     assert not rig.mind.hands.enabled
 
 
-async def test_she_is_never_offered_a_hand_while_she_is_talking_to_you(
+def _offer_while_talking(cfg, seeded_vault, **extra):
+    rig = rig_with_hands(cfg, seeded_vault, allow="write_note,research", **extra)
+    return rig.mind.hands.offer(state="ENGAGED", pressure=0.0, user_present=True)
+
+
+async def test_a_local_utility_model_stands_down_while_she_is_talking(
         cfg, seeded_vault):
-    rig = rig_with_hands(cfg, seeded_vault)
-    engaged = rig.mind.hands.offer(state="ENGAGED", pressure=0.0,
-                                   user_present=True)
-    assert not engaged
-    assert "mid-conversation" in engaged.reason
+    """One model on this machine cannot reply and run her hands at once."""
+    for model in ("lm_studio/local", "ollama/qwen3", "gguf/someone/model"):
+        engaged = _offer_while_talking(cfg, seeded_vault, utility_model=model)
+        assert not engaged, model
+        assert "mid-conversation" in engaged.reason
+
+
+async def test_a_hosted_utility_model_keeps_the_cheap_hands_while_she_is_talking(
+        cfg, seeded_vault):
+    """OpenRouter (and a bare id, which is OpenRouter) is not her GPU."""
+    for model in ("openrouter/deepseek/deepseek-v4-flash", "deepseek/deepseek-v4-flash",
+                  "openai/gpt-5", "NONE", ""):
+        engaged = _offer_while_talking(cfg, seeded_vault, utility_model=model)
+        assert engaged.tools == ("write_note",), model
+        assert engaged.reason == ""
+        assert "research" not in engaged.tools
+
+
+async def test_mind_tools_during_chat_overrides_where_the_utility_model_runs(
+        cfg, seeded_vault):
+    local = _offer_while_talking(cfg, seeded_vault, utility_model="lm_studio/local",
+                                 mind_tools_during_chat="on")
+    assert local.tools == ("write_note",)
+    hosted = _offer_while_talking(
+        cfg, seeded_vault, utility_model="openrouter/deepseek/deepseek-v4-flash",
+        mind_tools_during_chat="off")
+    assert not hosted
+    assert "mid-conversation" in hosted.reason
+    # a typo is auto, and auto on a local model still stands down
+    typo = _offer_while_talking(cfg, seeded_vault, utility_model="gguf/someone/model",
+                                mind_tools_during_chat="sometimes")
+    assert not typo and "mid-conversation" in typo.reason
+
+
+async def test_she_writes_a_note_during_a_conversation_when_utility_is_hosted(
+        cfg, seeded_vault):
+    rig = rig_with_hands(
+        cfg, seeded_vault,
+        'use write_note {"path": "notes/x.md", "text": "while we talk"}',
+        utility_model="openrouter/deepseek/deepseek-v4-flash")
+    rig.mind.goals.add("jot this down", kind="task", priority=0.95)
+    rig.mind.turn_started()
+
+    trace = await rig.mind.tick()
+
+    assert trace["activity_state"] == "ENGAGED"
+    assert trace["decided"]["hands"]["blocked"] == ""
+    assert "write_note" in trace["decided"]["hands"]["available"]
+    assert trace["decided"]["intention"].startswith("tool_step:")
+    assert trace["acted"]["tool"] == "write_note"
+
+
+async def test_she_does_not_reach_for_a_hand_during_a_conversation_on_a_local_model(
+        cfg, seeded_vault):
+    rig = rig_with_hands(
+        cfg, seeded_vault,
+        'use write_note {"path": "notes/x.md", "text": "while we talk"}',
+        utility_model="lm_studio/local")
+    rig.mind.goals.add("jot this down", kind="task", priority=0.95)
+    rig.mind.turn_started()
+
+    trace = await rig.mind.tick()
+
+    assert trace["activity_state"] == "ENGAGED"
+    assert trace["decided"]["hands"]["available"] == []
+    assert "mid-conversation" in trace["decided"]["hands"]["blocked"]
+    assert not trace["decided"]["intention"].startswith("tool_step:")
 
 
 # --- the landing rule ----------------------------------------------------------------

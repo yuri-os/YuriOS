@@ -315,16 +315,23 @@ def _hands_field(field: dict, cfg: Any) -> dict:
 #: What ticking a box in each class actually commits to. One sentence at the head
 #: of each half, rather than the word "cheap" repeated down fifteen rows.
 CLASS_NOTES = {
-    "cheap": "a step in her goal work, any time she is not talking to you",
+    "cheap": "a step in her goal work, including while she is talking unless "
+             "her utility model is on this machine",
     "expensive": "a whole tick's intention: only with the room empty, the budget "
                  "under the ceiling, and days between repeats",
 }
 
 
+def _during_chat_field(field: dict, _cfg: Any) -> dict:
+    """`MIND_TOOLS_DURING_CHAT` is three words, not a sentence you type."""
+    return {**field, "type": "select", "options": ["auto", "on", "off"]}
+
+
 #: key -> a function that replaces the derived field with a better one. Not a
 #: second curated table: the field keeps its `.env.example` section and its
 #: neighbours, and only the control changes.
-ENRICHED = {"MIND_TOOL_ALLOWLIST": _hands_field}
+ENRICHED = {"MIND_TOOL_ALLOWLIST": _hands_field,
+            "MIND_TOOLS_DURING_CHAT": _during_chat_field}
 
 
 def _derived_type(annotation: Any, name: str) -> tuple[str, dict[str, str]]:

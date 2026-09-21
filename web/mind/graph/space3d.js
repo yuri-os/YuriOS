@@ -133,16 +133,21 @@ export function mount(root, api) {
   const inferredEdges = edgeObject([], 0xf1c57a, .65, true);
   const ring = new T.Mesh(disposable(new T.IcosahedronGeometry(1, 1)), disposable(new T.MeshBasicMaterial({ color: 0xffffff, wireframe: true, transparent: true, opacity: .65 })));
   ring.visible = false; scene.add(ring);
-  const labelNodes = graph.groups.map((g) => {
-    const button = document.createElement('button');
-    button.type = 'button'; button.className = 'network-group-label';
-    const title = g.unlinked ? `Unlinked ${api.labels[g.anchor.kind] || g.anchor.kind}` : g.anchor.title;
-    button.innerHTML = `<i style="background:${api.colors[g.anchor.kind]}"></i><span>${esc(title.length > 45 ? title.slice(0, 44) + '…' : title)}<small>${g.events.length} record${g.events.length === 1 ? '' : 's'}${g.unlinked ? ' · no recorded links' : g.events.length > 1 ? ' · shared work' : ' · linked record'}</small></span>`;
-    button.title = title;
-    button.onclick = () => { if (!g.unlinked) { api.select(g.anchor.id); focusChain(); } else fly(g.events.map((e) => index.get(e.id))); };
-    $('.network-labels').appendChild(button);
-    return { button, position: new T.Vector3(...g.p), group: g };
-  });
+  // One label, on the selected record. Group titles used to sit at the
+  // group's centre and name its anchor, so a click on an unlinked chat
+  // (all unlinked records of a kind share one group) labelled a different node.
+  const pickLabel = document.createElement('button');
+  pickLabel.type = 'button'; pickLabel.className = 'network-group-label'; pickLabel.hidden = true;
+  $('.network-labels').appendChild(pickLabel);
+  function fillPickLabel(node) {
+    const event = node.event, group = graph.groups[node.group];
+    const title = event.title || api.labels[event.kind] || event.kind;
+    const n = group.unlinked ? 1 : group.events.length;
+    const note = group.unlinked ? 'no recorded links' : n > 1 ? 'shared work' : 'linked record';
+    pickLabel.innerHTML = `<i style="background:${api.colors[event.kind]}"></i><span>${esc(title.length > 45 ? title.slice(0, 44) + '…' : title)}<small>${n} record${n === 1 ? '' : 's'} · ${note}</small></span>`;
+    pickLabel.title = title;
+    pickLabel.onclick = () => focusChain();
+  }
   const counts = new Map(); graph.nodes.forEach((n) => counts.set(n.event.kind, (counts.get(n.event.kind) || 0) + 1));
   $('.network-legend').innerHTML = [...counts].map(([kind, n]) => `<span><i style="background:${api.colors[kind]}"></i>${esc(api.labels[kind] || kind)}<small>${n}</small></span>`).join('');
   if (!points.length) { $('.network-empty').hidden = false; $('.network-empty').textContent = 'No records in this range match your filters. Widen the range or enable event types.'; }
@@ -163,22 +168,15 @@ export function mount(root, api) {
     projectLabels();
   }
   function projectLabels() {
-    const width = viewport.clientWidth, height = viewport.clientHeight, used = [];
-    const candidates = labelNodes.map((label) => ({ ...label, projected: label.position.clone().project(camera), distance: label.position.distanceTo(camera.position) }))
-      .sort((a, b) => {
-        const aSelected = a.group.events.some((e) => currentChain.has(e.id)), bSelected = b.group.events.some((e) => currentChain.has(e.id));
-        return Number(bSelected) - Number(aSelected) || b.group.events.length - a.group.events.length || a.distance - b.distance;
-      });
-    for (const label of candidates) {
-      const p = label.projected, x = (p.x + 1) * width / 2, y = (1 - p.y) * height / 2;
-      const allowed = !chainOnly || label.group.events.some((e) => currentChain.has(e.id));
-      const maxLabels = width < 500 ? 3 : 7;
-      const labelX = Math.max(10, Math.min(x + 12, width - (width < 500 ? 150 : 215) - 10));
-      const show = allowed && used.length < maxLabels && p.z > -1 && p.z < 1 && x > 20 && x < width - 20 && y > 65 && y < height - 135 &&
-        !used.some(([ux, uy]) => Math.abs(labelX - ux) < 230 && Math.abs(y - uy) < 64);
-      label.button.hidden = !show;
-      if (show) { label.button.style.transform = `translate(${labelX}px,${y - 15}px)`; used.push([labelX, y]); }
-    }
+    const i = selected && index.get(selected);
+    if (i == null) { pickLabel.hidden = true; return; }
+    const width = viewport.clientWidth, height = viewport.clientHeight;
+    const p = points[i].clone().project(camera);
+    const x = (p.x + 1) * width / 2, y = (1 - p.y) * height / 2;
+    const labelX = Math.max(10, Math.min(x + 12, width - (width < 500 ? 150 : 215) - 10));
+    const show = p.z > -1 && p.z < 1 && x > 8 && x < width - 8 && y > 40 && y < height - 80;
+    pickLabel.hidden = !show;
+    if (show) pickLabel.style.transform = `translate(${labelX}px,${y - 15}px)`;
   }
   function projectAxis() {
     const width = viewport.clientWidth, height = viewport.clientHeight;
@@ -260,6 +258,9 @@ export function mount(root, api) {
     ring.visible = selectedIndex != null;
     if (ring.visible) { ring.position.copy(points[selectedIndex]); ring.scale.setScalar(graph.nodes[selectedIndex].size * 2.3); }
     $('[data-net="focus"]').disabled = selectedIndex == null;
+    wrap.classList.toggle('is-picked', selectedIndex != null);
+    if (selectedIndex != null) fillPickLabel(graph.nodes[selectedIndex]);
+    else pickLabel.hidden = true;
     const panel = $('.network-selection');
     const scroll = panel.scrollLeft;
     const focusedId = panel.contains(document.activeElement) ? document.activeElement.dataset.id : null;

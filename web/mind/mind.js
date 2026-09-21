@@ -1180,10 +1180,9 @@ async function renderVaultFile(ctx) {
     element("span", { className: "chip accent", text: ctx.file }),
     chip(ctx.rev ? `at ${ctx.rev.slice(0, 8)}` : "as it is now"),
     ctx.rev ? linkButton("Current version", `#/vault/file/${ctx.file}`) : null));
-  /* History first, contents second. "What changed in USER.md, and when" is the
-   * question this page exists to answer; the file itself is the follow-up. It
-   * also keeps the history reachable — the contents pane scrolls internally, so
-   * anything under it is easy to scroll straight past. */
+  /* Contents lead. A long diary (state/engine.json changes on many ticks)
+   * must not push the file below the fold. The text box scrolls on its own,
+   * so the edits still begin on the first screen. */
   const historyRow = (commit) => {
     const asItWas = element("button", {
       className: "button button-quiet", text: "as it was then", attrs: { type: "button" },
@@ -1203,10 +1202,10 @@ async function renderVaultFile(ctx) {
     node.addEventListener("click", () => go(`#/vault/commit/${commit.sha}`));
     return node;
   };
-  wrap.append(panel("Every edit to this file", rows(history.items || [], historyRow)));
   wrap.append(panel(ctx.rev ? `Contents at ${ctx.rev.slice(0, 8)}` : "Contents as it is now",
     element("div", { className: "panel-body" },
       element("div", { className: "msg-body", text: file.text || "(empty)" }))));
+  wrap.append(panel("Every edit to this file", rows(history.items || [], historyRow)));
   return wrap;
 }
 

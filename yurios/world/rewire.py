@@ -35,7 +35,7 @@ log = logging.getLogger("world.rewire")
 BRAIN_FIELDS: tuple[str, ...] = (
     "chat_model", "utility_model",
     "lmstudio_base_url", "ollama_base_url", "openrouter_api_key", "connection_api_key",
-    "chat_thinking", "utility_thinking", "utility_max_tokens",
+    "chat_thinking", "chat_reasoning_effort", "utility_thinking", "utility_max_tokens",
     "temperature", "max_reply_tokens", "context_length",
 )
 
@@ -45,8 +45,8 @@ BRAIN_FIELDS: tuple[str, ...] = (
 # they land on the Config.
 _PROVIDER_FIELDS = frozenset({
     "chat_model", "utility_model", "lmstudio_base_url", "ollama_base_url",
-    "openrouter_api_key", "connection_api_key", "chat_thinking", "utility_thinking",
-    "utility_max_tokens",
+    "openrouter_api_key", "connection_api_key", "chat_thinking", "chat_reasoning_effort",
+    "utility_thinking", "utility_max_tokens",
 })
 
 
@@ -62,6 +62,9 @@ OVERRIDE_SCHEMA: tuple[dict[str, Any], ...] = (
      "help": "her summaries and fact extraction (off the hot path)"},
     {"key": "chat_thinking", "store": "options", "type": "bool",
      "help": "her reply <think> pass — off keeps a reasoning model real-time"},
+    {"key": "chat_reasoning_effort", "store": "options", "type": "select",
+     "options": ["", "low", "medium", "high"],
+     "help": "how much reply reasoning to request when her think pass is on"},
     {"key": "utility_thinking", "store": "options", "type": "bool",
      "help": "the utility model's <think> pass"},
     {"key": "temperature", "store": "options", "type": "number", "step": "0.05",

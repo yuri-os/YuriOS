@@ -120,7 +120,7 @@ class BrainAdapter:
             # thing she has not started and a thing she is blocked on, and only
             # one of those is worth asking them about.
             mark = "" if goal.state == "pending" else f" ({goal.state})"
-            lines.append(f"{goal.text}{mark}")
+            lines.append(f"[{goal.id}] {goal.text}{mark}")
         return lines, len(selected) == len(open_goals)
 
     def set_workspace(self, workspace, skills, on_write=None) -> None:

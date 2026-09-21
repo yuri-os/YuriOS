@@ -177,6 +177,14 @@ followed by the last `RAW_WINDOW_TURNS` raw messages (default 6) and the new use
 history, so it is the last thing read before replying. The fused note **MUST** be a compact
 restatement (a short last-read reminder), not the full constitution section: fusing the
 verbatim bullets onto the user line made a one-word check-in look like a hundred-word ask.
+When the new user message asks for the status of her goals, the final user turn **MUST** also
+repeat the authoritative open-goal snapshot after the raw window and forbid consulting
+`workspace/goals/`. A correct system block above a recent bad review is not enough: the model
+copies the nearer example and reads historical files again. Hard limits remain the final fused
+note when both apply. A request to act on, finish, or complete an open goal **MUST NOT** be
+classified as a status request merely because it contains a completion word: it keeps the tool
+catalogue and normal tool policy. Explicit state questions such as “Have you completed those
+goals?” and “Which goals are finished?” remain status requests.
 The raw window **MUST** stay small
 (long raw context degrades middle recall); the rolling summary carries older context
 cheaply. On overflow, **drop the examples first, then knowledge, then recalled memories, then
@@ -413,6 +421,9 @@ token is a Qwen idiom, and on a hosted route it would sit in her system message 
 the model to read. The utility path **MUST** strip a leading `<think>…</think>` before
 parsing its JSON, and **MUST** budget enough tokens (`UTILITY_MAX_TOKENS`) that a reasoning
 pass does not truncate the answer to an empty string and silently lose the fact.
+When reply reasoning is enabled, `CHAT_REASONING_EFFORT` **MAY** request a provider effort
+(`low`, `medium`, or `high`); an empty value leaves the provider default intact. The effort
+**MUST** ride in the raw request body, and `CHAT_THINKING=false` **MUST** override it.
 
 **Structured output degrades, like every other backend.** A utility caller **MAY** send a
 `response_format` of `json_schema`; local OpenAI-compatible servers enforce it, and where it
@@ -835,6 +846,13 @@ to every new subscriber before its first live event. Malformed JSON is logged an
   **and** no viewer, the line **MUST** still land, stamped `unheard`, so the
   inbox and the doorbell (§18.4) carry the promise instead of the tick
   re-queuing it until someone walks in.
+  A conversational tool that satisfies the whole of an open standing goal **MAY** carry that
+  goal's exact id plus `completes_goal=true`. Open-goal prompt lines **MUST** expose the ids, and
+  tool descriptions **MUST** reserve the flag for the entire observable success, never one step.
+  A synchronous effect such as scheduling a timer **MUST NOT** close the goal until host
+  realisation succeeds; a start-don't-await effect **MUST NOT** close it on `{status:"started"}`
+  and closes only when its successful `task_completion` lands. An absent id or flag changes no
+  goal state.
   `play_music` drives the browser-side synthesized ambience (§6.2) —
   a generative pad, not a media library; the seam is the point.
 - §7.6 **Her camera: `take_selfie` / `show_picture`, start-don't-await.** The two hands that
@@ -2057,6 +2075,10 @@ optional due time, **provenance**, and a **commitment strategy**; lifecycle
 - §22.5 **Provenance covers dispatched work.** `meta.dispatched` names the tool a `waiting` goal is
   blocked on and when it went out; `task_completion` (§16) returns the goal to `active`, and a
   scheduled `wakeup` is the floor under how long it may be stranded by a run that never reports.
+  The same return path closes explicitly-linked conversational work (§7.5): a successful
+  `task_completion` carrying `complete_goal` may move any open lifecycle state to `done`; failure
+  never does, and an unlinked conversational product remains an observation rather than a guessed
+  goal transition.
   Maintenance provenance (`maintenance:shelf`, `maintenance:dream`) is created for **standing**
   leftovers only: ingest and DREAM remain cheap impulses, and the goal that stands for a leftover
   closes itself when the leftover clears — immediately, from whichever path cleared it (the
@@ -2071,7 +2093,11 @@ optional due time, **provenance**, and a **commitment strategy**; lifecycle
   `workspace/goals/*.md` are working notes rather than the standing list. A surviving block
   **MUST** mark itself `COMPLETE` only when every open goal is present; if `GOALS_IN_PROMPT` or
   overflow omitted any, it **MUST** mark itself `PARTIAL` and forbid presenting the snapshot as a
-  complete review.
+  complete review. A goal-status request **MUST** repeat that same snapshot on the post-history
+  user turn and **MUST NOT** advertise or execute `list_notes`, `read_note`, or
+  `count_note_lines`; those inspect work products, not the lifecycle store the question asks
+  about. The host **MUST** deny a copied marker before MCP execution and return the model to the
+  standing list — this is policy, not prompt compliance.
 
 ## §23 — The SOUL split and gated self-edits
 

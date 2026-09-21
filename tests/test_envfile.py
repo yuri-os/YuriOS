@@ -210,7 +210,7 @@ def test_yurios_settings_lists_the_common_and_the_changed(tmp_path, monkeypatch,
 
     assert cli_main(["settings"]) == 0
     out = capsys.readouterr().out
-    assert "CHAT_MODEL          old" in out
+    assert ["CHAT_MODEL", "old"] in [line.split() for line in out.splitlines()]
     assert "MIND_SEED" in out                    # not curated, but changed here
     assert "MIND_DREAM_END_HOUR" not in out      # untouched default, so not listed
     assert cli_main(["settings", "--all"]) == 0

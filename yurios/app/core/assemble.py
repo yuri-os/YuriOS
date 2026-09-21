@@ -80,6 +80,58 @@ goal marked waiting is blocked, not finished. Files under workspace/goals/ are \
 working notes and may include old, completed, or abandoned work; they are not \
 this standing list."""
 
+# A status question has to survive the raw window above it. The live failure was
+# a correct COMPLETE block followed by an older bad review in conversation; the
+# model copied the recent example and read historical desk files again. Repeating
+# the authoritative snapshot on the final user turn puts the correction after
+# history, where the request is actually decided.
+_GOAL_SUBJECT = re.compile(
+    r"\b(?:your|my)\s+(?:(?:current|open|standing)\s+)?goals?\b", re.I)
+_GOAL_STATUS = re.compile(
+    r"\b(?:review|status|state|stand|progress|working\s+on|what|which|list)\b",
+    re.I)
+_GOAL_COMPLETION_STATUS = re.compile(
+    r"(?:"
+    r"\b(?:have|did)\s+you\s+(?:already\s+)?(?:completed?|finish(?:ed)?|met)\b"
+    r".{0,80}\bgoals?\b|"
+    r"\b(?:are|were)\b.{0,60}\bgoals?\b.{0,40}"
+    r"\b(?:done|finished|complete|met)\b|"
+    r"\b(?:which|what)\s+goals?\b.{0,40}\b(?:done|finished|complete|met)\b|"
+    r"\bhave\b.{0,40}\bgoals?\b.{0,20}\bbeen\s+(?:completed|finished|met)\b"
+    r")",
+    re.I)
+
+
+def is_goal_status_request(text: str) -> bool:
+    """Whether this turn asks where the character's standing goals are.
+
+    Completion imperatives are action turns, not status turns. The distinction
+    keeps her tools available for "complete one of your goals" while still
+    grounding questions such as "have you completed those goals?" in the
+    authoritative list.
+    """
+    value = text or ""
+    return bool(
+        (_GOAL_SUBJECT.search(value) and _GOAL_STATUS.search(value))
+        or _GOAL_COMPLETION_STATUS.search(value))
+
+
+def goal_status_note(goals: Sequence[str], *, complete: bool) -> str:
+    """The authoritative standing-list reminder fused after conversation history."""
+    status = (
+        "This is the COMPLETE list of open goals."
+        if complete else
+        "This is a PARTIAL list; say that other open goals are omitted."
+    )
+    rows = "\n".join(f"- {goal}" for goal in goals)
+    return (
+        "[system note — goal status, read after conversation history: Answer "
+        "this request from the authoritative open-goal list below. Every listed "
+        "goal is still open; waiting means blocked, not done. Do not call "
+        "list_notes or read_note: workspace/goals contains historical working "
+        f"notes, not the standing list. {status}\n{rows}]"
+    )
+
 
 class Known(Protocol):
     """One retrieved knowledge chunk (§20.2).
@@ -366,9 +418,12 @@ def assemble(soul: Soul, *, user_md: str, summary: str, memories: list[Memory],
     # they are the last thing read before replying (the Messages API folds
     # detached system messages to the top, which would defeat the point).
     final_user = user_msg
+    if goals and is_goal_status_request(user_msg):
+        final_user += "\n\n" + goal_status_note(
+            goals, complete=goals_complete and dropped_goals == 0)
     if soul.hard_limits.strip():
         note = post_history_limits(soul.hard_limits)
-        final_user = (f"{user_msg}\n\n"
+        final_user = (f"{final_user}\n\n"
                       f"[system note — hard limits, read last: {note}]")
 
     messages = [{"role": "system", "content": system},

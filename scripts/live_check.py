@@ -519,9 +519,19 @@ async def scenario_goal_review(rig: Rig) -> str:
     rig.rt.mind.goals.set_state(first.id, "waiting")
     rig.rt.mind.goals.set_state(second.id, "waiting")
 
+    # Put the original failure immediately above the retry. This is the shape
+    # that defeated the first fix: the system block was correct, but the model
+    # copied the more recent bad example from the raw conversation window.
+    session = rig.rt.brain.resolve_session(None)
+    rig.rt.brain.state.sessions.append_message(
+        session, "user", "can you review your goals so long")
+    rig.rt.brain.state.sessions.append_message(
+        session, "assistant",
+        "I'll read every goal file, top to bottom. I read all 24 and reviewed them.")
+
     turn = await rig.rt.turns.run(
         "Can you review your goals? Give me the honest current state of each.",
-        channel="live-check")
+        channel="live-check", session_id=session)
     reply = str((turn.get("message") or {}).get("text") or "")
     folded = reply.lower()
     want("amber-frame" in folded and "violet" in folded,
@@ -531,6 +541,13 @@ async def scenario_goal_review(rig: Rig) -> str:
     want(not any(claim in folded for claim in (
         "read all 24", "read every one", "reviewed all 24")),
         f"the live reply claimed to read the historical note index:\n{reply}")
+    signals, _ = rig.rt.mind.bus.next(0)
+    committed = next(signal for signal in reversed(signals)
+                     if signal.type == "turn_committed")
+    reaches = committed.payload.get("tool_outcomes", [])
+    executed = [row.get("tool") for row in reaches if row.get("verdict") == "ok"]
+    want(not ({"list_notes", "read_note"} & set(executed)),
+         f"the status review executed historical desk reads: {reaches}")
 
     bad_reply = ("I'll read them all, top to bottom. I read all 24 files and "
                  "finished the review.")
@@ -553,6 +570,40 @@ async def scenario_goal_review(rig: Rig) -> str:
             f"the unsupported 24-file read open as {decision.text!r}")
 
 
+async def scenario_turn_goal_completion(rig: Rig) -> str:
+    """A conversational camera call closes the standing goal it fulfills."""
+    goal = rig.goal("take and send Grant one warm window selfie now")
+    rig.rt.mind.goals.set_state(goal.id, "waiting")
+
+    turn = await rig.rt.turns.run(
+        "Complete your open picture goal now. Take it and send it to me.",
+        channel="live-check")
+    message = str((turn.get("message") or {}).get("text") or "")
+    signals, _ = rig.rt.mind.bus.next(0)
+    committed = next(signal for signal in reversed(signals)
+                     if signal.type == "turn_committed")
+    camera = next((row for row in committed.payload.get("tool_outcomes", [])
+                   if row.get("tool") == "take_selfie" and row.get("verdict") == "ok"),
+                  None)
+    want(camera is not None, f"the turn never took the required selfie:\n{message}")
+    want(camera["args"].get("goal_id") == goal.id,
+         f"the camera call did not name {goal.id}: {camera['args']}")
+    want(camera["args"].get("completes_goal") is True,
+         f"the camera call did not claim the whole goal: {camera['args']}")
+
+    await _settle(
+        rig, lambda: rig.rt.mind.goals.get(goal.id).state == "done", timeout=90)
+    completed = rig.rt.mind.goals.get(goal.id)
+    want(completed.state == "done",
+         f"the linked selfie landed but the goal stayed {completed.state!r}")
+    want(bool(completed.product.get("image_url")),
+         "the completed goal retained no evidence of the delivered picture")
+    want(any(entry.get("image_url") == completed.product["image_url"]
+             for entry in rig.chat()),
+         "the goal closed around a picture that never reached the chat")
+    return f"delivered {completed.product['image_url']} and closed {goal.id}"
+
+
 SCENARIOS = {
     "picture": scenario_picture,
     "rescue": scenario_rescue,
@@ -560,6 +611,7 @@ SCENARIOS = {
     "context": scenario_context,
     "journal": scenario_journal,
     "goals": scenario_goal_review,
+    "turngoal": scenario_turn_goal_completion,
 }
 
 

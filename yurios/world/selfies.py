@@ -713,9 +713,10 @@ class SelfieLab:
         try:
             self.signal("task_completion",
                         {"task": f"a {detail.get('noun', 'picture')} she took",
-                         "kind": "selfie", "id": str(c.get("id", "")),
-                         "goal_id": c.get("_goal_id"),
-                         "deliver": "vault" if _to_vault(c) else "chat",
+                          "kind": "selfie", "id": str(c.get("id", "")),
+                          "goal_id": c.get("_goal_id"),
+                          "complete_goal": bool(c.get("_complete_goal")),
+                          "deliver": "vault" if _to_vault(c) else "chat",
                          **detail},
                         source="selfies")
         except Exception:

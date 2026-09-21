@@ -85,6 +85,7 @@ name of the variable holding it. The same fields are on the switchboard's profil
 | `LMSTUDIO_LOAD_TIMEOUT_S` | `600` | only has to cover a cold load off disk |
 | `CONTEXT_LENGTH` | `32768` in `.env.example`, `0` in code | her context window in tokens; `0` = the provider's default |
 | `CHAT_THINKING` | `false` | the reply's `<think>` pass — off, so voice stays real-time |
+| `CHAT_REASONING_EFFORT` | blank | `low`, `medium`, or `high` when reply thinking is enabled; blank uses the provider default |
 | `UTILITY_THINKING` | `true` | on: it runs off the hot path, where quality beats latency |
 | `UTILITY_MAX_TOKENS` | `10048` | room for the `<think>` block *and* the JSON answer |
 | `MAX_REPLY_TOKENS` | `1600` | a roomy ceiling, not a target |

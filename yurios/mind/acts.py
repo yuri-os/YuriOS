@@ -469,14 +469,28 @@ def land_dispatched(loop, sig: Signal) -> str:
     """
     goal_id = str(sig.payload.get("goal_id") or "")
     goal = loop.goals.get(goal_id) if goal_id else None
-    if goal is None or goal.state != "waiting":
+    if goal is None or goal.state not in ("pending", "active", "waiting"):
+        return ""
+    product = _product_of(sig)
+    if sig.payload.get("complete_goal") and not failure_of(sig):
+        completion_meta: dict = {
+            "completed_by": str(sig.payload.get("kind") or "work"),
+            "completion_id": str(sig.payload.get("id") or "")}
+        if product:
+            completion_meta["product"] = product
+        loop.goals.update(goal.id, state="done", meta=completion_meta)
+        loop.considered.pop(goal.id, None)
+        loop.wakeups.pop(goal.id, None)
+        return (f"completed “{goal.text}” when its "
+                f"{completion_meta['completed_by']} landed")
+    if goal.state != "waiting":
         return ""
     # What came back is put ON the goal, not posted (§18.2a — the lab still
     # posts nothing). This is the step that was missing: without somewhere to
     # keep it, a rendered photo existed only in the gallery and the goal that
     # asked for it went on describing it forever.
     meta: dict = {"dispatched": {}}
-    if (product := _product_of(sig)):
+    if product:
         meta["product"] = product
     loop.goals.update(goal.id, state="active", meta=meta)
     loop.considered.pop(goal.id, None)     # workable again on this very tick

@@ -154,13 +154,21 @@ def build_server(*, max_minutes: float | None = None,
     @mcp.tool(description=(
         "Set a countdown timer. `minutes` must be in (0, "
         f"{max_minutes:g}]; `label` is what the timer is for "
-        '("tea", "the oven") and is spoken back when it finishes.'))
-    def set_timer(minutes: float, label: str = "") -> dict:
+        '("tea", "the oven") and is spoken back when it finishes. '
+        "When setting this timer finishes an open standing goal, pass its exact "
+        "`goal_id` from WHAT YOU'RE WORKING ON and set `completes_goal`=true; use "
+        "those only when this successful call satisfies the entire goal."))
+    def set_timer(minutes: float, label: str = "", goal_id: str = "",
+                  completes_goal: bool = False) -> dict:
         if not (0 < minutes <= max_minutes):
             raise ValueError(f"minutes must be in (0, {max_minutes:g}]")
+        if completes_goal and not goal_id.strip():
+            raise ValueError("completes_goal requires the standing goal_id")
         seconds = round(minutes * 60)
         return {"id": uuid.uuid4().hex[:8], "label": label or "your timer",
-                "seconds": seconds, "due": time.time() + seconds}
+                "seconds": seconds, "due": time.time() + seconds,
+                "goal_id": goal_id.strip() or None,
+                "completes_goal": bool(completes_goal)}
 
     # Description BUILT from the catalog, the same way take_selfie's is built
     # from the library below — the prose can't drift from the enum, and it says
@@ -304,22 +312,30 @@ def build_server(*, max_minutes: float | None = None,
                 f"`mood` ({', '.join(sorted(book.moods))}); "
                 f"`wardrobe` ({', '.join(sorted(book.wardrobe))}). "
                 "`avoid` is anything you don't want in the shot. "
-                "One call is one photo."
+                "One call is one photo. When this delivered photo satisfies an "
+                "entire open standing goal, pass its exact `goal_id` from WHAT "
+                "YOU'RE WORKING ON and set `completes_goal`=true; the goal closes "
+                "only after the render succeeds and lands."
                 + (f" {book.tool_hint}" if book.tool_hint else ""))
 
         @mcp.tool(description=desc)
         def take_selfie(look: str = "", scene: str = "", mood: str = "",
                         wardrobe: str = "", framing: str = "",
-                        lighting: str = "", avoid: str = "") -> dict:
+                        lighting: str = "", avoid: str = "",
+                        goal_id: str = "", completes_goal: bool = False) -> dict:
             # Everything passes through: `look` verbatim, named template keys
             # from the library, anything else as her own words
             # (forge/templates.py — no off-menu refusal). Empty slots stay empty
             # rather than being rotated in behind her back.
+            if completes_goal and not goal_id.strip():
+                raise ValueError("completes_goal requires the standing goal_id")
             return {"id": uuid.uuid4().hex[:8],
                     "look": look or None,
                     "scene": scene or None, "mood": mood or None,
                     "wardrobe": wardrobe or None, "framing": framing or None,
-                    "lighting": lighting or None, "avoid": avoid or None,
+                     "lighting": lighting or None, "avoid": avoid or None,
+                    "goal_id": goal_id.strip() or None,
+                    "completes_goal": bool(completes_goal),
                     "kind": "selfie",
                     "status": "started",
                     "note": "the photo will appear in the chat shortly — "

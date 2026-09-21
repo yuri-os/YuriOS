@@ -14,7 +14,9 @@ from .client import ToolSpec
 SPECS = [
     ToolSpec("set_timer", "Set a countdown timer.",
              {"properties": {"minutes": {"type": "number"},
-                             "label": {"type": "string"}},
+                              "label": {"type": "string"},
+                              "goal_id": {"type": "string"},
+                              "completes_goal": {"type": "boolean"}},
               "required": ["minutes"]}),
     ToolSpec("play_music", "Start or stop the room's ambient music.",
              {"properties": {"action": {"type": "string"},
@@ -73,8 +75,10 @@ SPECS = [
                              "mood": {"type": "string"},
                              "wardrobe": {"type": "string"},
                              "framing": {"type": "string"},
-                             "lighting": {"type": "string"},
-                             "avoid": {"type": "string"}},
+                              "lighting": {"type": "string"},
+                              "avoid": {"type": "string"},
+                              "goal_id": {"type": "string"},
+                              "completes_goal": {"type": "boolean"}},
               "required": []}),
     ToolSpec("show_picture", "Share a picture of something that isn't you — "
              "what you're looking at, a place, a thing you're describing.",
@@ -139,7 +143,8 @@ class FakeToolRunner:
             return json.dumps({"id": f"fake{len(self.calls)}",
                                "label": args.get("label") or "your timer",
                                "seconds": round(float(args.get("minutes", 1)) * 60),
-                               "due": 0})
+                               "due": 0, "goal_id": args.get("goal_id") or None,
+                               "completes_goal": bool(args.get("completes_goal"))})
         if tool == "play_music":
             return json.dumps({"playing": args.get("action") == "play",
                                "track": args.get("track", "warm_pad"),
@@ -190,8 +195,10 @@ class FakeToolRunner:
                                "mood": args.get("mood") or None,
                                "wardrobe": args.get("wardrobe") or None,
                                "framing": args.get("framing") or None,
-                               "lighting": args.get("lighting") or None,
-                               "avoid": args.get("avoid") or None,
+                                "lighting": args.get("lighting") or None,
+                                "avoid": args.get("avoid") or None,
+                                "goal_id": args.get("goal_id") or None,
+                                "completes_goal": bool(args.get("completes_goal")),
                                "kind": "selfie", "status": "started",
                                "note": "the photo will appear in the chat shortly"})
         if tool == "show_picture":

@@ -136,12 +136,14 @@ class LiteLLMChatModel:
     attached — Build #1's brain runs with `meter = None`."""
 
     def __init__(self, model: str, api_key: str = "", temperature: float = 0.9,
-                 *, api_base: str = "", thinking: bool = True, meter=None):
+                 *, api_base: str = "", thinking: bool = True,
+                 reasoning_effort: str = "", meter=None):
         self.model = _route(model)
         self.api_base = api_base or None
         self.api_key = api_key or None
         self.temperature = temperature
         self.thinking = thinking
+        self.reasoning_effort = reasoning_effort
         self.meter = meter
 
     async def stream(self, messages: list[dict], **params) -> AsyncIterator[str]:
@@ -149,6 +151,9 @@ class LiteLLMChatModel:
             extra = {}
             if not self.thinking:
                 messages, extra["extra_body"] = _thinking_off(self.model, messages)
+            elif self.reasoning_effort:
+                extra["extra_body"] = {
+                    "reasoning_effort": self.reasoning_effort}
             if self.meter is not None:
                 self.meter.note_prompt(messages)      # the estimate, before the call
             response = await litellm.acompletion(

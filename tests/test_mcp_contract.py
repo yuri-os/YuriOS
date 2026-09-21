@@ -39,6 +39,7 @@ async def test_list_tools_is_exactly_the_hands_she_has():
         assert "minutes" in timer.inputSchema["properties"]
         assert "minutes" in timer.inputSchema.get("required", [])
         assert "180" in (timer.description or "")
+        assert {"goal_id", "completes_goal"} <= set(timer.inputSchema["properties"])
 
 
 async def test_the_web_hands_appear_only_when_search_is_configured():
@@ -196,7 +197,15 @@ async def test_take_selfie_contract_and_freeform_passthrough():
         # in — because a menu of five slots is what made every selfie the same
         assert "`look`" in selfie.description
         assert set(selfie.inputSchema["properties"]) == {
-            "look", "scene", "mood", "wardrobe", "framing", "lighting", "avoid"}
+            "look", "scene", "mood", "wardrobe", "framing", "lighting", "avoid",
+            "goal_id", "completes_goal"}
+        assert "closes only after the render succeeds" in selfie.description
+
+        r = await s.call_tool("take_selfie", {
+            "look": "the promised frame", "goal_id": "g-promised",
+            "completes_goal": True})
+        data = json.loads(result_text(r))
+        assert data["goal_id"] == "g-promised" and data["completes_goal"] is True
 
 
 async def test_show_picture_is_the_camera_pointed_away_from_her():
@@ -242,6 +251,12 @@ async def test_set_timer_returns_the_contract():
         data = json.loads(result_text(r))
         assert data["seconds"] == 600 and data["label"] == "tea"
         assert data["id"] and data["due"] > 0
+
+        r = await s.call_tool("set_timer", {
+            "minutes": 10, "label": "finish it", "goal_id": "g-timer",
+            "completes_goal": True})
+        data = json.loads(result_text(r))
+        assert data["goal_id"] == "g-timer" and data["completes_goal"] is True
 
 
 async def test_set_timer_default_label_and_bounds():

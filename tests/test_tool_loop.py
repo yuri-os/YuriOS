@@ -120,6 +120,25 @@ async def test_a_note_listing_is_explicitly_only_an_index(
     assert "Do not say you read or reviewed those files" in cue
 
 
+async def test_goal_status_blocks_historical_note_reads_before_mcp(
+        cfg, guard, timers, controller):
+    chat = ScriptedChat([
+        ['checking [[read_note {"path":"goals/old-done.md"}]]'],
+        ["The standing list has two waiting goals."],
+    ])
+    runner = FakeToolRunner()
+    tb = make_toolbrain(cfg, guard, timers, controller, chat, runner=runner)
+    outcomes: list[dict] = []
+
+    spoken = "".join(await collect(tb._stream_with_tools(
+        [], [], outcomes, blocked_tools={"list_notes", "read_note"})))
+
+    assert runner.calls == []
+    assert spoken.endswith("The standing list has two waiting goals.")
+    assert outcomes[0]["verdict"] == "denied: goal status uses the standing list"
+    assert "authoritative open-goal list" in chat.calls[1][-1]["content"]
+
+
 async def test_no_runner_marker_stripped_single_pass(cfg, guard, timers, controller):
     chat = ScriptedChat([["Sure. " + TIMER_MARKER + " done"]])
     tb = make_toolbrain(cfg, guard, timers, controller, chat)   # no hands (§7.2)

@@ -14,7 +14,7 @@ import json
 from yurios.app.core.assemble import assemble
 from yurios.app.core.soul import Soul
 
-from .conftest import ScriptedUtility, make_mind, run_mind
+from .conftest import ScriptedChat, ScriptedUtility, collect, make_mind, run_mind
 
 
 # --- the conversational prompt knows what she is already working on ------------
@@ -47,6 +47,67 @@ def test_a_capped_goal_snapshot_says_it_is_partial():
                       goals=["newer goal", "newest goal"], goals_complete=False)
     assert "List status: PARTIAL" in prompt.system
     assert "Do not present this as a complete review" in prompt.system
+
+
+def test_goal_review_repeats_the_standing_list_after_a_misleading_window():
+    old_bad_review = {
+        "role": "assistant",
+        "content": "I reviewed every file under workspace/goals. I'll do that again.",
+    }
+    prompt = assemble(
+        _soul(), user_md="They are called Sam.", summary="", memories=[], lore=[],
+        window=[old_bad_review], user_msg="Review your goals again",
+        goals=["send the promised frame (waiting)",
+               "write the bold concept (waiting)"], goals_complete=True)
+
+    final = prompt.messages[-1]["content"]
+    assert "goal status, read after conversation history" in final
+    assert "COMPLETE list of open goals" in final
+    assert "Do not call list_notes or read_note" in final
+    assert "send the promised frame (waiting)" in final
+    assert "write the bold concept (waiting)" in final
+    assert prompt.messages[-2] == old_bad_review
+
+
+def test_a_goal_file_request_is_not_rewritten_as_a_status_review():
+    prompt = assemble(
+        _soul(), user_md="", summary="", memories=[], lore=[], window=[],
+        user_msg="Read my goal file", goals=["one open goal"])
+    assert "goal status, read after conversation history" not in \
+        prompt.messages[-1]["content"]
+
+
+def test_a_goal_completion_request_is_not_rewritten_as_a_status_review():
+    prompt = assemble(
+        _soul(), user_md="", summary="", memories=[], lore=[], window=[],
+        user_msg="Why don’t you complete one of your open goals right now?",
+        goals=["[g-123] send the promised frame (waiting)"])
+
+    assert "goal status, read after conversation history" not in \
+        prompt.messages[-1]["content"]
+
+
+def test_a_goal_completion_status_question_uses_the_authoritative_list():
+    prompt = assemble(
+        _soul(), user_md="", summary="", memories=[], lore=[], window=[],
+        user_msg="Have you completed those two goals?",
+        goals=["[g-123] send the promised frame (waiting)"])
+
+    assert "goal status, read after conversation history" in \
+        prompt.messages[-1]["content"]
+
+
+def test_goal_status_and_hard_limits_both_survive_after_history():
+    soul = _soul()
+    soul.hard_limits = "- Stay in character."
+    prompt = assemble(
+        soul, user_md="", summary="", memories=[], lore=[], window=[],
+        user_msg="Review your goals", goals=["one waiting goal"])
+
+    final = prompt.messages[-1]["content"]
+    assert "goal status, read after conversation history" in final
+    assert "system note — hard limits, read last" in final
+    assert final.index("goal status") < final.index("hard limits")
 
 
 def test_goals_are_dropped_before_user_md_on_overflow():
@@ -87,6 +148,34 @@ async def test_goals_in_prompt_cap_marks_the_snapshot_partial(cfg, seeded_vault)
     assert "the newest open goal" in system
     assert "the older open goal" not in system
     assert "List status: PARTIAL" in system
+
+
+async def test_open_goal_ids_reach_the_conversational_prompt(cfg, seeded_vault):
+    rig = make_mind(cfg, seeded_vault)
+    goal = rig.mind.goals.add("send the promised picture", kind="task")
+    session = rig.mind.brain.resolve_session(None)
+
+    _soul_, prompt = rig.mind.brain._assemble(
+        session, "finish one of your goals", window=[], lore=[])
+
+    assert f"[{goal.id}] send the promised picture" in prompt.messages[0]["content"]
+
+
+async def test_goal_completion_action_keeps_the_conversational_tools(
+        cfg, seeded_vault):
+    from yurios.world.tools.fakes import FakeToolRunner
+
+    chat = ScriptedChat([["I will do it now."]])
+    rig = make_mind(cfg, seeded_vault, chat=chat, tools=FakeToolRunner())
+    rig.mind.goals.add("send the promised picture", kind="task")
+    session = rig.mind.brain.resolve_session(None)
+
+    await collect(rig.mind.brain.stream_reply(
+        session, "Why don’t you complete one of your open goals right now?"))
+
+    assert "## TOOLS" in chat.calls[0][0]["content"]
+    assert "goal status, read after conversation history" not in \
+        chat.calls[0][-1]["content"]
 
 
 # --- the promise scan, in the register she actually promises in ----------------
@@ -437,8 +526,12 @@ async def test_a_finished_selfie_posts_task_completion_and_the_tick_journals_it(
     posted: list[tuple] = []
     lab = SelfieLab.__new__(SelfieLab)
     lab.signal = lambda t, p, source="host": posted.append((t, p, source))
-    SelfieLab._completed(lab, {"id": "s1"}, {"noun": "selfie"})
+    SelfieLab._completed(
+        lab, {"id": "s1", "_goal_id": "g-1", "_complete_goal": True},
+        {"noun": "selfie"})
     assert posted and posted[0][0] == "task_completion"
+    assert posted[0][1]["goal_id"] == "g-1"
+    assert posted[0][1]["complete_goal"] is True
 
     rig.mind.bus.post("task_completion", {"task": "a selfie she took",
                                           "kind": "selfie"}, source="selfies")
@@ -447,6 +540,44 @@ async def test_a_finished_selfie_posts_task_completion_and_the_tick_journals_it(
     day_files = list((seeded_vault / "memory" / "episodic").glob("*.md"))
     assert any("finished something I'd started" in p.read_text()
                for p in day_files)
+
+
+async def test_a_conversational_selfie_closes_its_explicit_goal_when_it_lands(
+        cfg, seeded_vault):
+    rig = make_mind(cfg, seeded_vault)
+    goal = rig.mind.goals.add("send the promised picture", kind="task")
+    rig.mind.goals.set_state(goal.id, "waiting")
+    rig.mind.bus.post("task_completion", {
+        "task": "a selfie she took", "kind": "selfie", "id": "shot-1",
+        "goal_id": goal.id, "complete_goal": True, "deliver": "chat",
+        "image_url": "/selfies/shot-1.png"}, source="selfies")
+
+    await rig.mind.tick()
+
+    completed = rig.mind.goals.get(goal.id)
+    assert completed.state == "done"
+    assert completed.meta["completion_id"] == "shot-1"
+    assert completed.product["image_url"] == "/selfies/shot-1.png"
+
+
+async def test_a_conversational_timer_closes_its_explicit_goal_after_realisation(
+        cfg, seeded_vault):
+    from yurios.world.tools.fakes import FakeToolRunner, SPECS
+    from yurios.world.tooltags import ToolCall
+
+    rig = make_mind(cfg, seeded_vault)
+    goal = rig.mind.goals.add("set the promised timer", kind="task")
+    rig.mind.goals.set_state(goal.id, "waiting")
+    rig.mind.brain.set_tools(FakeToolRunner(), list(SPECS))
+    rig.mind.brain.guard.allow("set_timer", 6)
+
+    result = await rig.mind.brain._execute(ToolCall("set_timer", {
+        "minutes": 3, "label": "the promised timer", "goal_id": goal.id,
+        "completes_goal": True}))
+
+    assert "seconds" in result
+    assert rig.mind.goals.get(goal.id).state == "done"
+    assert rig.mind.timers.pending()[0].label == "the promised timer"
 
 
 def test_a_research_run_the_mind_started_posts_nothing_into_the_chat(cfg, clock):

@@ -88,7 +88,10 @@ CURATED: list[dict] = [
                  "Loads the LM Studio model at this size and sets the ceiling the "
                  "masthead gauge measures against; raise it if turns start failing"},
         {"key": "CHAT_THINKING", "attr": "chat_thinking", "type": "bool",
-         "help": "reply <think> pass — OFF for real-time voice (a reasoning model would stall)"},
+          "help": "reply <think> pass — OFF for real-time voice (a reasoning model would stall)"},
+        {"key": "CHAT_REASONING_EFFORT", "attr": "chat_reasoning_effort", "type": "select",
+         "options": ["", "low", "medium", "high"],
+         "help": "reply reasoning effort when thinking is on — blank uses the provider default"},
         {"key": "UTILITY_THINKING", "attr": "utility_thinking", "type": "bool",
          "help": "extraction/summary <think> pass — ON (off the hot path, quality matters)"},
         {"key": "UTILITY_MAX_TOKENS", "attr": "utility_max_tokens", "type": "number",

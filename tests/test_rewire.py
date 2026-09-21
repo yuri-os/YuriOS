@@ -61,9 +61,11 @@ def test_a_hosted_route_travels_on_the_key_not_a_base_url(cfg):
 
 
 def test_the_reasoning_switch_reaches_the_new_provider(cfg):
-    state, applied = move(cfg, chat_thinking=True)
+    state, applied = move(cfg, chat_thinking=True, chat_reasoning_effort="medium")
 
-    assert applied == ["chat_thinking"] and state.chat.thinking is True
+    assert applied == ["chat_reasoning_effort", "chat_thinking"]
+    assert state.chat.thinking is True
+    assert state.chat.reasoning_effort == "medium"
 
 
 def test_settings_that_already_match_change_nothing(cfg):

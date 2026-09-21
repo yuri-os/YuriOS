@@ -201,6 +201,7 @@ class UnconfiguredChatModel:
         # still be changed before a model is selected.
         self.model = "NONE"
         self.thinking = cfg.chat_thinking
+        self.reasoning_effort = cfg.chat_reasoning_effort
         self.meter = meter
 
     async def stream(self, messages, **params):
@@ -229,7 +230,9 @@ def build_chat_model(cfg: Config, *, meter=None):
     from yurios.app.providers.openrouter import LiteLLMChatModel
     return LiteLLMChatModel(cfg.chat_model, model_api_key(cfg, cfg.chat_model), cfg.temperature,
                             api_base=model_api_base(cfg, cfg.chat_model),
-                            thinking=cfg.chat_thinking, meter=meter)
+                            thinking=cfg.chat_thinking,
+                            reasoning_effort=cfg.chat_reasoning_effort,
+                            meter=meter)
 
 
 def build_utility_model(cfg: Config):

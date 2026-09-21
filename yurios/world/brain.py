@@ -293,7 +293,8 @@ class ToolBrain(BrainAdapter):
             session_id, text,
             window=self.state.sessions.window(session_id, self.cfg.raw_window_turns),
             lore=self.state.soul_loader.load().lorebook_hits(text))
-        if self._directive:                        # the tools directive (§7.4); the
+        goal_status = asm.is_goal_status_request(text)
+        if self._directive and not goal_status:    # the tools directive (§7.4); the
                                                    # situation block rides _assemble (§2.5)
             prompt.messages[0]["content"] += f"\n\n## TOOLS\n\n{self._directive}"
         if image:                                  # a picture you sent (§35)
@@ -311,7 +312,10 @@ class ToolBrain(BrainAdapter):
         messages = asm.with_image(prompt.messages, image) if image \
             else prompt.messages
         try:
-            async for token in self._stream_with_tools(messages, raw, outcomes):
+            blocked = {"list_notes", "read_note", "count_note_lines"} \
+                if goal_status else set()
+            async for token in self._stream_with_tools(
+                    messages, raw, outcomes, blocked_tools=blocked):
                 yield token
         finally:
             self._raw[session_id] = "".join(raw)
@@ -364,9 +368,11 @@ class ToolBrain(BrainAdapter):
 
     # -- the loop of passes (SPEC §7.4) -----------------------------------------
     async def _stream_with_tools(self, messages: list[dict], raw: list[str],
-                                  outcomes: list[dict] | None = None
+                                  outcomes: list[dict] | None = None, *,
+                                  blocked_tools: set[str] | None = None
                                   ) -> AsyncIterator[str]:
         messages = list(messages)
+        blocked_tools = blocked_tools or set()
         calls_made = 0
         retried = False                # one re-emit per turn for a broken marker
         prev_spoken = ""               # the last pass's speech, for the echo skip
@@ -450,13 +456,29 @@ class ToolBrain(BrainAdapter):
 
             calls_made += 1
             prev_spoken = "".join(spoken_this_pass)
-            result = await self._execute(call, turn, outcomes=outcomes)
+            blocked = call.tool in blocked_tools
+            if blocked:
+                verdict = "denied: goal status uses the standing list"
+                result = ("denied (the authoritative open-goal list is already "
+                          "in this prompt; workspace/goals contains historical notes)")
+                self.guard.audit(call.tool, call.args, verdict, 0.0, result)
+                if outcomes is not None:
+                    outcomes.append({"tool": call.tool, "args": call.args,
+                                     "verdict": verdict, "result": result})
+            else:
+                result = await self._execute(call, turn, outcomes=outcomes)
             raw.append(f'\n[[{call.tool} → {result}]]\n')
             # the continuation: her partial reply + the result, back to the model
             # as the SAME turn (§7.4). The partial must be in the messages or she
             # restarts the sentence.
             index_warning = ""
-            if call.tool == "list_notes":
+            if blocked:
+                index_warning = (
+                    " Answer from the COMPLETE or PARTIAL authoritative open-goal "
+                    "list on the final user turn. Do not inspect desk files for "
+                    "this status request."
+                )
+            elif call.tool == "list_notes":
                 try:
                     payload = json.loads(result)
                     if isinstance(payload, dict) and isinstance(payload.get("files"), list):
@@ -558,6 +580,10 @@ class ToolBrain(BrainAdapter):
             self.timers.add(id=data.get("id", "t"),
                             label=data.get("label", "your timer"),
                             seconds=float(data["seconds"]))
+            # A synchronous operation may be the final requirement of a
+            # standing goal. Close only after host realisation succeeded, and
+            # only on the explicit id+flag contract the model supplied.
+            self._complete_goal(data, completed_by="set_timer")
         elif call.tool == "play_music":
             if data.get("playing"):
                 self.controller.music("play", track=data.get("track"),
@@ -599,6 +625,10 @@ class ToolBrain(BrainAdapter):
             # start-don't-await (§7.6): the render happens off-turn; the photo
             # arrives in the chat as a `message` event when it's done.
             if self.selfies is not None:
+                if data.get("goal_id"):
+                    data["_goal_id"] = data["goal_id"]
+                if data.get("completes_goal"):
+                    data["_complete_goal"] = True
                 origin = correlate.current()
                 data["_channel"] = origin.channel if origin else None
                 data["_client_id"] = origin.client_id if origin else None
@@ -612,3 +642,16 @@ class ToolBrain(BrainAdapter):
                 # as one she volunteered (§15.5).
                 data["_proactive"] = not correlate.answering()
                 self.selfies.start(data)
+
+    def _complete_goal(self, data: dict, *, completed_by: str) -> None:
+        """Close one explicitly-linked goal after its synchronous effect lands."""
+        if not data.get("completes_goal") or self.goals is None:
+            return
+        goal_id = str(data.get("goal_id") or "")
+        goal = self.goals.get(goal_id) if goal_id else None
+        if goal is None or goal.state not in ("pending", "active", "waiting"):
+            return
+        self.goals.update(
+            goal.id, state="done",
+            meta={"completed_by": completed_by,
+                  "completion_id": str(data.get("id") or "")})

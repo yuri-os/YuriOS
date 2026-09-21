@@ -178,9 +178,18 @@ async def _one_stream(model):
 
 
 async def test_openrouter_thinking_off_is_the_native_switch(acompletion):
-    await _one_stream(LiteLLMChatModel("openrouter/deepseek/deepseek-v4.1-flash", thinking=False))
+    await _one_stream(LiteLLMChatModel(
+        "openrouter/deepseek/deepseek-v4.1-flash", thinking=False,
+        reasoning_effort="medium"))
     assert acompletion.kwargs["extra_body"] == {"reasoning": {"enabled": False}}
     assert "/no_think" not in acompletion.kwargs["messages"][0]["content"]
+
+
+async def test_openrouter_chat_reasoning_effort_reaches_the_raw_body(acompletion):
+    await _one_stream(LiteLLMChatModel(
+        "openrouter/deepseek/deepseek-v4.1-flash", thinking=True,
+        reasoning_effort="medium"))
+    assert acompletion.kwargs["extra_body"] == {"reasoning_effort": "medium"}
 
 
 async def test_local_thinking_off_keeps_the_belt_and_braces(acompletion):

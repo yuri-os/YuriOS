@@ -14,7 +14,7 @@ import json
 from yurios.app.core.assemble import assemble
 from yurios.app.core.soul import Soul
 
-from .conftest import ScriptedUtility, make_mind
+from .conftest import ScriptedUtility, make_mind, run_mind
 
 
 # --- the conversational prompt knows what she is already working on ------------
@@ -273,6 +273,44 @@ async def test_the_dream_backlog_goal_never_starts_a_night_off_schedule(
     assert "tonight" in acted["result"]
     assert rig.mind.goals.get(goal.id).state != "done"
     assert notes
+
+
+async def test_a_night_that_clears_the_backlog_closes_the_goal_that_recorded_it(
+        cfg, seeded_vault):
+    """The direct DREAM impulse outranks the standing goal (0.6 over 0.24, by
+    design — the night IS the schedule), so the goal that stands for the
+    backlog can only be closed by the act that clears it. The day rollover
+    cannot: it runs at local midnight, the exact tick yesterday's journal
+    becomes new backlog, so it never sees the leftover cleared. The goal used
+    to sit `pending` forever in that gap — a month in one live vault while
+    every night succeeded."""
+    rig = make_mind(cfg, seeded_vault)
+    # a Monday exchange lands in the episodic journal, as the real brain writes it
+    from yurios.app.memory.store import Record
+    import datetime
+    await rig.mind.brain.state.store.remember(Record(
+        session_id="s1", turn_index=0,
+        user_msg="remember I hate mondays. see you next week",
+        reply="Noted, and survived. Go.",
+        ts=datetime.datetime(2026, 7, 6, 9, 0)))
+    rig.say("remember I hate mondays. see you next week",
+            reply="Noted, and survived. Go.")
+    await rig.mind.tick()                      # Monday's exchange is journalled
+    rig.mind.bus.post("user_absent", {}, source="frontend")
+
+    traces = await run_mind(rig, hours=30)     # one rollover, one night
+
+    # the night ran, and finished Monday…
+    progress = seeded_vault / "state" / "dream_progress.json"
+    assert progress.exists() and "2026-07-06" in progress.read_text()
+    assert any(t["activity_state"] == "DREAM" for t in traces)
+    # …so the goal the rollover filed for that backlog is closed, not still
+    # pending on the goals page
+    dream_goals = [g for g in rig.mind.goals.all()
+                   if g.meta.get("auto") == "dream"]
+    assert dream_goals, "the midnight rollover filed the standing goal"
+    assert all(g.state == "done" for g in dream_goals), \
+        [(g.id, g.state) for g in dream_goals]
 
 
 async def test_a_standing_shelf_leftover_becomes_a_goal_and_closes_itself(

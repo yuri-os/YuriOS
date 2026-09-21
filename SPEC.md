@@ -2045,7 +2045,11 @@ optional due time, **provenance**, and a **commitment strategy**; lifecycle
   scheduled `wakeup` is the floor under how long it may be stranded by a run that never reports.
   Maintenance provenance (`maintenance:shelf`, `maintenance:dream`) is created for **standing**
   leftovers only: ingest and DREAM remain cheap impulses, and the goal that stands for a leftover
-  closes itself when the leftover clears.
+  closes itself when the leftover clears — immediately, from whichever path cleared it (the
+  impulse act, the goal's own working of it, or a night run by hand), not only at the next
+  morning's reconciliation. For DREAM the timing is load-bearing: the daily reconciliation runs
+  at the local-midnight rollover, the very tick yesterday's journal becomes new backlog, so it
+  alone can never observe the leftover cleared while any conversation happens.
 - §22.6 **Her open goals are in the conversational prompt** (§7.1, block 5b). Without them the
   talking-self and the intending-self are two people who have never met, and she re-promises what
   she is already working on. The block is droppable on overflow — last, after the lorebook — and

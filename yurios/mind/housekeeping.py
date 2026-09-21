@@ -125,6 +125,31 @@ def leftover(loop, which: str) -> bool:
                 and loop.dreams.backlog())
 
 
+def close_cleared_maintenance(loop, which: str) -> list[str]:
+    """The close half of `file_maintenance` (SPEC §22.5): a goal standing for
+    a leftover closes when the leftover clears — not only at the one morning
+    a day later.
+
+    The rollover's pass can never do it alone for DREAM: it runs at local
+    midnight, the exact tick yesterday's journal becomes new backlog, so
+    under normal operation the leftover is back before the reconciler ever
+    looks. The close therefore also runs from the act that actually clears
+    the leftover — the direct DREAM impulse, which outranks the standing
+    goal by design (`loop.MAINTENANCE`), and a night run by hand
+    (`dream_now`). Without those call sites the goal sat `pending` for a
+    month in a live vault while every night succeeded.
+    """
+    if leftover(loop, which):
+        return []
+    notes: list[str] = []
+    for g in loop.goals.open_goals():
+        if g.meta.get("auto") != which:
+            continue
+        loop.goals.set_state(g.id, "done")
+        notes.append(f"cleared: {g.text}")
+    return notes
+
+
 def file_maintenance(loop) -> list[str]:
     """Standing leftovers become goals; cleared ones close themselves.
 
@@ -160,8 +185,7 @@ def file_maintenance(loop) -> list[str]:
                 meta={"auto": which})
             notes.append(f"put it on my own list: {text}")
         elif existing is not None:
-            loop.goals.set_state(existing.id, "done")
-            notes.append(f"cleared: {existing.text}")
+            notes += close_cleared_maintenance(loop, which)
     return notes
 
 

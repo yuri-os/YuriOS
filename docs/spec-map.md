@@ -32,7 +32,7 @@ a section are folded into it.
 | **§19** — The world model (the present tense) | `yurios/mind/world.py`<br>`yurios/world/brain.py`<br>`yurios/world/situation.py` | `tests/test_world_model.py` |
 | **§20** — The knowledge layer (drop-folder RAG) | `yurios/mind/knowledge.py` | `tests/test_knowledge.py` |
 | **§21** — DREAM consolidation | `yurios/mind/dream.py`<br>`yurios/mind/dreamjobs/filedsl.py`<br>`yurios/ctl/dreams.py`<br>`yurios/mind/dreamjobs/__init__.py`<br>*+5 more* | `tests/test_dreamjobs.py`<br>`tests/test_mind_routes.py`<br>`tests/test_cli_dreams.py`<br>*+1 more* |
-| **§22** — Goals and intentions | `yurios/mind/goals.py`<br>`yurios/mind/prompts.py`<br>`scripts/live_check.py`<br>`yurios/mind/goalwork.py`<br>*+5 more* | `tests/test_mind_goals.py`<br>`tests/test_mind_routes.py`<br>`tests/test_mind_soul.py`<br>*+1 more* |
+| **§22** — Goals and intentions | `yurios/mind/goals.py`<br>`yurios/mind/loop.py`<br>`yurios/mind/prompts.py`<br>`scripts/live_check.py`<br>*+5 more* | `tests/test_mind_goals.py`<br>`tests/test_mind_routes.py`<br>`tests/test_mind_soul.py`<br>*+1 more* |
 | **§23** — The SOUL split and gated self-edits | `yurios/mind/selfedit.py`<br>`yurios/world/tools/server.py` | `tests/test_selfedit.py`<br>`tests/test_mind_goals.py` |
 | **§24** — The journal, the trace, and the inner-life surface | `yurios/world/debug.py`<br>`yurios/world/host/debug.py`<br>`yurios/world/main.py`<br>`yurios/world/routes/mind.py`<br>*+24 more* | `tests/test_host_debug.py`<br>`tests/test_mind_routes.py`<br>`tests/test_correlate.py`<br>*+3 more* |
 | **§25** — Config (the mind's knobs) | — | — |
@@ -48,4 +48,4 @@ a section are folded into it.
 | **§35** — Pictures you send her | `yurios/world/main.py`<br>`yurios/world/channels/telegram.py`<br>`yurios/world/routes/chat.py`<br>`web/js/chat.js`<br>*+11 more* | `tests/test_channels.py`<br>`tests/test_context_meter.py`<br>`tests/test_integration.py`<br>*+1 more* |
 | **§36** — Command-line control | `yurios/ctl/__init__.py`<br>`yurios/ctl/characters.py`<br>`yurios/ctl/client.py`<br>`yurios/world/host/switchboard.py`<br>*+1 more* | `tests/test_cli_camera.py`<br>`tests/test_cli_characters.py` |
 
-*806 citation sites over 112 sections.*
+*809 citation sites over 113 sections.*

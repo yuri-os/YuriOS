@@ -626,7 +626,12 @@ class MindLoop:
         if chosen.subject == "ingest":
             return await acts.ingest(self)
         if chosen.subject == "dream":
-            return await acts.dream(self)
+            acted, interrupt, notes = await acts.dream(self)
+            # The impulse outranks the standing goal for the same leftover
+            # (MAINTENANCE), so the close the goal would have done itself
+            # has to happen from the act that cleared it (SPEC §22.5).
+            notes += housekeeping.close_cleared_maintenance(self, "dream")
+            return acted, interrupt, notes
         if chosen.subject == "promise_review":
             return await acts.promise_review(self, offer)
         if chosen.kind == "signal":
@@ -680,6 +685,10 @@ class MindLoop:
         if report.dry_run:
             return report          # a rehearsal leaves no journal and no commit
         for note in report.notes:
+            self.journal.write(note)
+        # A night asked for by hand finishes the same backlog, so it gets the
+        # same close the tick's dream act gives the standing goal (SPEC §22.5).
+        for note in housekeeping.close_cleared_maintenance(self, "dream"):
             self.journal.write(note)
         await asyncio.to_thread(self.vault.commit_if_dirty,
                                 f"dream (by hand): {report.summary[:60]}")

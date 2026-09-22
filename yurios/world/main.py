@@ -130,6 +130,7 @@ class Runtime:
         # …with its pending countdowns read back off disk (§7.5): at a
         # ceiling of a day, a timer has a whole night to be restarted through.
         self.timers = TimerBoard(self.clock, vault=cfg.vault_dir)
+        self.timers.on_change = self._publish_timers
         # Pictures *in* (SPEC §35): the shelf a photo you send her lands on,
         # and whether the model she is speaking through can be sent one at all.
         # The store is built unconditionally and creates nothing until the first
@@ -263,6 +264,10 @@ class Runtime:
     #: A page that was here this recently did not leave. SSE reconnects and
     #: room switches mint a new session_id; without this they greet again.
     GREET_REJOIN_S = 60.0
+
+    def _publish_timers(self) -> None:
+        """Keep every room's pending-countdown view current (SPEC §7.5, §10)."""
+        self.hub.publish("timers", self.timers.snapshot(), sticky="timers")
 
     def still_in_the_room(self) -> bool:
         """True when a greeting would be a reconnect, not an arrival (§9.8).
@@ -699,6 +704,10 @@ class Runtime:
 
         self.controller.set_rain(self.cfg.rain_intensity)   # the room's weather (§6.2)
 
+        # Publish the restored board before its scheduler can land anything.
+        # This is startup state, not constructor work: bare runtimes in tests and
+        # embedders have not opened the outbound event lifecycle yet.
+        self._publish_timers()
         self._tasks.append(asyncio.create_task(self.timers.run(),
                                                name="timer-board"))
         # the mind (SPEC §15): built over the real brain's stores. An injected

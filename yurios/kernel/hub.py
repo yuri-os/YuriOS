@@ -11,9 +11,9 @@ Two rules carried over from the pieces it replaces:
   - **A stalled client loses events; it never blocks the publisher** (the
     YuriOS EventHub rule, previously enforced per-viewer in `VrmController`):
     puts are non-blocking, a full queue drops.
-  - **Sticky replay** (previously `VrmController._sticky`): appearance state —
-    rain, music, material tints — is remembered under a key and replayed to
-    every new subscriber, so a reload doesn't reset the scene.
+  - **Sticky replay** (previously `VrmController._sticky`): current state —
+    rain, music, material tints, pending timers — is remembered under a key and
+    replayed to every new subscriber, so a reload starts from the live truth.
 
 Publishes are safe from the event loop *or* a worker thread (the TTS synth
 thread, a demo script): off-loop calls hop in via `call_soon_threadsafe`.

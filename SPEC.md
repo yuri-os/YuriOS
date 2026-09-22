@@ -840,6 +840,11 @@ to every new subscriber before its first live event. Malformed JSON is logged an
   **MUST** carry `late_s` so that announcement does not describe itself as punctual. A timer
   more than a day past due — longer than `TIMER_MAX_MINUTES`' own ceiling, so no longer a
   promise anyone is still waiting on — **MUST** be dropped on the way in rather than announced.
+  The board's pending promises **MUST** be visible as a due-ordered `{timers:[{id,label,due}]}`
+  snapshot at `GET /api/timers`, scoped by the same character dispatcher as every other runtime
+  route. Every add and landing **MUST** publish that complete snapshot as sticky `timers` state
+  on the §10 bus, including the empty snapshot when the last countdown leaves the board; a room
+  that opens late must not need to reconstruct promises from tool-call history.
   Deliverable is a voice injector **or** a chat viewer (a text room or the
   terminal, which do not open `/ws/voice` while muted). With no injector the
   announcement **MUST** land as a proactive chat line on the EventHub rather
@@ -1164,10 +1169,11 @@ keeps a socket of its own is sound.
 - **`EventHub`** (`yurios/kernel/hub.py`) — the single outbound fan-out. Every host→frontend
   event is one typed JSON dict: `hello` (her name), `message` (chat entries, including
   `image_url` selfies, and the originating `channel`), `draft` / `draft_cancel`, `avatar` (§4,
-  scene channels included), and — with the mind — `journal` and `mind` (§24). Publishes are
+  scene channels included), `timers` (the sticky pending-countdown snapshot, §7.5), and — with
+  the mind — `journal` and `mind` (§24). Publishes are
   non-blocking (a stalled client loses events, never blocks the publisher) and thread-safe (the
-  TTS thread publishes). Sticky appearance state is recorded before any subscriber and replayed
-  last-write-wins.
+  TTS thread publishes). Sticky state is recorded before any subscriber and replayed
+  last-write-wins; it includes both appearance and current runtime snapshots such as timers.
 - **`GET /api/events`** — the bus's wire: SSE, one `data:` line per event. On attach: `hello`,
   then the sticky replay, then live events. The stream **MUST** end itself on shutdown (a stop
   flag polled every second — an open tab must never hold Ctrl+C hostage) and ping while idle.
@@ -2166,13 +2172,16 @@ The product half of autonomy: what converts an always-on process from creepy to 
   `POST /api/mind/edits/{id}` (`{"approve": bool, "content"?: str}` → a signal, §23.2). Each pending
   edit in the snapshot **MUST** carry `diff`, its changed lines against the file as it stands: a
   whole-file proposal whose change is two lines at the bottom must show those two lines, not the
-  file's opening. The browser page's chat column
-  grows a second tab — **inner life** (`web/js/mind.js`): right-now state and budget, edits waiting on
-  you (what each changes, the whole file folded under it, one-click approve/reject, and an edit
-  control that lets you rewrite it before approving), goals with provenance and a one-click control
-  that opens the matching desk file (`workspace/goals/<id>.md`, §22.3) through
-  `GET /api/mind/workspace/file`, the shelf, and the journal,
-  refreshed live off the same one bus (`journal`/`mind` events). Everything reads *through* the mind's
+  file's opening. The browser page's chat column grows a second tab — **inner life**
+  (`web/js/mind.js`) — organized into three stable views rather than one growing feed: **Now**
+  carries right-now state and budget, the §7.5 pending timers, work currently reading or held,
+  and edits waiting on you (what each changes, the whole file folded under it, one-click
+  approve/reject, and an edit control that lets you rewrite it before approving); **Plans** carries
+  goals with provenance and a one-click control that opens the matching desk file
+  (`workspace/goals/<id>.md`, §22.3) through `GET /api/mind/workspace/file`, system upkeep and the
+  shelf; **History** carries completed research and the journal. The selected view **MUST** survive
+  live refreshes. The surface is refreshed live off the same one bus (`journal`/`mind`/`timers`
+  events). Everything reads *through* the mind's
   own stores; the dashboard can never disagree with the files. The snapshot **MUST** name each
   goal's `desk` path so the panel does not invent it.
   Cached goal previews **MUST** be invalidated by workspace events, including

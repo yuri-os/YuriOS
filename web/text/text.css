@@ -392,6 +392,25 @@ svg{ width:1.1em; height:1.1em; fill:none; stroke:currentColor; stroke-width:1.7
   scrollbar-width:thin; scrollbar-color:var(--rule) transparent;
 }
 #innerlife > *{ max-width:74ch; }
+.il-nav{
+  position:sticky; top:-26px; z-index:2;
+  display:grid; grid-template-columns:repeat(3,minmax(0,1fr));
+  margin:-26px 0 28px; padding-top:14px;
+  border-bottom:1px solid var(--rule); background:var(--void);
+}
+.il-nav button{
+  min-width:0; padding:9px 8px 11px; border:0; border-bottom:2px solid transparent;
+  background:transparent; color:var(--dim); cursor:pointer;
+  font:9px var(--font-mono); letter-spacing:.14em; text-transform:uppercase;
+}
+.il-nav button:hover,.il-nav button:focus-visible{ color:var(--soft); }
+.il-nav button.on{ border-bottom-color:var(--acid); color:var(--ink); }
+.il-nav small{
+  display:inline-flex; min-width:17px; height:17px; align-items:center; justify-content:center;
+  margin-left:6px; border:1px solid var(--acid-dark); border-radius:9px;
+  color:var(--acid); font:8px var(--font-mono); letter-spacing:0;
+}
+.il-page[hidden]{ display:none; }
 
 /* ---- her gallery (SPEC §7.6): js/gallery.js, the fourth tab ----
    The panel is web/gallery.css, shared with the sanctuary's column; this is
@@ -415,6 +434,22 @@ svg{ width:1.1em; height:1.1em; fill:none; stroke:currentColor; stroke-width:1.7
 .il-budget,.il-prov,.il-off{ color:var(--dim); }
 .il-budget{ margin-top:6px; font:10px var(--font-mono); font-variant-numeric:tabular-nums; }
 .il-off{ font-size:12px; line-height:1.7; }
+
+.il-timers{ list-style:none; padding:0; margin:0; }
+.il-timers li{
+  display:grid; grid-template-columns:minmax(0,1fr) auto; gap:2px 12px;
+  margin-bottom:8px; padding:12px 13px; border:1px solid var(--rule);
+  border-left:2px solid var(--amber); background:var(--panel);
+}
+.il-timer-label{ overflow:hidden; color:var(--ink); text-overflow:ellipsis; white-space:nowrap; }
+.il-timers strong{
+  color:var(--amber); font:10px var(--font-mono); font-weight:400;
+  font-variant-numeric:tabular-nums; white-space:nowrap;
+}
+.il-timers time{
+  grid-column:1 / -1; color:var(--dim); font:9px var(--font-mono);
+  font-variant-numeric:tabular-nums;
+}
 
 .il-journal,.il-goals,.il-shelf{ list-style:none; padding:0; margin:0; }
 .il-journal li{

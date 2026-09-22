@@ -120,6 +120,22 @@ def test_stream_opens_with_hello_then_sticky_and_honours_the_stop_flag(client):
     assert rt.hub.subscribers == 0                 # unsubscribed on the way out
 
 
+def test_pending_timers_have_a_read_route_and_sticky_state(client):
+    rt = client.app.state.rt
+    rt.timers.add(id="t1", label="tea", seconds=600)
+
+    response = client.get("/api/timers")
+    assert response.headers["cache-control"] == "no-store"
+    assert response.json()["timers"][0] == {
+        "id": "t1", "label": "tea", "due": rt.timers.pending()[0].due}
+    assert rt.hub.sticky["timers"] == {
+        "type": "timers", **response.json()}
+
+    rt.timers.pending()[0].due = rt.clock.now()
+    rt.timers.poll()
+    assert rt.hub.sticky["timers"] == {"type": "timers", "timers": []}
+
+
 def test_a_message_posted_before_attach_is_in_the_sticky_free_backfill(client):
     """Chat history is /api/history's job, not the stream's: a late page gets
     hello + sticky scene only, and backfills the transcript over HTTP."""

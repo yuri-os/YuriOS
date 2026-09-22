@@ -529,20 +529,22 @@ queries over this file, and the answer to "why did she…" is always in it.
 
 ## The inner-life tab
 
-The chat column's second tab, refreshed live off the same event bus:
+The chat column's second tab, refreshed live off the same event bus and divided into three views:
 
-- her activity state and heartbeat,
-- today's token budget,
-- the goals on her mind, with where each came from, and a control that opens the desk file she has been writing against,
-- the shelf,
-- edits waiting on your approval, with content and one-click approve/reject,
-- and the journal.
+- **Now** — her activity state and heartbeat, today's token budget, pending timers, reading in
+  progress or held, and edits waiting on your approval.
+- **Plans** — the goals on her mind, where each came from, controls for the desk files she has
+  been writing against, system upkeep, and the shelf.
+- **History** — completed research and the journal.
+
+The selected view stays put as live updates arrive. Timers show their labels, remaining time, and
+due time; additions and landings arrive as sticky `timers` state on the shared event bus.
 
 A committed line of hers that names a file on her desk (`goals/….md`, `workspace/…`) is a
 control: it fetches the file and folds the contents under the bubble. A path you typed is not.
 
 Everything reads *through* the mind's own stores — the dashboard can never disagree with the
-files. The same data is available at `GET /api/mind`, `/api/mind/journal`, `/api/mind/trace`
+files. The same data is available at `GET /api/mind`, `/api/timers`, `/api/mind/journal`, `/api/mind/trace`
 ([API](api.md#the-mind)).
 
 ## The mind debug page

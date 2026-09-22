@@ -25,6 +25,32 @@ def test_multiple_timers_land_in_due_order(clock, timers):
     assert timers.due.get_nowait().id == "b"
 
 
+def test_snapshot_is_the_public_due_ordered_shape(clock, timers):
+    timers.add(id="later", label="the roast", seconds=120)
+    timers.add(id="sooner", label="tea", seconds=60)
+
+    assert timers.snapshot() == {"timers": [
+        {"id": "sooner", "label": "tea", "due": clock.now() + 60},
+        {"id": "later", "label": "the roast", "due": clock.now() + 120},
+    ]}
+
+
+def test_change_hook_fires_only_when_the_board_changes(clock, timers):
+    snapshots = []
+    timers.on_change = lambda: snapshots.append(timers.snapshot())
+
+    timers.poll()
+    timers.add(id="t1", label="tea", seconds=60)
+    timers.poll()
+    clock.advance(60)
+    timers.poll()
+
+    assert snapshots == [
+        {"timers": [{"id": "t1", "label": "tea", "due": clock.now()}]},
+        {"timers": []},
+    ]
+
+
 async def test_run_loop_polls_on_the_virtual_clock(clock, timers):
     """One pass of the production loop moves an elapsed timer without a real
     sleep — the VirtualClock advances instead of waiting."""
@@ -122,6 +148,14 @@ def test_an_unreadable_board_is_an_empty_one(tmp_path, clock):
     assert b.pending() == []
     b.add(id="t1", label="tea", seconds=60)                  # …and the next add repairs it
     assert [t.id for t in board(tmp_path, clock).pending()] == ["t1"]
+
+
+def test_non_finite_due_times_are_ignored(tmp_path, clock):
+    (tmp_path / "state").mkdir(parents=True)
+    (tmp_path / "state" / "timers.json").write_text(
+        '{"timers":[{"id":"bad","label":"bad","due":NaN}]}',
+        encoding="utf-8")
+    assert board(tmp_path, clock).snapshot() == {"timers": []}
 
 
 def test_no_vault_is_a_working_in_memory_board(clock):

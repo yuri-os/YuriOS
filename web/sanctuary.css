@@ -504,6 +504,25 @@ svg{ width:1.1em; height:1.1em; fill:none; stroke:currentColor; stroke-width:1.7
   flex:1; min-height:0; overflow-y:auto; padding:20px 16px; font-size:12px;
   line-height:1.6; scrollbar-width:thin; scrollbar-color:var(--rule) transparent;
 }
+.il-nav{
+  position:sticky; top:-20px; z-index:2;
+  display:grid; grid-template-columns:repeat(3,minmax(0,1fr));
+  margin:-20px -16px 24px; padding:12px 16px 0;
+  border-bottom:1px solid var(--rule); background:var(--ground);
+}
+.il-nav button{
+  min-width:0; padding:9px 5px 10px; border:0; border-bottom:2px solid transparent;
+  background:transparent; color:var(--dim); cursor:pointer;
+  font:9px var(--font-mono); letter-spacing:.14em; text-transform:uppercase;
+}
+.il-nav button:hover,.il-nav button:focus-visible{ color:var(--soft); }
+.il-nav button.on{ border-bottom-color:var(--acid); color:var(--ink); }
+.il-nav small{
+  display:inline-flex; min-width:17px; height:17px; align-items:center; justify-content:center;
+  margin-left:6px; border:1px solid var(--acid-dark); border-radius:9px;
+  color:var(--acid); font:8px var(--font-mono); letter-spacing:0;
+}
+.il-page[hidden]{ display:none; }
 .il-sec{ margin-bottom:26px; }
 .il-sec h3{
   margin-bottom:12px; padding-bottom:9px; border-bottom:1px solid var(--rule);
@@ -519,6 +538,22 @@ svg{ width:1.1em; height:1.1em; fill:none; stroke:currentColor; stroke-width:1.7
 .il-budget,.il-prov,.il-off{ color:var(--dim); }
 .il-budget{ margin-top:6px; font:10px var(--font-mono); font-variant-numeric:tabular-nums; }
 .il-off{ font-size:11px; line-height:1.7; }
+
+.il-timers{ list-style:none; padding:0; margin:0; }
+.il-timers li{
+  display:grid; grid-template-columns:minmax(0,1fr) auto; gap:2px 12px;
+  margin-bottom:8px; padding:11px 12px; border:1px solid var(--rule);
+  border-left:2px solid var(--amber); background:var(--panel);
+}
+.il-timer-label{ overflow:hidden; color:var(--ink); text-overflow:ellipsis; white-space:nowrap; }
+.il-timers strong{
+  color:var(--amber); font:10px var(--font-mono); font-weight:400;
+  font-variant-numeric:tabular-nums; white-space:nowrap;
+}
+.il-timers time{
+  grid-column:1 / -1; color:var(--dim); font:9px var(--font-mono);
+  font-variant-numeric:tabular-nums;
+}
 
 /* the journal, as the switchboard's timeline */
 .il-journal,.il-goals,.il-shelf{ list-style:none; padding:0; margin:0; }

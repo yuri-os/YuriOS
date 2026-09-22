@@ -172,7 +172,7 @@ turns receive the retryable `503` response above. Typed WebSocket text is capped
 
 `GET /api/events` — Server-Sent Events, one `data:` line per event.
 
-On attach you get `hello`, then a replay of sticky appearance state (last-write-wins), then live
+On attach you get `hello`, then a replay of sticky state (last-write-wins), then live
 events. The stream pings while idle and ends itself on shutdown, so an open tab never holds Ctrl+C
 hostage. **A chat room attaching counts as presence**: it posts `user_present` to the mind, and
 the last room or live-CLI detach posts `user_absent`. Telegram, notify, and the mind debug page
@@ -190,6 +190,7 @@ claiming a body on a screen.
 | `avatar` | expression, gaze, posture, visemes, `rain`, `music` — the puppet lane |
 | `journal` | a new `[she]` journal line |
 | `mind` | activity/budget/goal updates for the inner-life tab |
+| `timers` | complete `{timers: [{id, label, due}]}` pending-countdown state; sticky and re-published on add or landing |
 | `context` | current `{used, limit, limit_source, reserve, exact, pct}` context-meter snapshot; sticky |
 | `selfie_status` | `{id, state, client_id?}` for asynchronous camera work: `started`, `done`, `cancelled`, or `error` |
 | `workspace` | a desk file was written (`{action: "write", path, …}`) |
@@ -239,6 +240,7 @@ set a timer?" gets answered without reading logs.
 | Route | |
 |---|---|
 | `GET /api/mind` | activity state, cadence, budget, goals (each with its `desk` path), shelf, pending self-edits, and `goal_filing` (the switch, plus how many of her own goals are open against the cap) |
+| `GET /api/timers` | due-ordered `{timers: [{id, label, due}]}` pending countdowns; runtime state available even when the mind is off |
 | `GET /api/mind/journal?days=` | her `[she]` lines by day (max 30) |
 | `GET /api/mind/trace?n=` | the tick-trace tail (max 200) |
 | `POST /api/mind/edits/{id}` | `{"approve": bool}` — queued as a signal the loop consumes next tick |

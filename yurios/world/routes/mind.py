@@ -13,7 +13,7 @@ import asyncio
 import datetime
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, Field, StrictInt, field_validator
 
 from yurios.mind.dreamjobs import (BUILTIN_NAMES, JOB_KINDS, JOB_NAME_RE,
@@ -71,6 +71,13 @@ def _research_file(request: Request, name: str) -> Path:
 async def mind_state(request: Request) -> dict:
     """Activity state, cadence, budget, goals, the shelf, pending self-edits."""
     return _mind(request).snapshot()
+
+
+@router.get("/api/timers")
+async def timer_state(request: Request, response: Response) -> dict:
+    """Pending countdowns exist independently of whether the mind is running."""
+    response.headers["Cache-Control"] = "no-store"
+    return request.app.state.rt.timers.snapshot()
 
 
 @router.get("/api/mind/workspace")

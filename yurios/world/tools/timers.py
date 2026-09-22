@@ -36,6 +36,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -74,6 +76,7 @@ class TimerBoard:
     # elapsed timers, drained by the mind's SENSE into `timer` signals (§15.5)
     due: asyncio.Queue = field(default_factory=asyncio.Queue)
     _wake: asyncio.Event = field(default_factory=asyncio.Event)
+    on_change: Callable[[], None] | None = None
 
     def __post_init__(self) -> None:
         self.vault = Path(self.vault) if self.vault else None
@@ -86,10 +89,16 @@ class TimerBoard:
         self._timers.append(t)
         self._save()
         self._wake.set()             # re-plan the sleep: a nearer deadline may exist
+        self._changed()
         return t
 
     def pending(self) -> list[Timer]:
         return sorted(self._timers, key=lambda t: t.due)
+
+    def snapshot(self) -> dict:
+        """The public, character-scoped countdown state (SPEC §7.5, §10)."""
+        return {"timers": [{"id": t.id, "label": t.label, "due": t.due}
+                           for t in self.pending()]}
 
     def poll(self) -> list[Timer]:
         """Move every elapsed timer onto the announcement queue. Deterministic —
@@ -104,7 +113,12 @@ class TimerBoard:
             # then restored by the next boot would be the promise kept twice,
             # which reads as her losing track rather than as diligence.
             self._save()
+            self._changed()
         return landed
+
+    def _changed(self) -> None:
+        if self.on_change is not None:
+            self.on_change()
 
     async def run(self) -> None:
         """Production loop: sleep to the nearest deadline, wake early on add."""
@@ -148,6 +162,8 @@ class TimerBoard:
             try:
                 due = float(row["due"])
             except (KeyError, TypeError, ValueError):
+                continue
+            if not math.isfinite(due):
                 continue
             if due < floor:
                 log.info("dropping a timer %.0fh past due: %r",

@@ -514,6 +514,26 @@ async def test_letting_go_of_a_goal_goes_through_the_mind(client_with_mind):
     assert sum(p.read_text().count("you let go of") for p in day_files) == 1
 
 
+async def test_letting_go_of_a_goal_hands_its_undelivered_photo_on(
+        client_with_mind):
+    """The control abandons the work, not a picture already made for them."""
+    c, rig = client_with_mind
+    shot = "/selfies/finished-but-unseen.png"
+    goal = rig.mind.goals.add(
+        "finish the picture", kind="task", provenance="user:chat",
+        meta={"product": {"image_url": shot, "selfie_id": "unseen",
+                          "deliver": "vault"}})
+
+    assert c.post(f"/api/mind/goals/{goal.id}/abandon").is_success
+    await rig.mind.tick()
+
+    assert rig.mind.goals.get(goal.id).state == "abandoned"
+    heir = next(g for g in rig.mind.goals.all()
+                if g.provenance == f"followup:{goal.id}")
+    assert heir.kind == "reach_out"
+    assert heir.product["image_url"] == shot
+
+
 def test_a_goal_that_is_already_gone_is_404(client_with_mind):
     c, rig = client_with_mind
     goal = rig.mind.goals.add("done and dusted", kind="task")

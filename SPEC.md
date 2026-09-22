@@ -1539,10 +1539,17 @@ them is precisely the always-interrupting-assistant failure.
   stamps `_deliver: "vault"` and the lab still posts nothing — but the `task_completion` it posts
   instead carries the product's `image_url`, and the goal that dispatched the work **MUST** keep it
   (`Goal.product`). However that goal ends — kept, let go, swept, or **parked at the horizon still
-  waiting on the world** — a promise-derived one **MUST** hand the picture to its follow-up
+  waiting on the world** — one holding an undelivered picture **MUST** hand it to a follow-up
   `reach_out` goal rather than hand over a path to its own goal file, and it **MUST** do so exactly
   once however many of those exits it takes in its life (`Goal.meta.offered` names the heir; the
   open-goal dedupe of §22.1 cannot see a follow-up that has already been delivered and closed).
+  Provenance does not narrow it. A goal the user filed in chat (`user:chat`, §22.1) holds the
+  same photograph a promise does, and "goal complete" is the *kept* ending: closing the work
+  while the shot sits in `Goal.product` used to leave Gate 2 nothing to carry. The prose
+  "tell them what came of …" half stays promise-only (§22.1a); the picture does not.
+  Delivery does narrow it: a product marked `deliver: chat` is already in the conversation and
+  **MUST NOT** file a follow-up that sends it again; a vault product, including a legacy product
+  with no marker, is still waiting to be delivered.
   Parking is named here because it is not a footnote but the common case, and the one the promise
   that cost the three photographs actually took: a `single-minded` goal never reaches the let-go
   branch and `reconsider` sweeps only `open-minded` ones, so out of steps and waiting on an answer

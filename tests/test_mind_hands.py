@@ -741,6 +741,76 @@ async def test_a_promise_that_made_a_photo_hands_it_to_a_goal_that_can_send_it(
         "a promised photo is the promise; it does not expire as news does"
 
 
+async def test_a_chat_goal_that_finishes_holding_a_photo_hands_it_on(
+        cfg, seeded_vault):
+    """`user:chat` is how "set a goal for …" arrives, and it is not a promise.
+
+    She rendered the shot, the lab left it on the goal, and the next step
+    said "goal complete" — including when that sentence was wrong about the
+    chat. `offer_to_tell` used to return before it ever looked at the
+    picture, so the work closed and Gate 2 had nothing left to send.
+    """
+    utility = ScriptedUtility(*["think goal complete — it's in the chat."] * 6)
+    rig = make_mind(cfg, seeded_vault, utility=utility)
+    goal = rig.mind.goals.add(
+        "flash the shot he asked for", kind="task", priority=0.95,
+        provenance="user:chat",
+        meta={"product": {"image_url": SHOT, "selfie_id": "26cae5c8",
+                          "detail": "the window, the lamp"}})
+
+    await work(rig, ticks=3)
+
+    assert rig.mind.goals.get(goal.id).state == "done"
+    followup = next(g for g in rig.mind.goals.all()
+                    if g.provenance == f"followup:{goal.id}")
+    assert followup.kind == "reach_out"
+    assert followup.product["image_url"] == SHOT
+    assert followup.commitment == "single-minded"
+    assert ".md" not in followup.text
+    assert rig.mind.goals.get(goal.id).meta.get("offered") == followup.id
+
+
+async def test_a_chat_goal_with_nothing_to_show_files_no_news(
+        cfg, seeded_vault):
+    """The prose half stays promise-only. A cup of coffee he asked for in
+    chat is on the desk where he left it; finishing it is not an interrupt."""
+    utility = ScriptedUtility(*["think goal complete."] * 6)
+    rig = make_mind(cfg, seeded_vault, utility=utility)
+    goal = rig.mind.goals.add(
+        "make the coffee", kind="task", priority=0.95, provenance="user:chat")
+
+    await work(rig, ticks=3)
+
+    assert rig.mind.goals.get(goal.id).state == "done"
+    assert not any(g.provenance == f"followup:{goal.id}"
+                   for g in rig.mind.goals.all())
+
+
+async def test_a_photo_already_delivered_to_chat_is_not_offered_again(
+        cfg, seeded_vault):
+    """The completion still records the product, but `deliver: chat` means the
+    lab already posted it. Finishing the linked goal must not send it twice."""
+    utility = ScriptedUtility(*["think goal complete."] * 6)
+    rig = make_mind(cfg, seeded_vault, utility=utility)
+    goal = rig.mind.goals.add(
+        "flash the shot he asked for", kind="task", priority=0.95,
+        provenance="user:chat")
+    rig.mind.goals.update(goal.id, state="waiting",
+                          meta={"dispatched": {"tool": "take_selfie"}})
+    rig.mind.bus.post(
+        "task_completion", _completion(goal.id, deliver="chat"),
+        source="selfies")
+
+    await work(rig, ticks=3)
+
+    completed = rig.mind.goals.get(goal.id)
+    assert completed.state == "done"
+    assert completed.product["image_url"] == SHOT
+    assert completed.product["deliver"] == "chat"
+    assert not any(g.provenance == f"followup:{goal.id}"
+                   for g in rig.mind.goals.all())
+
+
 async def test_letting_the_goal_go_does_not_let_the_photo_go_with_it(
         cfg, seeded_vault):
     """She gave up on the goal. The picture is still real and still unseen."""

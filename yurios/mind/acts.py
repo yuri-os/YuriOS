@@ -103,7 +103,8 @@ def _product_of(sig: Signal) -> dict:
         return {}
     return {"image_url": url,
             "selfie_id": str(sig.payload.get("id") or ""),
-            "detail": str(sig.payload.get("detail") or "")}
+            "detail": str(sig.payload.get("detail") or ""),
+            "deliver": str(sig.payload.get("deliver") or "")}
 
 
 def _shot(goal: Goal) -> dict:

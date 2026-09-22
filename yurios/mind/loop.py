@@ -445,6 +445,9 @@ class MindLoop:
                 goal = self.goals.get(str(sig.payload.get("id", "")))
                 if (goal is not None and sig.payload.get("abandon")
                         and goal.state not in ("done", "abandoned")):
+                    # Let go of the work, not an undelivered picture it already
+                    # made. The follow-up remains subject to Gate 2 (§18.2a).
+                    reflect_notes += goalwork.offer_the_picture(self, goal)
                     self.goals.set_state(goal.id, "abandoned")
                     self.wakeups.pop(goal.id, None)
                     reflect_notes.append(

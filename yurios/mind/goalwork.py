@@ -249,6 +249,11 @@ def offer_the_picture(loop, goal: Goal) -> list[str]:
     shot = str(goal.product.get("image_url") or "")
     if not shot:
         return []
+    if goal.product.get("deliver") == "chat":
+        # The producer already put this one in the conversation. Its product
+        # still belongs on the goal as a record of what landed, but filing a
+        # reach-out would send the same picture a second time.
+        return []
     if goal.meta.get("offered"):
         # Handed on already, and once is the whole point. Every way out of a
         # goal files this now, and one goal can take more than one of them in
@@ -305,24 +310,27 @@ def offer_to_tell(loop, goal: Goal) -> list[str]:
     never mentions. That is a worse companion than the one who talked about
     everything and did none of it.
 
-    Only her own promises. Work you planted is on the desk where you left
-    it, maintenance is nobody's business but hers, and a `followup` never
-    gets a follow-up of its own — reaching out is already the act.
+    Only her own promises get a sentence about the work. Work you planted
+    is on the desk where you left it, maintenance is nobody's business but
+    hers, and a `followup` never gets a follow-up of its own — reaching out
+    is already the act.
+
+    An undelivered picture is handed on whoever asked. The photograph is the
+    news: a `user:chat` goal holds the same shot a promise does, and finishing
+    while `Goal.product` still has it files the same `reach_out` the park and
+    abandon exits already file. `offer_the_picture` is idempotent on
+    `meta.offered`, so a second exit of the same goal files nothing, a picture
+    already delivered to chat is not sent twice, and a picture never becomes
+    a path to the goal file.
 
     `open-minded` on purpose: news has a shelf life. If Gate 2 never finds a
     moment inside a day, letting it go is better company than opening with
     something she finished the day before yesterday.
     """
+    if goal.product.get("image_url"):
+        return offer_the_picture(loop, goal)
     if goal.kind != "task" or not goal.provenance.startswith("promise:"):
         return []
-    if goal.product.get("image_url"):
-        # The photograph *is* the news, and this is a test of the goal rather
-        # than of this call: an earlier exit may already have handed it on
-        # (parked, then woken, then finished), in which case `offer_the_picture`
-        # answers with nothing — and falling through to file "tell them what
-        # came of …" on top of a picture they have already been sent is the
-        # answer-with-a-file-path this whole rule exists to kill.
-        return offer_the_picture(loop, goal)
     loop.goals.add(
         f"tell them what came of “{goal.text}” — it's in "
         f"{loop.GOAL_DESK.format(id=goal.id)}",

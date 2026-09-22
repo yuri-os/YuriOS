@@ -852,6 +852,13 @@ to every new subscriber before its first live event. Malformed JSON is logged an
   **and** no viewer, the line **MUST** still land, stamped `unheard`, so the
   inbox and the doorbell (§18.4) carry the promise instead of the tick
   re-queuing it until someone walks in.
+  When REFLECT also files the future delivery as a goal (§22.1a), that goal **MUST**
+  retain the successful timer contract's id and actual due time. It **MUST NOT** close
+  merely because the countdown elapsed: it closes only after the announcement reaches
+  voice or chat (including an `unheard` delivery), so a failed compose remains owed. The
+  mirrored goal remains visible but **MUST NOT** enter ordinary goal appraisal or work:
+  the timer board is its sole executor, or “due soon” sends it early and the countdown
+  sends it again.
   `create_goal` **MUST** be advertised only when the mind is on. The server validates a concise
   goal and its kind, but the host-owned `GoalStore` **MUST** perform the mutation: `goals.md` is
   one lifecycle read-modify-write store and the spawned tool process must not race the mind for
@@ -2059,7 +2066,10 @@ optional due time, **provenance**, and a **commitment strategy**; lifecycle
   proof of an action: `list_notes` proves an index, `read_note` proves only its returned path and
   range, and a quantified claim requires outcomes covering its scope. Errors and denials prove no
   work completed; a `status: started` result proves dispatch, not the eventual product. Pending
-  reviews **MUST** retain this evidence across retry and restart.
+  reviews **MUST** retain this evidence across retry and restart. A promise whose future delivery
+  is owned by a successful `set_timer` call **MUST** retain that timer id (and its real due time)
+  and becomes `done` when §7.5 delivers the timer announcement, not when REFLECT files it or the
+  countdown merely elapses. While linked it is not independently actionable goal work.
 - §22.2 **Commitment governs staleness:** `blind` is defended past due (a birthday is a birthday),
   `single-minded` drops only when moot, `open-minded` is abandoned the moment it stops being timely.
   The suspend-gap catch-up (§15.4) applies these in one pass, and so **MUST** the local-day

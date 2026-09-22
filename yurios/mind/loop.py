@@ -47,7 +47,7 @@ from .budget import BudgetGovernor
 from .dream import DreamConsolidator
 from .dreamjobs import SELF_GOAL, DreamRunner
 from .goals import (Goal, GoalStore, discover_promise_candidates,
-                    fallback_promises, trim)
+                    fallback_promises, timer_for_promise, trim)
 from .hands import (Hands, build_guard)
 from .journal import Journal
 from .knowledge import KnowledgeStore
@@ -226,6 +226,11 @@ class MindLoop:
             if isinstance(review, dict)
             and isinstance(review.get("candidates"), list)
         ] if isinstance(reviews, list) else []
+        delivered_timers = st.get("delivered_timers", [])
+        self.delivered_timers: list[str] = [
+            str(timer_id) for timer_id in delivered_timers[-100:]
+            if timer_id
+        ] if isinstance(delivered_timers, list) else []
         self.hands.load(st)
 
         self._session: str | None = None       # lazy brain session for her own words
@@ -396,14 +401,21 @@ class MindLoop:
             elif sig.type == "turn_committed":
                 user_text = str(sig.payload.get("text", ""))
                 reply = str(sig.payload.get("reply", ""))
+                tool_outcomes = [dict(item) for item in
+                                 sig.payload.get("tool_outcomes", [])
+                                 if isinstance(item, dict)]
                 candidates = discover_promise_candidates(reply, user_text)
                 explicit = [candidate for candidate in candidates
                             if candidate.confidence == "explicit"]
                 assistant = [candidate for candidate in candidates
                              if candidate.confidence != "explicit"]
                 for candidate in explicit:
+                    timer = timer_for_promise(
+                        tool_outcomes, candidate.text, candidate.source,
+                        user_text, reply)
                     note = acts.file_promise_candidate(
-                        self, candidate, user_text=user_text, reply=reply)
+                        self, candidate, user_text=user_text, reply=reply,
+                        timer=timer)
                     if note:
                         reflect_notes.append(note)
                 if assistant and acts.promise_review_available(self):
@@ -418,9 +430,7 @@ class MindLoop:
                             "user_text": trim(user_text, 1000),
                             "reply": trim(reply, 3000),
                             "candidates": normalized,
-                            "tool_outcomes": [dict(item) for item in
-                                              sig.payload.get("tool_outcomes", [])
-                                              if isinstance(item, dict)],
+                            "tool_outcomes": tool_outcomes,
                             "attempts": 0,
                         })
                         # The signal bus is not replayed after restart. Persist
@@ -428,8 +438,12 @@ class MindLoop:
                         self._persist()
                 elif assistant:
                     for candidate in fallback_promises(assistant):
+                        timer = timer_for_promise(
+                            tool_outcomes, candidate.text, candidate.source,
+                            user_text, reply)
                         note = acts.file_promise_candidate(
-                            self, candidate, user_text=user_text, reply=reply)
+                            self, candidate, user_text=user_text, reply=reply,
+                            timer=timer)
                         if note:
                             reflect_notes.append(note)
             elif sig.type == "selfedit_decision":
@@ -517,6 +531,11 @@ class MindLoop:
             user_present=bool(self.world.snapshot().get("user_present")))
         for g in self.goals.open_goals():
             if g.state == "waiting":
+                continue
+            if g.meta.get("timer_id"):
+                # The TimerBoard owns this future delivery (§7.5). Appraising
+                # the mirrored goal would send the reminder early and then let
+                # the real countdown announce it a second time.
                 continue
             last = self.considered.get(g.id)
             if last and (now - last) < self.cfg.mind_consider_cooldown_s:
@@ -798,6 +817,7 @@ class MindLoop:
             "wakeups": self.wakeups, "reconsidered_on": self.reconsidered_on,
             "bootstrapped_on": self.bootstrapped_on,
             "promise_reviews": self.promise_reviews,
+            "delivered_timers": self.delivered_timers[-100:],
             # the fingerprint ledger and the daily call count, beside
             # `interrupts` and rolling at the same local midnight (§26, amended)
             **self.hands.snapshot()})

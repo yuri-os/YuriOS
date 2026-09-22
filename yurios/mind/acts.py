@@ -25,7 +25,7 @@ from yurios.kernel import correlate
 from .goals import (Goal, trim, PROMISE_REVIEW_RESPONSE_FORMAT, PromiseCandidate,
                     PromiseReviewError, parse_promise_review,
                     promise_decision_grounded, promise_kind,
-                    promise_review_messages)
+                    promise_review_messages, timer_for_promise)
 from .policy import DREAM, score_interrupt
 from .signals import Signal, failure_of
 from .util import day_of, iso_of, ts_of_iso
@@ -132,7 +132,8 @@ def file_promise_candidate(loop, candidate: PromiseCandidate, *,
                             kind: str | None = None,
                             rationale: str = "",
                             success: str = "",
-                            sources: list[dict] | None = None) -> str:
+                            sources: list[dict] | None = None,
+                            timer: dict | None = None) -> str:
     objective = trim(text or candidate.text, 240)
     goal_kind = kind or promise_kind(objective, candidate.provenance)
     before = {goal.id for goal in loop.goals.open_goals()}
@@ -150,13 +151,26 @@ def file_promise_candidate(loop, candidate: PromiseCandidate, *,
         meta["success"] = trim(success, 400)
     if sources:
         meta["candidate_sources"] = sources
+    if timer:
+        meta["timer_id"] = str(timer["id"])
     goal = loop.goals.add(
         objective, kind=goal_kind,
         priority=0.6 if goal_kind == "reach_out" else 0.7,
-        due=(iso_of(loop.clock.now() + 24 * 3600)
+        due=(iso_of(float(timer["due"])) if timer and timer.get("due") is not None
+             else iso_of(loop.clock.now() + 24 * 3600)
              if goal_kind == "reach_out" else None),
         commitment="single-minded", provenance=candidate.provenance,
         meta=meta)
+    if timer and goal.id in before:
+        goal = loop.goals.update(
+            goal.id, due=iso_of(float(timer["due"]))
+            if timer.get("due") is not None else None,
+            meta={"timer_id": str(timer["id"])}) or goal
+    if timer and str(timer["id"]) in loop.delivered_timers:
+        loop.goals.update(
+            goal.id, state="done",
+            meta={"completed_by": "timer_announcement",
+                  "completion_id": str(timer["id"])})
     if goal.id in before:
         return ""
     return (f"I promised: {goal.text}" if goal_kind == "reach_out"
@@ -219,11 +233,17 @@ async def promise_review(loop, offer=None) -> tuple[dict, dict, list[str]]:
     sources = [{"text": trim(str(item.get("source", "")), 200),
                 "candidate": int(item.get("index", 0))}
                for item in selected]
+    timer = timer_for_promise(
+        review.get("tool_outcomes") if isinstance(review.get("tool_outcomes"), list)
+        else [],
+        decision.text, decision.rationale, decision.success,
+        str(review.get("user_text", "")), str(review.get("reply", "")),
+        *(str(item.get("source", "")) for item in selected))
     note = file_promise_candidate(
         loop, candidate, user_text=str(review.get("user_text", "")),
         reply=str(review.get("reply", "")), text=decision.text,
         kind=decision.kind, rationale=decision.rationale,
-        success=decision.success, sources=sources)
+        success=decision.success, sources=sources, timer=timer)
     return ({"what": "promise_review",
              "result": "filed one canonical goal" if note else
                        "matched an existing goal"}, {}, [note] if note else [])
@@ -252,6 +272,7 @@ async def announce(loop) -> tuple[dict, dict, list[str]]:
         spoken = await loop.speak(cue)
     if spoken:
         loop._pending_announce.pop(0)
+        _complete_timer_promises(loop, t)
         return ({"what": "speak", "result": "announced the timer"}, {},
                 [f"told them the “{t.get('label')}” timer finished"])
     text = await loop._compose(cue)
@@ -266,10 +287,29 @@ async def announce(loop) -> tuple[dict, dict, list[str]]:
     unheard = not loop.hub.viewers
     loop.post_message("assistant", text, proactive=True, unheard=unheard)
     loop._pending_announce.pop(0)
+    _complete_timer_promises(loop, t)
     return ({"what": "speak",
              "result": "announced the timer (unheard)" if unheard
                        else "announced the timer"}, {},
             [f"told them the “{t.get('label')}” timer finished"])
+
+
+def _complete_timer_promises(loop, timer: dict) -> None:
+    """Close promises owned by this countdown only after delivery (SPEC §7.5)."""
+    timer_id = str(timer.get("id") or "")
+    if not timer_id:
+        return
+    if timer_id not in loop.delivered_timers:
+        loop.delivered_timers.append(timer_id)
+        del loop.delivered_timers[:-100]
+    for goal in loop.goals.open_goals():
+        if str(goal.meta.get("timer_id") or "") != timer_id:
+            continue
+        loop.goals.update(
+            goal.id, state="done",
+            meta={"completed_by": "timer_announcement",
+                  "completion_id": timer_id})
+        loop.wakeups.pop(goal.id, None)
 
 
 async def self_talk(loop) -> tuple[dict, dict, list[str]]:

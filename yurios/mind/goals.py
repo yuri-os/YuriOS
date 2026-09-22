@@ -570,6 +570,36 @@ def fallback_promises(candidates: list[PromiseCandidate]) -> list[PromiseCandida
             if candidate.confidence in ("explicit", "strong")][:1]
 
 
+_TIMER_PROMISE_RE = re.compile(
+    r"\b(?:timer|countdown|clock|remind|seconds?|minutes?|hours?|"
+    r"goes? off|fires?|rings?|when (?:it(?:'s| is)?|the) time)\b", re.I)
+
+
+def timer_for_promise(tool_outcomes: list[dict] | None,
+                      *evidence: str) -> dict | None:
+    """Return the successful timer contract that owns this promise, if any.
+
+    The timer board and the goal store are deliberately separate, but a turn can
+    create both: "say hi in five minutes" schedules the countdown and REFLECT
+    files the future delivery as a promise. The timer id is their stable join.
+    """
+    text = " ".join(str(item or "") for item in evidence)
+    for outcome in tool_outcomes or []:
+        if outcome.get("tool") != "set_timer" or outcome.get("verdict") != "ok":
+            continue
+        try:
+            result = json.loads(str(outcome.get("result") or ""))
+        except (TypeError, json.JSONDecodeError):
+            continue
+        if not isinstance(result, dict) or not result.get("id"):
+            continue
+        label = str(result.get("label") or outcome.get("args", {}).get("label") or "")
+        if (_TIMER_PROMISE_RE.search(text)
+                or (label.strip() and label.strip().lower() in text.lower())):
+            return result
+    return None
+
+
 def promise_review_messages(*, user_text: str, reply: str,
                              candidates: list[dict], capabilities: list[str],
                              tool_outcomes: list[dict] | None = None) -> list[dict]:

@@ -12,6 +12,7 @@ import pytest
 from yurios.mind.goals import (PromiseReviewError, discover_promise_candidates,
                                extract_promises, parse_promise_review,
                                promise_decision_grounded, promise_kind)
+from yurios.mind.util import iso_of
 
 from .conftest import FakeUtility, make_mind, run_mind
 
@@ -354,6 +355,28 @@ async def test_promise_review_receives_the_calls_that_actually_ran(
     payload = json.loads(utility.review_messages[0][-1]["content"])
     assert payload["tool_outcomes"] == [outcome]
     assert "list_notes` proves an index" in utility.review_messages[0][0]["content"]
+
+
+async def test_a_reviewed_timer_promise_keeps_the_timer_contract(
+        cfg, seeded_vault):
+    due = 1_800_000_300.0
+    utility = ReviewUtility(review_goal(
+        "say hi when the five-minute timer fires", kind="reach_out"))
+    rig = make_mind(cfg, seeded_vault, utility=utility)
+    outcome = {
+        "tool": "set_timer", "args": {"minutes": 5, "label": "say hi"},
+        "verdict": "ok",
+        "result": json.dumps({"id": "timer-hi", "label": "say hi",
+                              "seconds": 300, "due": due}),
+    }
+    rig.say("say hi to me in five minutes", reply="Five minutes. I'll find you.",
+            tool_outcomes=[outcome])
+
+    await rig.mind.tick()
+
+    goal = rig.mind.goals.open_goals()[0]
+    assert goal.meta["timer_id"] == "timer-hi"
+    assert goal.due == iso_of(due)
 
 
 async def test_promise_reviews_are_fifo_and_survive_restart(cfg, seeded_vault):

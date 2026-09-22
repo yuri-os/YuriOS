@@ -7,6 +7,7 @@ component ships untuned.
 from __future__ import annotations
 
 import datetime
+import json
 
 from .conftest import SIM_START, make_mind, run_mind
 
@@ -230,3 +231,57 @@ async def test_timer_announce_lands_in_chat_when_a_text_page_is_open(
     assert not rig.mind._pending_announce
     assert rig.post.proactive(), "the line must reach the transcript"
     assert not any(c["delivered"] for c in rig.speak.calls)
+
+
+async def test_delivering_a_timer_closes_its_linked_reminder_goal(
+        cfg, seeded_vault):
+    rig = make_mind(cfg, seeded_vault)
+    due = rig.clock.now() + 60
+    outcome = {
+        "tool": "set_timer", "args": {"minutes": 1, "label": "drink water"},
+        "verdict": "ok",
+        "result": json.dumps({"id": "t-water", "label": "drink water",
+                              "seconds": 60, "due": due}),
+    }
+    rig.say("remind me to drink water in one minute", reply="Timer set.",
+            tool_outcomes=[outcome])
+    await rig.mind.tick()
+    goal = rig.mind.goals.open_goals()[0]
+    assert goal.meta["timer_id"] == "t-water"
+
+    rig.timers.add(id="t-water", label="drink water", seconds=60)
+    rig.clock.advance(61)
+    rig.timers.poll()
+    rig.speak.connected = False
+    await rig.mind.tick()
+
+    completed = rig.mind.goals.get(goal.id)
+    assert completed.state == "done"
+    assert completed.meta["completed_by"] == "timer_announcement"
+
+
+async def test_a_timer_delivered_before_review_still_closes_the_late_goal(
+        cfg, seeded_vault):
+    rig = make_mind(cfg, seeded_vault)
+    due = rig.clock.now()
+    outcome = {
+        "tool": "set_timer", "args": {"minutes": 0.01, "label": "say hi"},
+        "verdict": "ok",
+        "result": json.dumps({"id": "t-fast", "label": "say hi",
+                              "seconds": 1, "due": due}),
+    }
+    rig.say("say hi in a second", reply="I'll find you in a second.",
+            tool_outcomes=[outcome])
+    rig.timers.add(id="t-fast", label="say hi", seconds=0)
+    rig.timers.poll()
+    rig.speak.connected = False
+    rig.mind._last_turn_end -= cfg.idle_settle_s + 1
+
+    first = await rig.mind.tick()
+    assert first["acted"]["what"] == "speak"
+    assert not rig.mind.goals.open_goals()
+
+    await rig.mind.tick()
+    goal = rig.mind.goals.all()[0]
+    assert goal.state == "done"
+    assert goal.meta["timer_id"] == "t-fast"

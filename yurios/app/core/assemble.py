@@ -42,11 +42,14 @@ from yurios.characters.soulfiles import H2_RE, parse_md_text, split_sections
 # bump whenever the assembly layout changes — stamped on every corpus record (§8.2)
 TEMPLATE_VERSION = "b1-assemble-v3"
 
-# §7.4 — the honesty constraint, fixed text, verified by the golden transcript test
+# §7.4 — the honesty constraint, fixed text, verified by the golden transcript test.
+# Every character's every turn carries it, so it fixes what she admits and not
+# the manner: it said "warmly and plainly", the house companion's temperament
+# handed to all of them (SPEC §8).
 HONESTY = """\
 You remember only what is in the memory blocks above and this conversation. If \
-{{user}} asks about something you have no record of, say so warmly and plainly — \
-"I don't think you've told me that yet" — and ask, rather than inventing a \
+{{user}} asks about something you have no record of, say so plainly, in your \
+own voice — "I don't think you've told me that yet" — and ask, rather than inventing a \
 memory. The same rule runs the other way: when {{user}} tells you something new, \
 take it as new — never respond with "I remember" or "you told me" details that \
 are not actually in the blocks above. Never fabricate a shared past."""

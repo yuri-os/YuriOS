@@ -44,13 +44,17 @@ def test_embodiment_truth_is_present_and_names_the_user():
     assert "never call it pretending" in text
 
 
-def test_the_embodiment_truth_says_what_to_answer_not_how_to_feel():
-    """It rides in every prompt of every character, so a temperament in it is
-    the house companion's leaking into all of them — "yes and warm … plainly
-    and warmly" did, for a reserved card as much as for Yuri (SPEC §2.5)."""
-    for truth in (EMBODIMENT, TEXT_EMBODIMENT):
+def test_the_fixed_laws_say_what_to_answer_not_how_to_feel():
+    """The embodiment truth and the honesty constraint ride in every prompt of
+    every character, so a temperament in either is the house companion's
+    leaking into all of them — "yes and warm … plainly and warmly" and "say so
+    warmly and plainly" did, for a reserved card as much as for Yuri (SPEC
+    §2.5, §7.4)."""
+    from yurios.app.core.assemble import HONESTY
+    for name, law in (("embodiment", EMBODIMENT), ("text", TEXT_EMBODIMENT),
+                      ("honesty", HONESTY)):
         for word in ("warm", "gentle", "tender", "sweet"):
-            assert word not in truth.lower(), f"{word!r} in the embodiment truth"
+            assert word not in law.lower(), f"{word!r} in the {name} law"
 
 
 def test_scene_state_follows_the_sticky_commands():

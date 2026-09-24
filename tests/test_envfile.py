@@ -252,7 +252,7 @@ def test_yurios_settings_shows_a_named_group_whole(tmp_path, monkeypatch, capsys
     is exactly the section you have come here to configure."""
     _installation(tmp_path, monkeypatch)
 
-    assert cli_main(["settings", "--group", "unasked"]) == 0
+    assert cli_main(["settings", "--group", "one switch"]) == 0
     out = capsys.readouterr().out
     assert "MIND_TOOLS_ENABLED" in out and "MIND_TOOL_ALLOWLIST" in out
     assert "the house switch" in out, "with its help, since you asked for it"

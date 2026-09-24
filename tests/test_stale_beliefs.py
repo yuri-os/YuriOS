@@ -135,6 +135,33 @@ async def test_a_greeting_opens_on_the_last_words_not_only_the_summary(
         "she greeted from a summary that predates the answer, with no transcript"
 
 
+async def test_a_tool_notice_in_the_column_never_reaches_the_greeting(
+        cfg, seeded_vault, clock, controller):
+    """A notice that she used a hand is a row in the column (§7.3) with its own
+    role. Handed to the model as `role: "tool"` with no call behind it, the
+    provider refuses the request — and the greeting is the first thing you hear."""
+    from tests.test_bootstrap_greeting import make_brain
+    from .conftest import CannedChat, collect
+
+    (seeded_vault / "memory" / "episodic" / "2026-07-01.md").write_text(
+        "# Journal — 2026-07-01\n\n### 09:00  you: hello  ⇄  her: hello\n")
+    chat = CannedChat("[neutral] Hey.")
+    brain = make_brain(cfg, seeded_vault, chat, clock, controller)
+    brain.state.sessions.log.add(
+        {"id": "m1", "role": "user", "text": "check my notes",
+         "ts": "2026-07-01T20:36:40"}, window=True)
+    brain.state.sessions.log.add(
+        {"id": "t1", "role": "tool", "tool": "read_note",
+         "text": "read_note · notes/a.md", "ts": "2026-07-01T20:36:46"})
+
+    await collect(brain.stream_greeting("s1"))
+
+    roles = {m["role"] for call in chat.calls for m in call}
+    assert roles <= {"system", "user", "assistant"}
+    assert "read_note · notes/a.md" not in json.dumps(chat.calls)
+    assert "check my notes" in json.dumps(chat.calls)
+
+
 async def test_a_wordless_entry_never_becomes_a_blank_turn(
         cfg, seeded_vault, clock, controller):
     """A selfie is a chat entry with no words in it. A blank turn in the window

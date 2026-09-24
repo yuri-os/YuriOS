@@ -185,16 +185,16 @@ function characterCard(character) {
       ? `Let ${character.name}'s reach-outs raise a desktop notification. Her inbox fills either way.`
       : "Notifications are off for this node — set NOTIFY_ENABLED=true in .env to use this.",
   });
-  // Her hands (SPEC §26, as amended): whether the mind may reach for a tool on
-  // its own. In series with the house switch, and inert-with-a-reason when the
+  // Her hands (SPEC §26.1): whether she may use a tool at all — in a reply,
+  // and on her own. In series with the house switch, and inert-with-a-reason when the
   // house has not installed the capability — the doorbell's rule exactly.
   // Turning it off lands before her next tick and never restarts her, which is
   // what makes it a kill switch rather than a setting.
   const handsLabel = () => switchLabel("hands", "Hands", character.hands.enabled, {
     disabled: !character.hands.available,
     title: character.hands.available
-      ? `Let ${character.name}'s own goals reach for a tool between conversations. Whatever she makes is kept for her, not sent to you.`
-      : "Autonomous tool use is off for this node — open the gear, turn on MIND_TOOLS_ENABLED and tick the hands she may use in MIND_TOOL_ALLOWLIST.",
+      ? `Let ${character.name} use her tools — when she answers you, and on her own between conversations. Off, she has none anywhere.`
+      : "Tool use is off for this node — open the gear, turn on MIND_TOOLS_ENABLED and tick the hands she may use in MIND_TOOL_ALLOWLIST.",
   });
   const details = element("button", {
     className: "open-detail",

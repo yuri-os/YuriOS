@@ -398,7 +398,7 @@ class BrainAdapter:
         if chatlog is None:
             return []
         try:
-            rows = chatlog.tail(GREETING_LOOKBACK)
+            rows = chatlog.said(GREETING_LOOKBACK)
         except Exception:  # noqa: BLE001 — no transcript is not a failed greeting
             log.debug("greeting: no transcript to open on", exc_info=True)
             return []
@@ -409,6 +409,14 @@ class BrainAdapter:
                 out.append({"role": r.get("role", "assistant"),
                             "content": content})
         return out
+
+    def _stream_unprompted(self, messages: list[dict]) -> AsyncIterator[str]:
+        """The model call behind a line she says without being asked — a
+        greeting here; self-talk, an announcement and a reach-out in the world
+        brain. Plain streaming; `ToolBrain` gives it her hands (SPEC §7.4)."""
+        return self.state.chat.stream(
+            messages, temperature=self.cfg.temperature,
+            max_tokens=self.cfg.max_reply_tokens)
 
     async def stream_greeting(self, session_id: str) -> AsyncIterator[str]:
         """Stream the continuity opener. The cue itself is NOT appended to the
@@ -444,9 +452,7 @@ class BrainAdapter:
         with correlate.scope(kind=correlate.GREETING, session_id=session_id):
             said: list[str] = []
             try:
-                async for token in self.state.chat.stream(
-                        prompt.messages, temperature=self.cfg.temperature,
-                        max_tokens=self.cfg.max_reply_tokens):
+                async for token in self._stream_unprompted(prompt.messages):
                     said.append(token)
                     yield token
             finally:

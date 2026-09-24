@@ -747,8 +747,9 @@ to every new subscriber before its first live event. Malformed JSON is logged an
   way, because their configured rates encode decisions discovery cannot see.
 - §7.3 **Guardrails.** Every call **MUST** pass `yurios/world/tools/guard.py`: an **allowlist**
   (exactly the discovered tools; anything else denied), **per-tool rate limits** (token bucket
-  on the injected clock), a **per-turn call cap** (`TOOL_MAX_CALLS_PER_TURN`), a **per-call
-  timeout**, and **result truncation**. Catalog tools (`list_notes`, `read_note`) **MUST**
+  on the injected clock), a **per-turn call cap** (`TOOL_MAX_CALLS_PER_TURN`, **16**: how many
+  calls one reply — or one step of her own work, §26.2 — may chain, each result back before the
+  next), a **per-call timeout**, and **result truncation**. Catalog tools (`list_notes`, `read_note`) **MUST**
   keep a higher bound than the default 600-character fact cap: a listing is the result, not a
   fact to speak to, and cutting `list_notes` mid-JSON is how a diary folder became a days-long
   loop (she never saw `count`). `list_notes` **MUST** put `count` first, drop `mtime`/`dir`
@@ -759,7 +760,13 @@ to every new subscriber before its first live event. Malformed JSON is logged an
   (`ts, tool, args, verdict, duration_ms, result`) to `TOOL_LOG_DIR`. A call that ran out of time
   **MUST** say so in that `result` and in what she reads ("timed out after 10s"), never an empty
   string: a blank failure cannot be told apart from a broken tool. She can be *asked* anything; the
-  guard decides what her hands actually do.
+  guard decides what her hands actually do. **Every audited call MUST also be a notice in the
+  chat**: one `role: "tool"` row in the conversation log (§2.6) naming the tool, the argument that
+  says what it touched, and — when it was refused or failed — why, published on the `message`
+  event like any line. The row **MUST NOT** enter a prompt's window, the inbox, or a channel's
+  outbound stream; it is a record on the page, not something she said. A call she made working on
+  her own (any correlate kind but a reply, a greeting, a murmur or a reach-out) is marked
+  `background` and drawn quieter. A call made mid-reply lands above the words still arriving.
 
   **The mind gets a second Guard, not a share of this one** (§26). Its `rates_per_min` is built
   from `TOOL_RATE_MIND_*` over `MIND_TOOL_ALLOWLIST` alone, so a night of autonomous work cannot
@@ -832,6 +839,12 @@ to every new subscriber before its first live event. Malformed JSON is logged an
   read as the call it names and held back from speech like a marker — including a block the stream
   cut off, which is salvaged or dropped, never spoken — and the verbatim record a turn keeps
   **MUST** rewrite it as the `[[…]]` marker, so her own history never teaches her the other format.
+  **Every line she says goes through this loop, not only a reply.** A greeting, a murmur, a timer
+  announcement and a reach-out written for an empty room **MUST** carry the same `## TOOLS` block
+  and the same pass loop as a reply, under the same rule (§26.1): what she may reach for depends on
+  her hands, never on which door she came in by. A line composed with no hands offered but with a
+  cue that points at something she would need a hand to see is how DeepSeek's own call markup
+  became a message on 24 Sep (§18.3).
 - §7.5 **Semantics.** The MCP server is the *contract and audit point* for `set_timer` — it
   validates and records — but the **host** schedules the wake (`yurios/world/tools/timers.py`,
   on the injected clock), because only the host owns her voice; when a timer elapses she
@@ -2247,9 +2260,10 @@ timeouts `MIND_{ENGAGED,IDLE,DORMANT,DREAM}_CADENCE_S`, `MIND_ENGAGED_TIMEOUT_S`
 `IDLE_TALK_MIN/MAX_S` (§15.5). Her desk (§34): `WORKSPACE_ENABLED`, `WORKSPACE_DIGEST_FILES`,
 `SKILLS_ENABLED`, `TOOL_RATE_DESK`. The goal lifecycle (§22.3): `MIND_GOAL_MAX_STEPS`,
 `MIND_DISPATCH_TIMEOUT_S`, `GOALS_IN_PROMPT`; and goals of her own (§22.1b):
-`MIND_GOAL_FILING_ENABLED` (**true**) with `MIND_SELF_GOALS_MAX`. Her hands in the loop (§26) — every one of these is
-inert until the first is true: `MIND_TOOLS_ENABLED` (**false**), `MIND_TOOL_ALLOWLIST` (**empty**),
-`MIND_TOOLS_DURING_CHAT` (**auto**), `MIND_TOOL_CALLS_PER_DAY`, `MIND_TOOL_PRESSURE_CEILING`,
+`MIND_GOAL_FILING_ENABLED` (**true**) with `MIND_SELF_GOALS_MAX`. Her hands (§26.1) — one rule for
+every call she makes, in a reply or on her own: `MIND_TOOLS_ENABLED` (**true**),
+`MIND_TOOL_ALLOWLIST` (**`*`**, every hand the machine can offer), `MIND_TOOLS_DURING_CHAT`
+(**auto**), `MIND_TOOL_CALLS_PER_DAY` (**64**), `MIND_TOOL_PRESSURE_CEILING`,
 `MIND_TOOL_COOLDOWN_{CHEAP,EXPENSIVE}_S` plus the per-tool `MIND_TOOL_COOLDOWN_S` override, and the
 mind guard's own buckets `TOOL_RATE_MIND_{DESK,WEB,CAMERA,OTHER}`. The self-edit door (§23) is
 rationed by `TOOL_RATE_SELFEDIT`. The DREAM pipeline's per-job switch is not a knob but a file:
@@ -2268,7 +2282,7 @@ measurable and reversible. The port is **8768**.
 This is a reference implementation of *initiative*, not the fully productised runtime. **No sandboxed
 workshop**: no code execution, no shell, no build step, no wiki authoring — the heavy hands remain
 the named next rung, and §23.2's gate is where their products would cross into the mind. (Autonomous
-*reading* is no longer in this list: §26.1–§26.5 below ship it, default-off. What a sandbox is for is
+*reading* is no longer in this list: §26.1–§26.5 below ship it. What a sandbox is for is
 running code, which is a different threat model from fetching a page.) **No multimodal sensing**: SENSE reads text, time, files, and its own completions — no vision,
 no prosody — which is enough to prove an interrupt threshold can stay silent. **The world model stops
 at the snapshot**: no temporal knowledge graph, no multi-hop queries (§19.1 names the stage). **One
@@ -2287,18 +2301,25 @@ broker that comes with the workshop." That was wrong about where the difficulty 
 already here — `ToolBrain._execute` does allowlist → rate bucket → dedupe → timeout → truncate →
 audit → host realisation, never raises, and has no dependency on the streaming loop that calls it.
 What was actually deferred was **policy**: which hands, where the product lands, what stops a
-repeat, who pays, and how the answer comes back. `yurios/mind/hands.py` answers those five, and the
-capability ships **off** (§26.1). The omission that remains is the *workshop* — code execution and
+repeat, who pays, and how the answer comes back. `yurios/mind/hands.py` answers those five, under
+the one rule every call she makes obeys (§26.1). The omission that remains is the *workshop* — code execution and
 a shell — which is a different capability with a different threat model, and the one that genuinely
 needs a sandbox.
 
-- §26.1 **The mind's hands are default-off, and off means invisible** (normative). Two switches in
-  series, the §18.4.6 notify pattern: `MIND_TOOLS_ENABLED` (house, **false**) says whether anything
-  on this machine may reach for a tool unasked, and `LoopSwitches.hands` (per-character) says
-  whether she is one of the ones that may. A character **MUST NOT** be able to talk her way past the
-  house switch. `MIND_TOOL_ALLOWLIST` names the permitted tools explicitly — no wildcard, no
-  inheritance from the conversational allowlist, **empty by default even when the switch is on**.
-  An explicit allowlist is a debt to whoever has to write it: the hands are one table
+- §26.1 **One rule for every call she makes, and off means invisible** (normative). A hand is
+  usable — in a reply, a greeting, a murmur, a reach-out, a goal step or a night's job alike —
+  exactly when three things hold: the house switch `MIND_TOOLS_ENABLED` (**true**) is on, her own
+  `LoopSwitches.hands` is on (in series, the §18.4.6 notify pattern: a character **MUST NOT** be
+  able to talk her way past the house switch), and `MIND_TOOL_ALLOWLIST` admits it. There is no
+  separate conversational set: her hands in a reply and on her own are the same hands, and turning
+  hers off takes them out of every prompt. The allowlist is `*` by default — every hand this
+  machine can offer, including one a later build adds, and every tool a mounted server (§7.2)
+  discovers — or explicit names; **empty means none**, because empty is what unticking every box
+  saves. The chat-only tools (`play_music`, `create_goal`, `propose_edit`, `delete_skill`) are rows
+  in the table like the rest. What she does *on her own* stays metered by §26.3–§26.4; a reply to
+  you is metered by §7.3. This replaces "default-off, empty by default": a room that had hands and
+  a mind that did not was two people, and the switch that said which was not one anybody could
+  find. An explicit allowlist is a debt to whoever has to write it: the hands are one table
   (`hands.HANDS` — cost class, what each one does, its example arguments, the backend it needs),
   and both settings surfaces **MUST** publish that vocabulary rather than offer a text box (§11).
   A hand dropped because its backend is off **MUST** say so, once, in the log: "she never
@@ -2308,12 +2329,20 @@ needs a sandbox.
   into her config at start: hers is a *live* switch (§26.5), and a config that had absorbed a
   `false` could never be told `true` again without a restart — so her config carries the house's
   word, and the grant the switchboard writes lives on the runtime.
-- §26.2 **A call is a step of a goal, never free-floating.** A `tool_step` act is reachable only
-  from `_act_goal_work`, and every call carries the id of the open goal that wanted it — so
-  `goals.md` stays the complete, readable list of what her hands might do. At most **one** call per
-  tick (§15's one-intention rule, applied one level down). The step's verdict in the tick trace
-  **MUST** be the call's verdict in `calls.jsonl` — `ok`, `denied` or `error` — and a call that
-  did not succeed **MUST NOT** be realised or counted as dispatched.
+- §26.2 **A call on her own is a step of her own work, and a step may chain.** She reaches for a
+  hand unasked in exactly two places: a goal step (`_act_goal_work`), where every call carries the
+  id of the open goal that wanted it, and a DREAM job written in her own voice (`soul: full`,
+  §21.2) — extraction jobs (consolidation, fact lists, summaries for search) and a dry run never
+  get hands. One tick is still one intention (§15), but the step it takes is worked as far as her
+  hands go: she answers with a `use` line, the hand runs through every precondition below, its
+  result comes back as the next message, and she is asked again — until she ends on prose or
+  `TOOL_MAX_CALLS_PER_TURN` calls are spent, past which a `use` line is dropped rather than run
+  (`mind/handwork.py`). A done-mark beside any call in the step finishes the goal. Work that
+  finishes off-tick (§7.6) ends a goal step early, and the goal waits for it. A research night
+  (§21.2a) offers her other hands in its rounds beside the web moves, each costing a move, and
+  never `research` itself. The trace names every call with its verdict — `ok`, `denied` or
+  `error`, the verdict in `calls.jsonl` — and a call that did not succeed **MUST NOT** be realised
+  or counted as dispatched.
 - §26.3 **Preconditions are checked in DECIDE, not ACT.** Switches, allowlist membership, the cost
   class against the current activity state, budget pressure against `MIND_TOOL_PRESSURE_CEILING`,
   the daily cap `MIND_TOOL_CALLS_PER_DAY`, and the fingerprint cooldown. A blocked hand **MUST**
@@ -2336,7 +2365,7 @@ needs a sandbox.
   has not answered yet **MUST** say *her hands are still starting*, not that no tool server is
   running: the second is the answer for a server that is absent or failed, and the trace must not
   report a restart as an outage.
-- §26.4 **Hard caps, absolute.** `MIND_TOOL_CALLS_PER_DAY` is a cap and not a governor: unlike
+- §26.4 **Hard caps, absolute.** `MIND_TOOL_CALLS_PER_DAY` (**64**) is a cap and not a governor: unlike
   `MIND_DAILY_TOKENS`, which is a post-hoc estimate, it is checked *before* dispatch and refuses.
   It rolls at local midnight beside `MIND_MAX_INTERRUPTS_PER_DAY`. For the mind and only the mind,
   budget pressure is likewise a precondition rather than an estimate reconciled afterwards.

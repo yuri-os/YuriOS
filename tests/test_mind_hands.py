@@ -50,6 +50,7 @@ async def work(rig, ticks=1):
 async def test_switches_off_the_tool_step_appraisal_never_wins(cfg, seeded_vault):
     """On any input, ever. This is the property everything else rests on."""
     utility = ScriptedUtility(*['use write_note {"path": "n.md", "text": "x"}'] * 8)
+    cfg = cfg.model_copy(update={"mind_tools_enabled": False})
     rig = make_mind(cfg, seeded_vault, utility=utility, tools=FakeToolRunner())
     rig.mind.goals.add("tidy my notes", kind="task", priority=0.95)
     rig.mind.goals.add("think about the shed", kind="task", priority=0.9)
@@ -208,7 +209,9 @@ async def test_a_list_notes_catalog_is_kept_whole_on_the_goal_desk(
 async def test_the_same_call_is_not_re_dispatched_every_tick(cfg, seeded_vault):
     """`Guard.turn()` is one dedupe scope per reply, and the mind has ticks."""
     line = 'use write_note {"path": "n.md", "text": "the same thing"}'
-    rig = rig_with_hands(cfg, seeded_vault, line, line, line)
+    # a step chains until she thinks, so each tick is one reach and one thought
+    rig = rig_with_hands(cfg, seeded_vault, line, "think noted", line,
+                         "think noted", line, "think noted")
     rig.mind.goals.add("keep a note", kind="task", priority=0.95)
 
     traces = await work(rig, ticks=3)
@@ -451,7 +454,9 @@ async def test_revoking_hands_mid_run_denies_the_next_call_and_audits_it(
         cfg, seeded_vault):
     rig = rig_with_hands(cfg, seeded_vault,
                          'use write_note {"path": "a.md", "text": "one"}',
-                         'use write_note {"path": "b.md", "text": "two"}')
+                         "think that is one",
+                         'use write_note {"path": "b.md", "text": "two"}',
+                         "think and two")
     rig.mind.goals.add("keep notes", kind="task", priority=0.95,
                        meta={"steps": -20})
     await work(rig)

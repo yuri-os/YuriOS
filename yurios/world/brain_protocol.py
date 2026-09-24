@@ -88,6 +88,10 @@ class AutonomousBrain(ConversationalBrain, Protocol):
         """The discovered hands (SPEC §7.2). None or empty means no hands here."""
         ...
 
+    def set_hands_policy(self, permits: Any) -> None:
+        """The one rule (SPEC §26.1): `(tool) -> bool`, asked per call."""
+        ...
+
     def set_world(self, world: Any) -> None:
         """The mind's `WorldModelStore` — the §19.2 seam swap."""
         ...

@@ -1040,6 +1040,49 @@ async def test_she_searches_reads_and_writes_a_report(research_rig):
     assert "example.invalid" in model.calls[-1][1]
 
 
+class _FakeHands:
+    """`LoopHands` for a research night: offers a list, records every use."""
+
+    def __init__(self, tools):
+        from yurios.mind.hands import Offer
+        self._offer = Offer(tools=tuple(tools))
+        self.used: list[tuple[str, dict]] = []
+
+    def offer(self):
+        return self._offer
+
+    async def run(self, messages, ask):
+        return await ask(messages)
+
+    async def use(self, tool, args):
+        from yurios.mind.handwork import Reach
+        self.used.append((tool, dict(args)))
+        return Reach(tool, dict(args), "ok", '{"saved": true}')
+
+
+async def test_a_research_round_may_use_her_other_hands(research_rig_with):
+    """One rule (§26.1): the night gets every hand she has. The web moves keep
+    their own path — the caps count them — and `research` is never offered to
+    a research night."""
+    runner, _vault, model, fetcher = research_rig_with([
+        'use write_note {"path": "notes/semis.md", "text": "start with TSMC"}',
+        'use web_search {"query": "semis"}',
+        'use read_page {"url": "https://example.invalid/overview"}',
+        "think nothing further",
+        REPORT], front={"min_pages": 1})
+    hands = _FakeHands(["write_note", "web_search", "read_page", "research"])
+    runner.hands = hands
+
+    report = await runner.run(only="market-brief")
+
+    assert report.jobs[0].changed
+    assert hands.used == [("write_note", {"path": "notes/semis.md",
+                                          "text": "start with TSMC"})]
+    assert fetcher.fetched == ["https://example.invalid/overview"]
+    first_round = model.calls[0][1]
+    assert "use write_note" in first_round and "use research" not in first_round
+
+
 async def test_the_loop_stops_after_two_quiet_rounds(research_rig_with):
     """A local 27B that has nothing left to fetch says so in prose, or says
     nothing parseable at all. Either way the loop must stop rather than spend

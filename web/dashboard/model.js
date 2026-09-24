@@ -79,8 +79,8 @@ export function normalizeCharacter(raw, index = 0) {
       available: boolean(typeof source.notify === "boolean"
         ? source.notify_available : source.notify?.available),
     },
-    // Whether her mind may reach for a tool between conversations (SPEC §26,
-    // as amended). Read exactly like the doorbell above and for the same
+    // Whether she may use a tool at all — in a reply and on her own (SPEC
+    // §26.1). Read exactly like the doorbell above and for the same
     // reason: `available` is the house switch (`MIND_TOOLS_ENABLED`), and with
     // it off the per-character toggle is shown inert rather than pretending a
     // character can grant herself a capability this node has not installed.

@@ -85,7 +85,8 @@ REACH_OUT_WITH_SHOT_CUE = (
     "picture is already there in the chat, right above what you are about to "
     "say. Say the one short, warm, specific spoken line you would send it "
     "with — don't describe it back to them, and don't explain that you "
-    "decided to speak. They can see it.))")
+    "decided to speak. They can see it. It is the picture: don't take "
+    "another one.))")
 
 
 #: What a kept promise came to, when the reach-out is news about one. The goal

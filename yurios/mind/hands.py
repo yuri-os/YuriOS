@@ -122,9 +122,21 @@ HANDS: dict[str, Hand] = {
     "write_skill": Hand(
         "cheap", "write down how to do something, for next time",
         '{"name": "a-skill", "description": "...", "instructions": "..."}'),
+    "delete_skill": Hand(
+        "cheap", "forget a skill she wrote down that turned out wrong",
+        '{"name": "a-skill"}'),
     "set_timer": Hand(
         "cheap", "leave herself a reminder to come back to this",
         '{"minutes": 10, "label": "..."}'),
+    "play_music": Hand(
+        "cheap", "start or stop the room's music",
+        '{"action": "play", "track": "warm_pad", "volume": 0.4}'),
+    "create_goal": Hand(
+        "cheap", "put a standing goal on her list",
+        '{"text": "...", "kind": "task"}'),
+    "propose_edit": Hand(
+        "cheap", "propose a change to one of her own soul files, for review",
+        '{"surface": "NOTES.md", "content": "...", "reason": "..."}'),
     "research": Hand(
         "expensive", "read several pages on a topic and write up what she found",
         '{"topic": "...", "depth": 3}', needs="SEARCH_BACKEND"),
@@ -213,6 +225,32 @@ def available(tool: str, cfg: object) -> bool:
     return str(getattr(cfg, attr, "off") or "off") != "off"
 
 
+#: `MIND_TOOL_ALLOWLIST=*` — every hand this installation can offer, including
+#: ones a later build adds. The default. Empty still means none, because an
+#: empty list is what unticking every box in the settings panel saves.
+EVERY_HAND = "*"
+
+
+def configured_names(cfg: object) -> tuple[str, ...] | None:
+    """The names `MIND_TOOL_ALLOWLIST` lists, or None for `*` (every hand)."""
+    raw = str(getattr(cfg, "mind_tool_allowlist", EVERY_HAND) or "")
+    names = tuple(dict.fromkeys(n.strip() for n in raw.split(",") if n.strip()))
+    return None if EVERY_HAND in names else names
+
+
+def permits(cfg: object, tool: str) -> bool:
+    """Whether the allowlist admits `tool` — the one rule every call obeys.
+
+    Her own hands must also have their backend on. A tool from another MCP
+    server (§7.2) has no row in `HANDS`, so `*` admits it and an explicit list
+    has to name it.
+    """
+    if tool in HANDS and not available(tool, cfg):
+        return False
+    names = configured_names(cfg)
+    return names is None or tool in names
+
+
 def describe_hands(cfg: object | None = None) -> list[dict]:
     """The whole vocabulary `MIND_TOOL_ALLOWLIST` is written in.
 
@@ -297,11 +335,11 @@ class Hands:
         researches" has an answer (`SEARCH_BACKEND=off`) that is nowhere near
         this variable.
         """
+        listed = configured_names(self.cfg)
+        if listed is None:
+            return tuple(n for n in HANDS if available(n, self.cfg))
         names: list[str] = []
-        for raw in str(getattr(self.cfg, "mind_tool_allowlist", "") or "").split(","):
-            name = raw.strip()
-            if not name:
-                continue
+        for name in listed:
             hand = HANDS.get(name)
             if hand is None:
                 self._warn(name, "%r is not a hand she has — known names are %s",
@@ -550,22 +588,23 @@ class Hands:
 
     # --------------------------------------------------------------- the prompt
 
-    def catalog(self, tools: tuple[str, ...]) -> str:
+    def catalog(self, tools: tuple[str, ...], *, cap: int | None = None) -> str:
         """How the offered hands are described to her, or "" for none.
 
         Only the offered ones — off means invisible (principle 9). She is asked
-        for one line of intent, not for a tool-marker grammar: the conversational
+        for a line of intent, not for a tool-marker grammar: the conversational
         parser exists because a reply is a stream she is talking through, and a
-        tick is not. One structured line is easier for a 12B model to get right
-        and easier for this file to refuse.
+        step is not. One structured line is easier for a 12B model to get right
+        and easier for this file to refuse. A step may chain several of them
+        (mind/handwork.py): each result comes back before she writes the next.
         """
         if not tools:
             return ""
-        rows = "\n".join(
-            f"  use {t} {HANDS[t].args if t in HANDS else '{...}'}" for t in tools)
+        rows = self.rows(tools)
+        limit = int(cap if cap is not None
+                    else getattr(self.cfg, "tool_max_calls_per_turn", 1))
         return (
-            "You may take ONE action this tick, and only one. Answer with one "
-            "line, in one of these two forms:\n\n"
+            "Answer with one line, in one of these forms:\n\n"
             "  think <a short note to yourself about this goal>\n"
             f"{rows}\n\n"
             # She writes the reason beside the call anyway; asking for it is
@@ -573,12 +612,19 @@ class Hands:
             # reads off the desk.
             "If you reach for a hand, put a `think` line above it saying why — "
             "the result alone won't tell you next time.\n\n"
-            "…where the part after the tool name is one line of JSON. Prefer "
-            "`think` — most steps are thinking. Reach for a hand only when the "
-            "step genuinely needs it, and never for something you already did. "
-            "Whatever a hand produces is kept for you, not sent to anyone: "
-            "nothing you do here reaches them until you decide, separately, to "
-            "say so.")
+            "…where the part after the tool name is one line of JSON. Each "
+            "result comes back to you before you go on, so you can chain hands "
+            f"— read, then change; search, then open — up to {limit} in this "
+            "step. End the step with a `think` line. Never reach for something "
+            "you already did. Whatever a hand produces is kept for you, not "
+            "sent to anyone: nothing you do here reaches them until you decide, "
+            "separately, to say so.")
+
+    @staticmethod
+    def rows(tools: tuple[str, ...]) -> str:
+        """One `use` example per hand, with the argument shape it takes."""
+        return "\n".join(
+            f"  use {t} {HANDS[t].args if t in HANDS else '{...}'}" for t in tools)
 
 
 @dataclass(frozen=True)

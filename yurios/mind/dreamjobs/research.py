@@ -20,7 +20,7 @@ from .context import (PROMPT_OVERHEAD_CHARS, REPORT_REASONING_ALLOWANCE,
                       ROUND_MAX_TOKENS, SEARCH_SNIPPET_CHARS, DreamContext,
                       JobReport)
 from .filedsl import FileJob, JobFile, _as_effort, _as_int, _shorter_effort
-from ..hands import parse_intent
+from ..hands import Hands, parse_intent
 
 log = logging.getLogger("mind.dreamjobs")
 
@@ -51,6 +51,17 @@ RESEARCH_CATALOG = """You may take ONE action now, and only one. Answer with one
 Put a `think` line above a hand saying why you reached for it — the result alone won't tell you next time. Search to find what is out there; open the pages actually worth reading. Never search for something you have already searched, and never open a page you have already opened. When you have enough to write from, answer with exactly:
 
   think nothing further"""
+
+#: Her other hands, offered in a round under the same rule as every call she
+#: makes (§26.1). The web moves keep their own path above — they are what the
+#: caps count — and `research` is left off: a night of research does not start
+#: another one.
+RESEARCH_OTHER_HANDS = ("\n\nYour other hands, if a note or a reminder is worth "
+                        "more than another page — each one costs a move:\n\n"
+                        "{rows}")
+
+#: The web moves this loop runs itself, and the hand it must not recurse into.
+_OWN_MOVES = ("web_search", "read_page", "research")
 
 #: Added to the catalog only while she has reached for nothing. Appending it to
 #: every round told her she had nothing on the round after she had just read
@@ -335,6 +346,15 @@ class ResearchJob(FileJob):
         searched = 0
         opened = 0
         broke = ""
+        # Offered once per night rather than per round: the preconditions are
+        # checked again on every call (`handwork.dispatch`), so a hand that
+        # goes away mid-night is refused there, in the audit.
+        hands = None if ctx.dry_run else ctx.hands
+        offer = hands.offer() if hands is not None else None
+        others = tuple(t for t in (offer.tools if offer else ())
+                       if t not in _OWN_MOVES)
+        extra = (RESEARCH_OTHER_HANDS.format(rows=Hands.rows(others))
+                 if others else "")
         try:
             for move in range(steps):
                 system = RESEARCH_LOOP_SYSTEM.format(char=ctx.char_name,
@@ -342,7 +362,7 @@ class ResearchJob(FileJob):
                 reply = await ctx.ask(
                     system,
                     f"Today is {day}.\n\n{gathered.render(self.context_chars)}"
-                    f"\n\n{RESEARCH_CATALOG}"
+                    f"\n\n{RESEARCH_CATALOG}{extra}"
                     + ("" if searched or opened else RESEARCH_FIRST_MOVE)
                     + RESEARCH_BUDGET.format(steps=steps - move,
                                              searches=searches - searched,
@@ -355,8 +375,9 @@ class ResearchJob(FileJob):
                     # thinking harder that improves it, and on a local
                     # reasoning model the pass costs minutes per round. The
                     # report below gets the full one.
-                    thinking=False, max_tokens=ROUND_MAX_TOKENS)
-                intent = parse_intent(reply, allowed=("web_search", "read_page"))
+                    thinking=False, max_tokens=ROUND_MAX_TOKENS, hands=False)
+                intent = parse_intent(reply,
+                                      allowed=("web_search", "read_page") + others)
                 if intent.kind == "think":
                     if intent.text:
                         gathered.add("note", f"You thought: {intent.text}")
@@ -402,6 +423,11 @@ class ResearchJob(FileJob):
                 # mistake as counting the paywall, one step further down. What
                 # bounds a night of bad links is `max_steps`, not this.
                 quiet = 0
+                if intent.tool in others and hands is not None:
+                    reach = await hands.use(intent.tool, intent.args)
+                    gathered.add("note", f"You used {intent.tool}: "
+                                         f"{reach.result[:500]}")
+                    continue
                 if intent.tool == "web_search":
                     query = str(intent.args.get("query") or "").strip()
                     already = (_already_asked(_query_key(query), seen_queries)

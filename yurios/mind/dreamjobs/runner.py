@@ -24,7 +24,7 @@ from yurios.app.providers.admission import InferenceBusy
 
 from .builtins import (ConsolidateJob, DiaryJob, DreamJob, SelfieJob,
                        StrategyJob)
-from .context import (REPORT_EFFORTS, DreamContext, Exchange, JobLedger,
+from .context import (REPORT_EFFORTS, DreamContext, DreamHands, Exchange, JobLedger,
                       JobReport, Step, UtilityCall)
 from .filedsl import (DREAMS_README, FileJob, JobFile,
                       PromptJob, _as_effort, load_job_files, seed_job_files)
@@ -217,7 +217,8 @@ class DreamRunner:
                  deliver_report: Callable[..., None] | None = None,
                  audit: Callable[..., None] | None = None,
                  soul_text: Callable[[], str] | None = None,
-                 drives: Callable[[], list[str]] | None = None):
+                 drives: Callable[[], list[str]] | None = None,
+                 hands: DreamHands | None = None):
         self.vault = vault
         self.store = store
         self.clock = clock
@@ -232,6 +233,7 @@ class DreamRunner:
         self.audit = audit
         self.soul_text = soul_text
         self.drives = drives
+        self.hands = hands
         self.ledger = JobLedger(vault.vault / "state" / "dream_jobs.json")
         #: Kept because `reload()` has to build a fresh `ConsolidateJob`, and a
         #: consolidator is the one thing here the runner cannot construct.
@@ -333,6 +335,7 @@ class DreamRunner:
             utility=self.utility, selfie=self.selfie, audit=self.audit,
             research=self.research, deliver_report=self.deliver_report,
             soul_text=self.soul_text, drives=self.drives, cfg=self.cfg,
+            hands=self.hands,
             char_name=str(getattr(self.cfg, "companion_name", "") or "she"),
             user_name=str(getattr(self.cfg, "user_name", "") or "the user"),
             **kw)

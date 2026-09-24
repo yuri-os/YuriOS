@@ -35,6 +35,7 @@ from yurios.desktop.voice.emotion import speakable
 from yurios.desktop.voice.fillers import FillerBank
 from yurios.desktop.voice.ws_limits import VoiceConnectionLimiter, uvicorn_ws_options
 
+from yurios.mind.hands import permits
 from yurios.mind.loop import MindLoop
 from yurios.mind.promptlog import PromptLog
 from yurios.mind.signals import SignalBus
@@ -66,6 +67,33 @@ WEB_DIR = Path(__file__).resolve().parent.parent.parent / "web"
 DIST_DIR = WEB_DIR / "dist"   # Vite build output (cd web && npm run build); served at / (§3)
 #: How much of the conversation the in-memory ring holds (SPEC §2.6).
 RING_SIZE = 200
+#: Correlate kinds whose tool calls are made in something she is saying to you
+#: — a reply, a greeting, a murmur, a reach-out. Anything else is her working on
+#: her own, and its notice is drawn quieter (`post_tool_notice`).
+REPLY_ORIGINS = frozenset({"chat_turn", "greeting", "ambient", "compose"})
+
+#: The argument that says what a call was *about*, in the order worth showing.
+_NOTICE_ARGS = ("path", "query", "url", "label", "topic", "name", "surface",
+                "text", "look", "subject", "folder", "action")
+
+
+def tool_notice_text(tool: str, args: object) -> str:
+    """`read_note · goals/g-1.md` — the tool and the one argument that says what
+    it touched, short enough for a chip."""
+    detail = ""
+    if isinstance(args, dict):
+        for key in _NOTICE_ARGS:
+            value = args.get(key)
+            if value not in (None, ""):
+                detail = " ".join(str(value).split())
+                break
+        if not detail and args.get("minutes") is not None:
+            detail = f"{args['minutes']} min"
+    if len(detail) > 60:
+        detail = detail[:59].rstrip() + "…"
+    return f"{tool} · {detail}" if detail else tool
+
+
 #: What one `GET /api/history` hands a page that asks for no particular window.
 HISTORY_PAGE = 100
 #: The most one call may ask for — a client cannot turn this route into a dump.
@@ -196,6 +224,12 @@ class Runtime:
             # Is her body on a screen right now? (SPEC §2.5) The hub knows: the
             # sanctuary and the Live2D room count, the text room does not.
             self.brain.set_body_probe(lambda: self.hub.body_viewers > 0)
+            # One rule for every call she makes (§26.1): the house switch, her
+            # own, and the allowlist — a reply's hands and a tick's are the
+            # same hands.
+            self.brain.set_hands_policy(self.hands_permit)
+        # Every call, from every door, is a small line in the chat (§7.3).
+        self.guard.observe(self.post_tool_notice)
         self._tool_runner = tool_runner        # injected, or built at startup
         # Set once tool discovery has an answer — wired, failed, or never
         # started. The mind's first tick waits on it (bounded) so a restart's
@@ -434,6 +468,46 @@ class Runtime:
             # before the publish: the notification channel and an open page both
             # react to the event, and both want a badge that already exists.
             self.inbox.add(entry)
+        self.hub.publish("message", entry)
+        return entry
+
+    def hands_permit(self, tool: str) -> bool:
+        """May she use `tool` right now — in a reply, a greeting, a reach-out or
+        her own work? The one rule (SPEC §26.1), read live: the house switch,
+        her switchboard toggle, and `MIND_TOOL_ALLOWLIST`."""
+        return bool(self.cfg.mind_tools_enabled and self._hands_granted
+                    and permits(self.cfg, tool))
+
+    def post_tool_notice(self, line: dict) -> dict | None:
+        """One audit line as a small notice in the chat (SPEC §7.3).
+
+        A row of its own, `role: "tool"`, so it lands in the column where the
+        call happened — above the reply it was made for, or on its own when she
+        was working alone — and survives a reload. It is never in a prompt's
+        window (only a turn admits a line to that, app/conversation.py), never
+        in the inbox, and the channels only forward `assistant` lines.
+        `background` is a call she made on her own rather than in something she
+        was saying: the page draws those quieter.
+        """
+        tool = str(line.get("tool") or "")
+        if not tool or tool.startswith("("):
+            return None                            # "(unparsed marker)" is not a call
+        verdict = str(line.get("verdict") or "")
+        entry: dict = {
+            "id": uuid.uuid4().hex[:8], "role": "tool",
+            "text": tool_notice_text(tool, line.get("args")),
+            "ts": datetime.datetime.fromtimestamp(
+                self.clock.now()).isoformat(timespec="seconds"),
+            "tool": tool,
+            "verdict": verdict.split(":", 1)[0] or "ok",
+        }
+        if verdict.startswith("denied"):
+            entry["why"] = verdict.partition(":")[2].strip()
+        if line.get("origin") not in REPLY_ORIGINS:
+            entry["background"] = True
+        self.transcript.append(entry)
+        del self.transcript[:-RING_SIZE]
+        self.chatlog.add(entry)
         self.hub.publish("message", entry)
         return entry
 
@@ -726,6 +800,8 @@ class Runtime:
                                      park_gate=self.park_gate)
                 self.mind.set_hands_enabled(self._hands_granted)
                 self.mind.set_hands_boot(self.tools_settled)
+                if self.mind.hands.guard is not None:
+                    self.mind.hands.guard.observe(self.post_tool_notice)
                 self.mind_status = "running"
                 self.boot.done("mind", detail=f"running · {self.mind.activity.state}")
                 self._mind_task = asyncio.create_task(self.mind.run(), name="mind")

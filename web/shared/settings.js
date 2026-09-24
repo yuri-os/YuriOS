@@ -344,6 +344,14 @@
     if (f.type === "multi") {
       const chosen = new Set(String(f.value ?? "").split(",")
         .map((s) => s.trim()).filter(Boolean));
+      // `f.all` is the token that means "every option, including ones a later
+      // build adds" — ticked in full it is what gets saved, so a new hand is
+      // not left off a list that was meant to be everything.
+      const listedAll = (f.options || []).every((name) => chosen.has(name));
+      if (f.all && chosen.has(f.all)) {
+        chosen.delete(f.all);
+        for (const name of f.options || []) chosen.add(name);
+      }
       const detail = f.option_detail || {};
       const box = el("div", { className: "set-multi", id });
       box.setAttribute("role", "group");
@@ -380,7 +388,16 @@
         if (!(f.options || []).includes(name))
           add(name, { group: "unknown", note: "not a name this build knows" });
       return { node: box,
-        read: () => boxes.filter((b) => b.check.checked).map((b) => b.name).join(",") };
+        read: () => {
+          const ticked = boxes.filter((b) => b.check.checked).map((b) => b.name);
+          const every = f.options || [];
+          // A file that already names every option by hand keeps its words:
+          // opening the panel and saving is not a request to rewrite it.
+          if (f.all && every.length && every.every((name) => ticked.includes(name))
+              && !(listedAll && String(f.value ?? "").trim() !== f.all))
+            return f.all;
+          return ticked.join(",");
+        } };
     }
     const input = el("input", {
       id, className: "set-input",

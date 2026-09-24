@@ -1,8 +1,8 @@
 """Working a goal — the one place the mind reaches for a hand (SPEC §22, §26).
 
-`goal_work` is the tick's most expensive act and its only tool-using one: a
-`tool_step` is reachable from nowhere else, because a hand she reaches for is a
-step of an open goal or it does not happen. Around it sit the pieces that make
+`goal_work` is the tick's most expensive act and the one that works a goal
+with her hands (mind/handwork.py runs them; a night's job in her own voice is
+the other door). Around it sit the pieces that make
 one step readable to her — the desk file that carries the work across ticks, the
 memories and context the step is given, the instruction that says what this
 particular moment is for, and the two small rules for when a step is finished
@@ -26,7 +26,9 @@ from yurios.kernel import correlate
 
 from . import acts
 from .goals import Goal, night_owned, trim
-from .hands import START_DONT_AWAIT, klass, parse_intent, stamp_contract
+from . import handwork
+from .handwork import Reach
+from .hands import klass, parse_intent
 from .util import iso_of
 
 log = logging.getLogger("mind.goalwork")
@@ -134,7 +136,7 @@ def said_since(loop, goal: Goal, limit: int = 6) -> str:
     if chatlog is None:
         return ""
     try:
-        rows = chatlog.tail(40)
+        rows = chatlog.said(40)             # speech only: a tool notice is not a line
     except Exception:  # noqa: BLE001 — no transcript is not a failed step
         log.debug("goal work: no transcript", exc_info=True)
         return ""
@@ -382,70 +384,29 @@ def work_system(loop, goal: Goal, offer, last: bool) -> str:
     return "\n".join(line for line in lines if line is not None)
 
 
-async def tool_step(loop, goal: Goal, intent,
-                     offer) -> tuple[dict, str]:
-    """One mind-initiated tool call: check → dispatch → realise → journal.
+def journal_reach(loop, goal: Goal, reach: Reach) -> str:
+    """One call a step made, onto the goal's desk. Returns the journal note.
 
-    Every precondition is checked again here, not because DECIDE's check was
-    wrong but because the switch can be revoked between the two — which is
-    exactly what a kill switch has to survive. A denial is audited and
-    becomes a working note; it is never an exception, and it never costs the
-    goal its step.
+    Her reason first, the result under it. A desk that records only what a
+    hand returned reads, three ticks later, as a list of things that happened
+    to her rather than steps she took — and she re-does them.
     """
-    args = dict(intent.args)
-    ok, why = loop.hands.check(
-        intent.tool, args, state=loop.activity.state,
-        pressure=loop.budget.pressure(),
-        user_present=bool(loop.world.snapshot().get("user_present")))
-    if not ok:
-        loop.hands.deny(intent.tool, args, why)
-        note = f"wanted to {intent.tool} for “{goal.text}” but didn't: {why}"
+    if reach.verdict == "denied" and reach.refused:
+        # A refused reach is still a reach, and the desk should say so: "she
+        # thought about it" and "she tried to look it up and the cap was spent"
+        # are different steps, and only one of them is a reason to change a knob.
+        note = f"wanted to {reach.tool} for “{goal.text}” but didn't: {reach.refused}"
         desk_write(loop, goal, note)
-        # A refused reach is still a reach, and the trace should say so:
-        # "she thought about it" and "she tried to look it up and the cap
-        # was spent" are different ticks, and only one of them is a reason
-        # to go and change a knob.
-        return ({"tool": intent.tool, "verdict": "denied", "why": why,
-                 "class": klass(intent.tool), "dispatched": {}}, note)
-
-    # Principle 7: every autonomous call names the goal that wanted it, so
-    # `goals.md` stays the complete, readable list of what her hands might do.
-    loop.hands.spend(intent.tool, args)
-    with correlate.scope(kind=correlate.MIND_TOOL):
-        verdict, result = await loop.hands.execute(
-            intent.tool, args, timeout_s=loop.cfg.tool_timeout_s)
-        # Host-side realisation (§7.5) — the timer actually scheduled, the
-        # render actually started. The stamp is what makes the product land
-        # in the Vault instead of in the chat (§18, principle 8). A call that
-        # failed has no product to realise.
-        realise = getattr(loop.brain, "realise", None)
-        if verdict == "ok" and callable(realise):
-            try:
-                realise(intent.tool, result,
-                        extra=stamp_contract({}, goal_id=goal.id))
-            except Exception:  # noqa: BLE001 — realisation is not the call
-                log.exception("mind tool realisation failed")
-
-    dispatched: dict = {}
-    if (verdict == "ok" and intent.tool in START_DONT_AWAIT
-            and '"started"' in result):
-        dispatched = {"tool": intent.tool, "at": iso_of(loop.clock.now())}
+        return note
     # list_notes is a catalog: the listing IS the step. Clipping it to 160
     # characters of pretty JSON is how she spent days retrying the same
     # folder — the next tick only saw one file. The tool already bounds the
     # payload (SPEC §34.2).
-    keep = len(result) if intent.tool == "list_notes" else 160
-    short = result[:keep].replace("\n", " ")
-    note = f"reached for {intent.tool} on “{goal.text}” → {short}"
-    # Her reason first, the result under it. A desk that records only what a
-    # hand returned reads, three ticks later, as a list of things that
-    # happened to her rather than steps she took — and she re-does them.
-    why = (intent.text or "").strip()
-    desk_write(loop, goal, f"{why}\n\n{note}" if why else note)
-    # The trace says what `calls.jsonl` says (§26.2): a step whose call
-    # failed is still a step, but it is not an `ok` one.
-    return ({"tool": intent.tool, "verdict": verdict,
-             "class": klass(intent.tool), "dispatched": dispatched}, note)
+    keep = len(reach.result) if reach.tool == "list_notes" else 160
+    short = reach.result[:keep].replace("\n", " ")
+    note = f"reached for {reach.tool} on “{goal.text}” → {short}"
+    desk_write(loop, goal, f"{reach.why}\n\n{note}" if reach.why else note)
+    return note
 
 
 async def goal_work(loop, goal: Goal,
@@ -463,9 +424,11 @@ async def goal_work(loop, goal: Goal,
         active  → waiting/abandoned  when the step budget runs out, by
                              whichever the commitment strategy says
 
-    One step is one utility call that may emit **one** intent: a thought, or
-    — when her hands are offered — one tool call. Never both, never two;
-    that is "one intention per tick" applied one level down.
+    One step is one intention — this goal, this tick — worked through as far
+    as her hands take it: while hands are offered she may chain calls, each
+    result coming back before the next (mind/handwork.py), up to
+    `TOOL_MAX_CALLS_PER_TURN`, and the step ends on her thought. Work that
+    finishes off-tick ends it early, and the goal waits for it.
 
     Nothing here ever speaks. The product of a step lands on her desk and in
     her journal; reaching the user is Gate 2's decision, made about a
@@ -486,33 +449,43 @@ async def goal_work(loop, goal: Goal,
     step = goal.steps + 1
     last = step >= max(1, int(loop.cfg.mind_goal_max_steps))
 
-    with correlate.scope(kind=correlate.GOAL_WORK):
-        reply = await loop._utility([
-            {"role": "system", "content": work_system(loop, goal, offer, last)},
-            {"role": "user", "content": context(loop, goal)}],
-            soul=True)
+    async def ask(messages: list[dict]) -> str:
+        return await loop._utility(messages, soul=True)
 
-    intent = parse_intent(reply, allowed=tuple(offer.tools) if offer else ())
-    used: dict = {}
-    if intent.kind == "use":
-        used, note = await tool_step(loop, goal, intent, offer)
-        notes.append(note)
-    else:
-        note = (intent.text or "").strip() or \
-            f"(sat with it; nothing new yet on: {goal.text})"
+    messages = [{"role": "system", "content": work_system(loop, goal, offer, last)},
+                {"role": "user", "content": context(loop, goal)}]
+    with correlate.scope(kind=correlate.GOAL_WORK):
+        if offer:
+            # A step may chain hands now (mind/handwork.py) — read the note,
+            # then fix the passage — each one journalled as it lands.
+            worked = await handwork.work(
+                loop, messages, offer=offer, ask=ask, goal_id=goal.id,
+                stop_on_dispatch=True,
+                on_reach=lambda reach: notes.append(journal_reach(loop, goal, reach)))
+        else:
+            worked = handwork.Worked(parse_intent(await ask(messages), allowed=()))
+
+    intent = worked.answer
+    note = (intent.text or "").strip()
+    if note or not worked.reaches:
+        note = note or f"(sat with it; nothing new yet on: {goal.text})"
         desk_write(loop, goal, note)
         notes.append(f"worked on: {goal.text} — {note[:160]}")
 
     meta: dict = {"steps": step, "last_step": iso_of(loop.clock.now())}
-    if used.get("dispatched"):
+    started = worked.dispatched
+    if started is not None:
         # Start-don't-await: the answer comes back as `task_completion`, and
         # until it does there is nothing to think about (§7.6, §16).
-        meta["dispatched"] = used["dispatched"]
+        meta["dispatched"] = {"tool": started.tool, "at": iso_of(loop.clock.now())}
         state = "waiting"
         loop.wakeups[goal.id] = (loop.clock.now()
                                  + float(loop.cfg.mind_dispatch_timeout_s))
         notes.append("…and I'm waiting on it before I go further")
-    elif finished(loop, intent.text):
+    elif finished(loop, intent.text) or any(finished(loop, r.why)
+                                            for r in worked.reaches):
+        # …or beside a call: found live, she wrote "goal complete" above the
+        # `append_note` that finished it and said nothing more after.
         state = "done"
         notes.append(f"finished: {goal.text}")
         notes += offer_to_tell(loop, goal)
@@ -543,11 +516,19 @@ async def goal_work(loop, goal: Goal,
         state = "active"
 
     loop.goals.update(goal.id, state=state, meta=meta)
-    did = (f"{used['tool']} ({used['verdict']})" if used
+    reaches = worked.reaches
+    did = (", ".join(f"{r.tool} ({r.verdict})" for r in reaches) if reaches
            else "thought about it")
-    return ({"what": "tool_step" if used else "goal_work",
+    last_reach = reaches[-1] if reaches else None
+    # The trace says what `calls.jsonl` says (§26.2): a step whose call failed
+    # is still a step, but it is not an `ok` one. `tool`/`verdict` name the
+    # last call, as they did when a step could only make one; `tools` is all.
+    return ({"what": "tool_step" if reaches else "goal_work",
              "result": f"step {step}: {did}", "goal": goal.id,
              "state": state,
-             **({"tool": used["tool"], "verdict": used["verdict"]}
-                if used else {})},
+             **({"tool": last_reach.tool, "verdict": last_reach.verdict,
+                 "class": klass(last_reach.tool),
+                 "tools": [{"tool": r.tool, "verdict": r.verdict,
+                            "class": klass(r.tool)} for r in reaches]}
+                if last_reach else {})},
             {}, notes)

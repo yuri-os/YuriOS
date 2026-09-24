@@ -298,7 +298,7 @@ def _hands_field(field: dict, cfg: Any) -> dict:
     installation can offer it at all. `.env.example` gives this key no trailing
     comment to derive help from, deliberately, so the help is here too.
     """
-    from yurios.mind.hands import describe_hands       # local: mind imports world
+    from yurios.mind.hands import EVERY_HAND, describe_hands  # local: mind imports world
 
     catalogue = describe_hands(cfg)
     return {**field, "type": "multi",
@@ -310,18 +310,22 @@ def _hands_field(field: dict, cfg: Any) -> dict:
                    else {"note": f"needs {hand['needs']}, which is off"}),
             } for hand in catalogue},
             "option_groups": dict(CLASS_NOTES),
+            # ticking every box saves this, so a hand a later build adds is
+            # admitted too; unticking every box saves "", which is none
+            "all": EVERY_HAND,
             "help": field.get("help") or
-                    "the hands she may reach for unasked — tick them explicitly; "
-                    "empty means none, even with MIND_TOOLS_ENABLED on"}
+                    "the hands she may use — in a reply, and on her own; "
+                    "all ticked means every hand, including new ones; "
+                    "none ticked means none, even with MIND_TOOLS_ENABLED on"}
 
 
 #: What ticking a box in each class actually commits to. One sentence at the head
 #: of each half, rather than the word "cheap" repeated down fifteen rows.
 CLASS_NOTES = {
-    "cheap": "a step in her goal work, including while she is talking unless "
-             "her utility model is on this machine",
-    "expensive": "a whole tick's intention: only with the room empty, the budget "
-                 "under the ceiling, and days between repeats",
+    "cheap": "any time — in a reply, and in her own work, including while she "
+             "is talking unless her utility model is on this machine",
+    "expensive": "in a reply whenever you ask; on her own, only with the room "
+                 "empty, the budget under the ceiling, and days between repeats",
 }
 
 

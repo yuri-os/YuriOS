@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
+from typing import Callable
 
 from yurios.mind.util import jsonl_append, new_id
 
@@ -78,6 +79,14 @@ class Guard:
         now = clock.now()
         self._buckets = {t: {"tokens": float(r), "at": now}
                          for t, r in self._rates.items()}
+        #: Called with every audit line after it is written — the chat's tool
+        #: notices (world/main.py). The audit is the one place every call, from
+        #: every door, already passes through.
+        self._observers: list[Callable[[dict], object]] = []
+
+    def observe(self, fn: Callable[[dict], object]) -> None:
+        """Hear every audit line this guard writes (see `_observers`)."""
+        self._observers.append(fn)
 
     # ---- policy ----
 
@@ -166,3 +175,8 @@ class Guard:
             # An audit line is an observation. It must never be the reason the
             # turn it is observing fails.
             log.exception("audit write failed")
+        for fn in self._observers:
+            try:
+                fn(line)
+            except Exception:  # noqa: BLE001 — same rule as the write above
+                log.exception("audit observer failed")

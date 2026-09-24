@@ -421,13 +421,16 @@ def build_directive(specs: list[ToolSpec], *, user_name: str, max_calls: int) ->
     lines = [f"- {s.name} — {one_line(s.description)}" for s in specs]
     tools = "\n".join(lines)
     return (
-        "You have hands. Use one only when "
-        f"{user_name} asks for something a tool covers. One short lead-in, "
-        "then the call on its own, exactly like the example: double brackets, "
-        "the tool name, a space, JSON on one line, close with `}]]` (no space "
-        "inside the closer). Weave the result in; never read JSON aloud. "
-        "Never invent a tool; at most "
-        f"{max_calls} calls per reply:\n{tools}\n"
+        "You have hands. Use them whenever doing the thing beats talking about "
+        f"it — when {user_name} asks for something a tool covers, or when you "
+        "need to look before you answer: read a note before you change it, "
+        "search before you claim something you are unsure of. One short "
+        "lead-in, then the call on its own, exactly like the example: double "
+        "brackets, the tool name, a space, JSON on one line, close with `}]]` "
+        "(no space inside the closer). Each result comes back to you before you "
+        "go on, so you can chain calls — one after another — up to "
+        f"{max_calls} in a reply. Weave the results in; never read JSON aloud. "
+        f"Never invent a tool:\n{tools}\n"
         'Example: "Mm, hold on — let me set that. [[set_timer {"minutes": 10, '
         '"label": "tea"}]]"'
     )

@@ -77,7 +77,7 @@ def _last_words(state) -> list[dict]:
     try:
         # `SessionStore` keeps the per-session window; the whole room's
         # transcript is the `ConversationLog` underneath it.
-        rows = state.sessions.log.tail(GREETING_LOOKBACK)
+        rows = state.sessions.log.said(GREETING_LOOKBACK)
     except Exception:  # noqa: BLE001 — no transcript is not a failed greeting
         log.debug("greeting: no transcript to open on", exc_info=True)
         return []

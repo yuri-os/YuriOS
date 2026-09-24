@@ -203,6 +203,27 @@ svg{ width:1.1em; height:1.1em; fill:none; stroke:currentColor; stroke-width:1.7
 .msg.her .who{ color:var(--soft); }
 .msg .who em{ font-style:normal; color:var(--amber); }
 .msg.you .receipt{ color:var(--mint); }
+/* A hand she used (SPEC §7.3) — one chip per call, above the reply it was
+   made for. Quieter still when she used it working on her own; dimmed, with
+   the reason, when the call was refused or failed — "she tried" is worth seeing. */
+.msg.tool{
+  align-self:flex-start; max-width:100%; padding:0; border:0; background:transparent;
+  white-space:normal;
+}
+/* Wraps rather than clips: in the sanctuary's narrow column a refused call's
+   reason is the part worth reading, and an ellipsis would take exactly that. */
+.msg.tool .tool-chip{
+  display:inline-block; max-width:100%;
+  padding:3px 10px; border:1px solid var(--rule); border-radius:10px;
+  color:var(--soft); font:10px/1.6 var(--font-mono); letter-spacing:.04em;
+  overflow-wrap:anywhere;
+}
+.msg.tool .tool-mark{ color:var(--amber); margin-right:7px; }
+.msg.tool .when{ color:var(--dim); margin-left:9px; white-space:nowrap; }
+.msg.tool.background .tool-chip{ border-style:dashed; color:var(--dim); }
+.msg.tool.background .tool-mark{ color:var(--dim); }
+.msg.tool.refused .tool-chip{ color:var(--dim); }
+.msg.tool.refused .tool-mark{ color:var(--dim); }
 .msg.you.pending{ opacity:.78; }
 .msg.you.pending .receipt{ color:var(--dim); }
 .msg.you.failed .receipt{ color:var(--amber); }

@@ -27,7 +27,7 @@ class Config(VoiceConfig):
     # offline results (tests, and a no-deps demo). off = no hands — she talks
     # about doing things instead of doing them (Build #2 behaviour).
     tools_backend: str = "mcp"                  # mcp | fake | off
-    tool_max_calls_per_turn: int = 2            # per-turn cap (§7.3)
+    tool_max_calls_per_turn: int = 16           # calls one reply or one step may chain (§7.3)
     tool_timeout_s: float = 10.0                # per-call timeout (§7.3)
     tool_log_dir: Path = Path("./tool-logs")    # JSONL audit, one line per call (§7.3)
     tool_rate_timer: int = 6                    # calls/minute, token bucket (§7.3)
@@ -270,15 +270,15 @@ class Config(VoiceConfig):
     mind_prompt_capture: bool = True            # off = no assembled prompts on disk
     mind_prompt_max_chars: int = 200_000        # per-message cap inside a prompt record
 
-    # --- her hands, in the loop (SPEC §26, as amended — mind-initiated tools) ---
-    # The house switch, and it is OFF. Everything below is inert until this is
-    # true, and off means the hands are not described to her at all — a
-    # capability she may not use is not advertised (the SEARCH_BACKEND=off rule,
-    # generalised). The character's own `hands` switch is in series with this
-    # one (characters/models.py, LoopSwitches): the house decides whether
-    # anything on this machine may act unasked, hers decides whether she is one
-    # of the ones that may, and she can never talk her way past the house.
-    mind_tools_enabled: bool = False
+    # --- her hands (SPEC §26, as amended) — one rule for every call she makes ---
+    # The house switch, ON by default. A hand is usable — in a reply, a greeting,
+    # a reach-out, or her own goal and night work — when this is on, the
+    # character's own `hands` switch is on (characters/models.py, LoopSwitches;
+    # in series, so she can never talk her way past the house) and the
+    # allowlist below admits it. Off means the hands are not described to her
+    # at all — a capability she may not use is not advertised (the
+    # SEARCH_BACKEND=off rule, generalised).
+    mind_tools_enabled: bool = True
     # While she is mid-conversation, do her hands keep working? A local utility
     # model is the same machine her reply is using, and it cannot do both; a
     # hosted one can. `auto` (the default) stands down only when UTILITY_MODEL
@@ -287,17 +287,16 @@ class Config(VoiceConfig):
     # down while she is talking. The expensive class still waits for an empty
     # room either way (SPEC §26.3).
     mind_tools_during_chat: str = "auto"
-    # Explicit names, comma-separated. No wildcard, no inheritance from the
-    # conversational allowlist, and EMPTY BY DEFAULT even when the switch above
-    # is on — turning the capability on and choosing which hands are two
-    # separate decisions.
+    # `*` (the default) is every hand this installation can offer; otherwise
+    # explicit names, comma-separated. Empty means none — that is what
+    # unticking every box in the settings panel saves.
     #   e.g. MIND_TOOL_ALLOWLIST=write_note,append_note,read_note,list_notes
-    mind_tool_allowlist: str = ""
+    mind_tool_allowlist: str = "*"
     # A cap, not a governor. Unlike MIND_DAILY_TOKENS — which is a post-hoc
     # estimate and cannot stand between a call and the run it starts — this is
     # checked *before* dispatch and refuses. Rolls at local midnight, beside
     # MIND_MAX_INTERRUPTS_PER_DAY, which it is deliberately shaped like.
-    mind_tool_calls_per_day: int = 8
+    mind_tool_calls_per_day: int = 64
     # Budget pressure above which the expensive class is simply unavailable.
     # Also a precondition rather than an estimate: for the mind and only the
     # mind, spending is checked before the money leaves.

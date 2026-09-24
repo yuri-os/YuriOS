@@ -833,15 +833,14 @@ def test_the_hands_switch_goes_back_on_without_a_restart(tmp_path):
     assert rt._hands_granted is True, "a switch that only turns off is a fuse"
 
 
-def test_the_house_hands_switch_is_off_out_of_the_box(tmp_path):
-    """The default-off proof, at the configuration layer: nothing a fresh
-    install does turns this on by accident."""
+def test_her_hands_are_on_out_of_the_box(tmp_path):
+    """One rule (§26.1): a fresh install has every hand. Her own switchboard
+    toggle is the runtime's to apply live (`Runtime.hands_permit`)."""
     her = record(tmp_path, "yuri")
-    assert not Config(_env_file=None).mind_tools_enabled
-    assert not config_for_character(
+    assert Config(_env_file=None).mind_tools_enabled
+    assert Config(_env_file=None).mind_tool_allowlist == "*"
+    assert config_for_character(
         Config(data_dir=tmp_path, _env_file=None), her).mind_tools_enabled
-    # …and even switched on, no hand is named, so nothing is reachable
-    assert Config(_env_file=None).mind_tool_allowlist == ""
 
 
 # ---- her own brain: the per-character connection (SPEC §31.1–§31.4) --------

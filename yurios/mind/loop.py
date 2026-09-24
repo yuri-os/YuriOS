@@ -52,7 +52,7 @@ from .hands import (Hands, build_guard, strip_native_calls)
 from .journal import Journal
 from .knowledge import KnowledgeStore
 from .promptlog import PromptLog
-from . import acts, goalwork, housekeeping, prompts
+from . import acts, goalwork, handwork, housekeeping, prompts
 from .policy import (DREAM, ENGAGED, IDLE, ActivityController, Appraisal,
                      appraise_goal, appraise_signal)
 from .selfedit import SelfEdit
@@ -173,6 +173,8 @@ class MindLoop:
             # "what did this actually do to the vault" for DREAM too.
             soul_text=self._soul_text,
             drives=self._soul_drives,
+            # Her hands, for the jobs written in her own voice (§26.1).
+            hands=handwork.LoopHands(self),
             audit=(brain.guard.audit
                    if getattr(brain, "guard", None) is not None else None))
         state_dir = cfg.vault_dir / "state"

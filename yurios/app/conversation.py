@@ -76,6 +76,10 @@ MAX_ENTRIES = 2000
 #: costs a full read + write, so it must not happen once per message.
 SLACK = 500
 
+#: The roles a line of conversation has. The column holds other rows too (a
+#: tool notice, §7.3); a prompt built from it takes only these (`said`).
+SPOKEN_ROLES = ("user", "assistant")
+
 #: Fields that belong to the model's side of a line and never to the page's.
 _WINDOW_ONLY = ("raw", "turn_id")
 
@@ -166,6 +170,19 @@ class ConversationLog:
     def tail(self, n: int) -> list[dict]:
         """The newest `n`, oldest first — what seeds the chat ring at boot."""
         return self.entries()[-n:] if n > 0 else []
+
+    def said(self, n: int) -> list[dict]:
+        """The newest `n` lines one of you actually said, oldest first.
+
+        `tail` is the column, and the column also holds things that are not
+        speech — a notice that she used a hand (§7.3) is a row with its own
+        role. Anything that feeds a prompt from the column reads this instead:
+        a model handed `role: "tool"` with no call behind it refuses the request.
+        """
+        if n <= 0:
+            return []
+        return [r for r in self.entries()
+                if r.get("role") in SPOKEN_ROLES][-n:]
 
     def window(self, session_id: str, n: int) -> list[dict]:
         """The last `n` messages of one session, as the prompt wants them (§7.1).

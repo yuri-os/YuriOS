@@ -16,7 +16,7 @@ import asyncio
 import logging
 import re
 from dataclasses import dataclass, field
-from typing import Awaitable, Callable
+from typing import Any, Awaitable, Callable, Protocol
 
 from yurios.kernel import correlate
 from yurios.kernel.clock import Clock
@@ -25,6 +25,7 @@ from ..journal import canonical_day, is_canonical_day
 from ..util import day_of, iso_of, read_json, write_json
 from ..vaultio import MindVault
 from ..goals import Goal, GoalStore, echoes, night_owned
+from ..hands import Hands
 from ..workspace import SkillStore, Workspace
 
 log = logging.getLogger("mind.dreamjobs")
@@ -237,6 +238,17 @@ SELF_GOAL = "strategy:"
 #: date is immortal.
 SELF_GOAL_TTL_DAYS = 3.0
 
+class DreamHands(Protocol):
+    """Her hands as a job reaches them — `mind/handwork.py`'s `LoopHands`."""
+
+    def offer(self) -> Any: ...
+
+    async def run(self, messages: list[dict],
+                  ask: Callable[[list[dict]], Awaitable[str]]) -> str: ...
+
+    async def use(self, tool: str, args: dict) -> Any: ...
+
+
 @dataclass
 class DreamContext:
     """Everything a job is handed, and the only way it reaches anything.
@@ -266,6 +278,10 @@ class DreamContext:
     #: inbox still dreams, and still writes the report to the desk.
     deliver_report: Callable[..., None] | None = None
     audit: Callable[..., None] | None = None       # Guard.audit, or None
+    #: `mind/handwork.py`'s `LoopHands`, or None. A job in her own voice
+    #: (`soul: full`) is offered her hands before it answers, under the same
+    #: rule as every other call she makes (§26.1); extraction is not.
+    hands: DreamHands | None = None
     # Who the prompts are about. Not decoration: the episodic journal is a
     # transcript of two people, so a prompt that does not say which one is
     # writing gets an entry in the wrong voice — see DIARY_SYSTEM.
@@ -306,7 +322,8 @@ class DreamContext:
 
     # ------------------------------------------------------------------ model
 
-    async def ask(self, system: str, user: str, **params) -> str:
+    async def ask(self, system: str, user: str, *, hands: bool = True,
+                  **params) -> str:
         """One utility-model call, recorded. Returns "" when there is no model.
 
         Every job goes through here rather than holding `utility` itself, so
@@ -341,10 +358,20 @@ class DreamContext:
                 preamble = ""
             if preamble:
                 system = f"{preamble}\n\n{system}".strip()
+        messages = [{"role": "system", "content": system},
+                    {"role": "user", "content": user}]
+        utility = self.utility
         try:
-            out = await self.utility([{"role": "system", "content": system},
-                                      {"role": "user", "content": user}],
-                                     **params)
+            # Her hands, when this job is hers to write (`soul`) and it is not
+            # a rehearsal — a dry run that called a tool would not be dry.
+            # `hands=False` is a job that runs its own loop over them.
+            if (hands and self.hands is not None and self.soul != "off"
+                    and not self.dry_run):
+                out = await self.hands.run(
+                    messages, lambda msgs: utility(msgs, **params))
+            else:
+                out = await utility(messages, **params)
+            system = messages[0]["content"]   # …as sent, hands block and all
         except Exception:  # noqa: BLE001 — a failed job retries tomorrow
             log.exception("DREAM job %s: the utility call failed", self.job)
             self.exchanges.append(Exchange(self.job, system, user, "(call failed)"))
@@ -396,8 +423,9 @@ class DreamContext:
             parts.append("DURABLE DRIVES (values, not tasks)\n" + "\n".join(
                 f"- {str(drive)[:300]}" for drive in drives))
         enabled = bool(getattr(self.cfg, "mind_tools_enabled", False))
-        allowlist = str(getattr(self.cfg, "mind_tool_allowlist", "") or "")
-        capability = allowlist if enabled and allowlist.strip() else "thought-only"
+        names = Hands(cfg=self.cfg, clock=self.clock).allowlist \
+            if self.cfg is not None else ()
+        capability = ", ".join(names) if enabled and names else "thought-only"
         parts.append("AVAILABLE AUTONOMOUS CAPABILITIES\n" + capability)
 
         if open_goals:

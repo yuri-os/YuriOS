@@ -151,6 +151,33 @@ describe('a closed vocabulary in the settings panel', () => {
     expect(posted).toEqual([]);
   });
 
+  it('reads * as every box ticked, and leaves it alone', async () => {
+    await open([{ ...MULTI, value: '*', all: '*' }]);
+    expect(ticked()).toEqual(['write_note', 'read_note', 'research']);
+    document.getElementById('settings-save').click();
+    await vi.waitFor(() => expect(document.getElementById('settings-note').textContent)
+      .toBe('no changes'));
+  });
+
+  it('saves * when every box ends up ticked, so a new hand is included', async () => {
+    await open([{ ...MULTI, value: 'read_note', all: '*' }]);
+    for (const name of ['write_note', 'research']) {
+      [...document.querySelectorAll('.set-multi-opt')]
+        .find((o) => o.textContent.startsWith(name)).querySelector('input').click();
+    }
+    document.getElementById('settings-save').click();
+    await vi.waitFor(() => expect(posted.length).toBe(1));
+    expect(posted[0]).toEqual({ MIND_TOOL_ALLOWLIST: '*' });
+  });
+
+  it('saves none as empty, never as everything', async () => {
+    await open([{ ...MULTI, value: '*', all: '*' }]);
+    for (const box of document.querySelectorAll('.set-multi input:checked')) box.click();
+    document.getElementById('settings-save').click();
+    await vi.waitFor(() => expect(posted.length).toBe(1));
+    expect(posted[0]).toEqual({ MIND_TOOL_ALLOWLIST: '' });
+  });
+
   it('finds the row by a name inside it, not just by the key', async () => {
     await open();
     const filter = document.querySelector('.settings-filter');

@@ -32,8 +32,8 @@ Returns either a JSON array or `{ "characters": [...] }`. Each active character 
 character's switch, `available` is the **house** switch behind it (`NOTIFY_ENABLED`,
 `MIND_TOOLS_ENABLED`). The two are in series — a character can never talk her way past the
 house — so when `available` is false the board shows her toggle **inert with the reason on
-it**, rather than offering a switch that quietly does nothing. `hands` is whether her mind
-may reach for a tool between conversations (SPEC §26.1); it is also mirrored in `loops` for
+it**, rather than offering a switch that quietly does nothing. `hands` is whether she may
+use a tool at all — in a reply and on her own (SPEC §26.1); it is also mirrored in `loops` for
 the four-switch stack on the tile.
 
 `unread` is what she reached out about while nobody was in the room (SPEC §18.4) — the tile wears

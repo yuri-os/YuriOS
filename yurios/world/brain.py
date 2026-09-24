@@ -191,7 +191,14 @@ class ToolBrain(BrainAdapter):
         self.selfedit = None
         self.runner: Optional[ToolRunner] = None
         self.world = None                      # WorldModelStore, wired by the mind
-        self._directive: str = ""
+        self._specs: list[ToolSpec] = []
+        self._directives: dict[tuple[str, ...], str] = {}
+        #: (tool) -> may she use it right now? The one rule (§26.1): the house
+        #: switch, her own switch and the allowlist, asked per call rather than
+        #: once at boot, because the switchboard flips hers live. Unset (tests,
+        #: the desktop app) admits every discovered tool.
+        self.permits: Optional[Callable[[str], bool]] = None
+        self._goal_tool = False
         self._arg_names: dict[str, tuple[str, ...]] = {}
         # model-verbatim record per session (markers + results), for persist():
         # the corpus should see what the model actually did, not the cleaned speech
@@ -218,17 +225,51 @@ class ToolBrain(BrainAdapter):
         """Wire the discovered hands (SPEC §7.2). None/empty → she has no hands
         here — never an error, the directive simply isn't appended."""
         self.runner = runner
-        if runner and specs:
-            self._directive = build_directive(
+        self._specs = list(specs) if runner and specs else []
+        self._directives = {}
+        self._arg_names = arg_names_from_specs(self._specs)
+        self.goal_creation_available = any(
+            spec.name == "create_goal" for spec in self._specs)
+
+    def set_hands_policy(self, permits: Optional[Callable[[str], bool]]) -> None:
+        """Wire the one rule (§26.1) — see `permits` in `__init__`."""
+        self.permits = permits
+
+    def _permitted(self, tool: str) -> bool:
+        if self.permits is None:
+            return True
+        try:
+            return bool(self.permits(tool))
+        except Exception:  # noqa: BLE001 — a broken policy is no hands, not a dead turn
+            log.warning("hands policy failed; offering no tools", exc_info=True)
+            return False
+
+    def offered(self) -> list[ToolSpec]:
+        """The discovered tools she may use right now, in discovery order."""
+        if self.runner is None:
+            return []
+        return [spec for spec in self._specs if self._permitted(spec.name)]
+
+    def directive(self) -> str:
+        """The ## TOOLS block for what she may use now, or "" for no hands."""
+        specs = self.offered()
+        if not specs:
+            return ""
+        key = tuple(spec.name for spec in specs)
+        if key not in self._directives:
+            self._directives[key] = build_directive(
                 specs, user_name=self.cfg.user_name,
                 max_calls=self.cfg.tool_max_calls_per_turn)
-            self._arg_names = arg_names_from_specs(specs)
-            self.goal_creation_available = any(
-                spec.name == "create_goal" for spec in specs)
-        else:
-            self._directive = ""
-            self._arg_names = {}
-            self.goal_creation_available = False
+        return self._directives[key]
+
+    @property
+    def goal_creation_available(self) -> bool:
+        return self._goal_tool and self._permitted("create_goal") \
+            and self.runner is not None
+
+    @goal_creation_available.setter
+    def goal_creation_available(self, value: bool) -> None:
+        self._goal_tool = bool(value)
 
     def set_selfedit(self, selfedit) -> None:
         """Wire the §23 self-edit door, so `propose_edit` has somewhere to land.
@@ -298,10 +339,11 @@ class ToolBrain(BrainAdapter):
             lore=self.state.soul_loader.load().lorebook_hits(text))
         goal_status = asm.is_goal_status_request(text)
         goal_mutation = asm.is_goal_mutation_request(text)
-        if self._directive and (not goal_status or goal_mutation):
+        directive = self.directive()
+        if directive and (not goal_status or goal_mutation):
                                                    # the tools directive (§7.4); the
                                                    # situation block rides _assemble (§2.5)
-            prompt.messages[0]["content"] += f"\n\n## TOOLS\n\n{self._directive}"
+            prompt.messages[0]["content"] += f"\n\n## TOOLS\n\n{directive}"
         if image:                                  # a picture you sent (§35)
             asm.mark_picture(prompt.messages)
 
@@ -364,9 +406,7 @@ class ToolBrain(BrainAdapter):
             else correlate.AMBIENT
         said: list[str] = []
         try:
-            async for token in self.state.chat.stream(
-                    prompt.messages, temperature=self.cfg.temperature,
-                    max_tokens=self.cfg.max_reply_tokens):
+            async for token in self._stream_unprompted(prompt.messages):
                 said.append(token)
                 yield token
         finally:
@@ -375,6 +415,22 @@ class ToolBrain(BrainAdapter):
                     kind=kind, messages=prompt.messages, completion="".join(said),
                     model=self.cfg.chat_model, cue=cue,
                     template_version=prompt.template_version)
+
+    async def _stream_unprompted(self, messages: list[dict]) -> AsyncIterator[str]:
+        """A greeting, a murmur, an announcement or a reach-out, with her hands.
+
+        The same loop and the same directive as a reply (§7.4): the one rule
+        (§26.1) decides what she may reach for, not which door she came in by.
+        The directive is added to `messages` in place so the prompt log records
+        the prompt that was actually sent. Nothing here is persisted, so the
+        verbatim record is dropped with the call; the audit and the chat notice
+        are what say a hand was used.
+        """
+        directive = self.directive()
+        if directive and messages:
+            messages[0]["content"] += f"\n\n## TOOLS\n\n{directive}"
+        async for token in self._stream_with_tools(messages, []):
+            yield token
 
     # -- the loop of passes (SPEC §7.4) -----------------------------------------
     async def _stream_with_tools(self, messages: list[dict], raw: list[str],
@@ -468,10 +524,17 @@ class ToolBrain(BrainAdapter):
             calls_made += 1
             prev_spoken = "".join(spoken_this_pass)
             blocked = call.tool in blocked_tools
-            if blocked:
-                verdict = "denied: goal status uses the standing list"
-                result = ("denied (the authoritative open-goal list is already "
-                          "in this prompt; workspace/goals contains historical notes)")
+            refused = not blocked and not self._permitted(call.tool)
+            if blocked or refused:
+                if blocked:
+                    verdict = "denied: goal status uses the standing list"
+                    result = ("denied (the authoritative open-goal list is already "
+                              "in this prompt; workspace/goals contains historical notes)")
+                else:
+                    # Switched off, or off the allowlist, since the prompt was
+                    # built — or a name she was never shown. Same answer.
+                    verdict = "denied: not one of her hands right now"
+                    result = f"denied ({call.tool} is not one of your hands right now)"
                 self.guard.audit(call.tool, call.args, verdict, 0.0, result)
                 if outcomes is not None:
                     outcomes.append({"tool": call.tool, "args": call.args,

@@ -308,6 +308,19 @@
    * `unheard` flag: a line arriving live is one you are watching arrive, and
    * captioning that "while you were away" would be a lie about the last second. */
   function paint(div, m, her, receipt = '') {
+    // A hand she used (SPEC §7.3): a chip, not a bubble. `background` is one she
+    // used working on her own rather than in something she said to you.
+    if (m.role === 'tool') {
+      const refused = m.verdict && m.verdict !== 'ok';
+      div.className = 'msg tool' + (m.background ? ' background' : '')
+        + (refused ? ' refused' : '');
+      if (m.id) div.dataset.messageId = m.id;
+      const said = refused ? ` · ${m.verdict}${m.why ? ` (${m.why})` : ''}` : '';
+      div.innerHTML = `<span class="tool-chip" title="${esc(m.tool || '')}">` +
+        `<span class="tool-mark" aria-hidden="true">⚙</span>` +
+        `${esc(m.text || m.tool || '')}${esc(said)}${stamp(m.ts)}</span>`;
+      return div;
+    }
     div.className = 'msg ' + (her ? 'her' : 'you') + (m.proactive ? ' proactive' : '')
       + (m.id && unheard.has(m.id) ? ' unheard' : '');
     delete div.dataset.clientId;
@@ -329,6 +342,15 @@
     if (m.id) {
       if (seen.has(m.id)) return;
       seen.add(m.id);
+    }
+    if (m.role === 'tool') {
+      // Mid-reply, above the words still arriving: the draft is the rest of
+      // the reply this call was made for, so it stays and stays last.
+      const chip = paint(document.createElement('div'), m, true);
+      if (draftEl && draftEl.parentNode === messages) messages.insertBefore(chip, draftEl);
+      else messages.appendChild(chip);
+      scroll();
+      return;
     }
     dropDraft();
     const her = m.role !== 'user';

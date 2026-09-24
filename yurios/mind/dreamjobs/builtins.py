@@ -344,17 +344,26 @@ class StrategyCandidate:
 class StrategyDecision:
     reflection: str
     next: StrategyCandidate | None
+    #: The reply was an object and still could not be read. Kept apart from
+    #: `next=None`, which is her deciding nothing new is worth starting.
+    unreadable: bool = False
 
 
 def parse_strategy_decision(raw: str) -> StrategyDecision:
     """Structured strategy output, with the old `next:` shape as compatibility."""
     text = (raw or "").strip()
-    fence = re.fullmatch(r"```(?:json)?\s*(.*?)\s*```", text, flags=re.S | re.I)
-    candidate_json = fence.group(1) if fence else text
+    # The first object the reply opens with, and nothing after it counted
+    # against it. GLM wrote the object, then the same object again in a fenced
+    # block, and `json.loads` of the whole reply turned a complete plan into
+    # the legacy path's "nothing to file" (25 Sep). The object must still
+    # *open* the reply: this does not dig one out of prose.
+    body = re.sub(r"^```(?:json)?\s*", "", text, flags=re.I)
     try:
-        value = json.loads(candidate_json)
-    except (TypeError, json.JSONDecodeError):
+        value, _end = json.JSONDecoder().raw_decode(body)
+    except json.JSONDecodeError:
         value = None
+        if body.startswith("{"):
+            return StrategyDecision(reflection="", next=None, unreadable=True)
     if isinstance(value, dict) and set(value) == {"reflection", "next"}:
         reflection = str(value["reflection"] or "").strip()[:2000]
         item = value["next"]
@@ -437,6 +446,14 @@ class StrategyJob(DreamJob):
             out.result = "nothing came of it"
             return out
         decision = parse_strategy_decision(thinking)
+        if decision.unreadable:
+            # Said, not swallowed: this used to read as a night that chose to
+            # file nothing, and wrote the raw object onto her desk as the note.
+            log.warning("strategy: the reply for %s was not readable JSON; "
+                        "nothing filed, no note written", day)
+            out.result = (f"reviewed {len(open_goals)} goal(s), "
+                          "could not read what came back")
+            return out
         note = decision.reflection
         await ctx.put(f"strategy/{day}.md", f"# Taking stock — {day}\n\n{note}\n")
         out.changed = True

@@ -2120,6 +2120,9 @@ optional due time, **provenance**, and a **commitment strategy**; lifecycle
   the goals page stays a thing you read *before* the fact. At most `MIND_SELF_GOALS_MAX` of hers may
   be open at once; each is filed `open-minded` with a due date so §22.2's `reconsider()` lets go of
   what she never advanced; and `MIND_GOAL_FILING_ENABLED` **MUST** take effect without a restart.
+  The stock-take's answer is read from the object it opens with, whatever follows it; one that
+  opens as an object and still cannot be read **MUST** be reported as unreadable — never as a
+  night that chose nothing — and its raw text **MUST NOT** become her strategy note.
   The cap bounds how many she may hold, **not how many times she may hold the same one**, so she
   **MUST NOT** file a goal she is already carrying under another wording — measured against every
   open goal, whatever filed it, because where the first copy came from does not change that she has

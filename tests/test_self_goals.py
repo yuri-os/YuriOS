@@ -129,6 +129,41 @@ async def test_structured_strategy_can_choose_no_new_goal(tmp_path, cfg):
     assert out.result == "reviewed 0 goal(s)"
 
 
+PLAN = json.dumps({
+    "reflection": "Twelve days and I never asked.",
+    "next": {"objective": "ask how the thing they told me about is going",
+             "why": "I let it sit", "evidence": "the 08-20 note said to ask",
+             "success": "they answer and I learn something new",
+             "first_action": "ask about it by name", "capability": "thought-only"},
+})
+
+
+async def test_a_plan_followed_by_its_own_fenced_copy_is_still_filed(
+        tmp_path, cfg):
+    """GLM wrote the object, then the same object again in a ```json block,
+    and a whole-reply `json.loads` turned a complete plan into "reviewed 0
+    goal(s)" — three nights across two characters, silently (25 Sep)."""
+    for answer in (f"{PLAN}\n```json\n{PLAN}\n```", f"{PLAN}\n```"):
+        runner, _clock, goals = _rig(tmp_path / str(len(answer)), cfg,
+                                     answer=answer)
+        out, _ctx = await _stocktake(runner)
+        assert "filed one of my own" in out.result, answer
+        filed = goals.open_goals()[0]
+        assert filed.meta["first_action"] == "ask about it by name"
+
+
+async def test_an_unreadable_plan_says_so_and_leaves_the_desk_alone(
+        tmp_path, cfg):
+    """An object that cannot be read is not a night that chose nothing, and
+    its raw text is not her note."""
+    runner, _clock, goals = _rig(tmp_path, cfg, answer=PLAN[:-40])
+    out, _ctx = await _stocktake(runner)
+    assert goals.open_goals() == []
+    assert "could not read" in out.result
+    assert not (tmp_path / "vault" / "workspace" / "strategy"
+                / "2026-07-06.md").exists()
+
+
 async def test_the_machine_read_line_does_not_reach_the_desk(tmp_path, cfg):
     """The note is hers to read. `next:` is plumbing and belongs out of it."""
     runner, _clock, _goals = _rig(tmp_path, cfg)

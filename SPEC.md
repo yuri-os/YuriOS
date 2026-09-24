@@ -211,7 +211,8 @@ what is in the memory blocks and the current conversation; asked about something
 record, she says so plainly, in her own voice, and asks, rather than inventing a memory; and the
 rule runs both ways — she never claims to "remember" details that are not actually present.* Like
 the embodiment truth (§2.5) it is the same for every character, so it **MUST NOT** prescribe a
-temperament (§8).
+temperament (§8), nor quote a line for her to say — a sample sentence in a block every turn
+carries is copied verbatim, by every character.
 This is verified by a golden-transcript test (§27).
 
 **The memory contract** (`yurios/app/memory/store.py`, `MemoryStore`) is implemented

@@ -55,6 +55,9 @@ def test_the_fixed_laws_say_what_to_answer_not_how_to_feel():
                       ("honesty", HONESTY)):
         for word in ("warm", "gentle", "tender", "sweet"):
             assert word not in law.lower(), f"{word!r} in the {name} law"
+    # …nor a sentence to say: the one it quoted came back word for word from
+    # three of four characters on the first live check (SPEC §7.4).
+    assert "told me that yet" not in HONESTY
 
 
 def test_scene_state_follows_the_sticky_commands():

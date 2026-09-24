@@ -154,7 +154,7 @@ async def test_the_prompt_she_talks_through_carries_the_goal_store(cfg, seeded_v
     rig.mind.goals.add("find out what happened with the landlord",
                        kind="task", provenance="promise:her-own-words")
     session = rig.mind.brain.resolve_session(None)
-    _soul_, prompt = rig.mind.brain._assemble(session, "hi", window=[], lore=[])
+    _soul_, prompt = await rig.mind.brain._assemble(session, "hi", window=[], lore=[])
     system = prompt.messages[0]["content"]
     assert "WHAT YOU'RE WORKING ON" in system
     assert "find out what happened with the landlord" in system
@@ -167,7 +167,7 @@ async def test_goals_in_prompt_cap_marks_the_snapshot_partial(cfg, seeded_vault)
     rig.mind.goals.add("the newest open goal", kind="task")
     session = rig.mind.brain.resolve_session(None)
 
-    _soul_, prompt = rig.mind.brain._assemble(session, "review your goals",
+    _soul_, prompt = await rig.mind.brain._assemble(session, "review your goals",
                                                window=[], lore=[])
 
     system = prompt.messages[0]["content"]
@@ -181,7 +181,7 @@ async def test_open_goal_ids_reach_the_conversational_prompt(cfg, seeded_vault):
     goal = rig.mind.goals.add("send the promised picture", kind="task")
     session = rig.mind.brain.resolve_session(None)
 
-    _soul_, prompt = rig.mind.brain._assemble(
+    _soul_, prompt = await rig.mind.brain._assemble(
         session, "finish one of your goals", window=[], lore=[])
 
     assert f"[{goal.id}] send the promised picture" in prompt.messages[0]["content"]
@@ -758,10 +758,10 @@ async def test_a_cold_index_is_not_a_reason_to_skip_the_step(cfg, seeded_vault):
     utility = ScriptedUtility("think noted.")
     rig = make_mind(cfg, seeded_vault, utility=utility)
 
-    def boom(*a, **k):
+    async def boom(*a, **k):
         raise RuntimeError("index is cold")
 
-    rig.mind.store.recall = boom
+    rig.mind.store.arecall = boom
     goal = rig.mind.goals.add("work out the tiles", kind="task", priority=0.9)
     await rig.mind.tick()
 

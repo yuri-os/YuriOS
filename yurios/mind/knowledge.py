@@ -440,8 +440,13 @@ class KnowledgeStore:
                     rows = [r for r in rows if r["doc"] != doc]
                 step, notes = done, False
                 async for group in self._passages(doc, plan, digested, skip=done):
-                    for p in group:
-                        vec = self.embedder.embed([f"{p.context}\n{p.text}"])[0]
+                    # One call per group, off the loop: a long document is
+                    # dozens of these, and each is a model forward pass or an
+                    # HTTP round trip (SPEC §2.4).
+                    vecs = await asyncio.to_thread(
+                        self.embedder.embed,
+                        [f"{p.context}\n{p.text}" for p in group]) if group else []
+                    for p, vec in zip(group, vecs, strict=True):
                         rows.append({
                             "id": new_id("k"), "doc": doc,
                             "span": f"chars {p.start}-{p.end}",
@@ -677,12 +682,26 @@ class KnowledgeStore:
     # ----------------------------------------------------------------- search
 
     def search(self, query: str, k: int = 3) -> list[Chunk]:
-        if not getattr(self.embedder, "ready", True):
+        """Blocking: embeds the query on this thread. Anything on the event
+        loop awaits `asearch` instead."""
+        if not getattr(self.embedder, "ready", True) or not self._rows():
             return []
+        return self._score(query, self.embedder.embed([query])[0], k)
+
+    async def asearch(self, query: str, k: int = 3) -> list[Chunk]:
+        """`search` for the event loop (SPEC §2.4): the query's vector comes
+        from a worker, the scoring stays here. Only the embed moves because
+        `_rewrite_index` rebuilds the file in place, and a scan from another
+        thread could read it half-written."""
+        if not getattr(self.embedder, "ready", True) or not self._rows():
+            return []
+        qv = (await asyncio.to_thread(self.embedder.embed, [query]))[0]
+        return self._score(query, qv, k)
+
+    def _score(self, query: str, qv, k: int) -> list[Chunk]:
         rows = self._rows()
         if not rows:
             return []
-        qv = self.embedder.embed([query])[0]
         q_words = set(_WORD_RE.findall(query.lower()))
 
         df: Counter = Counter()                    # keyword idf over the shelf

@@ -64,8 +64,10 @@ async def post_turn(state, record: Record, session_id: str, turn_count: int) -> 
                     budget_tokens=state.cfg.summary_budget_tokens)
                 state.utility_log.log(kind="summarise", exchanges=exchanges,
                                       raw_reply=text)
-                summarise.write_summary(state.cfg.vault_dir, text,
-                                        state.store.index, state.embedder)
+                # a worker: indexing the summary embeds it (§2.4)
+                await asyncio.to_thread(
+                    summarise.write_summary, state.cfg.vault_dir, text,
+                    state.store.index, state.embedder)
         except Exception:
             log.exception("post-turn pipeline error (turn already served)")
         finally:
@@ -102,7 +104,7 @@ async def chat(req: ChatRequest, request: Request):
     turn_index = session["turn_count"]
     try:
         soul = state.soul_loader.load()                       # read every turn (§5)
-        memories = state.store.recall(req.message, state.cfg.retrieval_k)
+        memories = await state.store.arecall(req.message, state.cfg.retrieval_k)
         prompt = asm.assemble(
             soul,
             user_md=state.store.read_user_md(),

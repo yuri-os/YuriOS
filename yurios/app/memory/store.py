@@ -92,6 +92,7 @@ class MemoryStore(Protocol):
 
     async def remember(self, record: Record) -> WriteResult: ...
     def recall(self, query: str, k: int) -> list[Memory]: ...
+    async def arecall(self, query: str, k: int) -> list[Memory]: ...
     async def consolidate(self) -> ConsolidationReport: ...
     def forget(self, selector: str) -> int: ...
     def inspect(self, selector: str = "") -> list[Memory]: ...
@@ -194,13 +195,10 @@ class FileMemoryStore:
 
         # 2. embed + upsert one chunk row, traceable back to the journal line
         text = f"{self.user_name}: {record.user_msg}\n{self.char_name}: {record.reply}"
-        embed = self.embedder.embed
-        if getattr(self.embedder, "ready", True):
-            vec = embed([text])[0]
-        else:
-            # Off the loop: a cold load is tens of seconds, and this host is
-            # holding every other character's room open while it runs (§2.4).
-            vec = (await asyncio.to_thread(embed, [text]))[0]
+        # Off the loop, loaded or not: a cold load is tens of seconds, a server
+        # embedder can hold the call for its whole timeout, and this host is
+        # holding every other character's room open while it runs (§2.4).
+        vec = (await asyncio.to_thread(self.embedder.embed, [text]))[0]
         self.index.upsert(
             id=f"turn-{record.session_id}-{record.turn_index}",
             kind="turn", source_path=rel, source_span=span, text=text,
@@ -389,15 +387,31 @@ class FileMemoryStore:
             selected.append(best)
         return selected
 
-    def recall(self, query: str, k: int = 6) -> list[Memory]:
+    def _can_recall(self) -> bool:
         if self.index.count() == 0:
-            return []   # empty Vault ⇒ []; assembly proceeds on SOUL + USER.md alone
-        if not getattr(self.embedder, "ready", True):
-            # Weights still loading (SPEC §2.4): same as empty, not a freeze of
-            # the event loop and not a failed turn.
+            return False   # empty Vault ⇒ []; assembly proceeds on SOUL + USER.md alone
+        # Weights still loading (SPEC §2.4): same as empty, not a freeze of the
+        # event loop and not a failed turn.
+        return bool(getattr(self.embedder, "ready", True))
+
+    def recall(self, query: str, k: int = 6) -> list[Memory]:
+        """Blocking: embeds the query on this thread. For a worker or a script —
+        anything on the event loop awaits `arecall` instead."""
+        if not self._can_recall():
             return []
+        return self._rank(self.embedder.embed([query])[0], k)
+
+    async def arecall(self, query: str, k: int = 6) -> list[Memory]:
+        """`recall` for the event loop (SPEC §2.4). The embed is the one step
+        that waits on something else — a server that is swapping models, or a
+        torch forward pass — so it alone goes to a worker; ranking stays here."""
+        if not self._can_recall():
+            return []
+        q = (await asyncio.to_thread(self.embedder.embed, [query]))[0]
+        return self._rank(q, k)
+
+    def _rank(self, q, k: int) -> list[Memory]:
         now = datetime.datetime.now(datetime.UTC)
-        q = self.embedder.embed([query])[0]
         rows = self.index.search(q, limit=k * 4)
         rows = [r for r in rows if r.similarity >= self.retrieval_min_sim]
         # tombstoned memories are gone from every future prompt (§6.7)

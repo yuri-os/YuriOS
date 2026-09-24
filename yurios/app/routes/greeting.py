@@ -118,7 +118,7 @@ async def greeting(session_id: str, request: Request):
     user_md = state.store.read_user_md()
     summary = state.store.read_summary()
     probe = summary or user_md or "what matters lately"
-    memories = state.store.recall(probe, state.cfg.retrieval_k)
+    memories = await state.store.arecall(probe, state.cfg.retrieval_k)
     cue = GREET_CUE.format(user=state.cfg.user_name)
     prompt = asm.assemble(
         soul, user_md=user_md, summary=summary, memories=memories,

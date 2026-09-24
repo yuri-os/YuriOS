@@ -464,7 +464,7 @@ async def scenario_context(rig: Rig) -> str:
     rig.rt.post_message("user", answer)
     rig.rt.post_message("assistant", "Understood. Mine-only it is.")
 
-    context = goalwork.context(rig.rt.mind, goal)
+    context = await goalwork.context(rig.rt.mind, goal)
     want(answer.lower() in context.lower(),
          "the working step was never shown the answer it is waiting for. "
          f"Its context was:\n{context[:800]}")
@@ -484,7 +484,7 @@ async def scenario_journal(rig: Rig) -> str:
     rolling summary then read back.
     """
     now = rig.clock.now()
-    rig.rt.mind.journal.write("live-check: a line written at a known moment")
+    await rig.rt.mind.journal.write("live-check: a line written at a known moment")
     path = rig.journal_file(now)
     want(path.is_file(),
          "today's entry was not filed under today's local date — the day "

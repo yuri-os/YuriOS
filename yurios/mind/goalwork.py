@@ -76,7 +76,7 @@ def desk_write(loop, goal: Goal, line: str) -> None:
     loop.hub.publish("workspace", {"action": "append", "path": desk_path(loop, goal)})
 
 
-def memories(loop, goal: Goal, facts: str) -> list:
+async def memories(loop, goal: Goal, facts: str) -> list:
     """The episodic half of §22.4 — what she can remember about this goal.
 
     `facts.md` above is the *semantic* residue: what DREAM decided is still
@@ -95,7 +95,7 @@ def memories(loop, goal: Goal, facts: str) -> list:
     try:
         # Ask for more than will be shown: the filter below throws some away,
         # and a probe that costs itself two slots should not also shorten it.
-        mems = loop.store.recall(probe, loop.cfg.retrieval_k + 3)
+        mems = await loop.store.arecall(probe, loop.cfg.retrieval_k + 3)
     except Exception:  # noqa: BLE001 — a cold index is not a reason to
         log.debug("goal work: no recall", exc_info=True)   # skip the step
         return []
@@ -156,7 +156,7 @@ def said_since(loop, goal: Goal, limit: int = 6) -> str:
     return "\n".join(out[-limit:])
 
 
-def context(loop, goal: Goal) -> str:
+async def context(loop, goal: Goal) -> str:
     """Everything the *conversational* prompt would have given her, minus
     the conversation (SPEC §7.1, §34.3, §19.2).
 
@@ -218,7 +218,7 @@ def context(loop, goal: Goal) -> str:
     facts = loop.vault.read("memory/semantic/facts.md")[-1200:].strip()
     if facts:
         parts.append("WHAT YOU KNOW ABOUT THEM\n\n" + facts)
-    recalled = memories(loop, goal, facts)
+    recalled = await memories(loop, goal, facts)
     if recalled:
         parts.append("THINGS THAT MAY BE RELEVANT\n\n" + "\n".join(
             f"- ({age_tag(m)}) {m.text}" for m in recalled))
@@ -455,7 +455,7 @@ async def goal_work(loop, goal: Goal,
         return await loop._utility(messages, soul=True)
 
     messages = [{"role": "system", "content": work_system(loop, goal, offer, last)},
-                {"role": "user", "content": context(loop, goal)}]
+                {"role": "user", "content": await context(loop, goal)}]
     with correlate.scope(kind=correlate.GOAL_WORK):
         if offer:
             # A step may chain hands now (mind/handwork.py) — read the note,

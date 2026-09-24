@@ -617,7 +617,7 @@ class MindLoop:
         while self._desk_notes:
             reflect_notes.append(self._desk_notes.pop(0))
         for note in reflect_notes:
-            self.journal.write(note)
+            await self.journal.write(note)
         trace_rec = {
             "activity_state": self.activity.state,
             "sensed": [{"type": s.type, "id": s.id} for s in batch],
@@ -731,11 +731,11 @@ class MindLoop:
         if report.dry_run:
             return report          # a rehearsal leaves no journal and no commit
         for note in report.notes:
-            self.journal.write(note)
+            await self.journal.write(note)
         # A night asked for by hand finishes the same backlog, so it gets the
         # same close the tick's dream act gives the standing goal (SPEC §22.5).
         for note in housekeeping.close_cleared_maintenance(self, "dream"):
-            self.journal.write(note)
+            await self.journal.write(note)
         await asyncio.to_thread(self.vault.commit_if_dirty,
                                 f"dream (by hand): {report.summary[:60]}")
         return report
@@ -758,9 +758,9 @@ class MindLoop:
 
 
 
-    def _goal_context(self, goal: Goal) -> str:
+    async def _goal_context(self, goal: Goal) -> str:
         """What a working step is given to work from (mind/goalwork.py)."""
-        return goalwork.context(self, goal)
+        return await goalwork.context(self, goal)
 
     async def _act_goal_work(self, goal: Goal,
                              offer=None) -> tuple[dict, dict, list[str]]:

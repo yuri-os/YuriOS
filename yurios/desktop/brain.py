@@ -195,13 +195,13 @@ class BrainAdapter:
                 "it is.\n\n" + desk)
         return "\n\n".join(parts)
 
-    def _recall_knowledge(self, text: str) -> list:
+    async def _recall_knowledge(self, text: str) -> list:
         """The shelf, searched for this turn. Never raises: a broken index is a
         turn without the block, not a turn that doesn't happen."""
         if self.knowledge is None or self.cfg.knowledge_k <= 0:
             return []
         try:
-            return self.knowledge.search(text, self.cfg.knowledge_k)
+            return await self.knowledge.asearch(text, self.cfg.knowledge_k)
         except Exception:       # noqa: BLE001 — no embedder, a half-written index
             log.warning("knowledge recall failed; assembling without the shelf",
                         exc_info=True)
@@ -226,17 +226,23 @@ class BrainAdapter:
             return session_id
         return self.state.sessions.create()
 
-    def _assemble(self, session_id: str, text: str, *, window: list[dict],
-                  lore) -> object:
-        """One assembled prompt (Build #1) + the Build #2 expression block (§6)."""
+    async def _assemble(self, session_id: str, text: str, *, window: list[dict],
+                        lore) -> object:
+        """One assembled prompt (Build #1) + the Build #2 expression block (§6).
+
+        Async for the two lookups alone: each embeds the message, and an
+        embedder can hold a call for seconds, so the vectors come from a worker
+        while every other character on the node keeps talking (SPEC §2.4)."""
+        memories = await self.state.store.arecall(text, self.cfg.retrieval_k)
+        knowledge = await self._recall_knowledge(text)
         soul = self.state.soul_loader.load()                  # read every turn (§5)
         goals, goals_complete = self._open_goals()
         prompt = asm.assemble(
             soul,
             user_md=self.state.store.read_user_md(),
             summary=self.state.store.read_summary(),
-            memories=self.state.store.recall(text, self.cfg.retrieval_k),
-            knowledge=self._recall_knowledge(text),
+            memories=memories,
+            knowledge=knowledge,
             goals=goals,
             goals_complete=goals_complete,
             goal_creation_available=self.goal_creation_available,
@@ -274,7 +280,7 @@ class BrainAdapter:
         corpus, is the note (§35), because a photo re-sent with every later turn
         would eat the window it was small enough to fit in the first place."""
         turn_index = self.state.sessions.get(session_id)["turn_count"]
-        soul, prompt = self._assemble(
+        soul, prompt = await self._assemble(
             session_id, text,
             window=self.state.sessions.window(session_id, self.cfg.raw_window_turns),
             lore=self.state.soul_loader.load().lorebook_hits(text))
@@ -444,7 +450,7 @@ class BrainAdapter:
             await self._retire_bootstrap()
 
         cue = GREET_CUE.format(user=self.cfg.user_name)
-        _soul, prompt = self._assemble(session_id, cue,
+        _soul, prompt = await self._assemble(session_id, cue,
                                        window=self._last_words(), lore=[])
         # A greeting is never persisted — no corpus line, no transcript entry — so
         # without this the first thing she says every session leaves no record of

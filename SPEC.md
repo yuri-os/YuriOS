@@ -263,6 +263,8 @@ file-backed:
   answer an hour old — while `Memory.score` went on reporting a decay that had not been
   allowed to matter. Scores are normalised to the pool's best so the relevance and
   redundancy terms stay comparable.
+  On the event loop the query is embedded on a worker (`arecall`, §2.4); `recall` is the
+  same lookup for a caller that is already off it.
 - `forget(selector)` is **supersede-not-delete**: remove the line from the working
   `USER.md`/`facts.md`, append a tombstone to `memory/semantic/forgotten.md`, and commit.
   Removal **MUST** include matching prose in `USER.md`, including derived copies in
@@ -356,10 +358,23 @@ on. The load **MUST** be started after that, not before. A recall that arrives b
 weights land **MUST** behave as an empty
 Vault — `[]`, no freeze of the event loop. `embed()` itself still waits, so a write that
 needs a vector (remember, reindex, ingest) never drops one. The exception is a journal
-line's index row (§15): REFLECT runs on the tick's own coroutine, where waiting would hold
-every character on the node, and the day file is truth while the index is only its cache —
-so that one row **MUST** be skipped rather than waited for. A failed load **MUST** settle
-the board as failed and keep her talking.
+line's index row (§15): waiting there would park her tick for the rest of a cold load, and
+the day file is truth while the index is only its cache — so that one row **MUST** be
+skipped rather than waited for. A failed load **MUST** settle the board as failed and keep
+her talking.
+
+**No embed on the event loop, loaded or not.** `embed()` is blocking by contract: a forward
+pass in process, or an HTTP round trip to LM Studio or Ollama that a model swap or a queue
+behind generation can hold for the client's whole timeout. Every embed reached from the
+host's async code — recall and the knowledge shelf before a reply, remember after it, a
+journal row, an ingest, a night's facts, the rolling summary — **MUST** run on a worker
+thread (`asyncio.to_thread`), whatever the backend and whether or not its weights are
+ready. A slow embedder then delays the one character waiting on it, not every room on the
+node. Only the vector moves: ranking and index writes stay where they were, so moving the
+embed adds no reader to a file rebuilt in place. A server embedder **MUST** keep one pooled
+HTTP client for its lifetime rather than one per call, and a closed client **MUST** be
+reopened on the next call, not raised on — an injected embedder can be shared by several
+characters, and one of them stopping must not break the rest.
 
 Whatever the callers guard on to make that choice **MUST** mean *this* embedder can return a
 vector now — not that weights are loaded somewhere in the process. A wrong `EMBED_DIM` loads

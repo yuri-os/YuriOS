@@ -16,26 +16,32 @@ import logging
 
 import httpx
 
+from yurios.app.providers.http import PooledClient
+
 log = logging.getLogger("mvw.lmstudio")
 
 
 class LMStudioEmbedder:
     def __init__(self, model_name: str = "text-embedding-nomic-embed-text-v1.5",
-                 dim: int = 768, base_url: str = "http://localhost:1234/v1"):
+                 dim: int = 768, base_url: str = "http://localhost:1234/v1", *,
+                 transport: httpx.BaseTransport | None = None):
         self.model_name = model_name
         self.dim = dim
         self.base_url = base_url.rstrip("/")
+        self._http = PooledClient(timeout=60, transport=transport)
 
     def embed(self, texts: list[str]) -> list[list[float]]:
+        """Blocking — an HTTP round trip that a busy or cold server can hold
+        for the full timeout. Callers on the event loop reach it through
+        `asyncio.to_thread` (SPEC §2.4)."""
         if not texts:
             return []
-        with httpx.Client(timeout=60) as client:
-            r = client.post(f"{self.base_url}/embeddings",
-                            json={"model": self.model_name, "input": texts})
-            r.raise_for_status()
-            # OpenAI shape: {"data": [{"index": i, "embedding": [...]}, ...]}.
-            # Sort by index — the server does not guarantee input order.
-            rows = sorted(r.json()["data"], key=lambda d: d["index"])
+        r = self._http.client().post(f"{self.base_url}/embeddings",
+                                     json={"model": self.model_name, "input": texts})
+        r.raise_for_status()
+        # OpenAI shape: {"data": [{"index": i, "embedding": [...]}, ...]}.
+        # Sort by index — the server does not guarantee input order.
+        rows = sorted(r.json()["data"], key=lambda d: d["index"])
         out = [row["embedding"] for row in rows]
         for vec in out:
             if len(vec) != self.dim:
@@ -43,6 +49,9 @@ class LMStudioEmbedder:
                     f"EMBED_DIM={self.dim} but {self.model_name} returned "
                     f"{len(vec)}-d — fix .env (§3)")
         return out
+
+    def close(self) -> None:
+        self._http.close()
 
 
 # --- keeping both models resident (§3.1) -------------------------------------

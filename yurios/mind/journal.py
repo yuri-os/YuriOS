@@ -15,6 +15,7 @@ companion lives here, not in notifications.
 """
 from __future__ import annotations
 
+import asyncio
 import datetime
 import logging
 
@@ -56,8 +57,8 @@ class Journal:
         self.hub = hub
         self.store = store               # the FileMemoryStore (index)
 
-    def write(self, text: str, *, kind: str = "act") -> None:
-        """One journal line: the day file, the memory index, the live event."""
+    async def write(self, text: str, *, kind: str = "act") -> None:
+        """One journal line: the day file, the live event, the memory index."""
         now = self.clock.now()
         day = day_of(now)
         rel = f"memory/episodic/{day}.md"
@@ -65,24 +66,28 @@ class Journal:
             self.vault.append(rel, f"# Journal — {day}\n\n")
         line = f"### {dt_of(now).strftime('%H:%M')}  [she] {text}\n"
         self.vault.append(rel, line)
-        # …and the index, unless the weights are still coming. REFLECT runs on
-        # the tick's own coroutine, so a synchronous `embed()` here would hold
-        # the event loop for whatever is left of a cold torch load — every
-        # other character's room on this host with it (SPEC §2.4). A journal
-        # row is the one embedding that may be dropped: the day file above is
-        # truth and the index is a cache, which is what the `except` below has
-        # always said. Recall falls back to the file until the next line.
+        # The line is written, so the panel may show it now: the index row
+        # below can take as long as the embedder does.
+        self.hub.publish("journal", {"text": text, "kind": kind,
+                                     "ts": iso_of(now)})
+        # …and the index, unless the weights are still coming. The embed runs
+        # on a worker, never the loop — a server embedder mid model-swap holds
+        # a call for its whole timeout, and the loop is every other
+        # character's room on this host (SPEC §2.4). But a load still in
+        # flight is not waited for even there: that would park this tick for
+        # the rest of a cold torch load. A journal row is the one embedding
+        # that may be dropped: the day file above is truth and the index is a
+        # cache, which is what the `except` below has always said. Recall
+        # falls back to the file until the next line.
         if self.store is not None and getattr(self.store.embedder, "ready", True):
             try:
+                vec = (await asyncio.to_thread(self.store.embedder.embed, [text]))[0]
                 self.store.index.upsert(
                     id=f"act-{iso_of(now)}-{abs(hash(text)) % 10 ** 6}",
                     kind="event", text=text, source_path=rel, source_span="",
-                    embedding=self.store.embedder.embed([text])[0],
-                    created_at=utc_iso_of(now), salience=1.0)
+                    embedding=vec, created_at=utc_iso_of(now), salience=1.0)
             except Exception:  # noqa: BLE001 — the file is truth; the index is a cache
                 log.debug("journal index write skipped", exc_info=True)
-        self.hub.publish("journal", {"text": text, "kind": kind,
-                                     "ts": iso_of(now)})
 
     def day_entries(self, day: str) -> list[dict]:
         """Parsed entries for one day — the /api/journal shape."""

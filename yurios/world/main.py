@@ -910,6 +910,15 @@ class Runtime:
                 index.close()
             except Exception:
                 log.exception("memory index close failed")
+        # A server embedder keeps one pooled connection open (providers/http.py).
+        # Closing is safe even for an embedder another character shares: the
+        # client is rebuilt on its next call.
+        close = getattr(getattr(store, "embedder", None), "close", None)
+        if close is not None:
+            try:
+                close()
+            except Exception:
+                log.exception("embedder close failed")
 
     # ---- her brain settings, changed while she is talking (SPEC §31.4) ----
 

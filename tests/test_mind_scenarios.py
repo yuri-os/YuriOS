@@ -135,7 +135,7 @@ async def test_a_promise_of_work_files_a_task_she_can_start_now(cfg, seeded_vaul
     # …and it remembers what it was *about*: the scan keeps the predicate after
     # "I'll", so without this the working step has no subject and invents one.
     assert "names for the cat" in g.meta.get("about", "")
-    assert "names for the cat" in rig.mind._goal_context(g)
+    assert "names for the cat" in await rig.mind._goal_context(g)
 
 
 async def test_a_promise_to_tell_is_still_a_reach_out(cfg, seeded_vault):

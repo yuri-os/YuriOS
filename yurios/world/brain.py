@@ -305,15 +305,16 @@ class ToolBrain(BrainAdapter):
                                proactive=proactive)
 
     # -- prompt assembly: the blocks + the situation (SPEC §19.2) ------
-    def _assemble(self, session_id: str, text: str, *, window: list[dict],
-                  lore) -> object:
+    async def _assemble(self, session_id: str, text: str, *, window: list[dict],
+                        lore) -> object:
         """B2's assembly, then the present tense appended — so every prompt
         (reply, greeting, ambient self-talk) knows when and where she is. With
         the mind running, the block is the world model's live stage (presence,
         threads, expectations included); mindless, it degrades to Build #4's
         rendering of host state. The clock is the guard's injected one, never
         the wall clock."""
-        soul, prompt = super()._assemble(session_id, text, window=window, lore=lore)
+        soul, prompt = await super()._assemble(session_id, text, window=window,
+                                               lore=lore)
         if self.world is not None:
             situation = self.world.situation()
         else:
@@ -333,7 +334,7 @@ class ToolBrain(BrainAdapter):
         # (B2 §2.2 — the base body streams directly, so the override restates it)
         from yurios.desktop.brain import _Pending
         turn_index = self.state.sessions.get(session_id)["turn_count"]
-        soul, prompt = self._assemble(
+        soul, prompt = await self._assemble(
             session_id, text,
             window=self.state.sessions.window(session_id, self.cfg.raw_window_turns),
             lore=self.state.soul_loader.load().lorebook_hits(text))
@@ -396,7 +397,7 @@ class ToolBrain(BrainAdapter):
     async def stream_ambient(self, session_id: str, cue: str) -> AsyncIterator[str]:
         """Self-talk / timer announcements. Self-contained like stream_greeting
         (B2 §7): window=[], the cue never enters the transcript, never persisted."""
-        _soul, prompt = self._assemble(session_id, cue, window=[], lore=[])
+        _soul, prompt = await self._assemble(session_id, cue, window=[], lore=[])
         # Never persisted anywhere else, by design — which is exactly why the
         # prompt log has to see it, or half of what she says in a day is a line
         # in the journal with no reasoning behind it (SPEC §24.2). The caller's

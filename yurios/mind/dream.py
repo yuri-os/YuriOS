@@ -25,6 +25,7 @@ heuristic, so the pass still runs with no model at all.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Awaitable, Callable
 
@@ -173,14 +174,16 @@ class DreamConsolidator:
                     self.vault.append(
                         "memory/semantic/facts.md",
                         "".join(f"- ({day}) {f}\n" for f in added))
-                    for i, f in enumerate(added):
+                    # one call for the night's facts, on a worker (SPEC §2.4)
+                    vecs = await asyncio.to_thread(self.store.embedder.embed, added)
+                    for i, (f, vec) in enumerate(zip(added, vecs, strict=True)):
                         # distilled facts outrank the raw exchange at recall
                         self.store.index.upsert(
                             id=f"dream-{day}-{i}", kind="fact", text=f,
                             source_path="memory/semantic/facts.md",
                             source_span="", salience=2.0,
                             created_at=utc_iso_of(self.clock.now()),
-                            embedding=self.store.embedder.embed([f])[0])
+                            embedding=vec)
                     report.facts_added += len(added)
             done_days.append(day)
             report.days_processed.append(day)

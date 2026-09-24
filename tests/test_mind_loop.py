@@ -489,7 +489,7 @@ async def test_what_she_read_reaches_the_next_prompt(cfg, seeded_vault):
         "Sencha is steamed rather than pan-fired, which keeps it green.\n")
     await rig.mind.tick()                               # SENSE → ingest
 
-    _soul, prompt = rig.mind.brain._assemble(
+    _soul, prompt = await rig.mind.brain._assemble(
         "s1", "how is sencha made?", window=[], lore=[])
     assert "WHAT YOU'VE READ" in prompt.system
     assert "steamed rather than pan-fired" in prompt.system
@@ -502,11 +502,11 @@ async def test_a_turn_survives_a_broken_shelf(cfg, seeded_vault):
     rig = make_mind(cfg, seeded_vault)
 
     class Broken:
-        def search(self, *a, **kw):
+        async def asearch(self, *a, **kw):
             raise RuntimeError("index is half-written")
 
     rig.mind.brain.set_knowledge(Broken())
-    _soul, prompt = rig.mind.brain._assemble("s1", "hello", window=[], lore=[])
+    _soul, prompt = await rig.mind.brain._assemble("s1", "hello", window=[], lore=[])
     assert "WHAT YOU'VE READ" not in prompt.system
     assert "PERSONA BACKBONE" in prompt.system          # the turn still happened
 

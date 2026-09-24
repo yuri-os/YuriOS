@@ -93,7 +93,7 @@ def test_research_routes_list_and_read_sources_without_exposing_paths(client_wit
 
 async def test_api_journal_serves_her_day(client_with_mind):
     c, rig = client_with_mind
-    rig.mind.journal.write("reorganised the shelf")
+    await rig.mind.journal.write("reorganised the shelf")
     days = c.get("/api/mind/journal?days=2").json()["days"]
     assert days and days[0]["entries"]
     entry = days[0]["entries"][-1]

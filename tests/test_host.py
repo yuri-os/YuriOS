@@ -421,6 +421,22 @@ def test_unarchive_restores_the_row_and_the_tree(tmp_path):
         encoding="utf-8") == "still here"
 
 
+def test_unarchive_refuses_a_bad_id_before_moving_anything(tmp_path):
+    registry = CharacterRegistry(tmp_path)
+    registry.add(record(tmp_path, enabled=False))
+    app = create_host_app(Config(data_dir=tmp_path), registry)
+
+    with TestClient(app) as client:
+        name = client.post("/api/characters/yuri/archive").json()["archive"]
+        for bad in ("../../escape", "a/b", "Yuri"):
+            response = client.post(f"/api/archives/{name}/restore", json={"id": bad})
+            assert response.status_code == 400, bad
+    assert (tmp_path / "archives" / name).is_dir()
+    assert not (tmp_path.parent / "escape").exists()
+    assert not (tmp_path / "characters" / "a").exists()
+    assert registry.get("yuri") is None
+
+
 def test_clone_copies_the_tree_under_a_new_id(tmp_path, monkeypatch):
     registry = CharacterRegistry(tmp_path)
     item = record(tmp_path, enabled=False)

@@ -432,6 +432,18 @@ def register(app: FastAPI, host: CharacterHost, require) -> None:
         character_id = str(body.get("id") or default_id).strip() or default_id
         start = bool(body.get("start"))
         dest = registry.data_root / "characters" / character_id
+        # Build the row before anything moves: constructing it is what validates the
+        # id, and an id that reaches the filesystem first can name a path outside
+        # characters/.
+        try:
+            if snapshot is not None:
+                record = archive_model.record_from_snapshot(
+                    snapshot, character_id=character_id, dest_root=dest,
+                    data_root=registry.data_root)
+            else:
+                record = archive_model.record_from_tree(source, character_id, dest)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
         async with app.state.lifecycle_lock:
             if registry.get(character_id) is not None or dest.exists():
                 raise HTTPException(409, f"character already exists: {character_id}")
@@ -442,13 +454,6 @@ def register(app: FastAPI, host: CharacterHost, require) -> None:
                 raise HTTPException(500, "could not move archive back onto the board") \
                     from exc
             try:
-                if snapshot is not None:
-                    record = archive_model.record_from_snapshot(
-                        snapshot, character_id=character_id, dest_root=dest,
-                        data_root=registry.data_root)
-                else:
-                    record = archive_model.record_from_tree(
-                        dest, character_id, dest)
                 registry.add(record)
             except Exception as exc:
                 try:

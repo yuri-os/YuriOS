@@ -82,6 +82,10 @@ class SignalBus:
         # over costs nothing but old history.
         self.max_bytes = max_bytes
         self._signals: list[Signal] = []
+        # Which queue an offset belongs to. The mind persists it beside
+        # `bus_offset`, and an offset from any other bus — every restart — is
+        # an index into a queue that no longer exists, so it reads from 0.
+        self.epoch = new_id("bus")
         self.wake = asyncio.Event()          # the loop sleeps on this (SPEC §15.1)
         self._loop: Optional[asyncio.AbstractEventLoop] = None
 

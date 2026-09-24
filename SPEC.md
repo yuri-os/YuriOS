@@ -870,6 +870,11 @@ to every new subscriber before its first live event. Malformed JSON is logged an
   **MUST** carry `late_s` so that announcement does not describe itself as punctual. A timer
   more than a day past due — longer than `TIMER_MAX_MINUTES`' own ceiling, so no longer a
   promise anyone is still waiting on — **MUST** be dropped on the way in rather than announced.
+  Landing is not delivery: a timer that has elapsed **MUST** stay on the file until its
+  announcement is delivered, and only then be removed (`TimerBoard.ack`), so a restart between
+  the countdown landing and the announcement landing restores it as already due rather than
+  losing it. A landed timer leaves the public snapshot when it lands. A crash between delivery
+  and `ack` may announce it twice; that is the accepted side, never zero times.
   The board's pending promises **MUST** be visible as a due-ordered `{timers:[{id,label,due}]}`
   snapshot at `GET /api/timers`, scoped by the same character dispatcher as every other runtime
   route. Every add and landing **MUST** publish that complete snapshot as sticky `timers` state
@@ -1469,7 +1474,11 @@ surface between turns.
   generated *by* ACT — is a named next rung, §28.)
 - §15.4 **Rehydration and the suspend gap.** The engine's cursor state (`state/engine.json`:
   bus offset, interrupt counts, consideration cooldowns, last tick) **MUST** survive restart —
-  a rebooted mind resumes, it does not wake amnesiac. A real gap since the last tick (> 2 h,
+  a rebooted mind resumes, it does not wake amnesiac. The bus offset is the exception that
+  proves the rule: it indexes an in-memory queue that does not survive, so it is stored with that
+  queue's `bus_epoch` and **MUST** be restored only onto the same bus (a mind rebuilt in-process);
+  on any other it **MUST** start from 0, or the first signals of the new process are skipped
+  unread. A real gap since the last tick (> 2 h,
   or twice the DORMANT cadence) **MUST** synthesize one `suspend_gap` signal: one catch-up
   appraisal over the whole gap — goals reconsidered by commitment (§22.2), one journal line —
   never a pile of stale reactions, and never thirty good-mornings.

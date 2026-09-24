@@ -206,7 +206,13 @@ class MindLoop:
         # rehydration snapshot (SPEC §15.4): a restart resumes, not forgets
         self.state_path = state_dir / "engine.json"
         st = read_json(self.state_path, None) or {}
-        self.offset: int = st.get("bus_offset", 0)
+        # The offset indexes this bus's in-memory queue, so it only carries over
+        # to a mind rebuilt on the same live bus. A restart used to restore it
+        # onto a new, empty queue and skip that many of the first signals.
+        # `SignalBus.next` catches an offset past the end, but not one short of
+        # it: an offset of 1 skipped the one timer landed at boot (§7.5).
+        self.offset: int = (st.get("bus_offset", 0)
+                            if st.get("bus_epoch") == bus.epoch else 0)
         self.interrupts: dict = st.get("interrupts", {"date": "", "count": 0})
         self.considered: dict = st.get("considered", {})
         self.last_tick_ts: float | None = st.get("last_tick_ts")
@@ -377,7 +383,9 @@ class MindLoop:
             # `late_s` is ~0 for a timer that landed while she was up, and the
             # real gap for one restored across a restart (§7.5) — the
             # announcement must not call that one punctual.
-            self.bus.post("timer", {"label": t.label, "id": t.id,
+            # `due` rides along so the announcement can `ack` exactly this
+            # countdown once it is delivered (§7.5).
+            self.bus.post("timer", {"label": t.label, "id": t.id, "due": t.due,
                                     "late_s": max(0.0, self.clock.now() - t.due)},
                           source="host")
         # …and the wakes the loop scheduled for itself (SPEC §16). A goal that
@@ -818,7 +826,8 @@ class MindLoop:
 
     def _persist(self) -> None:
         write_json(self.state_path, {
-            "bus_offset": self.offset, "interrupts": self.interrupts,
+            "bus_offset": self.offset, "bus_epoch": self.bus.epoch,
+            "interrupts": self.interrupts,
             "considered": self.considered, "last_tick_ts": self.last_tick_ts,
             "wakeups": self.wakeups, "reconsidered_on": self.reconsidered_on,
             "bootstrapped_on": self.bootstrapped_on,

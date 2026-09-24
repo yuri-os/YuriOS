@@ -217,6 +217,32 @@ async def test_a_timer_restored_across_a_restart_is_not_called_punctual(
     assert "just finished" not in said[0]
 
 
+async def test_a_timer_held_for_announcement_survives_a_restart(
+        cfg, seeded_vault, tmp_path):
+    """The promise sat in her announce queue — she was mid-conversation — when
+    the process went away. The board still owes it, so the next boot says it
+    (§7.5); once said it is off the board for good."""
+    from yurios.world.tools.timers import TimerBoard
+    rig = make_mind(cfg, seeded_vault)
+    rig.mind.timers = TimerBoard(rig.clock, vault=tmp_path)
+    rig.mind.timers.add(id="t1", label="tea", seconds=60.0)
+    rig.clock.advance(61)
+    rig.mind.timers.poll()
+    rig.mind._last_turn_end = rig.clock.now()      # engaged: she holds it
+    await rig.mind.tick()
+    assert rig.mind._pending_announce and not rig.post.proactive()
+
+    rig = make_mind(cfg, seeded_vault, clock=rig.clock)       # the restart
+    rig.mind.timers = TimerBoard(rig.clock, vault=tmp_path)
+    rig.clock.advance(cfg.idle_settle_s + 1)
+    assert [t.id for t in rig.mind.timers.poll()] == ["t1"]
+    rig.speak.connected = False
+    await rig.mind.tick()
+    assert not rig.mind._pending_announce
+    assert rig.post.proactive(), "the promise was kept after all"
+    assert TimerBoard(rig.clock, vault=tmp_path).poll() == [], "…and only once"
+
+
 async def test_timer_announce_lands_in_chat_when_a_text_page_is_open(
         cfg, seeded_vault):
     """The text room (and the terminal) never attach `/ws/voice` while muted,

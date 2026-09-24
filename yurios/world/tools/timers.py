@@ -30,6 +30,17 @@ described as punctual.
 than the longest one anybody can set, so it is not a promise still owed but a
 leftover from some earlier era of the process, and announcing a fortnight of
 them at boot is noise rather than delivery.
+
+**A landed timer stays on the file until it is delivered.** Landing is not
+keeping: between `poll` and the announcement the promise crosses the `due`
+queue, the SignalBus and the mind's announce queue, all in memory, and waits
+there as long as a conversation is running or a line will not compose. The
+board used to drop a timer from the file the moment it landed, so a restart
+anywhere in that stretch kept it zero times. Now `poll` only marks it `landed`
+— out of the public snapshot, off the next poll, still on disk — and the mind's
+`ack` after delivery is what removes it. A boot restores it as already due, and
+the first poll lands it again. A crash between delivering and `ack` announces it
+twice, which is a small window and the better failure than never.
 """
 from __future__ import annotations
 
@@ -64,6 +75,9 @@ class Timer:
     id: str
     label: str
     due: float                       # clock seconds (wall epoch, so it survives)
+    #: On the announcement queue, not yet delivered — kept on the file, left out
+    #: of the snapshot. Never written: a restored one simply lands again.
+    landed: bool = False
 
 
 @dataclass
@@ -93,7 +107,9 @@ class TimerBoard:
         return t
 
     def pending(self) -> list[Timer]:
-        return sorted(self._timers, key=lambda t: t.due)
+        """The countdowns still running — a landed one is no longer pending."""
+        return sorted((t for t in self._timers if not t.landed),
+                      key=lambda t: t.due)
 
     def snapshot(self) -> dict:
         """The public, character-scoped countdown state (SPEC §7.5, §10)."""
@@ -104,17 +120,30 @@ class TimerBoard:
         """Move every elapsed timer onto the announcement queue. Deterministic —
         the sim-time tests drive this directly (SPEC §27)."""
         now = self.clock.now()
-        landed = [t for t in self._timers if t.due <= now]
-        self._timers = [t for t in self._timers if t.due > now]
-        for t in sorted(landed, key=lambda t: t.due):
+        landed = sorted((t for t in self._timers if not t.landed and t.due <= now),
+                        key=lambda t: t.due)
+        for t in landed:
+            # Still on the file: only `ack` takes it off, after delivery. Off
+            # the file at this point was the promise kept zero times by any
+            # restart before the mind got to say it.
+            t.landed = True
             self.due.put_nowait(t)
         if landed:
-            # Off the file the moment it is on the queue. A timer announced and
-            # then restored by the next boot would be the promise kept twice,
-            # which reads as her losing track rather than as diligence.
-            self._save()
             self._changed()
         return landed
+
+    def ack(self, id: str, due: float | None = None) -> bool:
+        """The announcement was delivered: the promise is kept, off the board.
+
+        `due` picks the one countdown when two share an id — a `set_timer`
+        result without one lands here as the default `"t"` (world/brain.py).
+        """
+        for t in self._timers:
+            if t.landed and t.id == id and (due is None or t.due == due):
+                self._timers.remove(t)
+                self._save()
+                return True
+        return False
 
     def _changed(self) -> None:
         if self.on_change is not None:
@@ -125,7 +154,7 @@ class TimerBoard:
         while True:
             self.poll()
             now = self.clock.now()
-            wait = min((t.due - now for t in self._timers), default=60.0)
+            wait = min((t.due - now for t in self.pending()), default=60.0)
             self._wake.clear()
             await self.clock.sleep(max(0.05, min(wait, 60.0)), wake=self._wake)
 
@@ -191,6 +220,7 @@ class TimerBoard:
                 vaultgit.atomic_write(ignore, existing + GITIGNORE)
             vaultgit.atomic_write(path, json.dumps(
                 {"timers": [{"id": t.id, "label": t.label, "due": t.due}
-                            for t in self.pending()]}, indent=1))
+                            for t in sorted(self._timers, key=lambda t: t.due)]},
+                indent=1))
         except OSError:
             log.warning("couldn't save the timer board to %s", path, exc_info=True)

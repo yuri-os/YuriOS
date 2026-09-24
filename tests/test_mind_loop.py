@@ -624,11 +624,29 @@ async def test_a_restart_does_not_leave_her_deaf_to_the_next_signals(
     assert rig.mind.offset == 2
 
     fresh = make_mind(cfg, seeded_vault)          # same vault, new bus
-    assert fresh.mind.offset == 2, "the offset really is restored from disk"
     fresh.mind.bus.post("user_message", {"text": "still here"}, source="web")
     trace = await fresh.mind.tick()
     assert [s["type"] for s in trace["sensed"]] == ["user_message"]
     assert fresh.mind.offset == 1
+
+
+async def test_a_restart_does_not_skip_signals_short_of_the_old_offset(
+        cfg, seeded_vault):
+    """The half the end-of-queue check could not see: an offset of 2 restored
+    onto a boot that has already posted two signals points at a queue that
+    looks caught up, and both go past her unread. A timer that landed at boot
+    was one of them (§7.5)."""
+    rig = make_mind(cfg, seeded_vault)
+    rig.mind.bus.post("user_message", {"text": "hello?"}, source="web")
+    rig.mind.bus.post("user_present", {}, source="frontend")
+    await rig.mind.tick()
+    rig.mind._persist()
+
+    fresh = make_mind(cfg, seeded_vault)          # same vault, new bus
+    fresh.mind.bus.post("timer", {"id": "t1", "label": "tea"}, source="host")
+    fresh.mind.bus.post("user_message", {"text": "still here"}, source="web")
+    trace = await fresh.mind.tick()
+    assert [s["type"] for s in trace["sensed"]] == ["timer", "user_message"]
 
 
 async def test_a_loop_switched_off_and_on_does_not_re_read_the_queue(

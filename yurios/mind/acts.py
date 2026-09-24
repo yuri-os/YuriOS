@@ -324,6 +324,10 @@ async def announce(loop) -> tuple[dict, dict, list[str]]:
 def _complete_timer_promises(loop, timer: dict) -> None:
     """Close promises owned by this countdown only after delivery (SPEC §7.5)."""
     timer_id = str(timer.get("id") or "")
+    # Off the board first: until now it was kept on the file so that a restart
+    # between landing and this line could not lose it.
+    due = timer.get("due")
+    loop.timers.ack(timer_id, float(due) if due is not None else None)
     if not timer_id:
         return
     if timer_id not in loop.delivered_timers:

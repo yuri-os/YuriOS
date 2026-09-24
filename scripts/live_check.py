@@ -604,6 +604,159 @@ async def scenario_turn_goal_completion(rig: Rig) -> str:
     return f"delivered {completed.product['image_url']} and closed {goal.id}"
 
 
+async def scenario_signals(rig: Rig) -> str:
+    """The inbox holds what is unread, not what happened (SPEC §16.4).
+
+    The queue used to keep every signal for the life of the process — each
+    turn's text, reply and tool outcomes with it — though nothing reads behind
+    the mind's cursor. It now releases on `ack`, which the tick calls only once
+    its cursor is on disk. This drives that through her real producers, a tick
+    that dies halfway, a mind switched off and rebuilt on the live bus, the
+    cap on a bus nobody drains, and worker threads posting while ticks run.
+    """
+    import threading
+
+    from yurios.mind.util import read_json
+    from yurios.mind import signals as bus_mod
+
+    rt, bus = rig.rt, rig.rt.signals
+
+    def held() -> list[str]:
+        return [s.id for s in bus._signals]
+
+    def on_disk() -> dict:
+        return read_json(rig.mind.state_path, None) or {}
+
+    await rig.tick()                                  # whatever boot posted
+    want(held() == [], f"a tick left {len(held())} read signals held")
+
+    # ---- her real producers: a committed text turn and a timer landing ----
+    before = len(bus)
+    await rt.turns.run("Just checking you can hear me. A few words back is plenty.",
+                       channel="web")
+    rt.timers.add(id="live-check-tea", label="tea", seconds=0)
+    rt.timers.poll()
+    posted = [s.id for s in bus._signals]
+    want(len(bus) - before == len(posted) >= 2,
+         f"a turn posted {len(bus) - before}, the queue holds {len(posted)}")
+    trace = await rig.tick()
+    sensed = [s["id"] for s in trace["sensed"]]
+    types = {s["type"] for s in trace["sensed"]}
+    want(set(posted) <= set(sensed),
+         f"the tick missed {set(posted) - set(sensed)} of a real turn")
+    want({"user_message", "turn_committed", "timer"} <= types,
+         f"the tick sensed {sorted(types)}")
+    want(held() == [], f"{len(held())} sensed signals still held after the ack")
+    state = on_disk()
+    want(state.get("bus_offset") == len(bus) == rig.mind.offset
+         and state.get("bus_epoch") == bus.epoch,
+         f"engine.json has {state.get('bus_offset')}/{state.get('bus_epoch')}, "
+         f"the bus is at {len(bus)}/{bus.epoch}")
+
+    # ---- a tick that dies between reading and committing loses nothing ----
+    bus.post("fs_event", {"path": "live-check/one"}, source="live-check")
+    bus.post("fs_event", {"path": "live-check/two"}, source="live-check")
+    pending, offset = held(), rig.mind.offset
+    observe = rig.mind.world.observe
+
+    def dies(sig):
+        raise RuntimeError("live-check: a tick dying mid-SENSE")
+
+    rig.mind.world.observe = dies                     # type: ignore[method-assign]
+    try:
+        await rig.tick()
+        raise Failed("the sabotaged tick did not raise")
+    except RuntimeError:
+        pass
+    finally:
+        rig.mind.world.observe = observe              # type: ignore[method-assign]
+    want(held() == pending and rig.mind.offset == offset,
+         f"a failed tick released {set(pending) - set(held())} unacked")
+    trace = await rig.tick()
+    want([s["id"] for s in trace["sensed"]] == pending,
+         f"the retry sensed {trace['sensed']}, not {pending}")
+    want(held() == [], "the retry did not ack")
+
+    # ---- off, rebuilt on the live bus, on: resumes at the saved cursor ----
+    await rt.set_mind_enabled(False)
+    rt.mind = None                                    # a character enabled live
+    while_off = [bus.post("fs_event", {"path": f"live-check/off-{i}"},
+                          source="live-check").id for i in range(3)]
+    await rt.set_mind_enabled(True)
+    await _quiet_heartbeat(rig)
+    want(rig.mind.offset == len(bus) - 3,
+         f"the rebuilt mind restored offset {rig.mind.offset}, "
+         f"expected {len(bus) - 3}")
+    trace = await rig.tick()
+    want([s["id"] for s in trace["sensed"]] == while_off,
+         f"the rebuilt mind sensed {trace['sensed']}, not the three posted "
+         "while she was off")
+
+    # ---- a bus nobody drains is bounded, and a late reader resumes -------
+    cap, bus_mod.MAX_HELD = bus_mod.MAX_HELD, 20
+    try:
+        await rt.set_mind_enabled(False)
+        start = len(bus)
+        for i in range(50):
+            bus.post("fs_event", {"path": f"live-check/flood-{i}"},
+                     source="live-check")
+        want(len(held()) == 20 and len(bus) == start + 50,
+             f"an undrained bus holds {len(held())} of {len(bus) - start}")
+        survivors = held()
+        await rt.set_mind_enabled(True)
+        await _quiet_heartbeat(rig)
+        trace = await rig.tick()
+        want([s["id"] for s in trace["sensed"]] == survivors,
+             "a mind behind the cap did not resume at the oldest held signal")
+        want(rig.mind.offset == len(bus) and held() == [],
+             f"offset {rig.mind.offset}, bus {len(bus)}, held {len(held())}")
+    finally:
+        bus_mod.MAX_HELD = cap
+
+    # ---- worker threads posting while the loop ticks and acks ------------
+    start, per, workers = len(bus), 100, 4
+    go = threading.Event()
+
+    def flood(n: int) -> None:
+        go.wait()
+        for i in range(per):
+            bus.post("live_check_noise", {"w": n, "i": i}, source="live-check")
+
+    threads = [threading.Thread(target=flood, args=(n,)) for n in range(workers)]
+    for t in threads:
+        t.start()
+    go.set()
+    seen: list[str] = []
+    for _ in range(40):
+        trace = await rig.tick()
+        seen += [s["id"] for s in trace["sensed"]
+                 if s["type"] == "live_check_noise"]
+        if len(seen) >= per * workers and not any(t.is_alive() for t in threads):
+            break
+    for t in threads:
+        t.join()
+    want(len(bus) - start == per * workers,
+         f"the end offset moved {len(bus) - start} for {per * workers} posts")
+    want(len(seen) == len(set(seen)) == per * workers,
+         f"sensed {len(seen)} ({len(set(seen))} distinct) of {per * workers} "
+         "posted from threads")
+    want(held() == [] and on_disk().get("bus_offset") == len(bus),
+         f"held {len(held())}, disk offset {on_disk().get('bus_offset')}, "
+         f"bus {len(bus)}")
+    return (f"{len(bus)} signals through one bus, none held; a failed tick "
+            "retried, a rebuilt mind resumed, the cap held, threads lost nothing")
+
+
+async def _quiet_heartbeat(rig: Rig) -> None:
+    """`set_mind_enabled(True)` starts the loop's own task; take it back out,
+    the way `Rig.start` does, so every tick is still one the scenario asked for."""
+    task = rig.rt._mind_task
+    if task is not None:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+
 SCENARIOS = {
     "picture": scenario_picture,
     "rescue": scenario_rescue,
@@ -612,6 +765,7 @@ SCENARIOS = {
     "journal": scenario_journal,
     "goals": scenario_goal_review,
     "turngoal": scenario_turn_goal_completion,
+    "signals": scenario_signals,
 }
 
 

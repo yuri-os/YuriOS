@@ -20,6 +20,8 @@ You maintain the rolling summary of an ongoing companionship between {char} and 
 Update the previous summary with the new exchanges: keep what still matters, fold in
 what is new, drop what has resolved. Third person, present-continuous
 ("{user} is preparing for…", "they have been talking about…").
+Leave out timers and anything else that is only true for minutes: this summary is
+read days later, and a timer it calls armed has long since gone off.
 Hard cap: about {budget} tokens. Return ONLY the updated summary text."""
 
 

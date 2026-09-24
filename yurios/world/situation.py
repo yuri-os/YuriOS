@@ -202,6 +202,10 @@ def _rain_fragment(intensity: float) -> str:
     return "heavy rain sheeting down the window behind, the glass streaming"
 
 
+NO_TIMERS = ("You have no timers running: every timer you set earlier has "
+             "already gone off.")
+
+
 def render_visual_situation(clock: Clock, *, controller: VrmController) -> str:
     """The stage as a *camera* sees it (SPEC §7.6) — the same host surfaces the
     situation block reads, phrased as things that can be drawn.
@@ -246,4 +250,10 @@ def render_situation(clock: Clock, *, controller: VrmController,
             f'"{t.label}" ({_left(t.due - clock.now())} left)'
             for t in pending[:4])
         lines.append(f"Timers you have running: {parts}.")
+    else:
+        # said, not left out: the window and the summary both still hold the
+        # set_timer turn, and neither holds the line she spoke when it landed
+        # (a proactive line joins no prompt's window) — so silence here reads
+        # as "still counting down", days after it went off.
+        lines.append(NO_TIMERS)
     return "\n".join(lines)

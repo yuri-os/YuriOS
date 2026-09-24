@@ -11,7 +11,8 @@ import datetime
 
 from yurios.world.avatar.controller import VrmController
 from yurios.kernel.clock import VirtualClock
-from yurios.world.situation import EMBODIMENT, TEXT_EMBODIMENT, refer_user, render_situation
+from yurios.world.situation import (EMBODIMENT, NO_TIMERS, TEXT_EMBODIMENT, refer_user,
+                                    render_situation)
 from yurios.world.tools.timers import TimerBoard
 
 
@@ -94,8 +95,20 @@ def test_timers_are_listed_with_time_left():
     assert "laundry" in text
 
 
-def test_no_timers_no_timer_line():
-    assert "Timers you have running" not in _render(VirtualClock())
+def test_no_timers_says_so():
+    """An empty board is stated, not left out — the window still holds the
+    turn that set the timer, and silence let her keep counting down to one
+    that landed days ago."""
+    text = _render(VirtualClock())
+    assert "Timers you have running" not in text
+    assert NO_TIMERS in text
+    clock = VirtualClock()
+    board = TimerBoard(clock)
+    board.add(id="t1", label="kiss", seconds=180)
+    assert NO_TIMERS not in _render(clock, timers=board)
+    clock.advance(200)
+    board.poll()
+    assert NO_TIMERS in _render(clock, timers=board)
 
 
 def test_default_you_is_the_user_not_her():

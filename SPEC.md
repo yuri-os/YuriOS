@@ -463,7 +463,9 @@ Every assembled prompt — reply, greeting, and ambient speech alike — **MUST*
 appended `## THE SITUATION RIGHT NOW` block, rendered fresh per prompt from surfaces the host
 owns: the current date and time from the **injected clock** (`yurios/kernel/clock.py`, never
 the wall clock), the room's sticky scene state (rain, music), and the timer board's pending
-timers with time remaining. The block **MUST** state the **embodiment truth**: her body is
+timers with time remaining. An empty board **MUST** be stated as one, not omitted: the window
+keeps the turn that set a timer but never the proactive line that announced it landing, so
+silence reads to her as a countdown still running. The block **MUST** state the **embodiment truth**: her body is
 rendered live — eyes that blink, a face that shows feeling, a mouth that moves with her voice
 — in her room or on the desktop. She **MAY** know she runs as an AI; the block **MUST** direct
 that this never means bodiless — she **MUST NOT** claim to have no body, no eyes, or no

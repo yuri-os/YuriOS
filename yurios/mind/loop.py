@@ -640,6 +640,8 @@ class MindLoop:
         self.offset = new_offset
         self.last_tick_ts = now
         self._persist()
+        # only now, with the cursor on disk, is the batch read (SPEC §16.4)
+        self.bus.ack(self.offset)
         # git is a subprocess: on the loop it stalls every room this host is
         # holding open, including the other characters' (SPEC §2.2)
         await asyncio.to_thread(

@@ -664,6 +664,18 @@ async def test_a_loop_switched_off_and_on_does_not_re_read_the_queue(
     assert trace["sensed"] == [], "already read once is already read"
 
 
+async def test_a_tick_acks_what_it_sensed_and_keeps_nothing_behind_it(
+        cfg, seeded_vault):
+    """SPEC §16.4 — the queue holds what is unread. A daemon up for months
+    used to hold every turn it ever heard, because nothing released it."""
+    rig = make_mind(cfg, seeded_vault)
+    rig.mind.bus.post("user_message", {"text": "hello?"}, source="web")
+    rig.mind.bus.post("user_present", {}, source="frontend")
+    await rig.mind.tick()
+    assert rig.mind.offset == 2 and len(rig.mind.bus) == 2
+    assert rig.mind.bus._signals == []
+
+
 # ---- a composed line is drawn like a reply (SPEC §18.3) ------------------
 
 async def test_a_composed_line_loses_its_tags_wherever_they_fall(cfg, seeded_vault):

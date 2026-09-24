@@ -11,12 +11,13 @@ Every arrival is also appended to `signals.jsonl` (the arrival record): "what
 woke her at 3am" is a file you read, the same honesty rule as the tool audit.
 The in-memory queue is the working copy; the log is not replayed on restart —
 a restart starts from silence plus the suspend-gap catch-up (SPEC §15.4).
-The working copy holds only what SENSE has not read yet (SPEC §16.4): offsets
-are absolute, so dropping the read head changes no one's cursor.
+The working copy holds only what SENSE has not acknowledged yet (SPEC §16.4):
+offsets are absolute, so dropping the read head changes no one's cursor.
 """
 from __future__ import annotations
 
 import asyncio
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -78,9 +79,9 @@ def failure_of(sig: Signal) -> str:
 class SignalBus:
     """Append-only inbox, drained by offset. Thread-safe on the publish side
     the same way the EventHub is: `post()` may be called from the event loop
-    or a worker thread; the wake event hop is loop-safe. It has one reader —
-    the mind's SENSE — because `next()` releases everything before the offset
-    it is asked for."""
+    or a worker thread; the wake event hop is loop-safe. Reading is `next()`,
+    which only looks; `ack()` is what releases, and only the mind's cursor
+    commit calls it."""
 
     def __init__(self, clock: Clock, log_dir: Path | None = None, *,
                  max_bytes: int | None = None):
@@ -96,6 +97,10 @@ class SignalBus:
         # is what keeps a daemon that stays up for months from holding every
         # turn it ever heard (SPEC §16.4).
         self._base = 0
+        # `post()` trims the front from a worker thread while `ack()` trims it
+        # on the loop; each is a list edit *and* a `_base` move, so they take
+        # turns rather than both counting the same dropped signals.
+        self._lock = threading.Lock()
         # Which queue an offset belongs to. The mind persists it beside
         # `bus_offset`, and an offset from any other bus — every restart — is
         # an index into a queue that no longer exists, so it reads from 0.
@@ -108,11 +113,12 @@ class SignalBus:
         sig = Signal(id=new_id("sig"), type=type_,
                      ts=iso_of(self.clock.now()),
                      payload=payload or {}, source=source)
-        self._signals.append(sig)
-        if len(self._signals) > MAX_HELD:
-            drop = len(self._signals) - MAX_HELD
-            del self._signals[:drop]
-            self._base += drop
+        with self._lock:
+            self._signals.append(sig)
+            if len(self._signals) > MAX_HELD:
+                drop = len(self._signals) - MAX_HELD
+                del self._signals[:drop]
+                self._base += drop
         if self.log_path is not None:
             jsonl_append(self.log_path, {"id": sig.id, "type": sig.type,
                                          "ts": sig.ts, "payload": sig.payload,
@@ -151,19 +157,32 @@ class SignalBus:
         # and everything here is unread. Restoring it is still right for a mind
         # rebuilt on a *live* bus (a loop switched off and on again) — that is
         # the case this leaves alone.
-        if offset > len(self):
-            offset = 0
-        # Short of the held window means `MAX_HELD` pushed it off the front:
-        # gone from memory, still in the log. Read on from what is left.
-        offset = max(offset, self._base)
-        # Asking from `offset` says everything before it has been read — SENSE
-        # only advances its cursor once the tick that read the batch is done,
-        # so a failed tick asks again from here and loses nothing (SPEC §16.4).
-        del self._signals[:offset - self._base]
-        self._base = offset
-        batch = self._signals[:limit]
+        with self._lock:
+            if offset > self._base + len(self._signals):
+                offset = 0
+            # Short of the held window means `MAX_HELD` pushed it off the
+            # front, or a cursor older than the last ack: gone from memory,
+            # still in the log. Read on from what is left.
+            offset = max(offset, self._base)
+            start = offset - self._base
+            batch = self._signals[start:start + limit]
         return batch, offset + len(batch)
+
+    def ack(self, offset: int) -> None:
+        """Release every signal before `offset` — the mind has read them.
+
+        SPEC §16.4. Called with the cursor the mind has just persisted, never
+        the one a tick is still working from: a tick that dies between `next()`
+        and its commit asks again from the old offset and must find the batch
+        still here. An offset behind the held window is a no-op; one past the
+        end releases what is held and no more."""
+        with self._lock:
+            drop = min(offset - self._base, len(self._signals))
+            if drop > 0:
+                del self._signals[:drop]
+                self._base += drop
 
     def __len__(self) -> int:
         """Every signal this bus was ever posted, held or not — the end offset."""
-        return self._base + len(self._signals)
+        with self._lock:
+            return self._base + len(self._signals)

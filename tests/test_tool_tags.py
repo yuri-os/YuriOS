@@ -312,3 +312,25 @@ def test_an_ordinary_angle_bracket_is_still_speech():
 def test_the_record_she_reads_back_says_it_the_way_she_was_shown():
     assert native_to_markers("ok " + LIVE_DSML) == \
         'ok [[list_notes {"folder": "diary"}]]'
+
+
+def test_the_parser_says_where_in_a_chunk_the_call_closed():
+    """`said_before`: how much of this push's speech came before its first call —
+    what a caller that ends its pass on that call may keep (SPEC §7.4)."""
+    parser = ToolTagParser()
+    text, calls = parser.push('Sure. [[set_timer {"minutes": 2}]]((set_timer')
+    assert calls and text[:parser.said_before] == "Sure. "
+    assert text == "Sure. ((set_timer", "the parser itself still hands it all on"
+
+    text, calls = parser.push("no call here")
+    assert not calls and parser.said_before is None
+
+    # a `<` that turned out to be words, before a call in the same chunk
+    parser = ToolTagParser()
+    text, calls = parser.push('a <3 for you [[set_timer {"minutes": 2}]] then')
+    assert calls and text[:parser.said_before] == "a <3 for you "
+
+    # …and a call in a model's own markup
+    parser = ToolTagParser()
+    text, calls = parser.push("Looking. " + LIVE_DSML + "((list_notes")
+    assert calls and text[:parser.said_before] == "Looking. "

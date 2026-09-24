@@ -50,7 +50,7 @@ from dataclasses import dataclass, field
 from yurios.kernel import correlate
 from yurios.kernel.clock import Clock
 from yurios.models import model_is_local
-from yurios.world.tools.guard import Guard, _fingerprint, failure
+from yurios.world.tools.guard import READ_ONLY, Guard, _fingerprint, failure
 from yurios.world.tooltags import native_call, strip_native_calls
 
 from .policy import DORMANT, DREAM, ENGAGED
@@ -277,9 +277,25 @@ class Offer:
     """
     tools: tuple[str, ...] = ()
     reason: str = ""
+    #: Hands she has but may not reach for on this tick — the expensive ones,
+    #: while the room is occupied or the budget is tight — and why. Named to
+    #: her rather than left out: a hand missing from the list reads as a hand
+    #: she does not have, and she wrote exactly that on her desk ("I don't have
+    #: a web tool") about a search that was only waiting for the room to empty
+    #: (SPEC §26.3).
+    held: tuple[str, ...] = ()
+    held_why: str = ""
 
     def __bool__(self) -> bool:
         return bool(self.tools)
+
+    def waiting(self) -> str:
+        """The line her prompt carries about the held hands, or ""."""
+        if not self.held:
+            return ""
+        return (f"Also yours, but not this step: {', '.join(self.held)} — "
+                f"{self.held_why}. You still have them; plan as though you "
+                "do, and leave the part that needs them for a later step.")
 
 
 @dataclass
@@ -446,6 +462,11 @@ class Hands:
         Exact, like `Guard._fingerprint`: `cozy` and `bare` are two photos she
         may well have meant, so only a byte-identical repeat is a repeat.
         """
+        if tool in READ_ONLY:
+            # Looking at her own desk again is not the loop the ledger stops:
+            # the step that reads is the cost, and it runs either way. Reading
+            # back what she just wrote is how she checks it landed.
+            return 0.0
         at = self.ledger.get(_fingerprint(tool, args))
         if at is None:
             return 0.0
@@ -483,12 +504,18 @@ class Hands:
                         and (state in (DORMANT, DREAM) or not user_present))
         tools = tuple(t for t in self.allowlist
                       if klass(t) == "cheap" or expensive_ok)
+        held = tuple(t for t in self.allowlist if t not in tools)
+        held_why = ""
+        if held:
+            held_why = (f"today's budget is past the {ceiling:g} line they "
+                        "wait behind" if pressure >= ceiling else
+                        "they wait until the room is empty")
         if not tools:
             if pressure >= ceiling:
                 return Offer(reason=f"budget pressure {pressure:.2f} is over "
                                     f"the {ceiling:g} ceiling for expensive hands")
             return Offer(reason="expensive hands wait for the room to be empty")
-        return Offer(tools=tools)
+        return Offer(tools=tools, held=held, held_why=held_why)
 
     def check(self, tool: str, args: dict | None, *, state: str,
               pressure: float, user_present: bool) -> tuple[bool, str]:
@@ -504,8 +531,8 @@ class Hands:
         if not available:
             return False, available.reason or "her hands are off"
         if tool not in available.tools:
-            if tool in self.allowlist:
-                return False, f"{tool} is not available in {state}"
+            if tool in available.held:
+                return False, f"{tool} is held back — {available.held_why}"
             return False, "not a hand she may use on her own"
         left = self.cooling(tool, args)
         if left > 0:
@@ -525,7 +552,8 @@ class Hands:
         it on the next tick because it failed is precisely the loop the ledger
         exists to stop.
         """
-        self.ledger[_fingerprint(tool, args)] = self.clock.now()
+        if tool not in READ_ONLY:
+            self.ledger[_fingerprint(tool, args)] = self.clock.now()
         today = day_of(self.clock.now())
         if self.spent.get("date") != today:
             self.spent = {"date": today, "count": 0}
@@ -665,19 +693,27 @@ def parse_intent(reply: str, *, allowed: tuple[str, ...]) -> Intent:
         if tool not in allowed:
             continue
         raw = raw.strip()
-        start, end = raw.find("{"), raw.rfind("}")
+        start = raw.find("{")
         args: dict = {}
-        if start >= 0 and end > start:
+        if start >= 0:
             try:
-                parsed = json.loads(raw[start:end + 1])
+                # The first object, not first `{` to last `}`: a second call
+                # run onto the same line (`use a {…}use b {…}`, live on GLM)
+                # spanned both and lost the first call's arguments. The second
+                # is dropped — she is asked again once the first comes back.
+                parsed, _ = json.JSONDecoder().raw_decode(raw, start)
                 args = parsed if isinstance(parsed, dict) else {}
             except ValueError:
                 # She named the hand and fumbled the JSON. An empty argument
                 # object is a call the *server* will refuse with a sentence she
                 # can read next tick, which beats guessing what she meant.
                 args = {}
-        return Intent("use", tool=tool, args=args,
-                      text=_thought(lines[:index] + lines[index + 1:]))
+        # Her reason is what she wrote above the call. What comes after it was
+        # written before any result existed: live, GLM followed a `use` line
+        # with "Result: …" it had made up, and with "the note is there" about
+        # a read that had not run — kept, that was her reason for the call and
+        # a place a done-mark could be (SPEC §26.2).
+        return Intent("use", tool=tool, args=args, text=_thought(lines[:index]))
     # everything else — including a plain paragraph — is her thinking
     return Intent("think", text=_thought(lines))
 
@@ -723,7 +759,7 @@ def build_guard(cfg, clock: Clock) -> Guard | None:
     rates = {}
     for name in names:
         if name in NEEDS_WEB:
-            rates[name] = int(getattr(cfg, "tool_rate_mind_web", 1))
+            rates[name] = int(getattr(cfg, "tool_rate_mind_web", 4))
         elif name in NEEDS_CAMERA:
             rates[name] = int(getattr(cfg, "tool_rate_mind_camera", 1))
         elif klass(name) == "cheap":

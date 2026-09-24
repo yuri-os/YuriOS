@@ -397,16 +397,24 @@ class ToolTagParser:
     _angle: str = ""
     #: A native markup block being read, or None (see `_DSML` above).
     _native: str | None = None
+    #: How much of the last `push`'s speakable text came before the first call
+    #: that closed in it, or None when none did. A caller that ends its pass on
+    #: that call keeps only this much: the model has often started on what it
+    #: expects next in the same chunk — a `((` copying the tool-result line,
+    #: which reached her reply as words (SPEC §7.4).
+    said_before: int | None = None
 
     def push(self, token: str) -> tuple[str, list[ToolCall]]:
         out = ""
         new_calls: list[ToolCall] = []
+        cut: int | None = None
         for index, ch in enumerate(token):
             if self._native is not None:
                 call = self._native_push(ch)
                 if call is not None:
                     self.calls.append(call)
                     new_calls.append(call)
+                    cut = len(out) if cut is None else cut
                 continue
             if self._angle:
                 self._angle += ch
@@ -417,7 +425,10 @@ class ToolTagParser:
                     # again — it may open a marker of its own.
                     held, self._angle = self._angle[1:], ""
                     more, calls = self.push(held + token[index + 1:])
+                    if cut is None and calls:
+                        cut = len(out) + 1 + (self.said_before or 0)
                     new_calls += calls
+                    self.said_before = cut
                     return out + "<" + more, new_calls
                 continue
             if self._after:                       # leftover brackets, never spoken
@@ -444,6 +455,7 @@ class ToolTagParser:
                         if call is not None:
                             self.calls.append(call)
                             new_calls.append(call)
+                            cut = len(out) if cut is None else cut
                         else:
                             self.dropped += 1
                     self._in_marker, self._buf = False, ""
@@ -465,6 +477,7 @@ class ToolTagParser:
                 self._angle = "<"
             else:
                 out += ch
+        self.said_before = cut
         return out, new_calls
 
     def _native_push(self, ch: str) -> ToolCall | None:

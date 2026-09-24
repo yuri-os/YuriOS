@@ -328,8 +328,10 @@ class Config(VoiceConfig):
     # its own buckets, not a share of conversation's: a night of autonomous
     # work must not leave the morning's request denied, and the reverse must
     # hold too. Conservative on purpose — these are ticks, not a conversation.
+    # Web matches the desk because a step chains (§26.2): at one a minute, a
+    # step got one search and one page and the rest were refused.
     tool_rate_mind_desk: int = 4                # calls/minute
-    tool_rate_mind_web: int = 1
+    tool_rate_mind_web: int = 4
     tool_rate_mind_camera: int = 1
     tool_rate_mind_other: int = 1               # anything else on the allowlist
 

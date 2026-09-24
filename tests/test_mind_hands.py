@@ -278,6 +278,9 @@ async def test_budget_pressure_sheds_the_expensive_hands_and_keeps_the_cheap(
     assert over.tools == ("write_note",), "expensive hands wait for the budget"
     under = rig.mind.hands.offer(state="DORMANT", pressure=0.1, user_present=False)
     assert set(under.tools) == {"write_note", "research"}
+    # …and she is told which ones wait, and on what
+    assert over.held == ("research",) and "budget" in over.held_why
+    assert under.held == () and under.waiting() == ""
 
 
 async def test_expensive_hands_wait_for_an_empty_room(cfg, seeded_vault):
@@ -287,6 +290,58 @@ async def test_expensive_hands_wait_for_an_empty_room(cfg, seeded_vault):
     assert watched.tools == ("write_note",)
     alone = rig.mind.hands.offer(state="IDLE", pressure=0.0, user_present=False)
     assert "research" in alone.tools
+
+
+async def test_a_hand_that_waits_is_named_to_her_not_left_out(cfg, seeded_vault):
+    """Left off the list, a web hand read as one she does not have: live, she
+    wrote "I don't have a web-browsing tool" on her desk about a search that
+    was only waiting for the room to empty. Named, it is one she has later."""
+    from yurios.mind.goalwork import work_system
+    rig = rig_with_hands(cfg, seeded_vault, allow="write_note,web_search",
+                         search_backend="fake")
+    goal = rig.mind.goals.add("find out about the tiles", kind="task")
+    watched = rig.mind.hands.offer(state="IDLE", pressure=0.0, user_present=True)
+    assert watched.held == ("web_search",)
+
+    system = work_system(rig.mind, goal, watched, False)
+    assert "use write_note" in system
+    assert "use web_search" not in system, "still not offered this step"
+    assert "Also yours, but not this step: web_search" in system
+    assert "until the room is empty" in system
+    # …and a reach for it anyway is refused with the same reason, not a state
+    ok, why = rig.mind.hands.check("web_search", {"query": "tiles"}, state="IDLE",
+                                   pressure=0.0, user_present=True)
+    assert not ok and why == ("web_search is held back — they wait until the "
+                              "room is empty")
+
+
+async def test_a_step_reads_back_what_it_just_wrote(cfg, seeded_vault):
+    """The ledger stops a goal repeating a call hourly; reading her own desk is
+    not that loop. Live, a step wrote a note and was refused the read that
+    checked it — "360 min of cooldown left" — because a failed read of the
+    same path, a moment earlier, was booked like a web search."""
+    note = '{"path": "notes/n.md"}'
+    rig = rig_with_hands(
+        cfg, seeded_vault,
+        f"use read_note {note}",
+        'use write_note {"path": "notes/n.md", "text": "x"}',
+        f"use read_note {note}",
+        "think it landed",
+        f"use read_note {note}",
+        "think still there",
+        allow="write_note,read_note")
+    rig.mind.goals.add("keep a note", kind="task", priority=0.95,
+                       meta={"steps": -20})
+
+    await work(rig, ticks=2)
+    assert [c[0] for c in rig.runner.calls] == \
+        ["read_note", "write_note", "read_note", "read_note"]
+    assert not [a for a in audit_lines(rig) if a["verdict"].startswith("denied")]
+    # the write is still on the ledger; the reads never were
+    assert rig.mind.hands.cooling("write_note",
+                                  {"path": "notes/n.md", "text": "x"}) > 0
+    assert rig.mind.hands.cooling("read_note", {"path": "notes/n.md"}) == 0.0
+    assert rig.mind.hands.spent["count"] == 4, "every read still counts to the cap"
 
 
 async def test_a_hand_the_house_never_installed_is_not_on_the_allowlist(
@@ -625,6 +680,13 @@ DSML_READ = ('\n\n<｜DSML｜ calls>\n<｜DSML｜ invoke name="read_note">\n'
              '</｜DSML｜ parameter>\n</｜DSML｜ invoke>\n</｜DSML｜ calls>')
 
 
+def test_a_second_call_run_onto_the_line_does_not_eat_the_first_ones_args():
+    reply = ('use list_notes {"folder": "notes"}'
+             'use read_note {"path": "reports/a.md"}')
+    intent = parse_intent(reply, allowed=("list_notes", "read_note"))
+    assert (intent.tool, intent.args) == ("list_notes", {"folder": "notes"})
+
+
 def test_a_reach_in_deepseek_markup_is_the_call_she_meant():
     """No tools are ever declared, so DeepSeek sometimes writes its native
     markup instead of the `use` line. It is still a reach, not a thought —
@@ -664,6 +726,18 @@ def test_a_reach_keeps_the_reason_she_wrote_beside_it():
     assert intent.kind == "use" and intent.tool == "write_note"
     assert intent.text == ("I don't have the exact quote yet, so I'll leave a "
                            "placeholder.")
+
+
+def test_what_she_writes_below_a_call_is_not_her_reason_for_it():
+    """Verbatim shape from GLM, 25 Sep: a result invented before the call ran."""
+    intent = parse_intent(
+        "think time to search\n"
+        'use web_search {"query": "Artemis September 2026"}Result:\n\n'
+        "1. Artemis III crew continues training\n"
+        "think found it all — goal complete",
+        allowed=("web_search",))
+    assert (intent.kind, intent.tool) == ("use", "web_search")
+    assert intent.text == "time to search"
 
 
 def test_the_done_mark_is_read_off_a_reach_as_well_as_a_thought():

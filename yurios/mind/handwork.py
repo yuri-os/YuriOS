@@ -190,8 +190,11 @@ class LoopHands:
         if not offer:
             return await ask(messages)
         cap = int(getattr(self.loop.cfg, "tool_max_calls_per_turn", 1))
+        catalog = Hands.rows(offer.tools)
+        if offer.waiting():
+            catalog += "\n\n" + offer.waiting()
         messages[0]["content"] = (messages[0].get("content") or "") + "\n\n" + \
-            HANDS_BEFORE_ANSWER.format(cap=cap, catalog=Hands.rows(offer.tools))
+            HANDS_BEFORE_ANSWER.format(cap=cap, catalog=catalog)
         worked = await work(self.loop, messages, offer=offer, ask=ask, cap=cap)
         return worked.answer.text
 

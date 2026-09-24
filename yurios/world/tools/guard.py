@@ -31,6 +31,13 @@ RESULT_LIMITS = {
     "list_notes": 5_000,
 }
 
+#: Hands that only look at her own desk. Reading a note twice changes nothing
+#: and costs nothing, and reading it again after writing to it is how she checks
+#: the write landed — so neither dedupe may refuse a read that follows a change
+#: (SPEC §7.3). A repeat with nothing in between is still a repeat.
+READ_ONLY = frozenset({"read_note", "list_notes", "count_note_lines",
+                       "read_skill"})
+
 
 def _fingerprint(tool: str, args: dict | None) -> str:
     """What counts as "the same call". Exact, deliberately: `cozy` and `bare`
@@ -129,7 +136,8 @@ class Guard:
         # reaches for the camera again. The rate limit can't catch it (a burst
         # of two is what the bucket is *for*), and the per-turn cap only bounds
         # how many duplicates land. Checked before the bucket, so a repeat costs
-        # her nothing but the answer.
+        # her nothing but the answer. A read is only a repeat until something
+        # else runs (`READ_ONLY`).
         fp = _fingerprint(tool, args) if turn is not None else ""
         if turn is not None and fp in turn.seen:
             return False, "already done this turn"
@@ -142,6 +150,11 @@ class Guard:
             return False, "rate limit"
         b["tokens"] -= 1.0
         if turn is not None:          # only a call she actually got to make
+            if tool not in READ_ONLY:
+                # Anything else may have changed what a read would return, so
+                # the reads before it stop counting as already done.
+                turn.seen = {seen for seen in turn.seen
+                             if seen.partition("\0")[0] not in READ_ONLY}
             turn.seen.add(fp)
         return True, ""
 

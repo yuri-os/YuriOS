@@ -463,6 +463,10 @@ class ToolBrain(BrainAdapter):
                 async for token in stream:
                     raw.append(token)
                     speak, closed = parser.push(token)
+                    if closed and armed:
+                        # The pass ends at the call, so nothing after it in
+                        # this chunk is hers to say yet (tooltags.said_before).
+                        speak = speak[:parser.said_before]
                     if speak and echo is not None:
                         speak = echo.push(speak)
                     if speak:

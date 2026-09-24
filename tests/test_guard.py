@@ -56,6 +56,23 @@ def test_a_denied_duplicate_costs_no_rate_budget(clock, cfg):
     assert guard.check("set_timer", {"minutes": 5}, turn=turn)[0]
 
 
+def test_a_read_after_a_change_is_not_a_repeat(clock, cfg):
+    """Read, write, read it back: the second read is how she checks the write
+    landed, and the dedupe used to refuse it as "already done this turn"."""
+    guard = Guard(rates_per_min={"read_note": 20, "write_note": 20},
+                  log_dir=cfg.tool_log_dir, clock=clock)
+    turn = guard.turn()
+    note, text = {"path": "n.md"}, {"path": "n.md", "text": "x"}
+    assert guard.check("read_note", note, turn=turn)[0]
+    ok, reason = guard.check("read_note", note, turn=turn)
+    assert not ok and reason == "already done this turn", \
+        "with nothing in between, a read is still a repeat"
+    assert guard.check("write_note", text, turn=turn)[0]
+    assert guard.check("read_note", note, turn=turn)[0]
+    # …and a change clears only the reads: the same write twice is still one
+    assert not guard.check("write_note", dict(text), turn=turn)[0]
+
+
 def test_check_without_a_turn_keeps_the_old_two_rule_behaviour(guard):
     assert guard.check("set_timer", {"minutes": 10})[0]
     assert guard.check("set_timer", {"minutes": 10})[0]

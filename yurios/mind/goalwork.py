@@ -363,6 +363,8 @@ def work_system(loop, goal: Goal, offer, last: bool) -> str:
     ]
     if offer:
         lines.append(loop.hands.catalog(tuple(offer.tools)))
+        if offer.waiting():
+            lines += ["", offer.waiting()]
     else:
         lines.append(
             "Write a short working note (<=80 words) of what you concluded "

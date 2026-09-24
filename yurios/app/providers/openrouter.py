@@ -26,6 +26,13 @@ from yurios.app.providers.usage import chunk_prompt_tokens, chunk_text
 
 log = logging.getLogger("app.providers")
 
+# LiteLLM asks itself whether a model supports reasoning on every call, and for
+# an OpenRouter id missing from its price map (z-ai/glm-5.2, say) that question
+# raises inside LiteLLM, is caught there, and first prints a red "Provider List"
+# banner straight to stdout — thousands of lines in the daemon log, none of them
+# about a failed request. A real failure still reaches us as an exception.
+litellm.suppress_debug_info = True
+
 
 def _route(model: str) -> str:
     """Prefix for LiteLLM's OpenRouter routing, unless the caller already routed

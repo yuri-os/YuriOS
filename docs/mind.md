@@ -648,16 +648,16 @@ MIND_IDLE_TIMEOUT_S=3600          # away this long → DORMANT
 MIND_DREAM_START_HOUR=2
 MIND_DREAM_END_HOUR=6
 
-# her hands in the loop (SPEC §26) — inert until the first is true
-MIND_TOOLS_ENABLED=false          # house switch: may anything on this machine act unasked?
+# her hands in the loop (SPEC §26) — the first line switches all of it off
+MIND_TOOLS_ENABLED=true           # house switch: may anything on this machine act unasked?
 MIND_TOOLS_DURING_CHAT=auto       # auto | on | off — stand down mid-conversation only when the utility model is local
-MIND_TOOL_ALLOWLIST=              # explicit names; empty even when the switch is on
-MIND_TOOL_CALLS_PER_DAY=8         # a cap, checked before the call
+MIND_TOOL_ALLOWLIST=*             # every hand this machine can offer; or explicit names, empty for none
+MIND_TOOL_CALLS_PER_DAY=64        # a cap, checked before the call
 MIND_TOOL_PRESSURE_CEILING=0.5    # over it, the expensive hands are not offered
 MIND_TOOL_COOLDOWN_CHEAP_S=21600  # desk / set_timer fingerprint (six hours)
 MIND_TOOL_COOLDOWN_EXPENSIVE_S=172800  # web / camera (two days)
 TOOL_RATE_MIND_DESK=4             # the mind's own buckets, not conversation's
-TOOL_RATE_MIND_WEB=1
+TOOL_RATE_MIND_WEB=4
 TOOL_RATE_MIND_CAMERA=1
 TOOL_RATE_MIND_OTHER=1
 ```

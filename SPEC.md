@@ -768,6 +768,13 @@ to every new subscriber before its first live event. Malformed JSON is logged an
   her own (any correlate kind but a reply, a greeting, a murmur or a reach-out) is marked
   `background` and drawn quieter. A call made mid-reply lands above the words still arriving.
 
+  **One reply is one dedupe scope** (`Guard.turn()`): the same tool with byte-identical arguments
+  twice in one reply is refused as *already done this turn*, costing no rate budget. The read-only
+  desk hands (`READ_ONLY`: `read_note`, `list_notes`, `count_note_lines`, `read_skill`) are a
+  repeat only while nothing else has run: any other call admitted in the same reply **MUST** clear
+  them from the scope, because reading a note back after changing it is how she checks the change
+  landed, and refusing that read is refusing the check.
+
   **The mind gets a second Guard, not a share of this one** (§26). Its `rates_per_min` is built
   from `TOOL_RATE_MIND_*` over `MIND_TOOL_ALLOWLIST` alone, so a night of autonomous work cannot
   leave the morning's request rate-limited and the reverse holds too. Both instances **MUST** write
@@ -776,7 +783,10 @@ to every new subscriber before its first live event. Malformed JSON is logged an
   "what did she reach for on her own" filter. The conversational `Turn` dedupe has no counterpart
   here, because the mind has ticks rather than turns; its scope is a **persistent fingerprint
   ledger** in `state/engine.json`, per-tool and never shorter than `MIND_CONSIDER_COOLDOWN_S` — a
-  cooldown that expires before the goal is re-appraised is not a cooldown.
+  cooldown that expires before the goal is re-appraised is not a cooldown. The `READ_ONLY` hands
+  **MUST NOT** be booked on it: the loop the ledger stops is a goal re-making one call every hour,
+  and re-reading her own desk makes nothing — the step that reads is the cost, and it runs either
+  way. They still count against `MIND_TOOL_CALLS_PER_DAY` (§26.4).
 - §7.4 **The in-stream call protocol.** A `## TOOLS` block appended to the system prompt
   instructs the model: speak a short lead-in sentence first, then emit `[[tool_name {"arg":
   value}]]`. The streaming parser (`yurios/world/tooltags.py`) **MUST** strip markers from
@@ -816,6 +826,9 @@ to every new subscriber before its first live event. Malformed JSON is logged an
   "continue from where you left off" as "say it again, then continue", so the echo is matched
   against that pass and dropped (`_EchoSkipper`). Matching **MUST** hold rather than swallow, so
   a continuation that merely *opens* the same way is released whole and never begins mid-clause.
+  A pass ends at the call it closes, so words that arrive after that call in the same streamed
+  chunk **MUST NOT** be spoken (they stay in the verbatim record): the model has often started on
+  what it expects next, and live that was a `((` copying the tool-result line into her reply.
   First audio **MUST NOT** wait on a tool: the lead-in sentence reaches TTS before the call runs.
   Barge-in **MUST** cancel the continuation, and a barged-in tool turn persists nothing.
   The block lists each discovered tool with its **whole** description, unwrapped to one line: a
@@ -2342,7 +2355,9 @@ needs a sandbox.
   hands go: she answers with a `use` line, the hand runs through every precondition below, its
   result comes back as the next message, and she is asked again — until she ends on prose or
   `TOOL_MAX_CALLS_PER_TURN` calls are spent, past which a `use` line is dropped rather than run
-  (`mind/handwork.py`). A done-mark beside any call in the step finishes the goal. Work that
+  (`mind/handwork.py`). A done-mark beside any call in the step finishes the goal. What she wrote
+  *above* a `use` line is her reason for it; lines *below* it **MUST** be discarded, because they
+  were written before the result existed — live, they were results she had invented. Work that
   finishes off-tick (§7.6) ends a goal step early, and the goal waits for it. A research night
   (§21.2a) offers her other hands in its rounds beside the web moves, each costing a move, and
   never `research` itself. The trace names every call with its verdict — `ok`, `denied` or
@@ -2361,7 +2376,12 @@ needs a sandbox.
   (`research`, `read_page`, `web_search`, the two cameras) is one whole tick's intention and
   additionally requires its backend to be configured, budget pressure under the ceiling, and
   DORMANT/DREAM **or** the user absent — including while she is talking, when the cheap hands are
-  not standing down.
+  not standing down. An expensive hand held back on those grounds while cheap ones are offered
+  **MUST** still be named in the step's prompt, as hers but waiting, with the reason (the room, or
+  the budget); a hand simply missing from the list reads as one she does not have, and live she
+  wrote on her desk that she had no web tool about a search that was only waiting for the room to
+  empty. A reach for a held hand anyway is refused with that same reason, not with the activity
+  state.
   Her tool server is spawned unawaited (§7.2), so the mind starts before her hands exist, and
   the first tick after a restart is the one carrying the suspend gap and every overdue wakeup.
   When her hands could be offered at all, that first tick **MUST** wait for discovery to answer —

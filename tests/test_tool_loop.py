@@ -49,6 +49,25 @@ async def test_one_call_result_reaches_the_continuation(cfg, guard, timers,
     assert json.loads(outcomes[0]["result"])["seconds"] == 600
 
 
+async def test_what_follows_the_call_in_its_chunk_is_not_said(cfg, guard, timers,
+                                                             controller):
+    """Live on GLM: the stream sent `…]]((` in one chunk — the model starting on
+    the `((… returned` line it expects next — and the `((` was spoken, because
+    the pass ended at the call only after the whole chunk had been passed on."""
+    chat = ScriptedChat([
+        ["Sure — one sec. ", TIMER_MARKER + "((set_timer returned"],
+        ["Ten minutes, counting."],
+    ])
+    tb = make_toolbrain(cfg, guard, timers, controller, chat,
+                        runner=FakeToolRunner())
+    raw: list[str] = []
+    spoken = "".join(await collect(tb._stream_with_tools(
+        [{"role": "user", "content": "set a tea timer"}], raw)))
+    assert spoken == "Sure — one sec. Ten minutes, counting."
+    assert chat.calls[1][-2]["content"] == "Sure — one sec. "
+    assert "((set_timer returned" in "".join(raw), "the verbatim record keeps it"
+
+
 async def test_per_turn_cap_second_call_runs_third_denied(cfg, guard, timers,
                                                           controller):
     cfg = cfg.model_copy(update={"tool_max_calls_per_turn": 2})

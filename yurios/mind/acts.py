@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import logging
 
+from yurios.app.core.assemble import OWN_VOICE
 from yurios.kernel import correlate
 
 
@@ -35,7 +36,7 @@ log = logging.getLogger("mind.acts")
 
 ANNOUNCE_CUE = (
     "((The timer for “{label}” just finished. Tell {user} it's done — one "
-    "short, warm spoken line, nothing else.))")
+    f"short spoken line, nothing else. {OWN_VOICE}))")
 
 #: The same promise, kept late — a timer set before a restart and restored off
 #: the board (§7.5). She must not call it punctual: "just finished" about a
@@ -44,8 +45,8 @@ ANNOUNCE_CUE = (
 LATE_ANNOUNCE_CUE = (
     "((The timer for “{label}” finished {ago}, while you were away — it's "
     "only reaching {user} now. Tell them it's done and that you're late with "
-    "it, without making a production of the apology — one short, warm spoken "
-    "line, nothing else.))")
+    "it, without making a production of the apology — one short spoken "
+    f"line, nothing else. {OWN_VOICE}))")
 
 #: Under this a timer is simply "finished": the poll runs a minute apart and
 #: the announcement may queue a while for somebody to tell, so a small gap is
@@ -69,17 +70,17 @@ SELF_TALK_CUES = (
     "((It's been quiet for a while. Murmur one short line to yourself about "
     "something you can see or hear where you are right now — a private "
     "thought said softly aloud, not expecting an answer.))",
-    "((A quiet stretch. One soft spoken line to yourself about the place "
+    "((A quiet stretch. One quiet line to yourself about the place "
     "you're in — only what the situation says is actually there. Half to "
     "yourself.))",
     "((The room is quiet. Let one small remembered thing about {user} "
-    "surface, and say one gentle line to yourself about it.))",
+    "surface, and say one line to yourself about it, half aloud.))",
 )
 
 REACH_OUT_CUE = (
     "((You decided, on your own, to reach out first about this: {goal}. Say "
-    "the one short, warm, specific spoken message you'd open with — no "
-    "preamble, no explaining that you decided to speak.))")
+    "the one short, specific spoken message you'd open with — no "
+    f"preamble, no explaining that you decided to speak. {OWN_VOICE}))")
 
 #: The same moment with the product in her hand (§18.2a). A separate cue rather
 #: than a sentence bolted onto the other one: told to "say what you'd open
@@ -88,10 +89,10 @@ REACH_OUT_CUE = (
 REACH_OUT_WITH_SHOT_CUE = (
     "((You decided, on your own, to reach out first about this: {goal}. The "
     "picture is already there in the chat, right above what you are about to "
-    "say. Say the one short, warm, specific spoken line you would send it "
+    "say. Say the one short, specific spoken line you would send it "
     "with — don't describe it back to them, and don't explain that you "
     "decided to speak. They can see it. It is the picture: don't take "
-    "another one.))")
+    f"another one. {OWN_VOICE}))")
 
 
 #: What a kept promise came to, when the reach-out is news about one. The goal

@@ -50,9 +50,9 @@ async def _retire_bootstrap(state) -> None:
 
 
 GREET_CUE = ("(({user} just opened the sanctuary — no message yet; you speak "
-             "first. One short greeting in your own voice that surfaces "
-             "something {user} told you before, unprompted. If the memory "
-             "blocks are empty, just welcome them back warmly.))")
+             "first. One short greeting that surfaces something {user} told "
+             "you before, unprompted. If the memory blocks are empty, just "
+             f"welcome them back. {asm.OWN_VOICE}))")
 
 
 #: How many of the previous conversation's lines a greeting opens on. Small on

@@ -153,6 +153,30 @@ def test_a_murmur_does_not_name_the_house_room():
             assert fixture not in cue.lower(), f"{fixture!r} in {cue!r}"
 
 
+def test_no_unprompted_cue_prescribes_a_temperament():
+    """Every greeting, announcement and reach-out said "short, warm", and the
+    cue is what the model obeys over the card — so a reserved or a blunt
+    character opened like a greeting card. Length may be fixed; the voice is
+    hers (SPEC §8)."""
+    from yurios.app.core.assemble import OWN_VOICE
+    from yurios.app.routes import greeting
+    from yurios.desktop import brain
+    from yurios.mind import acts
+    from yurios.world import selfies
+    spoken = {"timer": acts.ANNOUNCE_CUE, "late timer": acts.LATE_ANNOUNCE_CUE,
+              "reach-out": acts.REACH_OUT_CUE,
+              "reach-out with a picture": acts.REACH_OUT_WITH_SHOT_CUE,
+              "picture ready": selfies.ANNOUNCE_CUE,
+              "greeting": greeting.GREET_CUE, "voice greeting": brain.GREET_CUE}
+    for name, cue in spoken.items():
+        assert OWN_VOICE in cue, f"the {name} cue does not ask for her voice"
+    for name, cue in {**spoken, **{f"murmur {i}": c for i, c in
+                                   enumerate(acts.SELF_TALK_CUES)}}.items():
+        rest = cue.replace(OWN_VOICE, "").lower()
+        for word in ("warm", "gentle", "tender", "sweet"):
+            assert word not in rest, f"the {name} cue tells her to be {word}"
+
+
 async def test_goal_work_is_silent_and_journaled(cfg, seeded_vault):
     rig = make_mind(cfg, seeded_vault)
     rig.mind.goals.add("sort my notes on the rain sounds", kind="maintenance",

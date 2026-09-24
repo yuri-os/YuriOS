@@ -42,6 +42,7 @@ import logging
 from pathlib import Path
 from typing import Awaitable, Callable, Optional
 
+from ..app.core.assemble import OWN_VOICE
 from ..kernel.clock import Clock
 from .vram import (
     cancel_idle_unload,
@@ -79,7 +80,7 @@ def book_path(own: str | Path | None) -> Path:
 # the two she reached for.
 ANNOUNCE_CUE = (
     "((The {noun} you just took is ready — it's visible in the chat now "
-    "({detail}). Say one short, warm line about it, nothing else.))")
+    f"({{detail}}). Say one short line about it, nothing else. {OWN_VOICE}))")
 
 
 class CameraUnavailable(RuntimeError):

@@ -1086,7 +1086,11 @@ acts of the tick loop (§15.5), and the body micro-acts (gaze drift, expression 
 rain-gazing) survive as REGULATE-owned reflexes on a seeded RNG and the same config windows
 (`IDLE_ACT_*`, `IDLE_TALK_*`, `IDLE_SETTLE_S`). The obligations of ambient speech survive as
 obligations on the mind, cited from §15: sim-time discipline (§15.1), an ambient line is a real
-turn minus the memory (§9), and the per-connection ambient seam (§9). With `MIND_ENABLED=false`
+turn minus the memory (§9), and the per-connection ambient seam (§9). The cue behind an unprompted
+line — a greeting, a murmur, an announcement, a reach-out — **MUST NOT** prescribe a temperament
+("warm", "gentle"): the cue is the instruction the model follows over the card above it, so a
+house adjective there makes every character sound like the house companion. It asks for the voice
+the character really has (`assemble.OWN_VOICE`) and may still fix length. With `MIND_ENABLED=false`
 the body still has cheap client-side aliveness (§3.5) but no host-driven ambient life.
 
 ## §9 — The voice loop

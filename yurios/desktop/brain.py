@@ -42,9 +42,9 @@ log = logging.getLogger("desktop.brain")
 GREETING_LOOKBACK = 6
 
 GREET_CUE = ("(({user} just opened the sanctuary and put their headset on — no "
-             "words yet; you speak first. One short, warm spoken greeting in your "
-             "own voice that surfaces something {user} told you before. Lead with "
-             "an expression tag.))")
+             "words yet; you speak first. One short spoken greeting that "
+             "surfaces something {user} told you before. "
+             f"{asm.OWN_VOICE} Lead with an expression tag.))")
 
 
 @dataclass

@@ -286,6 +286,15 @@ day, your thinking, done alone with nobody waiting. Answer as yourself, in your 
 own voice, the way you would if {{user}} could hear you."""
 
 
+#: How an unprompted line — a greeting, a murmur, an announcement, a reach-out —
+#: is told to sound. Each cue used to say "short, warm", and the cue is the
+#: instruction the model follows, not the card above it: a reserved or a blunt
+#: character opened every conversation like a greeting card (SPEC §8). One
+#: phrase so the seven cues cannot drift back apart.
+OWN_VOICE = ("Say it the way you really would — tender, teasing, reserved, "
+             "blunt or bright, whichever you are — not generically warm.")
+
+
 def soul_preamble(soul: Soul, *, user_md: str = "", user_name: str = "you",
                   full: bool = True) -> str:
     """The identity half of §7.1, for a prompt that is not a turn.

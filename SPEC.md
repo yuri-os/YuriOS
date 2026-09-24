@@ -1504,7 +1504,10 @@ surface between turns.
   through the `TimerBoard` (whose landed timers arrive as `timer` signals; an announcement is a
   promise and **MUST** queue until deliverable). The **self-talk murmur** survives as a decided
   impulse: only in IDLE, only with the user present, only after the configured quiet window —
-  and dropped, never queued, when nobody can hear. The **body reflexes** (gaze drift, expression
+  and dropped, never queued, when nobody can hear. Its cue **MUST NOT** name a place: where she
+  is comes from the situation block (§2.5) the ambient prompt already carries, so a cue that names
+  the shipped companion's lamp and window seat tells every other character to murmur about
+  furniture she does not have. The **body reflexes** (gaze drift, expression
   pulse, posture, rain-gazing at the scene's canonical window target) survive as REGULATE-owned
   reflexes: no model, no journal, seeded RNG, silent while engaged, while the room is empty, and
   in DORMANT/DREAM.

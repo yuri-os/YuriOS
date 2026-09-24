@@ -143,6 +143,16 @@ async def test_self_talk_needs_company_and_a_long_quiet(cfg, seeded_vault):
     assert trace2["decided"]["intention"] != "self_talk"
 
 
+def test_a_murmur_does_not_name_the_house_room():
+    """The cues named the shipped companion's room, so an imported character
+    was told to murmur about a lamp and a window seat she doesn't have. Her
+    place comes from the situation block the ambient prompt already carries."""
+    from yurios.mind.acts import SELF_TALK_CUES
+    for cue in SELF_TALK_CUES:
+        for fixture in ("rain", "lamp", "plant", "window seat", "this room"):
+            assert fixture not in cue.lower(), f"{fixture!r} in {cue!r}"
+
+
 async def test_goal_work_is_silent_and_journaled(cfg, seeded_vault):
     rig = make_mind(cfg, seeded_vault)
     rig.mind.goals.add("sort my notes on the rain sounds", kind="maintenance",

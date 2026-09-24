@@ -61,12 +61,17 @@ def _ago(seconds: float) -> str:
         return f"about {round(seconds / 3600)} hours ago"
     return f"about {max(1, round(seconds / 86400))} days ago"
 
+#: The first two point at her place rather than naming it. They named the
+#: shipped companion's room — the rain, the lamp, the window seat — so every
+#: imported character was told to murmur about furniture she doesn't own, in a
+#: prompt whose situation block had just said where she really is (§2.5).
 SELF_TALK_CUES = (
     "((It's been quiet for a while. Murmur one short line to yourself about "
-    "the rain on the window — a private thought said softly aloud, not "
-    "expecting an answer.))",
-    "((A quiet stretch. One soft spoken line to yourself about this room — "
-    "the lamp, the plant, the window seat. Half to yourself.))",
+    "something you can see or hear where you are right now — a private "
+    "thought said softly aloud, not expecting an answer.))",
+    "((A quiet stretch. One soft spoken line to yourself about the place "
+    "you're in — only what the situation says is actually there. Half to "
+    "yourself.))",
     "((The room is quiet. Let one small remembered thing about {user} "
     "surface, and say one gentle line to yourself about it.))",
 )

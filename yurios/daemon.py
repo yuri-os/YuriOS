@@ -42,6 +42,7 @@ except ImportError:                   # pragma: no cover - not a supported host
 
 _PID_RETRY_SECONDS = 0.05
 _PID_RETRIES = 5
+_LOCK_RETRIES = 5
 # A child that survives this long counts as a real run: the backoff resets and
 # the crash-loop budget is refilled.
 HEALTHY_SECONDS = 30.0
@@ -103,8 +104,10 @@ class Lock:
     def release(self) -> None:
         if self._fd < 0:
             return
-        # Unlink first: while the lock is still held nobody can be mid-acquire,
-        # so no other daemon's file can be removed by mistake.
+        # Unlink first, so no other daemon's file can be removed by mistake:
+        # whoever creates the next one does so after this line. Someone who
+        # opened *this* file just before it may still lock it once we let go —
+        # `acquire` notices it holds a file no longer at the path and retries.
         self.path.unlink(missing_ok=True)
         try:
             if fcntl is not None:
@@ -123,20 +126,37 @@ def acquire(root: Path) -> Lock | None:
     """
     path = pid_path(root)
     path.parent.mkdir(parents=True, exist_ok=True)
-    fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o644)
-    try:
-        if fcntl is not None:
-            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        elif running_pid(path) is not None:   # best effort without flock
+    for _ in range(_LOCK_RETRIES):
+        fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o644)
+        try:
+            if fcntl is not None:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                if not _still_at(fd, path):
+                    # The holder released between our open and our lock: what we
+                    # hold is its unlinked file, which the next start can't see.
+                    os.close(fd)
+                    continue
+            elif running_pid(path) is not None:   # best effort without flock
+                os.close(fd)
+                return None
+            os.ftruncate(fd, 0)
+            os.write(fd, f"{os.getpid()}\n".encode())
+            os.fsync(fd)
+        except OSError:
             os.close(fd)
             return None
-        os.ftruncate(fd, 0)
-        os.write(fd, f"{os.getpid()}\n".encode())
-        os.fsync(fd)
-    except OSError:
-        os.close(fd)
-        return None
-    return Lock(fd, path)
+        return Lock(fd, path)
+    return None
+
+
+def _still_at(fd: int, path: Path) -> bool:
+    """Whether the file open on `fd` is the one `path` names now."""
+    try:
+        here = os.stat(path)
+    except FileNotFoundError:
+        return False
+    held = os.fstat(fd)
+    return (held.st_dev, held.st_ino) == (here.st_dev, here.st_ino)
 
 
 def running_pid(path: Path) -> int | None:

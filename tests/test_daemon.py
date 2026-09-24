@@ -190,6 +190,33 @@ def test_the_runtime_lock_admits_one_start(tmp_path):
     assert daemon.acquire(tmp_path) is not None            # released, so free again
 
 
+def test_a_lock_on_a_file_released_under_it_is_retaken_on_the_live_one(tmp_path, monkeypatch):
+    """A start that opens the pid file just before the old holder unlinks and
+    releases it would otherwise lock a file no longer at the path — and the
+    next start, finding no file, would create one and lock that too: two
+    daemons, each sure it is the only one."""
+    import fcntl
+    real = fcntl.flock
+    raced = []
+
+    def flock(fd, op):
+        if op & fcntl.LOCK_EX and not raced:
+            raced.append(fd)
+            daemon.pid_path(tmp_path).unlink()    # the old holder's release lands here
+        return real(fd, op)
+
+    monkeypatch.setattr(fcntl, "flock", flock)
+    lock = daemon.acquire(tmp_path)
+    try:
+        assert lock is not None and raced
+        path = daemon.pid_path(tmp_path)
+        held, here = os.fstat(lock._fd), os.stat(path)
+        assert (held.st_dev, held.st_ino) == (here.st_dev, here.st_ino)
+        assert daemon.acquire(tmp_path) is None            # the next start sees her
+    finally:
+        lock.release()
+
+
 # ---- restarts and the reason she stopped -----------------------------------
 
 def test_the_supervisor_restarts_her_and_records_why(tmp_path, monkeypatch, restore_signals):

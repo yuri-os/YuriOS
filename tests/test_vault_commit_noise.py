@@ -305,3 +305,32 @@ def test_the_mind_vault_passes_the_door_through(seeded_vault):
     v.commit_if_dirty("tick 92: file a goal")
     assert _log(seeded_vault)[0] == "dreams: edited nightly", \
         "a tick jumped the window"
+
+
+def test_a_failed_commit_is_retried_and_said_out_loud(seeded_vault, monkeypatch, caplog):
+    """A commit that fails in a real repo — a stale index.lock, ownership, a full
+    disk — must leave the Vault dirty so the next call tries again, and must not
+    be a debug line: that is a history that has stopped being written."""
+    v = MindVault(seeded_vault)
+    before = _log(seeded_vault)
+    lock = seeded_vault / ".git" / "index.lock"
+    lock.write_text("")                       # a commit killed mid-flight left this
+
+    v.write("dreams/nightly.md", "---\nkind: reflect\n---\nrewritten by you\n")
+    with caplog.at_level("WARNING", logger="mind.vault"):
+        v.commit_if_dirty("dreams: edited nightly", now=True)
+    assert _log(seeded_vault) == before
+    assert any("dreams: edited nightly" in r.getMessage() for r in caplog.records)
+
+    lock.unlink()
+    v.commit_if_dirty("dreams: edited nightly", now=True)   # no new write needed
+    assert _log(seeded_vault) == ["dreams: edited nightly", *before]
+
+
+def test_a_bare_directory_fails_quietly(tmp_path, caplog):
+    """Tests and scratch vaults are not repos; that is not worth a warning."""
+    v = MindVault(tmp_path)
+    v.write("goals.md", "- something\n")
+    with caplog.at_level("WARNING", logger="mind.vault"):
+        v.commit_if_dirty("tick 1: file a goal")
+    assert not caplog.records

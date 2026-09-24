@@ -176,7 +176,12 @@ def commit(vault: Path, message: str, *, now: bool = False) -> str | None:
     if not now and sha is not None and (time.time() - when) < COMMIT_INTERVAL_S:
         return sha                      # inside the window: the writes stand, the
                                         # history entry waits for the next one
-    _git(vault, "add", "-A")
+    # A failed add stages nothing, and "nothing staged" below reads as an
+    # uneventful turn — so a stale index.lock would stop the history for good
+    # without a word. It has to fail here, where it can still be told apart.
+    added = _git(vault, "add", "-A")
+    if added.returncode != 0:
+        raise RuntimeError(f"vault add failed: {added.stderr.strip()}")
     staged = _git(vault, "diff", "--cached", "--quiet")
     if staged.returncode == 0:  # nothing staged
         return sha

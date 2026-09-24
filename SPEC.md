@@ -2183,6 +2183,12 @@ optional due time, **provenance**, and a **commitment strategy**; lifecycle
   built from the goal's own text, which is itself indexed, so recall's best matches are echoes of
   the prompt above it — and holding the exchange `about` was copied from is what lets MMR suppress
   the *reply* to it as a near-duplicate. A recalled memory quoting the probe **MUST** be dropped.
+  **And the plan she filed it with**: a goal the night's stock-take filed (§22.1b) carries a
+  rationale, the evidence behind it, a first bounded action and an observable finish, and a reviewed
+  promise the first and last; a working step **MUST** be shown whichever of those the goal has, since
+  a step handed the title alone reconsiders the objective from scratch rather than doing what she
+  had already decided to do first. A field that only restates the goal's text is not a plan and is
+  left out.
 - §22.5 **Provenance covers dispatched work.** `meta.dispatched` names the tool a `waiting` goal is
   blocked on and when it went out; `task_completion` (§16) returns the goal to `active`, and a
   scheduled `wakeup` is the floor under how long it may be stranded by a run that never reports.

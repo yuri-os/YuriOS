@@ -156,6 +156,35 @@ def said_since(loop, goal: Goal, limit: int = 6) -> str:
     return "\n".join(out[-limit:])
 
 
+#: What the goal was filed with, in the order a step wants it. The night's
+#: stock-take writes all four (§22.1b), a reviewed promise the first and last;
+#: each is a label here so the step reads a plan and not a meta dump.
+PLAN_FIELDS = (
+    ("rationale", "why it matters"),
+    ("evidence", "what it rests on"),
+    ("first_action", "where you planned to start"),
+    ("success", "how you will know it is done"),
+)
+
+
+def plan_of(goal: Goal) -> str:
+    """The plan she made when she took this on, handed back to the step.
+
+    Strategy asked her for a first bounded action, the evidence behind it and
+    an observable finish, and filed all of it on the goal — then every working
+    step was given the goal's title and nothing else, so she reconsidered the
+    objective from scratch each time instead of doing the thing she had already
+    decided to do first. A field that only repeats the goal's text is dropped.
+    """
+    title = " ".join(goal.text.split()).lower()
+    lines = []
+    for key, label in PLAN_FIELDS:
+        value = " ".join(str(goal.meta.get(key) or "").split())
+        if value and value.lower() != title:
+            lines.append(f"- {label}: {value}")
+    return "\n".join(lines)
+
+
 async def context(loop, goal: Goal) -> str:
     """Everything the *conversational* prompt would have given her, minus
     the conversation (SPEC §7.1, §34.3, §19.2).
@@ -182,6 +211,9 @@ async def context(loop, goal: Goal) -> str:
     about = str(goal.meta.get("about") or "").strip()
     if about:
         parts.append(f"WHERE THIS CAME FROM\n\nThey said: “{about}”")
+    plan = plan_of(goal)
+    if plan:
+        parts.append("YOUR PLAN FOR THIS\n\n" + plan)
     # …and whatever has been said since. `about` is frozen at filing time, so
     # without this a goal that waits on an answer can never be told it came.
     since = said_since(loop, goal)

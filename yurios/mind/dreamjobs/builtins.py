@@ -382,10 +382,12 @@ def parse_strategy_decision(raw: str) -> StrategyDecision:
     hit = NEXT_RE.search(text)
     reflection = NEXT_RE.sub("", text).strip()[:2000]
     legacy = " ".join(hit.group(1).split())[:240] if hit else ""
+    # The old format named an objective and nothing else, so the rest stays
+    # empty: goal work hands these fields to her as her own plan (§22.4), and
+    # filler written here would read to her as evidence she had.
     next_goal = (StrategyCandidate(
-        objective=legacy, why="legacy strategy candidate",
-        evidence="legacy strategy note", success="the objective is completed",
-        first_action=legacy, capability="unspecified")
+        objective=legacy, why="", evidence="", success="",
+        first_action="", capability="unspecified")
                  if legacy and "|" not in legacy else None)
     return StrategyDecision(reflection=reflection, next=next_goal)
 

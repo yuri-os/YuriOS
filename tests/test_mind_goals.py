@@ -329,6 +329,43 @@ async def test_goal_work_gets_the_same_context_as_conversation(cfg, seeded_vault
     assert "notes/paddleboards.md" in context
 
 
+async def test_goal_work_is_handed_the_plan_she_filed_it_with(cfg, seeded_vault):
+    """Strategy asks for a first step, the evidence and an observable finish,
+    and files them on the goal — a step given only the title reconsiders the
+    objective from scratch instead of doing what she had decided to do first."""
+    utility = ScriptedUtility("think noted.")
+    rig = make_mind(cfg, seeded_vault, utility=utility)
+    rig.mind.goals.add(
+        "work out which tide app to recommend", kind="task", priority=0.9,
+        provenance="strategy:2026-07-01",
+        meta={"rationale": "they keep checking the tides by hand",
+              "evidence": "asked about low tide twice this week",
+              "first_action": "compare the two apps they named on one note",
+              "success": "a note naming one app and why",
+              "capability": "desk"})
+    await rig.mind.tick()
+
+    context = utility.calls[-1][-1]["content"]
+    assert "YOUR PLAN FOR THIS" in context
+    for said in ("checking the tides by hand", "low tide twice",
+                 "compare the two apps", "naming one app and why"):
+        assert said in context, f"{said!r} never reached the step"
+
+
+async def test_a_goal_filed_without_a_plan_is_not_shown_an_empty_one(
+        cfg, seeded_vault):
+    """A plain goal gets no heading, and a field that only restates the goal's
+    own text is not a plan — it is the title printed twice."""
+    utility = ScriptedUtility("think noted.")
+    rig = make_mind(cfg, seeded_vault, utility=utility)
+    rig.mind.goals.add("pick a paddleboard", kind="task", priority=0.9,
+                       meta={"first_action": "Pick a  paddleboard",
+                             "rationale": ""})
+    await rig.mind.tick()
+
+    assert "YOUR PLAN FOR THIS" not in utility.calls[-1][-1]["content"]
+
+
 async def test_the_horizon_parks_a_goal_instead_of_looping_forever(
         cfg, seeded_vault):
     cfg = cfg.model_copy(update={"mind_goal_max_steps": 2})

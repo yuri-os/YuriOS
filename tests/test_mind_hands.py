@@ -15,7 +15,8 @@ import logging
 from yurios.kernel.clock import Clock
 from yurios.mind import loop as mind_loop
 from yurios.mind.hands import (CHEAP, EXPENSIVE, HANDS, Hands, describe_hands,
-                               klass, parse_intent)
+                               klass, native_call, parse_intent,
+                               strip_native_calls)
 from yurios.world.tools.fakes import FakeToolRunner
 
 from .conftest import ScriptedUtility, make_mind, run_mind
@@ -610,6 +611,42 @@ def test_an_unparseable_line_is_a_thought_not_an_error():
     assert parse_intent("", allowed=("write_note",)).kind == "think"
     thought = parse_intent("think the grout needs doing", allowed=())
     assert thought.kind == "think" and thought.text == "the grout needs doing"
+
+
+#: Verbatim from her prompt trace, 24 Sep: a compose call with no tools
+#: declared, answered in DeepSeek's own call markup — and posted as a message.
+DSML_READ = ('\n\n<｜DSML｜ calls>\n<｜DSML｜ invoke name="read_note">\n'
+             '<｜DSML｜ parameter name="path" string="true">goals/g-ca9b706b5f2a.md'
+             '</｜DSML｜ parameter>\n</｜DSML｜ invoke>\n</｜DSML｜ calls>')
+
+
+def test_a_reach_in_deepseek_markup_is_the_call_she_meant():
+    """No tools are ever declared, so DeepSeek sometimes writes its native
+    markup instead of the `use` line. It is still a reach, not a thought —
+    journalled as a thought it went into her memory verbatim."""
+    intent = parse_intent("I need to see where I left it." + DSML_READ,
+                          allowed=("read_note",))
+    assert (intent.kind, intent.tool) == ("use", "read_note")
+    assert intent.args == {"path": "goals/g-ca9b706b5f2a.md"}
+    assert intent.text == "I need to see where I left it."
+    typed = parse_intent(
+        '<｜DSML｜function_calls>\n<｜DSML｜invoke name="set_timer">\n'
+        '<｜DSML｜parameter name="minutes" string="false">5</｜DSML｜parameter>\n'
+        '</｜DSML｜invoke>\n</｜DSML｜function_calls>', allowed=("set_timer",))
+    assert typed.args == {"minutes": 5}
+    refused = parse_intent(DSML_READ, allowed=("write_note",))
+    assert refused.kind == "think" and "DSML" not in refused.text
+
+
+def test_native_call_markup_never_survives_as_words():
+    assert native_call(DSML_READ) == ("read_note",
+                                      {"path": "goals/g-ca9b706b5f2a.md"})
+    assert strip_native_calls(DSML_READ) == ""
+    assert strip_native_calls("Hi. [shy] x | y") == "Hi. [shy] x | y"
+    # a clipped block ends at the blank line, not at the end of the text
+    clipped = ('before <｜DSML｜ calls>\n<｜DSML｜ invoke name="read_note">\n'
+               '\nthe next entry')
+    assert strip_native_calls(clipped) == "before \n\nthe next entry"
 
 
 def test_a_reach_keeps_the_reason_she_wrote_beside_it():

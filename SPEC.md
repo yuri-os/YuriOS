@@ -828,6 +828,10 @@ to every new subscriber before its first live event. Malformed JSON is logged an
   that cannot be made to fit so the tool's own default applies, and leave a **required** one for
   the tool to reject with its own better message. A fumbled optional scalar **MUST NOT** cost
   the call the required arguments the model got right.
+  A model's own call markup in the stream (DeepSeek's DSML, bars single or doubled) **MUST** be
+  read as the call it names and held back from speech like a marker — including a block the stream
+  cut off, which is salvaged or dropped, never spoken — and the verbatim record a turn keeps
+  **MUST** rewrite it as the `[[…]]` marker, so her own history never teaches her the other format.
 - §7.5 **Semantics.** The MCP server is the *contract and audit point* for `set_timer` — it
   validates and records — but the **host** schedules the wake (`yurios/world/tools/timers.py`,
   on the injected clock), because only the host owns her voice; when a timer elapses she
@@ -1581,6 +1585,10 @@ them is precisely the always-interrupting-assistant failure.
   never spoken aloud; **SPEAK** — aloud through the ambient seam if a page is open (full turn
   pipeline, barge-in-able), as a `proactive` chat line if the room is empty. Every delivery **MUST**
   bump the daily count, note the contact in the world model, and close the goal.
+  The composed line has no hands, so its cue **MUST** carry what it is about rather than point at
+  it: a follow-up on a kept promise quotes the last entry of that goal's desk file, never just its
+  path. Told "it's in goals/…md" she reached for `read_note` in her model's native call markup, and
+  that markup was the message. Such markup **MUST NOT** reach a composed line — none is better.
 
 ### §18.4 — Delivery: her inbox and the doorbell
 
@@ -1933,7 +1941,10 @@ written from a vault alone.
 - **One catalog, one parser, shared with §26.** The rounds use `hands.py`'s `parse_intent` and its
   one-line-of-intent format rather than the conversational marker grammar, for the reason that
   file gives: a reply is a stream she is talking through and a tick is not, and anything
-  unparseable **MUST** fail safe towards thinking rather than towards an error.
+  unparseable **MUST** fail safe towards thinking rather than towards an error. No call declares
+  tools, so a model trained on its own call markup sometimes writes that instead of the `use` line
+  (DeepSeek's DSML). It **MUST** be read as the same call when the hand is offered, and stripped
+  from the thought when it is not: journalled as a thought, it went into her memory verbatim.
 - **Every round is told what is left of the night.** The move, search and page counts still
   standing ride in each round's prompt. A model that cannot see its budget spends it: the first
   full live night went all twelve rounds without once saying it had enough, five of them bare

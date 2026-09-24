@@ -48,7 +48,7 @@ from .dream import DreamConsolidator
 from .dreamjobs import SELF_GOAL, DreamRunner
 from .goals import (Goal, GoalStore, discover_promise_candidates,
                     fallback_promises, timer_for_promise, trim)
-from .hands import (Hands, build_guard)
+from .hands import (Hands, build_guard, strip_native_calls)
 from .journal import Journal
 from .knowledge import KnowledgeStore
 from .promptlog import PromptLog
@@ -318,6 +318,10 @@ class MindLoop:
                 out.append(tok)
         text = "".join(out).strip()
         self.budget.debit(cue, text)
+        # A compose call carries no tools, and DeepSeek answers a cue it
+        # wants a hand for in its own call markup — which is not a line she
+        # can say. Nothing is better than that (acts.py posts only a line).
+        text = strip_native_calls(text)
         # strip any leading [expression] tag — this line lands as chat text
         if text.startswith("[") and "]" in text[:24]:
             text = text.split("]", 1)[1].strip()

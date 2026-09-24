@@ -43,7 +43,7 @@ from .tools.client import (
     ToolRunner, ToolSpec, arg_names_from_specs, build_directive)
 from .tools.guard import Guard, Turn, failure
 from .tools.timers import TimerBoard
-from .tooltags import ToolCall, ToolTagParser
+from .tooltags import ToolCall, ToolTagParser, native_to_markers
 
 log = logging.getLogger("world.brain")
 
@@ -342,6 +342,10 @@ class ToolBrain(BrainAdapter):
         actually happened in the turn, not just what was spoken (§7.4)."""
         pending = session_id in self._pending
         raw = self._raw.pop(session_id, None)
+        if raw:
+            # A call she wrote in her model's own markup was run like a marker;
+            # the record she reads back next turn says it the way she was shown.
+            raw = native_to_markers(raw)
         outcomes = self._tool_outcomes.pop(session_id, [])
         await super().persist(session_id, user_text, raw or reply)
         return outcomes if pending else []

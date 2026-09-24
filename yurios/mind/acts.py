@@ -26,6 +26,7 @@ from .goals import (Goal, trim, PROMISE_REVIEW_RESPONSE_FORMAT, PromiseCandidate
                     PromiseReviewError, parse_promise_review,
                     promise_decision_grounded, promise_kind,
                     promise_review_messages, timer_for_promise)
+from .hands import strip_native_calls
 from .policy import DREAM, score_interrupt
 from .signals import Signal, failure_of
 from .util import day_of, iso_of, ts_of_iso
@@ -85,6 +86,31 @@ REACH_OUT_WITH_SHOT_CUE = (
     "say. Say the one short, warm, specific spoken line you would send it "
     "with — don't describe it back to them, and don't explain that you "
     "decided to speak. They can see it.))")
+
+
+#: What a kept promise came to, when the reach-out is news about one. The goal
+#: text only names the desk file it is in, and a compose call has no hands to
+#: open it with — so told "it's in goals/…md" she reached for `read_note` in
+#: DeepSeek's own markup, and that markup was the message (24 Sep).
+REACH_OUT_FOUND = (
+    " Here is where you left it, in your own notes — you already know this, "
+    "so say it rather than going to look: «{found}»")
+
+
+def _what_came_of(loop, goal: Goal) -> str:
+    """The last entry on the desk of the goal a `followup:` reports on, or ""."""
+    parent = goal.provenance.partition("followup:")[2]
+    if not parent or loop.workspace is None:
+        return ""
+    try:
+        desk = loop.workspace.read(loop.GOAL_DESK.format(id=parent), default="")
+    except Exception:  # noqa: BLE001 — a missing note costs the detail, not the tick
+        log.warning("goal desk read failed", exc_info=True)
+        return ""
+    last = strip_native_calls(desk or "").rsplit("\n## ", 1)[-1]
+    # the entry's own timestamp heading is the first line; the words are after
+    last = last.partition("\n")[2].strip() if last.startswith("20") else last.strip()
+    return trim(last, 600) if last else ""
 
 
 def _product_of(sig: Signal) -> dict:
@@ -409,6 +435,9 @@ async def reach_out(loop, goal: Goal) -> tuple[dict, dict, list[str]]:
     shot = _shot(goal)
     cue = (REACH_OUT_WITH_SHOT_CUE if shot else REACH_OUT_CUE).format(
         goal=goal.text)
+    found = "" if shot else _what_came_of(loop, goal)
+    if found:
+        cue = cue[:-2] + REACH_OUT_FOUND.format(found=found) + "))"
 
     if decision.outcome == "SILENT":
         # THE DEFAULT: do it silently and journal it

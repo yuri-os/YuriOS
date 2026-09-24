@@ -95,6 +95,99 @@ class ToolCall:
     args: dict
 
 
+# ---- a model's own call markup ------------------------------------------------
+#: DeepSeek's tool-call markup (DSML). It is trained on it, and no call here
+#: declares tools the API way — every hand is a line of text she writes — so
+#: when it wants a hand it sometimes writes this instead of the marker it was
+#: shown: in a reply's continuation pass, in a goal step, in a compose call with
+#: no hands at all. The provider passes it through as content. Unread, it was
+#: spoken as the reply (24 Sep, twice: the whole of a reach-out, and the tail of
+#: an answer that had just used `list_notes` correctly). The bars are fullwidth
+#: (U+FF5C) and come back single or doubled; the tag names come back with a
+#: space where `function_` was.
+_BAR = r"[｜|]+"
+_DSML = rf"<\s*/?\s*{_BAR}\s*DSML\s*{_BAR}"
+#: A whole block. One cut off before its closer (a clipped desk line) ends at
+#: the first blank line: the markup never has one, and running on to the end of
+#: the text would take every entry after it too.
+_DSML_BLOCK = re.compile(
+    _DSML + r"\s*(?:function_)?\s*calls\s*>.*?(?:" + _DSML
+    + r"\s*(?:function_)?\s*calls\s*>|(?=\n[ \t]*\n)|\Z)", re.S | re.I)
+_DSML_TAG = re.compile(_DSML + r"[^\n>]*>?", re.I)
+_DSML_INVOKE = re.compile(
+    _DSML + r'\s*invoke\s+name\s*=\s*"([^"]+)"\s*>(.*?)(?:' + _DSML
+    + r"\s*invoke\s*>|\Z)", re.S | re.I)
+_DSML_PARAM = re.compile(
+    _DSML + r'\s*parameter\s+name\s*=\s*"([^"]+)"'
+    r'(?:\s+string\s*=\s*"(true|false)")?\s*>(.*?)' + _DSML
+    + r"\s*parameter\s*>", re.S | re.I)
+_DSML_ANY = re.compile(r"<\s*/?\s*" + _BAR + r"\s*DSML", re.I)
+#: The stream's view: what a `<` has to grow into before it is held back from
+#: speech, and the two closers that end a block.
+_NATIVE_PREFIX = re.compile(r"<\s*/?\s*(?:" + _BAR + r"\s*(?:D|DS|DSM)?)?", re.I)
+_NATIVE_OPEN = re.compile(r"<\s*/?\s*" + _BAR + r"\s*DSML", re.I)
+_NATIVE_WRAPPED = re.compile(r"<\s*" + _BAR + r"\s*DSML\s*" + _BAR
+                             + r"\s*(?:function_)?\s*calls", re.I)
+_NATIVE_END_CALLS = re.compile(r"<\s*/\s*" + _BAR + r"\s*DSML\s*" + _BAR
+                               + r"\s*(?:function_)?\s*calls\s*>$", re.I)
+_NATIVE_END_INVOKE = re.compile(r"<\s*/\s*" + _BAR + r"\s*DSML\s*" + _BAR
+                                + r"\s*invoke\s*>$", re.I)
+#: A block this long is not a call being written; it is a loop.
+MAX_NATIVE_LEN = 20_000
+
+
+def _native_invokes(text: str) -> list[tuple[str, dict]]:
+    """Every call in native markup, in order, as (tool, args).
+
+    `string="true"` marks a raw string; anything else is a JSON value, kept as
+    the raw text when it doesn't parse — the server refusing a bad argument is
+    a sentence she can read, which beats guessing what she meant.
+    """
+    out: list[tuple[str, dict]] = []
+    for found in _DSML_INVOKE.finditer(text or ""):
+        args: dict = {}
+        for name, is_string, value in _DSML_PARAM.findall(found.group(2)):
+            if is_string.lower() != "false":
+                args[name] = value
+                continue
+            try:
+                args[name] = json.loads(value)
+            except ValueError:
+                args[name] = value
+        out.append((found.group(1).strip(), args))
+    return out
+
+
+def native_call(text: str) -> tuple[str, dict] | None:
+    """The first call written in a model's native markup, as (tool, args)."""
+    calls = _native_invokes(text)
+    return calls[0] if calls else None
+
+
+def strip_native_calls(text: str) -> str:
+    """`text` with any native tool-call markup taken out — never shown, never kept."""
+    if not text or not _DSML_ANY.search(text):
+        return text
+    text = _DSML_TAG.sub("", _DSML_BLOCK.sub("", text))
+    return re.sub(r"\n{3,}", "\n\n", text).strip()
+
+
+def native_to_markers(text: str) -> str:
+    """Native call markup rewritten as the `[[tool {json}]]` she was shown.
+
+    For the verbatim record a turn keeps (§7.4): what she reads back next turn
+    is her own history, and a history full of the other format teaches it.
+    """
+    if not text or not _DSML_ANY.search(text):
+        return text
+
+    def marker(block: re.Match) -> str:
+        return "".join(f"[[{tool} {json.dumps(args, ensure_ascii=False)}]]"
+                       for tool, args in _native_invokes(block.group(0)))
+
+    return _DSML_TAG.sub("", _DSML_BLOCK.sub(marker, text))
+
+
 #: The closer, as the model actually writes it: two brackets, possibly with
 #: whitespace between them (`]]`, `] ]`, `]\n]`). Anchored at the end because it
 #: is tested against the buffer after every character.
@@ -299,11 +392,34 @@ class ToolTagParser:
     #: model writes three brackets often enough (`}] ]]`) that the leftover one
     #: reached the transcript as `. ][happy] Right now…`, which she then "said".
     _after: bool = False
+    #: A `<` that may be opening a model's own call markup, held until it
+    #: either grows into one or plainly isn't (`<3`, `a < b`).
+    _angle: str = ""
+    #: A native markup block being read, or None (see `_DSML` above).
+    _native: str | None = None
 
     def push(self, token: str) -> tuple[str, list[ToolCall]]:
         out = ""
         new_calls: list[ToolCall] = []
-        for ch in token:
+        for index, ch in enumerate(token):
+            if self._native is not None:
+                call = self._native_push(ch)
+                if call is not None:
+                    self.calls.append(call)
+                    new_calls.append(call)
+                continue
+            if self._angle:
+                self._angle += ch
+                if _NATIVE_OPEN.match(self._angle):
+                    self._native, self._angle = self._angle, ""
+                elif not _NATIVE_PREFIX.fullmatch(self._angle):
+                    # Not markup after all: say the `<`, and read the rest
+                    # again — it may open a marker of its own.
+                    held, self._angle = self._angle[1:], ""
+                    more, calls = self.push(held + token[index + 1:])
+                    new_calls += calls
+                    return out + "<" + more, new_calls
+                continue
             if self._after:                       # leftover brackets, never spoken
                 if ch == "]":
                     continue
@@ -345,9 +461,45 @@ class ToolTagParser:
                 continue
             if ch == "[":
                 self._hold = "["
+            elif ch == "<":
+                self._angle = "<"
             else:
                 out += ch
         return out, new_calls
+
+    def _native_push(self, ch: str) -> ToolCall | None:
+        """One character of a native block; the call, once the block closes."""
+        assert self._native is not None
+        self._native += ch
+        buf = self._native
+        if re.match(r"<\s*/", buf):
+            # A closing tag with no block open — the tail of one already read,
+            # or a stray. Nothing to say and nothing to call.
+            if ch == ">":
+                self._native = None
+            return None
+        if len(buf) > MAX_NATIVE_LEN:
+            log.warning("oversized native call markup dropped (%d chars)", len(buf))
+            self._native = None
+            self.dropped += 1
+            return None
+        if ch != ">":
+            return None
+        wrapped = _NATIVE_WRAPPED.match(buf) is not None
+        if not (_NATIVE_END_CALLS.search(buf)
+                or (not wrapped and _NATIVE_END_INVOKE.search(buf))):
+            return None
+        self._native = None
+        return self._native_call(buf)
+
+    def _native_call(self, block: str) -> ToolCall | None:
+        found = native_call(block)
+        if found is None:
+            log.warning("native call markup with no call in it: %r", block[:80])
+            self.dropped += 1
+            return None
+        log.info("read a %s call from native markup", found[0])
+        return ToolCall(*found)
 
     def finish(self) -> str:
         """End of stream: flush a held '[' as text; salvage or drop an unclosed
@@ -359,8 +511,15 @@ class ToolTagParser:
         did emit — and keep the result only if it parses. Recovered calls land in
         `salvaged`, because `push` has already returned for the last time.
         """
-        tail = self._hold
-        self._hold = ""
+        tail = self._hold + self._angle
+        self._hold = self._angle = ""
+        if self._native is not None:
+            block, self._native = self._native, None
+            if not re.match(r"<\s*/", block):
+                call = self._native_call(block)
+                if call is not None:
+                    self.calls.append(call)
+                    self.salvaged.append(call)
         if self._in_marker or self._drop:
             tag = None if self._drop else _as_expression(self._buf)
             call = None if (self._drop or tag) else self._close(self._buf)

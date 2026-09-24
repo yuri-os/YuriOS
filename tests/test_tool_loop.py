@@ -569,3 +569,21 @@ def test_undeclared_and_untyped_args_are_left_alone():
     args = {"a": "either", "b": {"nested": 1}}
     assert coerce_args(args, schema) == args
     assert coerce_args(args, {}) == args           # no schema, no opinion
+
+
+async def test_a_reply_that_switches_format_mid_turn_still_runs_the_call(
+        cfg, guard, timers, controller):
+    """Live, 24 Sep: a marker for the first call, DeepSeek's own markup for the
+    second — which was spoken as the rest of the reply."""
+    from .test_tool_tags import LIVE_DSML
+    chat = ScriptedChat([
+        ['Let me set that. [[set_timer {"minutes": 5, "label": "tea"}]]'],
+        ["And look. ", LIVE_DSML[:40], LIVE_DSML[40:]],
+        ["Five diary files."],
+    ])
+    runner = FakeToolRunner()
+    tb = make_toolbrain(cfg, guard, timers, controller, chat, runner=runner)
+    spoken = "".join(await collect(tb._stream_with_tools(
+        [{"role": "user", "content": "tea, then my diary"}], [], [])))
+    assert [c[0] for c in runner.calls] == ["set_timer", "list_notes"]
+    assert "DSML" not in spoken and spoken.endswith("Five diary files.")

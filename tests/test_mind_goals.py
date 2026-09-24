@@ -819,6 +819,38 @@ async def test_a_follow_up_is_not_absorbed_by_the_goal_it_reports_on(
     assert len(_goals(rig).all()) == 2
 
 
+async def test_news_of_a_kept_promise_carries_what_came_of_it(cfg, seeded_vault):
+    """The follow-up names the desk file; the cue has to carry the words in it.
+
+    A compose call has no hands, so told only "it's in goals/…md" she reached
+    for `read_note` in DeepSeek's own markup — and the markup was the message
+    she sent (24 Sep). A clipped call left on the desk stays off the cue."""
+    from yurios.mind import acts
+    from yurios.mind.util import iso_of
+
+    rig = make_mind(cfg, seeded_vault)
+    parent = _goals(rig).add("pick the frame for the window-seat picture",
+                             kind="task", provenance="promise:her-own-words")
+    rig.mind.workspace.append(
+        f"goals/{parent.id}.md",
+        "\n## 2026-09-23T15:27:47\n\nreached for read_note → "
+        '<｜DSML｜ calls>\n<｜DSML｜ invoke name="read_note">\n'
+        "\n## 2026-09-23T17:43:52\n\ngoal complete — the lamplight one, "
+        "rain behind me, knees up.\n")
+    news = _goals(rig).add(
+        f"tell them what came of “{parent.text}” — it's in "
+        f"goals/{parent.id}.md", kind="reach_out", priority=1.0,
+        due=iso_of(rig.clock.now() + 60), provenance=f"followup:{parent.id}")
+    rig.speak.connected = True
+
+    trace, interrupt, _ = await acts.reach_out(rig.mind, news)
+
+    assert interrupt["outcome"] == "SPEAK", interrupt
+    cue = rig.speak.calls[-1]["cue"]
+    assert "the lamplight one, rain behind me, knees up." in cue
+    assert "DSML" not in cue and "15:27" not in cue, cue
+
+
 async def test_two_promises_kept_at_once_are_both_told(cfg, seeded_vault):
     """Unrelated follow-ups share only "tell", "came" and "goals" — three
     content words, 0.38 overlap, enough to merge on boilerplate alone."""

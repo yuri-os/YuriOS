@@ -51,6 +51,7 @@ from yurios.kernel import correlate
 from yurios.kernel.clock import Clock
 from yurios.models import model_is_local
 from yurios.world.tools.guard import Guard, _fingerprint, failure
+from yurios.world.tooltags import native_call, strip_native_calls
 
 from .policy import DORMANT, DREAM, ENGAGED
 from .util import day_of
@@ -602,6 +603,11 @@ def parse_intent(reply: str, *, allowed: tuple[str, ...]) -> Intent:
     because somebody is waiting; here nobody is, and the next tick will come.
     """
     text = (reply or "").strip()
+    call = native_call(text)
+    if call is not None and call[0] in allowed:
+        return Intent("use", tool=call[0], args=call[1],
+                      text=_thought(strip_native_calls(text).splitlines()))
+    text = strip_native_calls(text)
     lines = text.splitlines()
     for index, raw in enumerate(lines):
         line = raw.strip().lstrip("-• ").strip()

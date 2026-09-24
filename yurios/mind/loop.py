@@ -35,6 +35,7 @@ import logging
 import random
 from typing import Awaitable, Callable
 
+from yurios.app.conversation import drawn
 from yurios.kernel import correlate
 from yurios.world.avatar.controller import VrmController
 from yurios.world.brain_protocol import AutonomousBrain
@@ -324,10 +325,9 @@ class MindLoop:
         # wants a hand for in its own call markup — which is not a line she
         # can say. Nothing is better than that (acts.py posts only a line).
         text = strip_native_calls(text)
-        # strip any leading [expression] tag — this line lands as chat text
-        if text.startswith("[") and "]" in text[:24]:
-            text = text.split("]", 1)[1].strip()
-        return text
+        # …and drawn the way the column draws a reply: this line lands as chat
+        # text, and a `[tender]` it kept was shown as a word (SPEC §18.3).
+        return drawn(text)
 
     # ---- notifications from the voice route (same surface the idle machine had)
 

@@ -59,6 +59,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import threading
 from pathlib import Path
 
@@ -380,10 +381,10 @@ class ConversationLog:
             for row in rows:
                 row["d"] = 1
                 if row.get("role") != "user" and row.get("raw") is None:
-                    drawn = _speakable(row.get("text") or "")
-                    if drawn != row.get("text"):
+                    line = drawn(row.get("text") or "")
+                    if line != row.get("text"):
                         row["raw"] = row["text"]     # the window keeps the tokens
-                        row["text"] = drawn          # …the page gets the line
+                        row["text"] = line           # …the page gets the line
             try:
                 vaultgit.atomic_write(path, "".join(
                     json.dumps(r, ensure_ascii=False, default=str) + "\n"
@@ -392,6 +393,53 @@ class ConversationLog:
                 log.info("repaired %d undrawn lines in %s", len(rows), path)
             except OSError:
                 log.warning("couldn't repair the conversation log at %s",
+                            path, exc_info=True)
+
+    def _redraw_tags(self) -> None:
+        """Draw lines of hers that were posted with their expression tags in.
+
+        A line composed off the turn pipeline — a reach-out to an empty room, a
+        timer announcement — used to lose only a *leading* tag, so a mid-line
+        one reached the column as a word: "It's done. [tender] The frame…". The
+        compose path draws its lines now (`drawn`); this puts right the ones
+        already on disk, keeping what she wrote as `raw` like `_repair` does.
+        Cheap when there is nothing to do, which after the first boot is always:
+        the file is searched before anything is parsed, and a line that is
+        already drawn is left as it is.
+        """
+        path = self.path
+        if path is None or not path.exists():
+            return
+        try:
+            from yurios.desktop.voice.emotion import PALETTE
+            tag = re.compile(r"\[(?:" + "|".join(PALETTE) + r")\]", re.I)
+            if not tag.search(path.read_text(encoding="utf-8", errors="replace")):
+                return
+        except Exception:  # noqa: BLE001 — a repair is never a reason not to boot
+            log.debug("conversation log: tag scan failed", exc_info=True)
+            return
+        with self._lock:
+            rows = self._fold()
+            fixed = 0
+            for row in rows:
+                text = row.get("text") or ""
+                if row.get("role") == "user" or not tag.search(text):
+                    continue
+                line = drawn(text)
+                if line != text:
+                    row.setdefault("raw", text)      # what she wrote, kept
+                    row["text"] = line
+                    fixed += 1
+            if not fixed:
+                return
+            try:
+                vaultgit.atomic_write(path, "".join(
+                    json.dumps(r, ensure_ascii=False, default=str) + "\n"
+                    for r in rows))
+                self._lines = len(rows)
+                log.info("drew %d line(s) that still carried expression tags", fixed)
+            except OSError:
+                log.warning("couldn't redraw the conversation log at %s",
                             path, exc_info=True)
 
     def upgrade(self) -> int:
@@ -410,6 +458,7 @@ class ConversationLog:
         if self.vault is None or self.path is None:
             return 0
         self._repair()
+        self._redraw_tags()
         legacy_chat = self.vault / "state" / "transcript.jsonl"
         legacy_sessions = self.vault / "state" / "sessions.json"
         if not legacy_chat.exists() and not legacy_sessions.exists():
@@ -540,18 +589,23 @@ def _from_sessions(sessions: dict) -> list[dict]:
             if not content:
                 continue
             role = message.get("role", "assistant")
-            drawn = _speakable(content) if role != "user" else content
+            drawn_text = drawn(content) if role != "user" else content
             rows.append({"id": _adopted_id(session_id, i), "role": role,
-                         "text": drawn, "ts": (message.get("ts") or "")[:19],
+                         "text": drawn_text, "ts": (message.get("ts") or "")[:19],
                          "session_id": session_id, "w": 1, "d": 1,
-                         **({"raw": content} if drawn != content else {}),
+                         **({"raw": content} if drawn_text != content else {}),
                          **({"turn_id": message["turn_id"]}
                             if message.get("turn_id") else {})})
     return rows
 
 
-def _speakable(text: str) -> str:
-    """What the page would have drawn for a line only the window kept.
+def drawn(text: str) -> str:
+    """A line of hers as the page draws it — her `[expression]` tags taken out.
+
+    What the page would have drawn for a line only the window kept, and what a
+    line composed off the turn pipeline (a reach-out, an announcement, SPEC
+    §18.3) must be run through before it is posted: the turn pipeline does this
+    on the way to the column, and a line that skips it shows `[tender]` as a word.
 
     The old window store held the model's own output, so an adopted line of hers
     arrives with its `[expression]` tags still in it — and the column has never
@@ -572,7 +626,13 @@ def _speakable(text: str) -> str:
         parser = EmotionParser(strip_narration=False)
         parser.push(text)
         parser.finish()
-        return parser.clean.strip() or text
+        line = parser.clean
+        if line != text:
+            # A tag taken out leaves the spaces either side of it, and the
+            # column draws whitespace as written: "It's done.  The frame".
+            line = re.sub(r"(?<=\S)[ \t]{2,}(?=\S)", " ", line)
+            line = re.sub(r"(?m)^[ \t]+(?=\S)", "", line)
+        return line.strip() or text
     except Exception:               # a strip that fails is not worth a lost line
         return text
 

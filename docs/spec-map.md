@@ -28,7 +28,7 @@ a section are folded into it.
 | **§15** — The cognitive tick loop | `yurios/mind/loop.py`<br>`yurios/world/routes/voice_ws.py`<br>`yurios/world/main.py`<br>`yurios/mind/acts.py`<br>*+7 more* | `tests/test_config.py`<br>`tests/test_mind_loop.py`<br>`tests/test_mind_routes.py`<br>*+1 more* |
 | **§16** — The signal bus (inbound) | `yurios/mind/signals.py`<br>`yurios/mind/loop.py`<br>`yurios/world/main.py`<br>`yurios/mind/dreamjobs/builtins.py`<br>*+3 more* | `tests/test_mind_goals.py` |
 | **§17** — Activity states and the budget governor | `yurios/mind/policy.py`<br>`yurios/mind/budget.py`<br>`web/mind/mind.js`<br>`yurios/mind/prompts.py` | `tests/test_mind_budget.py`<br>`tests/test_policy.py` |
-| **§18** — The salience and interrupt model | `web/js/chat.js`<br>`scripts/live_check.py`<br>`yurios/mind/goalwork.py`<br>`yurios/mind/loop.py`<br>*+16 more* | `tests/test_inbox.py`<br>`tests/test_tray.py`<br>`tests/test_host.py`<br>*+1 more* |
+| **§18** — The salience and interrupt model | `web/js/chat.js`<br>`yurios/mind/loop.py`<br>`scripts/live_check.py`<br>`yurios/mind/goalwork.py`<br>*+17 more* | `tests/test_inbox.py`<br>`tests/test_tray.py`<br>`tests/test_host.py`<br>*+2 more* |
 | **§19** — The world model (the present tense) | `yurios/mind/world.py`<br>`yurios/world/brain.py`<br>`yurios/world/situation.py` | `tests/test_world_model.py` |
 | **§20** — The knowledge layer (drop-folder RAG) | `yurios/mind/knowledge.py` | `tests/test_knowledge.py` |
 | **§21** — DREAM consolidation | `yurios/mind/dream.py`<br>`yurios/mind/dreamjobs/filedsl.py`<br>`yurios/ctl/dreams.py`<br>`yurios/mind/dreamjobs/__init__.py`<br>*+5 more* | `tests/test_dreamjobs.py`<br>`tests/test_mind_routes.py`<br>`tests/test_cli_dreams.py`<br>*+1 more* |
@@ -48,4 +48,4 @@ a section are folded into it.
 | **§35** — Pictures you send her | `yurios/world/main.py`<br>`yurios/world/channels/telegram.py`<br>`yurios/world/routes/chat.py`<br>`web/js/chat.js`<br>*+11 more* | `tests/test_channels.py`<br>`tests/test_context_meter.py`<br>`tests/test_integration.py`<br>*+1 more* |
 | **§36** — Command-line control | `yurios/ctl/__init__.py`<br>`yurios/ctl/characters.py`<br>`yurios/ctl/client.py`<br>`yurios/world/host/switchboard.py`<br>*+1 more* | `tests/test_cli_camera.py`<br>`tests/test_cli_characters.py` |
 
-*825 citation sites over 113 sections.*
+*828 citation sites over 113 sections.*

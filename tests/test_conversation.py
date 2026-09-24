@@ -519,3 +519,28 @@ def test_the_repair_leaves_a_healthy_log_alone(tmp_path):
     log.add({"id": "m1", "role": "assistant", "text": "[warm] hello",
              "ts": "2026-08-24T09:00:00"})
     assert ConversationLog(tmp_path).entries()[0]["text"] == "[warm] hello"
+
+
+def test_lines_already_posted_with_tags_are_drawn_once(tmp_path):
+    state = tmp_path / "state"
+    state.mkdir()
+    rows = [
+        {"id": "a1", "role": "assistant", "ts": "2026-09-24T02:31:56", "d": 1,
+         "proactive": True, "text": "It's done. [tender] The frame I wrote for you."},
+        {"id": "u1", "role": "user", "ts": "2026-09-24T02:40:00", "d": 1,
+         "text": "what does [tender] mean?"},
+    ]
+    path = state / "conversation.jsonl"
+    path.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+
+    log = ConversationLog(tmp_path)
+    hers, yours = log.tail(2)
+    assert hers["text"] == "It's done. The frame I wrote for you.", \
+        "no gap left where the tag was"
+    assert hers["raw"] == "It's done. [tender] The frame I wrote for you."
+    assert yours["text"] == "what does [tender] mean?", "your words are never redrawn"
+
+    before = path.stat().st_mtime_ns
+    ConversationLog(tmp_path)                       # the next boot: nothing to do
+    assert path.stat().st_mtime_ns == before
+

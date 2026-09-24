@@ -1602,6 +1602,11 @@ them is precisely the always-interrupting-assistant failure.
   it: a follow-up on a kept promise quotes the last entry of that goal's desk file, never just its
   path. Told "it's in goals/…md" she reached for `read_note` in her model's native call markup, and
   that markup was the message. Such markup **MUST NOT** reach a composed line — none is better.
+  A composed line **MUST** be drawn the way the turn pipeline draws a reply before it is posted —
+  her `[expression]` tags taken out wherever they fall, `*narration*` kept — because it never
+  passes through that pipeline, and a tag left mid-line is shown as a word ("It's done. [tender]
+  The frame…"). Lines already on disk with a tag in them are redrawn once, keeping the original
+  as `raw`.
 
 ### §18.4 — Delivery: her inbox and the doorbell
 

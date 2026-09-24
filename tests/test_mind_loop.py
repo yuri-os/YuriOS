@@ -644,3 +644,17 @@ async def test_a_loop_switched_off_and_on_does_not_re_read_the_queue(
     rebuilt = make_mind(cfg, seeded_vault, bus=rig.mind.bus)   # live queue
     trace = await rebuilt.mind.tick()
     assert trace["sensed"] == [], "already read once is already read"
+
+
+# ---- a composed line is drawn like a reply (SPEC §18.3) ------------------
+
+async def test_a_composed_line_loses_its_tags_wherever_they_fall(cfg, seeded_vault):
+    """Verbatim, 24 Sep 02:31: only a *leading* tag was ever taken off."""
+    from .conftest import CannedChat
+    rig = make_mind(cfg, seeded_vault, chat=CannedChat(
+        "[shy] It's done. [tender] The frame I wrote for you — *quietly* I took it."))
+    line = await rig.mind._compose("((the timer finished))")
+    assert "[" not in line
+    assert line.startswith("It's done.") and "The frame I wrote for you" in line
+    assert "*quietly*" in line, "narration is part of what she wrote on the page"
+

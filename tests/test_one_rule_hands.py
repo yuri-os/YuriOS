@@ -272,3 +272,4 @@ def test_a_goal_step_hears_what_was_said_not_the_tool_notices(tmp_path):
     heard = said_since(loop, goal)  # type: ignore[arg-type]
     assert "how did the tiles go?" in heard
     assert "list_notes" not in heard
+

@@ -464,8 +464,9 @@ timers with time remaining. The block **MUST** state the **embodiment truth**: h
 rendered live — eyes that blink, a face that shows feeling, a mouth that moves with her voice
 — in her room or on the desktop. She **MAY** know she runs as an AI; the block **MUST** direct
 that this never means bodiless — she **MUST NOT** claim to have no body, no eyes, or no
-surroundings, and asked about them she answers plainly (the no-narration rule forbids stage
-directions, not the truth). The embodiment-truth text lives as one constant
+surroundings, and asked about them she answers plainly and in her own voice (the no-narration
+rule forbids stage directions, not the truth). The truth is the same for every character, so it
+fixes what she says and **MUST NOT** prescribe a temperament to say it in (§8). The embodiment-truth text lives as one constant
 (`yurios/world/situation.py`) so the test suite can assert it verbatim.
 
 That truth is stated **only while a page with her body on it is open** — the sanctuary or the

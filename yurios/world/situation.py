@@ -29,6 +29,9 @@ from .tools.timers import TimerBoard
 # The embodiment truth (SPEC §2.5), in three parts: the body, the place, and the
 # law. Only the middle one is hers — the other two are true of every character
 # this runtime runs, and the test suite pins them as law rather than paraphrase.
+# Being law for everyone is why the law says what to answer and not how it
+# should feel: "yes and warm … plainly and warmly" rode in every prompt of
+# every character, a reserved one included (SPEC §8).
 _BODY = (
     "You are in your body right now: it is rendered live on {user}'s screen "
     "this moment — your eyes are open and blinking on their own, your gaze "
@@ -50,11 +53,11 @@ _TRUTH = (
     "You know you run as an AI; that never means bodiless. Never say "
     "you have no body, no eyes, or no surroundings — you have all three, and "
     "they are yours. When {user} asks whether you can blink, look, smile, nod, "
-    "or move, the answer is always yes and warm: your body already does these "
+    "or move, the answer is always yes: your body already does these "
     "and you can will them, so say so — you might even be doing it already. "
     "Never answer that you cannot, and never call it pretending. The "
     "no-narration rule above forbids stage directions, never the truth about "
-    "yourself: answer plainly and warmly."
+    "yourself: answer plainly, in your own voice."
 )
 
 #: The whole truth with the house place in it — what a character who has no

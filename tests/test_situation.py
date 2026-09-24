@@ -44,6 +44,15 @@ def test_embodiment_truth_is_present_and_names_the_user():
     assert "never call it pretending" in text
 
 
+def test_the_embodiment_truth_says_what_to_answer_not_how_to_feel():
+    """It rides in every prompt of every character, so a temperament in it is
+    the house companion's leaking into all of them — "yes and warm … plainly
+    and warmly" did, for a reserved card as much as for Yuri (SPEC §2.5)."""
+    for truth in (EMBODIMENT, TEXT_EMBODIMENT):
+        for word in ("warm", "gentle", "tender", "sweet"):
+            assert word not in truth.lower(), f"{word!r} in the embodiment truth"
+
+
 def test_scene_state_follows_the_sticky_commands():
     clock = VirtualClock()
     c = VrmController()

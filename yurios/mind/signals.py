@@ -11,6 +11,8 @@ Every arrival is also appended to `signals.jsonl` (the arrival record): "what
 woke her at 3am" is a file you read, the same honesty rule as the tool audit.
 The in-memory queue is the working copy; the log is not replayed on restart —
 a restart starts from silence plus the suspend-gap catch-up (SPEC §15.4).
+The working copy holds only what SENSE has not read yet (SPEC §16.4): offsets
+are absolute, so dropping the read head changes no one's cursor.
 """
 from __future__ import annotations
 
@@ -36,6 +38,11 @@ SIGNAL_TYPES = (
     "fs_event",         # something changed on a watched surface (knowledge drop)
     "suspend_gap",      # synthesized by SENSE: the machine slept (hours)
 )
+
+# The most unread signals the queue holds (SPEC §16.4). Only a bus nobody
+# drains gets near it — a character with her mind switched off, whose turns
+# still post — and what falls off the front is still in `signals.jsonl`.
+MAX_HELD = 1000
 
 
 @dataclass
@@ -71,7 +78,9 @@ def failure_of(sig: Signal) -> str:
 class SignalBus:
     """Append-only inbox, drained by offset. Thread-safe on the publish side
     the same way the EventHub is: `post()` may be called from the event loop
-    or a worker thread; the wake event hop is loop-safe."""
+    or a worker thread; the wake event hop is loop-safe. It has one reader —
+    the mind's SENSE — because `next()` releases everything before the offset
+    it is asked for."""
 
     def __init__(self, clock: Clock, log_dir: Path | None = None, *,
                  max_bytes: int | None = None):
@@ -82,6 +91,11 @@ class SignalBus:
         # over costs nothing but old history.
         self.max_bytes = max_bytes
         self._signals: list[Signal] = []
+        # The absolute offset of `_signals[0]`. SENSE's cursor is absolute and
+        # persisted, so the read head can be dropped without moving it; this
+        # is what keeps a daemon that stays up for months from holding every
+        # turn it ever heard (SPEC §16.4).
+        self._base = 0
         # Which queue an offset belongs to. The mind persists it beside
         # `bus_offset`, and an offset from any other bus — every restart — is
         # an index into a queue that no longer exists, so it reads from 0.
@@ -95,6 +109,10 @@ class SignalBus:
                      ts=iso_of(self.clock.now()),
                      payload=payload or {}, source=source)
         self._signals.append(sig)
+        if len(self._signals) > MAX_HELD:
+            drop = len(self._signals) - MAX_HELD
+            del self._signals[:drop]
+            self._base += drop
         if self.log_path is not None:
             jsonl_append(self.log_path, {"id": sig.id, "type": sig.type,
                                          "ts": sig.ts, "payload": sig.payload,
@@ -133,11 +151,19 @@ class SignalBus:
         # and everything here is unread. Restoring it is still right for a mind
         # rebuilt on a *live* bus (a loop switched off and on again) — that is
         # the case this leaves alone.
-        if offset > len(self._signals):
+        if offset > len(self):
             offset = 0
-        offset = max(offset, 0)
-        batch = self._signals[offset:offset + limit]
+        # Short of the held window means `MAX_HELD` pushed it off the front:
+        # gone from memory, still in the log. Read on from what is left.
+        offset = max(offset, self._base)
+        # Asking from `offset` says everything before it has been read — SENSE
+        # only advances its cursor once the tick that read the batch is done,
+        # so a failed tick asks again from here and loses nothing (SPEC §16.4).
+        del self._signals[:offset - self._base]
+        self._base = offset
+        batch = self._signals[:limit]
         return batch, offset + len(batch)
 
     def __len__(self) -> int:
-        return len(self._signals)
+        """Every signal this bus was ever posted, held or not — the end offset."""
+        return self._base + len(self._signals)

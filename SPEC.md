@@ -1535,6 +1535,15 @@ what they mean — no producer may call into the mind.
   treating the signal as a finish. Journalling a failure as one is worse than journalling nothing:
   the line is what she reads back tomorrow, so a night her camera ran out of VRAM becomes a night
   she remembers taking a picture, and the photo it names does not exist.
+- §16.4 **The queue holds what is unread, not what happened.** Offsets are absolute — the count of
+  signals posted to this bus — so the persisted `bus_offset` means the same thing however much of
+  the queue is still held. Reading from an offset **MUST** release every signal before it: SENSE
+  advances its cursor only once the tick that read a batch is done, so an offset asked for has
+  been read. The bus has one reader. A bus nobody drains (a character with her mind switched
+  off) **MUST** still be bounded: past `MAX_HELD` unread signals the oldest are dropped from
+  memory and a reader behind them resumes at the oldest held. `signals.jsonl` keeps them all;
+  the log, not the queue, is the record. Found by review: the queue grew by every turn for the
+  life of the process.
 
 ## §17 — Activity states and the budget governor
 

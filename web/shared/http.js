@@ -30,7 +30,8 @@ export function detailMessage(payload, fallback = "") {
       const field = Array.isArray(payload.loc) ? payload.loc.filter((part) => part !== "body").join(".") : "";
       // Pydantic prefixes a validator's own message with "Value error, ".
       const msg = payload.msg.replace(/^Value error, /, "");
-      return field ? `${field}: ${msg}` : msg;
+      // …and a message that already names its field needs no label in front.
+      return field && !msg.toLowerCase().startsWith(field.toLowerCase()) ? `${field}: ${msg}` : msg;
     }
     return detailMessage(payload.detail ?? payload.error ?? payload.message, fallback);
   }

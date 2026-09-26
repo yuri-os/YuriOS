@@ -14,7 +14,7 @@ it('reads every shape the server answers with', () => {
   expect(detailMessage({ detail: [{
     type: 'value_error', loc: ['body', 'day'],
     msg: 'Value error, day must be a canonical YYYY-MM-DD date', input: '2099-13-45',
-  }] })).toBe('day: day must be a canonical YYYY-MM-DD date');
+  }] })).toBe('day must be a canonical YYYY-MM-DD date');
   expect(detailMessage({ detail: [
     { loc: ['body', 'job'], msg: 'String should match pattern' },
     { loc: ['query'], msg: 'Field required' },

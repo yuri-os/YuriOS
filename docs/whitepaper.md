@@ -527,8 +527,10 @@ Representative scenarios:
 This runtime is a reference implementation of *initiative*, and it draws its scope boundaries
 deliberately.
 
-- **No sandboxed workshop yet.** Mind-initiated *reading* and desk work ship, default-off
-  (`MIND_TOOLS_ENABLED`). There is no code execution, shell, or autonomous build capability.
+- **No sandboxed workshop yet.** Mind-initiated tools are controlled by the house and
+  per-character switches plus the allowlist; the shipped defaults enable them. Web
+  reading still needs `SEARCH_BACKEND`, which defaults off. There is no code execution,
+  shell, or autonomous build capability.
   The intended design delegates heavy work to an **embedded, swappable coding harness** running
   in a separate, firewalled `yuri-workspace/` sandbox under the host broker, with results
   crossing back into the mind only through the gated self-edit flow. This is the primary next

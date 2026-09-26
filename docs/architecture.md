@@ -222,8 +222,9 @@ The seams past this build are already shaped:
 - **The workshop** — a sandboxed workspace beside the Vault where ACT dispatches *code* and
   never awaits it (the selfie lab's start-don't-await rule, generalised), with the gated self-edit
   flow as the one door from work-product to self. Distinct from `vault/workspace/`, which is
-  already built: that one is *hers* and inert. Mind-initiated reading and desk work already
-  ship, default-off; this seam is where a shell would run, and it lives outside the Vault for
+  already built: that one is *hers* and inert. Mind-initiated tools ship enabled behind
+  their house and per-character switches, allowlist and guard; web reading additionally
+  needs `SEARCH_BACKEND`, which defaults off. This seam is where a shell would run, and it lives outside the Vault for
   exactly that reason.
 - **The temporal knowledge graph** behind `WorldModelStore`'s unchanged contract.
 

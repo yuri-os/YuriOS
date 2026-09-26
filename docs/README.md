@@ -30,21 +30,19 @@ What stands between you and that:
 - **`RESEARCH_MAX_CALLS=100`** caps estimated model calls admitted to one run; pages that do
   not fit wait unread on the shelf. `RESEARCH_MAX_PAGES` and `TOOL_RATE_RESEARCH` also bound
   how far one run and one minute can reach.
-- **`MIND_TOOLS_ENABLED=false` is the default**, and it is the switch that decides whether
-  any of this can happen *without you in the room*. Everything above assumes you said
-  something first. With this off — the shipped state — her background loop thinks and
-  writes to her journal and never reaches for a tool at all. Turning it on is two
-  decisions, not one: the switch, and then `MIND_TOOL_ALLOWLIST`, which names the permitted
-  hands explicitly and is empty even once the switch is true. You do not have to know the
-  names — `yurios settings MIND_TOOL_ALLOWLIST` prints every hand this build has, what each
-  one does and whether its backend is on, and the settings panel renders the same list as
-  tick-boxes. A gentle first setting is her desk alone:
+- **Mind tools are enabled by default**: `MIND_TOOLS_ENABLED=true`,
+  `MIND_TOOL_ALLOWLIST=*`, and each character's `hands` switch is on by default. The
+  guard still checks the backend, budget pressure, cooldown, rate limit, and daily cap
+  before dispatch. To restrict her, set an explicit `MIND_TOOL_ALLOWLIST` or turn off
+  the house or character switch. `yurios settings MIND_TOOL_ALLOWLIST` lists this
+  build's hands and their backend status; the settings panel renders the same list as
+  tick-boxes. A narrower starting allowlist is her desk alone:
   `write_note,append_note,read_note,list_notes`.
 
-Once you do turn it on, the numbers that actually stop a runaway night are different from
-the ones above, because they are *preconditions* rather than estimates:
+For autonomous calls, the numbers that stop a runaway night are different from the
+estimates above, because they are *preconditions* checked before dispatch:
 
-- **`MIND_TOOL_CALLS_PER_DAY` (8) is a cap, not a governor.** It is checked before the call
+- **`MIND_TOOL_CALLS_PER_DAY` (64) is a cap, not a governor.** It is checked before the call
   and it refuses. `MIND_TOOL_PRESSURE_CEILING` (0.5) does the same thing with the budget:
   over it, the expensive hands — `research`, `read_page`, `web_search`, the cameras — are
   simply not offered.

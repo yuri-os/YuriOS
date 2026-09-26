@@ -686,14 +686,12 @@ and `dream` restart her.
 
 ## Her hands in the loop
 
-The mind *can* reach for a tool, as a step of an open goal — never free-floating, at most one
-call per tick. It ships **off**. Two switches in series, the same pattern as notify:
+The mind can reach for a tool as a step of an open goal — never free-floating, at most one
+call per tick. The house defaults are **on**: `MIND_TOOLS_ENABLED=true` and
+`MIND_TOOL_ALLOWLIST=*`. Each character's `hands` switch also defaults on. All three
+must admit the call; turning off any one of them prevents that character from using tools
+unasked. Set an explicit allowlist to narrow the hands available on this installation.
 
-- `MIND_TOOLS_ENABLED` (house, **false**) says whether anything on this machine may act unasked.
-- Her own `hands` switch on the tile says whether she is one of the ones that may.
-
-`MIND_TOOL_ALLOWLIST` names the permitted hands explicitly — no wildcard, no inheritance from
-the conversational allowlist, **empty even when the house switch is on**.
 `yurios settings MIND_TOOL_ALLOWLIST` prints every hand this build has, what each one does and
 whether its backend is on. A gentle first setting is her desk alone:
 `write_note,append_note,read_note,list_notes`.
@@ -706,7 +704,8 @@ desk keeps working through the conversation.
 Expensive ones (`research`, `read_page`, `web_search`, the cameras) take the whole tick, need
 their backend, budget pressure under `MIND_TOOL_PRESSURE_CEILING`, and DORMANT/DREAM **or** you
 absent — including while she is talking. `MIND_TOOL_CALLS_PER_DAY` is a cap, not a governor: it is checked before the call and
-it refuses. The same call is refused for hours by a fingerprint ledger that survives restarts.
+it refuses. The default daily cap is **64 calls**, checked before dispatch. The same call is
+refused for hours by a fingerprint ledger that survives restarts.
 Nothing she makes this way is sent to you — it goes on her shelf, in her gallery, or on her
 desk. Whether you hear about it is the same reach-out gate as everything else.
 
@@ -716,9 +715,11 @@ The switchboard's fourth toggle revokes her hands before her next tick, without 
 
 ## What the mind deliberately doesn't do
 
-- **No code execution, no shell, no sandboxed workshop.** Autonomous *reading* ships, default-off
-  (above). What a sandbox is for is running code, which is a different threat model from
-  fetching a page, and that is still the named next rung.
+- **No code execution, no shell, no sandboxed workshop.** Web reading requires
+  `SEARCH_BACKEND` to be enabled, and it is off by default. The desk and other available
+  hands follow the switches and allowlist described above. What a sandbox is for is
+  running code, a different threat model from fetching a page, and that is still the
+  named next rung.
 - **No goals invented mid-conversation.** She files one of her own on the night's stock-take and
   nowhere else — deliberately, so a new intention is something you can read on the goals page
   before it acts, rather than something that appeared while you were mid-sentence.

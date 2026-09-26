@@ -411,10 +411,11 @@ knob exists to make; make it deliberately.
 
 ## Her hands in the loop
 
-The mind *can* reach for these same hands, as a step of an open goal — never free-floating, at
-most one call per tick. It ships **off**. `MIND_TOOLS_ENABLED` is the house switch;
-`MIND_TOOL_ALLOWLIST` names the permitted tools explicitly and is empty even once the switch is
-true; her tile's `hands` toggle is the per-character grant, live, without a restart. Cheap
+The mind can reach for these same hands as a step of an open goal — never free-floating, at
+most one call per tick. The house defaults are on: `MIND_TOOLS_ENABLED=true` and
+`MIND_TOOL_ALLOWLIST=*`; a character's `hands` toggle is also on by default. All three
+gates must admit a call. Change the house allowlist to narrow which tools can be used, or
+turn off the house or character switch. Cheap
 hands (the desk, `set_timer`) are a goal step; expensive ones (`research`, `read_page`,
 `web_search`, the cameras) take the whole tick and are simply not offered over
 `MIND_TOOL_PRESSURE_CEILING`. `MIND_TOOL_CALLS_PER_DAY` is a cap, checked before the call.

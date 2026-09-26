@@ -19,6 +19,7 @@ yurios stop
 yurios restart                        # stop, then start
 yurios log -f                         # follow the daemon log
 yurios doctor                         # what's wired vs what's missing
+yurios doctor --probe-model           # also check model connections (3s per request)
 yurios configure                      # pick a model (and optionally a camera)
 yurios pair                           # owner token + QR for a phone
 yurios tray                           # why the icon is or isn't there

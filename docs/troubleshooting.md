@@ -4,12 +4,18 @@ Two commands answer most questions:
 
 ```bash
 yurios doctor                      # what .env selects vs what's actually installed
+yurios doctor --probe-model        # also check the house model endpoints and keys
 curl localhost:8768/api/health     # what's actually running right now
 ```
 
 The doctor reads the same `.env` the server reads, checks each selected backend against what's
 importable, and prints the exact install command for anything missing — plus the `.env` change
-that avoids the download altogether where one exists. `/api/health` reports the live truth:
+that avoids the download altogether where one exists.
+`--probe-model` checks the selected house chat model and enabled utility model with a
+three-second timeout per request. It reports connection, authentication and missing-model
+failures, and exits nonzero for a failed probe. GGUF and unset models have no HTTP endpoint to
+check. Character-specific connections are configured separately from the house `.env`.
+`/api/health` reports the live truth:
 voice, tools, mind, selfies, channels, viewers and context. Its `ok` is up **and** working —
 `false` with a `degraded` list naming what's wrong (no model chosen, a channel or tool server that
 failed) rather than a flat `true` for anything that answers at all.

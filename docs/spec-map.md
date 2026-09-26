@@ -13,7 +13,7 @@ a section are folded into it.
 |---|---|---|
 | **§1** — Goal and properties | `yurios/world/channels/telegram.py`<br>`yurios/desktop/config.py`<br>`yurios/world/main.py` | — |
 | **§2** — The brain, the voice, and the seam | `web/js/chat.js`<br>`yurios/world/main.py`<br>`yurios/app/providers/sentence_tf.py`<br>`yurios/desktop/brain.py`<br>*+36 more* | `tests/test_situation.py`<br>`tests/test_embedder_fallback.py`<br>`tests/test_events.py`<br>*+13 more* |
-| **§3** — The body: the VRM stage | `yurios/desktop/voice/protocols.py`<br>`web/js/stage/EmoteController.js`<br>`yurios/desktop/config.py`<br>`web/js/stage/Blink.js`<br>*+21 more* | `tests/test_doctor.py`<br>`tests/test_lmstudio_preload.py`<br>`tests/test_palette_map.py`<br>*+2 more* |
+| **§3** — The body: the VRM stage | `yurios/desktop/voice/protocols.py`<br>`web/js/stage/EmoteController.js`<br>`yurios/desktop/config.py`<br>`web/js/stage/Blink.js`<br>*+22 more* | `tests/test_doctor.py`<br>`tests/test_lmstudio_preload.py`<br>`tests/test_palette_map.py`<br>*+2 more* |
 | **§4** — The control channel (`avatar` events on the bus) | `yurios/world/avatar/controller.py`<br>`web/js/bridge.js`<br>`yurios/desktop/routes/voice_ws.py`<br>`yurios/desktop/voice/turn.py`<br>*+12 more* | `tests/test_avatar_controller.py`<br>`tests/test_events.py` |
 | **§5** — Visemes: real lip-sync | `yurios/desktop/voice/fillers.py`<br>`web/js/stage/VrmStage.js`<br>`web/js/voice.js`<br>`scripts/seed_vault.py`<br>*+6 more* | `tests/test_bootstrap_greeting.py`<br>`tests/test_mind_goals.py`<br>`tests/test_studio_routes.py` |
 | **§6** — The sanctuary scene | `web/js/stage/VrmStage.js`<br>`web/js/main.js`<br>`yurios/desktop/voice/emotion.py`<br>`web/js/stage/SanctuaryScene.js`<br>*+35 more* | `tests/test_boot.py`<br>`tests/test_window.py`<br>`tests/conftest.py`<br>*+4 more* |
@@ -48,4 +48,4 @@ a section are folded into it.
 | **§35** — Pictures you send her | `yurios/world/main.py`<br>`yurios/world/channels/telegram.py`<br>`yurios/world/routes/chat.py`<br>`web/js/chat.js`<br>*+11 more* | `tests/test_channels.py`<br>`tests/test_context_meter.py`<br>`tests/test_integration.py`<br>*+1 more* |
 | **§36** — Command-line control | `yurios/ctl/__init__.py`<br>`yurios/ctl/characters.py`<br>`yurios/ctl/client.py`<br>`yurios/world/host/switchboard.py`<br>*+1 more* | `tests/test_cli_camera.py`<br>`tests/test_cli_characters.py` |
 
-*857 citation sites over 115 sections.*
+*859 citation sites over 115 sections.*

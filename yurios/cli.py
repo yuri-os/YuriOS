@@ -1088,10 +1088,10 @@ def _follow_log(log_path: Path) -> int:
 
 
 def command_doctor(args) -> int:
-    """Report whether the configured optional backends are installed."""
+    """Report configured backends and optionally check model connections."""
     from yurios.doctor import main
 
-    return main()
+    return main(probe_models=True) if args.probe_model else main()
 
 
 def command_uninstall(args) -> int:
@@ -1338,6 +1338,8 @@ def main(argv: list[str] | None = None) -> int:
                      help="keep printing new lines until Ctrl+C")
     log.set_defaults(func=command_log)
     doctor = sub.add_parser("doctor", help="check configured backends and dependencies")
+    doctor.add_argument("--probe-model", action="store_true",
+                        help="check selected model endpoints (3-second timeout per request)")
     doctor.set_defaults(func=command_doctor)
     tray = sub.add_parser("tray", help="her tray icon: status, on, off, or remove")
     tray.add_argument("action", nargs="?", default="status",

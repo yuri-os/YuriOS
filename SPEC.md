@@ -341,6 +341,13 @@ none. Reads that cost nothing (the model listing behind the settings page) need 
 The same headers carry a composite `User-Agent` — `YuriOS/<version> <client>/<version>` —
 which affects no attribution and exists so a provider's logs name her, not just her plumbing.
 `yurios doctor` prints what a given `.env` actually puts on the wire.
+With `--probe-model`, it **MUST** also make a timeout-bound, read-only request to
+the house's selected chat and enabled utility model connections. LM Studio and
+Ollama probes **MUST** use their configured endpoint and connection key and report
+whether the selected model is listed; OpenRouter probes **MUST** use an authenticated
+key endpoint, since its public model listing cannot verify a key. A failed requested
+probe **MUST** make doctor exit nonzero, while the default command **MUST NOT** probe
+model connections. Unset and in-process GGUF models have no HTTP endpoint to probe.
 
 The default stack is **local and needs no key**: an LM Studio model backs the mind, while the
 in-process sentence-transformers embedder (`EMBED_BACKEND=sentence_tf`) owns memory without a

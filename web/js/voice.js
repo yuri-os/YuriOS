@@ -20,6 +20,7 @@
  */
 
 import '../shared/runtime.js';
+import { detailMessage } from '../shared/http.js';
 
 const FRAME = 512;              // samples per mic frame @16k ≈ 32 ms
 const SPEECH_RMS = 0.02;        // energy gate (tune to your mic)
@@ -689,7 +690,7 @@ export function initVoice({ viseme, els }) {
                                    { method: 'POST', body });
       const data = await response.json().catch(() => ({}));
       if (mine !== pictureSeq) return;       // …until a later one takes it over
-      if (!response.ok) throw new Error(data.detail || 'that picture was refused');
+      if (!response.ok) throw new Error(detailMessage(data, 'that picture was refused'));
       picture = { id: data.id, url: data.url };
       pictureBusy = false;
       showChip(preview, false);
@@ -731,7 +732,7 @@ export function initVoice({ viseme, els }) {
       });
       reached = true;
       const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.detail || `request failed: ${response.status}`);
+      if (!response.ok) throw new Error(detailMessage(data, `request failed: ${response.status}`));
       if (data.session_id) {
         sessionId = data.session_id;
         window.localStorage?.setItem(sessionKey, sessionId);

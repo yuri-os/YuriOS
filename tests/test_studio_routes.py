@@ -469,3 +469,89 @@ def test_an_edit_you_made_lands_in_the_diary_as_itself(node):
     assert client.patch("/api/characters/subject/profile",
                         json={"name": "Someone Else"}).status_code == 200
     assert _subjects(vault)[0] == "user: edit character card"
+
+
+def _soul(vault: Path) -> dict[str, str]:
+    return {path.name: path.read_text(encoding="utf-8")
+            for path in sorted((vault / "soul").iterdir()) if path.is_file()}
+
+
+def _form(client) -> dict:
+    """What the switchboard's profile form is filled with."""
+    return client.get("/api/characters/subject/profile").json()["settings"]
+
+
+def test_a_profile_save_rewrites_only_the_card_fields_it_changed(node):
+    """SPEC §30.4: the SOUL moves where the save moved something, nowhere else.
+
+    The profile route reads card.json, which the importer's split of a long
+    description into Identity and History does not match — so writing back the
+    description the form was only shown duplicated her backstory into Identity."""
+    client, registry = node
+    vault = Path(registry.require("subject").paths.vault)
+    shown = _form(client)
+    before, history = _soul(vault), _subjects(vault)
+
+    whole_form = {key: shown[key] for key in (
+        "name", "description", "personality", "scenario", "first_mes", "voice",
+        "model", "utility_model", "connection_profile", "body_backend", "body_model")}
+    assert client.patch("/api/characters/subject/profile",
+                        json={**whole_form, "dream": not shown["dream"]}).status_code == 200
+    assert _soul(vault) == before
+    assert _subjects(vault)[:len(history)] == history
+    assert "user: edit character card" not in _subjects(vault)[:1]
+
+    assert client.patch("/api/characters/subject/profile",
+                        json={**whole_form, "personality": "dry, exact"}).status_code == 200
+    after = _soul(vault)
+    assert "dry, exact" in after["PERSONA.md"]
+    assert {name for name in after if after[name] != before[name]} == {"PERSONA.md"}
+
+
+def test_a_profile_save_with_no_card_json_does_not_blank_her_soul(node):
+    """A character seeded from soul-src has no card.json, so the form is shown
+    blanks for every card field; posting them back once erased her Identity,
+    Scenario and personality line."""
+    client, registry = node
+    record = registry.require("subject")
+    Path(record.paths.card_json).unlink()
+    vault = Path(record.paths.vault)
+    before = _soul(vault)
+    shown = _form(client)
+    assert shown["personality"] == shown["scenario"] == shown["first_mes"] == ""
+
+    assert client.patch("/api/characters/subject/profile", json={
+        "personality": "", "scenario": "", "first_mes": "",
+        "hands": False}).status_code == 200
+    assert _soul(vault) == before
+    assert registry.require("subject").loops.hands is False
+
+
+def test_a_blank_name_is_not_a_rename(node):
+    client, registry = node
+    record = registry.require("subject")
+    vault = Path(record.paths.vault)
+    name = record.display.name
+    before = _soul(vault)["soul.yaml"]
+
+    assert client.patch("/api/characters/subject/profile",
+                        json={"name": "   "}).status_code == 200
+    assert registry.require("subject").display.name == name
+    assert _soul(vault)["soul.yaml"] == before
+    card = json.loads(Path(record.paths.card_json).read_text(encoding="utf-8"))
+    assert card.get("data", card)["name"] == name
+
+
+@pytest.mark.parametrize("route", [
+    "not a real/route with spaces", "openrouter//glm", "openrouter/", "lm_studio/\tqwen"])
+def test_a_model_route_no_provider_could_answer_is_refused(node, route):
+    """SPEC §31.2: refused at the save, not discovered by every turn after it."""
+    client, registry = node
+    for path, body in (("/api/characters/subject/profile", {"model": route}),
+                       ("/api/characters/subject/profile", {"utility_model": route}),
+                       ("/api/characters/subject/brain", {"chat_model": route})):
+        response = client.patch(path, json=body)
+        assert response.status_code == 400, (path, body)
+        assert "model route" in response.json()["detail"]
+    models = registry.require("subject").models
+    assert (models.chat, models.utility) == ("", "")

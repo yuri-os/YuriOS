@@ -11,6 +11,7 @@
  * else that happens to her.
  */
 import { STATE_META, canonicalState } from '../shared/activity-state.js';
+import { detailMessage } from '../shared/http.js';
 
 (() => {
   const runtimeReady = window.YuriOSRuntime
@@ -551,7 +552,7 @@ import { STATE_META, canonicalState } from '../shared/activity-state.js';
       if (res.status === 422) {
         // your version was refused: keep it, say why, let you fix it
         const why = await res.json().catch(() => ({}));
-        editErrors.set(id, `not applied — ${why.detail || 'the server refused it'}`);
+        editErrors.set(id, `not applied — ${detailMessage(why, 'the server refused it')}`);
         ev.target.disabled = false;
         render();
         return;

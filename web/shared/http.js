@@ -15,6 +15,28 @@ export class ApiError extends Error {
   }
 }
 
+/** The words in an error body, whatever shape it came in. A request that fails
+ *  FastAPI's own validation answers `{"detail": [{loc, msg, …}, …]}` — a list,
+ *  which a template string renders as "[object Object]". */
+export function detailMessage(payload, fallback = "") {
+  if (payload == null) return fallback;
+  if (typeof payload === "string") return payload || fallback;
+  if (Array.isArray(payload)) {
+    const lines = payload.map((item) => detailMessage(item)).filter(Boolean);
+    return lines.length ? lines.join("; ") : fallback;
+  }
+  if (typeof payload === "object") {
+    if (typeof payload.msg === "string") {
+      const field = Array.isArray(payload.loc) ? payload.loc.filter((part) => part !== "body").join(".") : "";
+      // Pydantic prefixes a validator's own message with "Value error, ".
+      const msg = payload.msg.replace(/^Value error, /, "");
+      return field ? `${field}: ${msg}` : msg;
+    }
+    return detailMessage(payload.detail ?? payload.error ?? payload.message, fallback);
+  }
+  return String(payload);
+}
+
 export async function request(path, options = {}) {
   const headers = new Headers(options.headers);
   if (options.body && !(options.body instanceof FormData)) headers.set("Content-Type", "application/json");
@@ -23,8 +45,8 @@ export async function request(path, options = {}) {
   const contentType = response.headers.get("content-type") || "";
   const payload = contentType.includes("json") ? await response.json() : await response.text();
   if (!response.ok) {
-    const detail = typeof payload === "object" ? payload.detail || payload.error || payload.message : payload;
-    throw new ApiError(detail || `Request failed (${response.status})`, response.status, payload);
+    throw new ApiError(detailMessage(payload, `Request failed (${response.status})`),
+      response.status, payload);
   }
   return payload;
 }

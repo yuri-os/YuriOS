@@ -33,11 +33,16 @@ from yurios.characters import (
 )
 from yurios.characters import archive as archive_model
 
+from .. import rewire
 from .hosting import (_OPTION_KEYS, PURGE_CHALLENGE_TTL_S,
                       CharacterBusy, CharacterHost, _env_values, _card_values, _construction_fingerprint,
                       _update_soul, save_brain_overrides)
 
 log = logging.getLogger("world.host")
+
+# The card fields a profile save may carry, each with a SOUL home (§30.4).
+_CARD_FIELDS = ("name", "description", "personality", "scenario", "first_mes",
+                "system_prompt", "post_history_instructions", "creator_notes")
 
 
 def register(app: FastAPI, host: CharacterHost, require) -> None:
@@ -154,14 +159,20 @@ def register(app: FastAPI, host: CharacterHost, require) -> None:
                 400, f"{field} is host-owned; select a connection_profile instead")
         record = copy.deepcopy(current)
         built_with = _construction_fingerprint(current)
-        if "name" in body and str(body["name"]).strip():
-            record.display.name = str(body["name"]).strip()
+        # A blank name is not a rename: the registry has always ignored one, and
+        # the card and `soul.yaml` must not take the blank the registry refused.
+        name = str(body.get("name") or "").strip()
+        if name:
+            record.display.name = name
         if "description" in body:
             record.display.description = str(body["description"])
-        if "model" in body:
-            record.models.chat = str(body["model"])
-        if "utility_model" in body:
-            record.models.utility = str(body["utility_model"])
+        try:
+            if "model" in body:
+                record.models.chat = rewire.model_route(body["model"])
+            if "utility_model" in body:
+                record.models.utility = rewire.model_route(body["utility_model"])
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
         if "voice" in body:
             record.voice.voice_id = str(body["voice"])
         if "connection_profile" in body:
@@ -192,10 +203,25 @@ def register(app: FastAPI, host: CharacterHost, require) -> None:
             record.lifecycle.enabled = bool(body["enabled"])
         if "autostart" in body:
             record.lifecycle.autostart = bool(body["autostart"])
-        card_fields = {key: body[key] for key in (
-            "name", "description", "personality", "scenario", "first_mes",
-            "system_prompt", "post_history_instructions", "creator_notes")
-            if key in body}
+        # A card field reaches the SOUL only where the save *moved* it (§30.4).
+        # "Moved" is measured against what `get_settings` showed, read the same
+        # way: a client that posts the whole form must not rewrite her sections
+        # with what it was handed — for a character with no card.json (one seeded
+        # from `soul-src/`) that is blanks, and replacing `## Identity` with a
+        # blank erases who she is.
+        _, shown_card = _card_values(current)
+        shown = {key: str(shown_card.get(key) or "") for key in _CARD_FIELDS}
+        shown["name"] = current.display.name
+        shown["description"] = current.display.description
+        card_fields = {}
+        for key in _CARD_FIELDS:
+            if key not in body:
+                continue
+            value = name if key == "name" else str(body[key])
+            if key == "name" and not value:
+                continue
+            if value != shown[key]:
+                card_fields[key] = value
         if card_fields:
             wrapper, card = _card_values(record)
             card.update({key: str(value) for key, value in card_fields.items()})

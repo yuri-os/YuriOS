@@ -393,6 +393,23 @@ def test_character_settings_are_registry_scoped(tmp_path):
         assert saved.models.chat == "test/model"
 
 
+def test_a_tile_says_when_she_last_spoke(tmp_path):
+    """`updated_at` is documented in web/dashboard/API.md and the drawer reads
+    it; the summary never sent it, so every drawer said "no recent activity"."""
+    registry = CharacterRegistry(tmp_path)
+    her = record(tmp_path, enabled=False)
+    registry.add(her)
+    app = create_host_app(Config(data_dir=tmp_path, _env_file=None), registry)
+
+    with TestClient(app) as client:
+        assert client.get("/api/characters").json()["characters"][0]["updated_at"] is None
+        transcript = her.paths.vault / "state" / "conversation.jsonl"
+        transcript.parent.mkdir(parents=True)
+        transcript.write_text('{"role": "user", "text": "hi"}\n', encoding="utf-8")
+        stamp = client.get("/api/characters").json()["characters"][0]["updated_at"]
+        assert stamp.endswith("+00:00") and stamp[:4].isdigit()
+
+
 def test_archive_removes_registry_but_preserves_tree(tmp_path):
     registry = CharacterRegistry(tmp_path)
     registry.add(record(tmp_path, enabled=False))
@@ -846,6 +863,7 @@ def test_the_hands_switch_goes_back_on_without_a_restart(tmp_path):
     class FakeRuntime:
         mind = None
         _hands_granted = True
+        _tools_detail = ""
         set_hands_enabled = Runtime.set_hands_enabled
 
     rt = FakeRuntime()

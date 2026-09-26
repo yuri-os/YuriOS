@@ -87,6 +87,10 @@ class BootBoard:
                               "detail": detail, "seconds": None,
                               "_start": None, "_blocking": blocking}
 
+    def __contains__(self, key: str) -> bool:
+        with self._lock:
+            return key in self._svc
+
     def start(self, key: str, detail: str = "") -> None:
         with self._lock:
             s = self._svc[key]

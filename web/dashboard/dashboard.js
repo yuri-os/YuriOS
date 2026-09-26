@@ -2,6 +2,7 @@ import { $, $$, element, errorMessage, setBusy, showToast } from "../shared/dom.
 import { charactersApi } from "./api.js";
 import { request } from "../shared/http.js";
 import {
+  changedFields,
   contextEntries,
   filterCharacters,
   formatDiaryDay,
@@ -353,11 +354,15 @@ function syncDrawer() {
   elements.review.hidden = !character.reviewRequired;
   $("#review-studio").href = studio;
   elements.drawerIdentity.style.setProperty("--character-accent", character.accent);
+  // formatRelativeTime says "no recent activity" for a missing date, which
+  // does not take an "updated" in front of it.
+  const seen = character.updatedAt
+    ? `updated ${formatRelativeTime(character.updatedAt)}` : formatRelativeTime(null);
   elements.drawerIdentity.replaceChildren(
     portrait(character),
     element("div", { className: "drawer-meta" },
       statusChip(character),
-      element("small", { text: `updated ${formatRelativeTime(character.updatedAt)} / ${character.model}` })));
+      element("small", { text: `${seen} / ${character.model}` })));
 }
 
 function openDrawer(id) {
@@ -722,8 +727,11 @@ async function openProfile() {
       "connection_profile", "personality", "scenario", "first_mes"]) {
       if (settings[name] != null) form.elements[name].value = settings[name];
     }
-    for (const key of ["mind", "utility", "dream", "notify"]) {
+    for (const key of ["mind", "utility", "dream", "hands", "notify"]) {
       if (settings[key] != null) form.elements[key].checked = Boolean(settings[key]);
+    }
+    if (settings.hands_available != null) {
+      setHandsAvailability(form, Boolean(settings.hands_available));
     }
     if (settings.notify_available != null) {
       setNotifyAvailability(form, Boolean(settings.notify_available));
@@ -738,12 +746,19 @@ async function submitProfile(event) {
   event.preventDefault();
   const character = selectedCharacter();
   if (!character) return;
-  const form = event.currentTarget;
-  const payload = Object.fromEntries(new FormData(form).entries());
-  for (const key of ["mind", "utility", "dream", "notify"]) payload[key] = form.elements[key].checked;
-  const button = $("#profile-submit");
+  // Only what moved since the form loaded. The card fields are written into
+  // her SOUL (SPEC §30.4), so re-sending one she was only *shown* rewrites a
+  // section nobody touched — and for a character with no card.json the form
+  // was shown blanks.
+  const payload = changedFields(profileValues(), profileBaseline);
   const error = $("#profile-error");
   error.textContent = "";
+  if (!Object.keys(payload).length) {
+    closeModal(elements.profileDialog);
+    toast(`Nothing changed in ${character.name}'s profile.`);
+    return;
+  }
+  const button = $("#profile-submit");
   setBusy(button, true, "Saving...");
   try {
     const response = await charactersApi.saveSettings(character.id, payload);
@@ -887,9 +902,7 @@ async function submitBrain(event) {
 /** Leaving the profile panel discards whatever is typed in it, so say so once
  *  and let the second press mean it. */
 function leaveForBrain() {
-  const now = profileValues();
-  const dirty = Object.keys(now).some(
-    (name) => String(now[name]) !== String(profileBaseline[name] ?? ""));
+  const dirty = Object.keys(changedFields(profileValues(), profileBaseline)).length > 0;
   if (dirty && !brainState.confirmSwitch) {
     brainState.confirmSwitch = true;
     $("#profile-error").textContent =

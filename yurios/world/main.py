@@ -251,6 +251,7 @@ class Runtime:
         # because the host seeds it from her record before there is a mind to
         # tell, and because a revoke has to survive the mind being rebuilt.
         self._hands_granted = True
+        self._tools_detail = ""        # the boot panel's tools line, once discovered
         # the channel seam (SPEC §10.5): one text-turn runner shared by every
         # non-voice medium, and the manager that runs the in-process channel
         # adapters (Telegram now; WhatsApp / a game-engine NPC API later).
@@ -794,16 +795,7 @@ class Runtime:
             self.boot.done("mind", state="skipped", detail="choose a language model")
         elif self.cfg.mind_enabled and self.autonomous:
             try:
-                self.mind = MindLoop(self.cfg, self.clock, bus=self.signals,
-                                     brain=self.brain, controller=self.controller,
-                                     timers=self.timers, hub=self.hub,
-                                     speak=self.speak_ambient,
-                                     post_message=self.post_message,
-                                     park_gate=self.park_gate)
-                self.mind.set_hands_enabled(self._hands_granted)
-                self.mind.set_hands_boot(self.tools_settled)
-                if self.mind.hands.guard is not None:
-                    self.mind.hands.guard.observe(self.post_tool_notice)
+                self.mind = self._build_mind()
                 self.mind_status = "running"
                 self.boot.done("mind", detail=f"running · {self.mind.activity.state}")
                 self._mind_task = asyncio.create_task(self.mind.run(), name="mind")
@@ -871,7 +863,8 @@ class Runtime:
                 detail += f" · {len(runner.started)} servers"
                 for name, why in runner.failures.items():
                     log.warning("tools: %s is not mounted (%s)", name, why)
-            self.boot.done("tools", detail=detail)
+            self._tools_detail = detail
+            self.boot.done("tools", detail=self._tools_line())
         except asyncio.CancelledError:
             for key in self.boot.unresolved(("tools",)):
                 self.boot.done(key, state="skipped", detail="stopped")
@@ -1028,22 +1021,42 @@ class Runtime:
             if self.mind is None:
                 if not self.autonomous:
                     raise RuntimeError("this brain has no autonomy state")
-                self.mind = MindLoop(
-                    self.cfg, self.clock, bus=self.signals, brain=self.brain,
-                    controller=self.controller, timers=self.timers, hub=self.hub,
-                    speak=self.speak_ambient, post_message=self.post_message,
-                    park_gate=self.park_gate)
-                self.mind.set_hands_boot(self.tools_settled)
+                self.mind = self._build_mind()
             if self._mind_task is None or self._mind_task.done():
                 self._mind_task = asyncio.create_task(self.mind.run(), name="mind")
                 self._tasks.append(self._mind_task)
             self.mind_status = "running"
+            # The room's boot panel is read long after boot; a line still
+            # saying "skipped" about a mind that is running is a panel that lies.
+            if "mind" in self.boot:
+                self.boot.done("mind", detail=f"running · {self.mind.activity.state}")
             return
         if self._mind_task is not None and not self._mind_task.done():
             self._mind_task.cancel()
             await asyncio.gather(self._mind_task, return_exceptions=True)
         self._mind_task = None
         self.mind_status = "paused"
+        if "mind" in self.boot:
+            self.boot.done("mind", state="skipped", detail="paused")
+
+    def _build_mind(self) -> MindLoop:
+        """The one way a mind is made — at boot and when switched on live.
+
+        Two copies of this drifted once: the live switch built a mind that never
+        heard her hands were revoked (`granted` defaults to on) and never told
+        the room about a tool call, so a character with hands off whose mind was
+        turned on from the board had her hands back until the next restart."""
+        mind = MindLoop(self.cfg, self.clock, bus=self.signals,
+                        brain=self.brain, controller=self.controller,
+                        timers=self.timers, hub=self.hub,
+                        speak=self.speak_ambient,
+                        post_message=self.post_message,
+                        park_gate=self.park_gate)
+        mind.set_hands_enabled(self._hands_granted)
+        mind.set_hands_boot(self.tools_settled)
+        if mind.hands.guard is not None:
+            mind.hands.guard.observe(self.post_tool_notice)
+        return mind
 
     def set_hands_enabled(self, enabled: bool) -> None:
         """Grant or revoke this character's autonomous hands, live (§26, amended).
@@ -1061,6 +1074,15 @@ class Runtime:
         self._hands_granted = bool(enabled)
         if self.mind is not None:
             self.mind.set_hands_enabled(enabled)
+        if self._tools_detail and "tools" in self.boot:
+            self.boot.done("tools", detail=self._tools_line())
+
+    def _tools_line(self) -> str:
+        """The tool server's boot line, and whether she may use it. The server
+        is spawned whatever her switch says, so that granting hands is instant;
+        a line that only said "17 tools" read as hands on when they were off."""
+        hands = self.cfg.mind_tools_enabled and self._hands_granted
+        return self._tools_detail + ("" if hands else " · hands off")
 
 
 # uvicorn waits this long for open connections to drain on Ctrl+C before it

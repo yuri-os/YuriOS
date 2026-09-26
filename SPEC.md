@@ -2745,6 +2745,12 @@ changes; a runtime does not know it has neighbours.
   frontmatter, `creator_notes` → `NOTES.md`, `name` → `soul.yaml`), and **MUST** commit the
   Vault. Prompts are assembled from the SOUL (§2.1), never from `card.json` — so an edit that
   did not reach the files would be an edit that did not happen.
+  The converse binds as hard: a save **MUST** rewrite only the fields it *changed*, measured
+  against what `GET …/profile` returned, never every field it carried. The profile route reads
+  `card.json`, which a SOUL edited in the studio can outgrow and a character seeded from
+  `soul-src/` does not have at all — so re-sending a value that was only shown can duplicate a
+  section the importer split, or replace `## Identity` with a blank. A blank `name` is not a
+  rename, and reaches neither the registry nor `soul.yaml`.
 - §30.5 **Export is identity, never intimacy.** An exported PNG carries her portrait with both a
   `chara` (V2) and a `ccv3` (V3) chunk built from `card.json` — identity, persona, scenario, lore.
   It **MUST NOT** carry `USER.md`, relationship memory, the corpus, traces, tool audit, selfies
@@ -2812,7 +2818,10 @@ changes; a runtime does not know it has neighbours.
   `models.options` (`temperature`, the reasoning switches, `MAX_REPLY_TOKENS`, `CONTEXT_LENGTH`…),
   coerced to that field's own type — the registry is JSON, and a value that will not coerce is
   dropped with a warning rather than taking her runtime down. A blank binding therefore means
-  *inherit*, which is what makes one `.env` still configure a house.
+  *inherit*, which is what makes one `.env` still configure a house. A model id written through
+  the API **MUST** be refused (400) when no provider could ever answer it — whitespace in it, or
+  an empty `/` segment — rather than saved and left to fail every turn after; whether the
+  server actually has that model is not checked at save time.
   **A named profile is the only custom connection grant**: a character record may select a
   profile but **MUST NOT** select an endpoint or environment variable directly. Character API
   writes carrying `endpoint` or `api_key_env` are rejected before any mutation. The profile's
@@ -2827,7 +2836,9 @@ changes; a runtime does not know it has neighbours.
 - §31.3 **Loop switches are per character.** `mind`, `utility` and `dream` are registry fields, not
   just `.env` knobs: one companion may be a fully autonomous mind while another is reactive-only.
   Toggling `mind` **MUST** take effect on the live runtime without a restart; toggling `utility`
-  or `dream` **MAY** restart her runtime, because they are wired at construction.
+  or `dream` **MAY** restart her runtime, because they are wired at construction. A mind switched
+  on live **MUST** be built exactly as one started at boot — in particular carrying her hands
+  switch (§26.1), since a fresh mind's hands default to granted.
 - §31.4 **Her brain settings change without a restart.** The model a character speaks through,
   its route, its key and its per-call knobs **MUST** be swappable on a running runtime: the
   providers are rebuilt from the live `Config` — which is *mutated in place*, since one object is
@@ -2841,9 +2852,9 @@ changes; a runtime does not know it has neighbours.
   which is what the gear in her room calls) is the surface. A profile save (§30.4) **MUST** take
   the same path rather than restarting whenever it left everything the runtime was *built* with —
   her name, her voice, her body, the utility and dream loops — where it found it. That decision is
-  made by comparing the record before and after the save, not by which keys were sent: the
-  switchboard posts the whole form every time, and re-submitting an unchanged voice is not a
-  reason to take her conversation down.
+  made by comparing the record before and after the save, not by which keys were sent: a client
+  may post the whole form, and re-submitting an unchanged voice is not a reason to take her
+  conversation down.
 
 ## §32 — The switchboard
 

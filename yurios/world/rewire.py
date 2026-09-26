@@ -81,6 +81,28 @@ def snapshot(cfg) -> dict[str, Any]:
     return {field: getattr(cfg, field) for field in BRAIN_FIELDS}
 
 
+def model_route(value: Any) -> str:
+    """A submitted model id, checked for shape before it can reach her record.
+
+    Not a probe — whether the server has that model is only known by asking it,
+    which a save must not wait on. But a route with a space in it, or an empty
+    `provider//model` segment, is one no provider will ever answer, and taking it
+    means every turn after the save fails with LiteLLM's error instead of the
+    form saying no. Blank is still *inherit* (§31.2). Raises `ValueError`."""
+    route = "" if value is None else str(value).strip()
+    if not route:
+        return ""
+    if len(route) > 200:
+        raise ValueError("model route is too long")
+    if any(ch.isspace() or not ch.isprintable() for ch in route):
+        raise ValueError(f"model route {route!r} contains a space; "
+                         "expected provider/model, e.g. openrouter/z-ai/glm-5.2")
+    if "" in route.split("/"):
+        raise ValueError(f"model route {route!r} has an empty segment; "
+                         "expected provider/model, e.g. openrouter/z-ai/glm-5.2")
+    return route
+
+
 def coerce(cfg, field: str, value: Any) -> Any:
     """A submitted value as the Config field's own type.
 

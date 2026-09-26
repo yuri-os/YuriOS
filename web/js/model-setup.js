@@ -1,5 +1,7 @@
 /* First-run model selection. The process stays intentionally offline until a
  * choice is made; a restart activates the saved model after any GGUF download. */
+import { detailMessage } from '../shared/http.js';
+
 const apiPath = (path) => window.YuriOSRuntime?.apiPath(path) || path;
 
 const panel = document.getElementById('model-setup');
@@ -21,7 +23,7 @@ async function choose(model) {
       body: JSON.stringify({model}),
     });
     const body = await response.json();
-    if (!response.ok) throw new Error(body.detail || 'Could not save that model');
+    if (!response.ok) throw new Error(detailMessage(body, 'Could not save that model'));
     setStatus(`${body.detail} Restart YuriOS to activate it.`, false);
   } catch (error) {
     setStatus(error.message || 'Could not save that model', true);

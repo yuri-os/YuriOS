@@ -36,6 +36,10 @@ it**, rather than offering a switch that quietly does nothing. `hands` is whethe
 use a tool at all — in a reply and on her own (SPEC §26.1); it is also mirrored in `loops` for
 the four-switch stack on the tile.
 
+`updated_at` is when a line last landed in her conversation, from either side and any medium
+(the transcript's modification time), or `null` if she has never spoken; the drawer shows it as
+*updated 3 hours ago*.
+
 `unread` is what she reached out about while nobody was in the room (SPEC §18.4) — the tile wears
 a mark when `count` is above zero, and says *picture* rather than *message* when `selfies` accounts
 for them. It is read from her Vault for a character whose runtime is down as well as from a live

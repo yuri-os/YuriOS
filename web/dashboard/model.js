@@ -115,6 +115,16 @@ export function normalizeCharacters(payload) {
     a.stateMeta.rank - b.stateMeta.rank || a.name.localeCompare(b.name));
 }
 
+/** The fields of a form that differ from the baseline it was loaded with —
+ *  compared as text, because a checkbox is a boolean and an input a string. A
+ *  profile save sends only these (SPEC §30.4): the card fields land in her
+ *  SOUL, and re-sending one she was only shown rewrites a section nobody
+ *  touched. */
+export function changedFields(now, baseline) {
+  return Object.fromEntries(Object.entries(now).filter(
+    ([name, value]) => String(value) !== String(baseline[name] ?? "")));
+}
+
 export function filterCharacters(characters, query) {
   const needle = text(query).trim().toLocaleLowerCase();
   if (!needle) return characters;

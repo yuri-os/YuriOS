@@ -379,8 +379,8 @@ def _construction_fingerprint(record: CharacterRecord) -> tuple:
     SOUL, which the brain re-reads on every turn (§5).
 
     Compared before and after the save rather than by which keys were *sent* —
-    the switchboard's form posts every field on every save, and re-submitting the
-    same voice is not a reason to take her conversation down."""
+    a client may post every field on every save, and re-submitting the same
+    voice is not a reason to take her conversation down."""
     return (record.display.name, record.voice.tts_backend, record.voice.stt_backend,
             record.voice.voice_id, record.body.backend, record.body.model,
             record.loops.utility, record.loops.dream, record.notify.enabled)
@@ -437,7 +437,7 @@ def save_brain_overrides(record: CharacterRecord, body: Mapping[str, Any],
                 record.models.options[key] = value
                 touched.append(key)
             continue
-        value = "" if blank else str(raw).strip()
+        value = "" if blank else rewire.model_route(raw)
         if (getattr(record.models, store) or "") != value:
             setattr(record.models, store, value)
             touched.append(key)
@@ -679,7 +679,22 @@ class CharacterHost:
             # (via getattr: a runtime mid-construction, or a stand-in, must not
             # be able to 500 the board over a badge)
             "unread": (getattr(rt, "inbox", None) or Inbox(record.paths.vault)).unread(),
+            "updated_at": _last_spoken(record),
         }
+
+
+def _last_spoken(record: CharacterRecord) -> str | None:
+    """When a line last landed in her conversation — either side of it, any
+    medium — as UTC ISO, or None if she has never spoken. The transcript's mtime
+    rather than its last row: one stat per tile on a board that polls, not a
+    read of a file that grows for as long as she lives."""
+    path = record.paths.vault / "state" / "conversation.jsonl"
+    try:
+        stamp = path.stat().st_mtime
+    except OSError:
+        return None
+    return datetime.datetime.fromtimestamp(
+        stamp, datetime.timezone.utc).isoformat(timespec="seconds")
 
 
 async def _turn_away(scope, receive, send, detail: str, *, status: int = 404) -> None:

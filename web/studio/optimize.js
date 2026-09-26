@@ -17,6 +17,8 @@
  * serving, so a model the settings panel offers is one the studio will run.
  */
 
+import { detailMessage } from "../shared/http.js";
+
 const PROVIDERS = [
   { id: "lmstudio", label: "LM Studio", prefix: "lm_studio/" },
   { id: "ollama", label: "Ollama", prefix: "ollama/" },
@@ -346,7 +348,7 @@ export function createOptimizer({ getDraft, getCharacterId, onApply }) {
       // route itself refusing — a bad draft, no such character — and still JSON.
       if (!response.ok || !response.body) {
         const detail = await response.json().catch(() => null);
-        throw new Error(detail?.detail || "The model refused.");
+        throw new Error(detailMessage(detail, "The model refused."));
       }
       let finished = null;
       for await (const event of ndjson(response)) {

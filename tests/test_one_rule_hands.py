@@ -158,6 +158,54 @@ def test_her_switch_is_part_of_the_rule(cfg):
     assert not rt.hands_permit("write_note")
 
 
+def test_a_mind_switched_on_live_keeps_her_hands_revoked(cfg, monkeypatch):
+    """SPEC §31.3: the live switch builds the mind boot builds.
+
+    Found live: hands off on the board, then mind switched on from the board —
+    and the new mind came up with `granted` at its default, on, because the
+    live path built its own MindLoop and never told it. The room's boot panel
+    went on saying the mind was skipped, too."""
+    import asyncio
+    from types import SimpleNamespace
+
+    from yurios.world import main as world_main
+
+    built: list = []
+
+    class Mind:
+        def __init__(self, *args, **kwargs):
+            self.granted = True
+            self.hands = SimpleNamespace(guard=None)
+            self.activity = SimpleNamespace(state="DORMANT")
+            built.append(self)
+
+        def set_hands_enabled(self, enabled):
+            self.granted = enabled
+
+        def set_hands_boot(self, settled):
+            pass
+
+        async def run(self):
+            await asyncio.Event().wait()
+
+    monkeypatch.setattr(world_main, "MindLoop", Mind)
+    rt = create_app(cfg, brain=FakeBrain()).state.rt
+    rt.autonomous = True
+    rt.set_hands_enabled(False)
+
+    def mind_line():
+        return next(s for s in rt.boot.snapshot()["services"] if s["key"] == "mind")
+
+    async def toggle():
+        await rt.set_mind_enabled(True)
+        assert mind_line()["state"] == "ready"
+        await rt.set_mind_enabled(False)
+        assert mind_line()["state"] == "skipped"
+
+    asyncio.run(toggle())
+    assert len(built) == 1 and built[0].granted is False
+
+
 def test_a_notice_names_what_the_call_touched():
     assert tool_notice_text("set_timer", {"minutes": 5}) == "set_timer · 5 min"
     assert tool_notice_text("list_notes", {}) == "list_notes"

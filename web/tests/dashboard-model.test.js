@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  changedFields,
   contextEntries,
   filterCharacters,
   formatDiaryDay,
@@ -302,5 +303,17 @@ describe('normalizeUserName', () => {
     expect(normalizeUserName('you')).toBe('');
     expect(normalizeUserName('the user')).toBe('');
     expect(normalizeUserName('')).toBe('');
+  });
+});
+
+describe('changedFields', () => {
+  it('keeps only what moved since the form loaded, checkboxes included', () => {
+    const baseline = { name: 'Yuri', personality: '', scenario: '', hands: true, mind: true };
+    const now = { name: 'Yuri', personality: '', scenario: '', hands: false, mind: true };
+    // a character with no card.json is shown blanks; sending them back is what
+    // erased her SOUL, so unchanged blanks must not be in the payload
+    expect(changedFields(now, baseline)).toEqual({ hands: false });
+    expect(changedFields(baseline, baseline)).toEqual({});
+    expect(changedFields({ model: 'ollama/qwen3' }, {})).toEqual({ model: 'ollama/qwen3' });
   });
 });

@@ -196,8 +196,14 @@
     }
   }
 
+  function herName() {
+    return `<span data-char-name>${esc(charName || 'her')}</span>`;
+  }
+
   function body(m, her, receipt = '') {
-    let html = `<span class="who">${her ? esc(charName || 'her') : 'you'}` +
+    // Her name carries `data-char-name`, so the `hello` that brings it renames
+    // the rows history drew before it arrived (they would stay "her" otherwise).
+    let html = `<span class="who">${her ? herName() : 'you'}` +
                (m.proactive ? '<em>· she spoke first</em>' : '') +
                (receipt ? `<em class="receipt">${esc(receipt)}</em>` : '') +
                stamp(m.ts) + speakButton(m, her) + '</span>';
@@ -436,7 +442,7 @@
       draftEl.className = 'msg her draft';
       messages.appendChild(draftEl);
     }
-    draftEl.innerHTML = `<span class="who">${esc(charName || 'her')} · …</span>` + esc(text);
+    draftEl.innerHTML = `<span class="who">${herName()} · …</span>` + esc(text);
     scroll();
   }
 

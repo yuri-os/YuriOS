@@ -2666,7 +2666,9 @@ changes; a runtime does not know it has neighbours.
   directory `fsync`, `characters/registry.py`), and an in-memory mutation that fails to persist
   **MUST** be rolled back, so the file on disk and the process never disagree. Persisted paths
   **MUST** be relative to `DATA_DIR` and **MUST NOT** escape it on load — a registry is portable,
-  and a path that climbs out of the tree is a rejected registry, not a warning.
+  and a path that climbs out of the tree is a rejected registry, not a warning. On a failed
+  upsert, rollback **MUST** restore the persisted row even if the caller mutated an in-memory
+  record before the write.
 - §29.3 **Ids.** A character id is 1–64 characters of lowercase ASCII, digits, `.`, `_` or `-`,
   derived from her display name, with `_v2`, `_v3`… appended when the name is taken. The id is
   the URL segment, the env-var suffix (§10.5) and the directory name — one identifier, everywhere.
@@ -2681,6 +2683,14 @@ changes; a runtime does not know it has neighbours.
   `failed` and its error kept for the board — one broken companion is never a down house. At boot
   the host starts every character that is `enabled` **and** `autostart` **and** not under review,
   and a failure there is skipped, not fatal. Shutdown stops runtimes in reverse start order.
+  Stopping a runtime **MUST** reject new turns and cancel or finish admitted HTTP and voice
+  turns before closing their model, voice, and memory dependencies or reporting Stop complete.
+  A turn whose reply has already posted is past cancelling: its post-turn writes **MUST** run
+  to completion, and Stop waits for them — for a text turn, for the whole turn, so its request
+  is answered as the turn it was. A request whose turn Stop cancelled is answered 503, and an
+  open voice socket is closed with 1012 (service restart), not dropped.
+  Disabling a running character through her profile **MUST** stop that runtime, including when
+  the same save changes a setting that would otherwise require a restart.
 - §29.6 **Archive and purge are different acts.** `archive` stops the runtime and *renames* her
   root under `archives/<id>-<timestamp>` — her files survive, she leaves the board. The archive
   folder **MUST** carry `archive.json`, a snapshot of the registry row (bindings, loops,
@@ -3032,7 +3042,10 @@ The terminal is a first-class client of the host, not a second implementation of
   character directory (Vault, memory, journal, dreams, selfies, traces) under a new id. Export +
   import remains the identity-only duplicate. The copy is transactional: stage, rename, then the
   registry row. A clone of an approved companion **MUST NOT** be placed under review; a clone
-  still under review stays under review.
+  still under review stays under review. A running source **MUST** be stopped for the copy and
+  restarted afterward so the duplicate sees a quiet tree. The recursive copy **MUST** run off
+  the shared event loop; publishing the new registry row stays on the event loop. A source that
+  fails to restart is reported beside the clone's own answer, never in place of it.
 - §36.4 **The optimiser still proposes.** `yurios character optimize` (and `improve-setting`)
   **MUST NOT** write unless `--apply` is given. That is §30.6, applied to the terminal: a model
   pass on a card from the internet is a proposal a person then accepts.

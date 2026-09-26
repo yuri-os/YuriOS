@@ -53,7 +53,7 @@ from . import runtime
 from .context import ContextMeter
 from ..kernel.hub import EventHub
 from .inbox import Inbox
-from .turns import TextTurns
+from .turns import RuntimeStopping, TextTurns
 from .selfies import SelfieLab
 from .uploads import Uploads
 from .situation import render_visual_situation
@@ -146,6 +146,8 @@ class Runtime:
                                     trace_dir=cfg.trace_dir,
                                     max_trace_bytes=cfg.mind_trace_max_bytes)
         self.stopping = asyncio.Event()        # ends open SSE streams on shutdown
+        self._live_tasks: set[asyncio.Task] = set()
+        self._committing: set[asyncio.Task] = set()   # live, and past her reply
         # the boot log the UI shows while she wakes (SPEC §6.4). Voice services
         # are declared here and resolved on the warm-up thread; tools/mind on
         # the event loop (start_async) — tools without holding the rest of
@@ -886,8 +888,37 @@ class Runtime:
         finally:
             self.tools_settled.set()
 
+    def start_live_task(self, coroutine, *, name: str) -> asyncio.Task:
+        """Admit and track a turn or voice room before it can touch this
+        runtime's stores; Stop cancels or finishes it (SPEC §29.5)."""
+        if self.stopping.is_set():
+            coroutine.close()
+            raise RuntimeStopping("character is stopping")
+        task = asyncio.create_task(coroutine, name=name)
+        self._live_tasks.add(task)
+        task.add_done_callback(self._live_tasks.discard)
+        return task
+
+    def committing(self) -> None:
+        """The calling turn has posted her reply: Stop finishes it, not cancels it.
+
+        Past this point the turn is in the transcript. Cancelling the rest would
+        only turn a turn that happened into an error for whoever asked (SPEC §29.5)."""
+        task = asyncio.current_task()
+        if task in self._live_tasks:
+            self._committing.add(task)
+            task.add_done_callback(self._committing.discard)
+
     async def stop_async(self) -> None:
         self.stopping.set()                    # open SSE streams end themselves
+        # HTTP turns and voice connections are request tasks, not background
+        # tasks. They must finish before the memory index and voice are closed:
+        # cancelled if they have not posted her reply yet, waited out if they have.
+        live = list(self._live_tasks)
+        for task in live:
+            if task not in self._committing:
+                task.cancel()
+        await asyncio.gather(*live, return_exceptions=True)
         await self.voice.close()               # cancel a pending unload; free the weights
         await self.channels.stop_all()
         if self.selfies is not None:
@@ -898,6 +929,12 @@ class Runtime:
             t.cancel()
         await asyncio.gather(*self._tasks, return_exceptions=True)
         self._tasks.clear()
+        if self.autonomous:
+            # A turn cancelled above may have been committing: its post-turn
+            # writes are shielded and hold this lock until the last worker
+            # lands. Wait them out, so the index closes under no writer.
+            async with self.brain.state.vault_lock:
+                pass
         if self._tool_runner is not None:
             try:
                 await self._tool_runner.close()

@@ -47,6 +47,24 @@ def test_registry_round_trip_uses_stable_id_and_portable_paths(tmp_path):
     assert not list(root.glob(".characters.json.*.tmp"))
 
 
+def test_failed_upsert_restores_disk_after_an_in_place_edit(tmp_path, monkeypatch):
+    registry = CharacterRegistry(tmp_path)
+    registry.add(CharacterRecord(
+        id="yuri", display=DisplayMetadata("Yuri"),
+        paths=CharacterPaths.under(tmp_path / "characters" / "yuri")))
+    edited = registry.require("yuri")
+    edited.loops.hands = False
+    original_save = registry.save
+    monkeypatch.setattr(registry, "save", lambda: (_ for _ in ()).throw(OSError("disk full")))
+
+    with pytest.raises(OSError, match="disk full"):
+        registry.upsert(edited)
+
+    assert registry.require("yuri").loops.hands is True
+    assert CharacterRegistry(tmp_path).require("yuri").loops.hands is True
+    monkeypatch.setattr(registry, "save", original_save)
+
+
 def test_registry_rejects_duplicate_ids_and_escaping_paths(tmp_path):
     root = tmp_path / "data"
     record = CharacterRecord(

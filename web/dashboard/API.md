@@ -81,7 +81,8 @@ and avoids downloading every journal on registry load.
 `POST /api/characters/{id}/approve` accepts the review and starts her.
 `POST /api/characters/{id}/start` / `stop` bring a reviewed character up or down
 without archiving. `POST /api/characters/{id}/clone` duplicates the whole tree
-under a new id. `POST /api/characters/{id}/archive` parks her under
+under a new id; a running source is stopped for the copy and restarted, and a
+restart that fails is reported as `source_error` beside the 201. `POST /api/characters/{id}/archive` parks her under
 `data/archives/` with an `archive.json` snapshot; `GET /api/archives` lists
 those folders and `POST /api/archives/{name}/restore` puts one back.
 

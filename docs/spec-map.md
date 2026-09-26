@@ -39,7 +39,7 @@ a section are folded into it.
 | **§26** — Omissions (normative) | `yurios/mind/hands.py`<br>`yurios/mind/loop.py`<br>`yurios/world/config.py`<br>`yurios/world/host/hosting.py`<br>*+6 more* | `tests/test_mind_hands.py`<br>`tests/test_boot.py`<br>`tests/test_characters_registry.py`<br>*+2 more* |
 | **§27** — Tests (the hard gate) | `scripts/live_check.py`<br>`web/js/stage/sanctuary/Cat.js`<br>`yurios/kernel/clock.py`<br>`yurios/world/tools/client.py`<br>*+4 more* | `tests/conftest.py`<br>`tests/test_forge_diffusers.py`<br>`tests/test_forge_krea2.py`<br>*+2 more* |
 | **§28** — Extends to | `web/dashboard/dashboard.js`<br>`web/dashboard/model.js`<br>`web/vite.config.js`<br>`yurios/app/__main__.py`<br>*+6 more* | `tests/test_card_roundtrip.py`<br>`tests/test_host.py` |
-| **§29** — The host and the character registry | `yurios/world/host/switchboard.py`<br>`yurios/world/host/app.py`<br>`yurios/characters/archive.py`<br>`yurios/characters/clone.py`<br>*+1 more* | — |
+| **§29** — The host and the character registry | `yurios/world/host/switchboard.py`<br>`yurios/world/host/app.py`<br>`yurios/world/main.py`<br>`yurios/app/routes/chat.py`<br>*+5 more* | `tests/test_host.py`<br>`tests/test_voice_handshake.py` |
 | **§30** — Character cards: import, review, edit, export | `scripts/bench_cards.py`<br>`web/studio/optimize.js`<br>`yurios/characters/optimize.py`<br>`yurios/ctl/studio.py`<br>*+1 more* | — |
 | **§31** — Connections and per-character bindings | `yurios/world/host/hosting.py`<br>`yurios/world/main.py`<br>`web/dashboard/dashboard.js`<br>`web/shared/settings.js`<br>*+5 more* | `tests/test_host.py`<br>`tests/test_character_overrides.py`<br>`tests/test_rewire.py` |
 | **§32** — The switchboard | `yurios/world/host/hosting.py`<br>`yurios/world/host/pages.py`<br>`web/dashboard/dashboard.js`<br>`web/dashboard/model.js` | `tests/test_host.py` |
@@ -48,4 +48,4 @@ a section are folded into it.
 | **§35** — Pictures you send her | `yurios/world/main.py`<br>`yurios/world/channels/telegram.py`<br>`yurios/world/routes/chat.py`<br>`web/js/chat.js`<br>*+11 more* | `tests/test_channels.py`<br>`tests/test_context_meter.py`<br>`tests/test_integration.py`<br>*+1 more* |
 | **§36** — Command-line control | `yurios/ctl/__init__.py`<br>`yurios/ctl/characters.py`<br>`yurios/ctl/client.py`<br>`yurios/world/host/switchboard.py`<br>*+1 more* | `tests/test_cli_camera.py`<br>`tests/test_cli_characters.py` |
 
-*864 citation sites over 115 sections.*
+*871 citation sites over 116 sections.*

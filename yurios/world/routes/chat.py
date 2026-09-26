@@ -29,6 +29,7 @@ from pydantic import BaseModel, Field
 
 from yurios.app.providers.admission import InferenceBusy
 from yurios.desktop.voice.transcript import is_meaningful_transcript
+from yurios.world.turns import RuntimeStopping
 
 log = logging.getLogger("world.chat")
 router = APIRouter()
@@ -93,9 +94,29 @@ def _stopped(request: Request) -> set[str]:
     return stopped
 
 
+def _stopped_by_runtime(rt) -> bool:
+    """The turn was cancelled by her Stop, not this handler's own cancellation.
+
+    Stop cancels the turn task, not the request waiting on it, so the waiter
+    sees a `CancelledError` it was never sent. Let that escape and uvicorn logs
+    it as a crash and answers 500; it is a 503 (SPEC §29.5)."""
+    current = asyncio.current_task()
+    return (rt is not None and rt.stopping.is_set()
+            and current is not None and not current.cancelling())
+
+
 async def _tracked(request: Request, client_id: str | None, coroutine):
+    rt = getattr(request.app.state, "rt", None)
     if not client_id:
-        return await coroutine
+        task = (rt.start_live_task(coroutine, name="chat-anonymous") if rt
+                else asyncio.create_task(coroutine))
+        try:
+            return await task
+        except asyncio.CancelledError:
+            if _stopped_by_runtime(rt):
+                raise HTTPException(503, "character is stopping") from None
+            task.cancel()                      # the handler's own: take the turn too
+            raise
     cancelled = _cancelled(request)
     if client_id in cancelled:
         cancelled.discard(client_id)
@@ -105,7 +126,8 @@ async def _tracked(request: Request, client_id: str | None, coroutine):
     if client_id in tasks:
         coroutine.close()
         raise HTTPException(409, "request already processing")
-    task = asyncio.create_task(coroutine, name=f"chat-{client_id}")
+    task = (rt.start_live_task(coroutine, name=f"chat-{client_id}") if rt
+            else asyncio.create_task(coroutine, name=f"chat-{client_id}"))
     tasks[client_id] = task
     stopped = _stopped(request)
     try:
@@ -113,7 +135,9 @@ async def _tracked(request: Request, client_id: str | None, coroutine):
     except asyncio.CancelledError:
         if client_id in stopped:
             raise HTTPException(409, "turn cancelled") from None
-        raise                                  # the client left, or we're closing
+        if _stopped_by_runtime(rt):
+            raise HTTPException(503, "character is stopping") from None
+        raise                                 # the client left, or we're closing
     finally:
         stopped.discard(client_id)
         if tasks.get(client_id) is task:
@@ -142,6 +166,8 @@ async def chat(req: ChatRequest, request: Request):
         raise
     except InferenceBusy:
         raise
+    except RuntimeStopping as e:
+        raise HTTPException(503, str(e)) from e
     except LookupError as e:   # the picture was pruned between upload and turn
         raise HTTPException(404, str(e))
     except Exception as e:  # noqa: BLE001 — the turn left no trace (turns.py)
@@ -171,6 +197,8 @@ async def greeting(req: GreetRequest, request: Request):
         raise
     except InferenceBusy:
         raise
+    except RuntimeStopping as e:
+        raise HTTPException(503, str(e)) from e
     except Exception as e:  # noqa: BLE001 — nothing was committed (turns.py)
         raise HTTPException(502, f"greeting failed: {e}")
 

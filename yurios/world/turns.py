@@ -120,6 +120,10 @@ class _Drafts:
         return _text_of(self.shown)
 
 
+class RuntimeStopping(RuntimeError):
+    """A request arrived after this character began shutting down."""
+
+
 class TextTurns:
     """The one text-turn runner every channel shares (built once, on Runtime)."""
 
@@ -147,6 +151,8 @@ class TextTurns:
         already greeted this run, or said nothing."""
         rt = self.rt
         async with self._lock:
+            if rt.stopping.is_set():
+                raise RuntimeStopping("character is stopping")
             session_id = rt.brain.resolve_session(session_id)
             if session_id in rt.greeted:
                 return {"session_id": session_id, "message": None}
@@ -233,6 +239,8 @@ class TextTurns:
             if attachment is None:
                 raise LookupError(f"no such picture: {image_id}")
         async with self._lock:
+            if rt.stopping.is_set():
+                raise RuntimeStopping("character is stopping")
             session_id = rt.brain.resolve_session(session_id)
             user_entry = rt.post_message("user", text, channel=channel,
                                          client_id=client_id,
@@ -309,6 +317,7 @@ class TextTurns:
             if reply:
                 entry = rt.post_message("assistant", reply, channel=channel,
                                         session_id=session_id)
+                rt.committing()                # Stop waits for the rest (§29.5)
                 # Persisting is another model call — the memory extractor's —
                 # and it runs *after* `turn_ended`, so as far as the parker is
                 # concerned the room has already gone quiet. Held, so a render

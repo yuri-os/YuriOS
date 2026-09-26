@@ -34,7 +34,7 @@ from yurios.characters import (
 from yurios.characters import archive as archive_model
 
 from .hosting import (_OPTION_KEYS, PURGE_CHALLENGE_TTL_S,
-                      CharacterHost, _env_values, _card_values, _construction_fingerprint,
+                      CharacterBusy, CharacterHost, _env_values, _card_values, _construction_fingerprint,
                       _update_soul, save_brain_overrides)
 
 log = logging.getLogger("world.host")
@@ -217,7 +217,9 @@ def register(app: FastAPI, host: CharacterHost, require) -> None:
             record.lifecycle.autostart = True
         registry.upsert(record)
         applied: list[str] = []
-        if was_running:
+        if was_running and not record.lifecycle.enabled:
+            await host.stop(character_id)
+        elif was_running:
             # Which model she thinks with is not worth a rebuild (SPEC §31.4):
             # unless this save moved something the runtime was *built* with, she
             # keeps her session, her mind and her voice, and simply answers the
@@ -244,7 +246,7 @@ def register(app: FastAPI, host: CharacterHost, require) -> None:
         enabled, autostart on, runtime up. A start that fails leaves her approved
         and reports why, because "she is allowed to run" and "she ran" are two
         different facts and the dashboard shows both."""
-        record = require(character_id)
+        record = copy.deepcopy(require(character_id))
         record.lifecycle.review_required = False
         record.lifecycle.enabled = True
         record.lifecycle.autostart = True
@@ -268,6 +270,8 @@ def register(app: FastAPI, host: CharacterHost, require) -> None:
         if host.runtime(character_id) is None:
             try:
                 await host.start(character_id)
+            except CharacterBusy:
+                raise                                      # the host answers 409
             except Exception as exc:                       # already logged by start()
                 started, detail = False, str(exc)
                 raise HTTPException(500, detail) from exc
@@ -289,13 +293,45 @@ def register(app: FastAPI, host: CharacterHost, require) -> None:
             raise HTTPException(400, "clone request must be a JSON object")
         body = body or {}
         async with app.state.lifecycle_lock:
+            host._cloning.add(character_id)
+            was_running = host.runtime(character_id) is not None
+            source_error = None
             try:
-                record = clone_character(
-                    registry, character_id,
-                    name=str(body.get("name") or "") or None,
-                    character_id=str(body.get("character_id") or "") or None)
-            except CharacterCloneError as exc:
-                raise HTTPException(400, str(exc)) from exc
+                if was_running:
+                    await host.stop(character_id)
+                try:
+                    # Copy a quiet tree. The worker may take minutes for a
+                    # lived-in Vault; the other rooms must keep answering.
+                    copy_task = asyncio.create_task(asyncio.to_thread(
+                        clone_character, registry, character_id,
+                        name=str(body.get("name") or "") or None,
+                        character_id=str(body.get("character_id") or "") or None,
+                        publish=False))
+                    try:
+                        record = await asyncio.shield(copy_task)
+                    except asyncio.CancelledError:
+                        # A cancelled HTTP request cannot abandon a worker
+                        # still copying into the character directory.
+                        abandoned = await copy_task
+                        await asyncio.to_thread(shutil.rmtree, abandoned.paths.root)
+                        raise
+                    try:
+                        registry.add(record)
+                    except Exception:
+                        await asyncio.to_thread(shutil.rmtree, record.paths.root)
+                        raise
+                except CharacterCloneError as exc:
+                    raise HTTPException(400, str(exc)) from exc
+            finally:
+                host._cloning.discard(character_id)
+                if was_running:
+                    # Reported, never raised: raising here would replace the
+                    # clone's own answer — a 201 for a copy already in the
+                    # registry, or the 400 that says why there is none.
+                    try:
+                        await host.start(character_id)
+                    except Exception as exc:       # already logged by start()
+                        source_error = str(exc)
             started, detail = False, None
             if record.lifecycle.enabled and not record.lifecycle.review_required:
                 try:
@@ -305,12 +341,12 @@ def register(app: FastAPI, host: CharacterHost, require) -> None:
                     started, detail = False, str(exc)
             return JSONResponse(
                 {"character": host.summary(record), "started": started,
-                 "error": detail},
+                 "error": detail, "source_error": source_error},
                 status_code=201)
 
     @app.patch("/api/characters/{character_id}/loop")
     async def set_loop(character_id: str, request: Request):
-        record = require(character_id)
+        record = copy.deepcopy(require(character_id))
         enabled = bool((await request.json()).get("enabled"))
         record.loops.mind = enabled
         registry.upsert(record)
@@ -324,7 +360,7 @@ def register(app: FastAPI, host: CharacterHost, require) -> None:
 
     @app.patch("/api/characters/{character_id}/controls")
     async def controls(character_id: str, request: Request):
-        record = require(character_id)
+        record = copy.deepcopy(require(character_id))
         body = await request.json()
         restart = False
         for key in ("mind", "utility", "dream", "hands"):

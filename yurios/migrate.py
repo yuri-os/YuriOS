@@ -8,6 +8,7 @@ is written last and is the durable indication that migration completed.
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import os
 import re
@@ -395,6 +396,7 @@ def _repair_legacy_model_bindings(
     character_id = migration.get("character_id")
     record = registry.get(str(character_id)) if character_id else None
     if record is not None:
+        record = copy.deepcopy(record)
         changed = False
         for field in ("chat", "utility"):
             if getattr(record.models, field).upper() == "NONE":

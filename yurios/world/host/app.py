@@ -16,7 +16,8 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
 from starlette.staticfiles import StaticFiles
 
 from yurios.characters import CharacterRecord, CharacterRegistry
@@ -25,7 +26,7 @@ from ..config import Config
 from ..main import DIST_DIR, WEB_DIR
 from . import brains, pages, studio, switchboard
 from . import debug as debug_routes
-from .hosting import CharacterHost, _RuntimeDispatcher, _turn_away
+from .hosting import CharacterBusy, CharacterHost, _RuntimeDispatcher, _turn_away
 
 log = logging.getLogger("world.host")
 
@@ -64,6 +65,12 @@ def create_host_app(base: Config, registry: CharacterRegistry | None = None, *,
     app.state.host = host
     app.state.lifecycle_lock = asyncio.Lock()
     app.state.purge_challenges = {}
+
+    @app.exception_handler(CharacterBusy)
+    async def busy(_request: Request, exc: CharacterBusy) -> JSONResponse:
+        # Every route that can start her — the profile, the loop switch,
+        # a create — meets a clone in progress the same way.
+        return JSONResponse({"detail": str(exc)}, status_code=409)
     from yurios.security import install_http_boundaries, install_owner_security
     install_http_boundaries(app)
     host.owner_boundary = install_owner_security(app, base)

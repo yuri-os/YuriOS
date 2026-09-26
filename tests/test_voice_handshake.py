@@ -173,3 +173,20 @@ def test_the_slot_is_given_back_when_the_socket_closes(rig):
                 break
             time.sleep(0.02)
         assert limiter.active == 0
+
+
+def test_stopping_her_closes_an_open_voice_socket_with_1012(cfg, controller):
+    """Stop cancels the connection (SPEC §29.5). The client must see a close
+    frame saying so, not a dropped socket (1006) and a traceback in the log."""
+    app = _make("world", cfg, controller, FakeBrain())
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws/voice") as ws:
+            ws.send_json({"type": "hello"})
+            session_frame(ws)
+            client.portal.call(app.state.rt.stop_async)
+            for _ in range(500):               # her greeting may still be streaming
+                message = ws.receive()
+                if message["type"] == "websocket.close":
+                    break
+            assert message == {"type": "websocket.close", "code": 1012,
+                               "reason": "character is stopping"}

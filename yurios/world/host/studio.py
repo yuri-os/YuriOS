@@ -12,6 +12,7 @@ her memory of you and her journal stay on the machine.
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
 import logging
 from pathlib import Path
@@ -300,7 +301,7 @@ def register(app: FastAPI, host: CharacterHost, require) -> None:
 
     @app.patch("/api/characters/{character_id}/studio")
     async def studio_save(character_id: str, request: Request):
-        record = require(character_id)
+        record = copy.deepcopy(require(character_id))
         body = await request.json()
         draft = studio_model.Draft.from_dict(body.get("draft") or body)
         try:

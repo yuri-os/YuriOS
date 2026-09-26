@@ -24,6 +24,8 @@ config, and this report, when it says where she will connect.
 
 from __future__ import annotations
 
+import copy
+
 from dataclasses import dataclass
 from typing import Any, Iterable, Mapping
 
@@ -211,6 +213,7 @@ def clear(registry: Any, ids: Iterable[str]) -> dict[str, list[str]]:
         record = registry.get(character_id)
         if record is None:
             continue
+        record = copy.deepcopy(record)
         keys = clear_record(record)
         if keys:
             cleared[character_id] = keys

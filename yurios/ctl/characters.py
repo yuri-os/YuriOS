@@ -329,6 +329,9 @@ def command_clone(host, args: argparse.Namespace) -> int:
         body["character_id"] = args.character_id
     result = host.json("POST", character_path(args.id, "clone"), json=body)
     row = result.get("character") or {}
-    emit(result, as_json=args.as_json,
-         text=f"cloned {args.id} → {row.get('id')} ({row.get('name')})")
+    text = f"cloned {args.id} → {row.get('id')} ({row.get('name')})"
+    if result.get("source_error"):
+        # stopped for the copy, and did not come back up
+        text += f"\n{args.id} failed to restart: {result['source_error']}"
+    emit(result, as_json=args.as_json, text=text)
     return 0

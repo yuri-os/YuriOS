@@ -32,8 +32,13 @@ def clone_character(
     *,
     name: str | None = None,
     character_id: str | None = None,
+    publish: bool = True,
 ) -> CharacterRecord:
-    """Duplicate ``source_id`` into a new id. Transactional: all or nothing."""
+    """Duplicate ``source_id`` into a new id. Transactional: all or nothing.
+
+    The host copies on a worker with ``publish=False`` and adds the registry
+    row on the event loop. Direct callers keep the one-call transaction.
+    """
     source = registry.get(source_id)
     if source is None:
         raise CharacterCloneError(f"no such character: {source_id}")
@@ -78,7 +83,8 @@ def clone_character(
         shutil.copytree(source.paths.root, temporary, symlinks=False)
         os.replace(temporary, final_root)
         moved = True
-        registry.add(record)
+        if publish:
+            registry.add(record)
         return record
     except CharacterCloneError:
         shutil.rmtree(final_root if moved else temporary, ignore_errors=True)

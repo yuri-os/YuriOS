@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import base64
+import asyncio
 import io
+import threading
 from pathlib import Path
 from types import SimpleNamespace
 
+import httpx
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from PIL import Image
@@ -21,6 +25,8 @@ from yurios.world.host import (
     config_for_character, create_host_app, telegram_for_character,
 )
 from yurios.world.host.hosting import CharacterHost
+from yurios.world.main import create_app as create_character_app
+from yurios.desktop.voice.backends.fakes import FakeBrain
 
 
 class FakeRuntime:
@@ -1260,3 +1266,265 @@ async def test_starting_a_character_does_not_freeze_the_rest_of_the_node(
     assert beats > 5, (
         f"the event loop took {beats} beats during a 0.25 s start — a character "
         "is being built inline, and every other room on this node is holding")
+
+
+@pytest.mark.parametrize("profile", [
+    {"enabled": False},
+    {"enabled": False, "voice": "another-voice"},
+])
+def test_disabling_a_running_character_stops_her(tmp_path, monkeypatch, profile):
+    registry = CharacterRegistry(tmp_path)
+    registry.add(record(tmp_path))
+    monkeypatch.setattr("yurios.world.host.hosting.create_app", fake_character_app)
+    app = create_host_app(Config(data_dir=tmp_path, _env_file=None), registry)
+
+    with TestClient(app) as client:
+        response = client.patch("/api/characters/yuri/profile", json=profile)
+        assert response.status_code == 200
+        assert response.json()["character"]["enabled"] is False
+        assert app.state.host.runtime("yuri") is None
+        assert client.get("/api/characters/yuri/health").status_code == 404
+
+
+def test_failed_control_save_does_not_leave_an_unsaved_switch(tmp_path, monkeypatch):
+    registry = CharacterRegistry(tmp_path)
+    registry.add(record(tmp_path, enabled=False))
+    app = create_host_app(Config(data_dir=tmp_path, _env_file=None), registry)
+
+    with TestClient(app) as client:
+        monkeypatch.setattr(registry, "save", lambda: (_ for _ in ()).throw(OSError("disk full")))
+        with pytest.raises(OSError, match="disk full"):
+            client.patch("/api/characters/yuri/controls", json={"hands": False})
+        assert registry.require("yuri").loops.hands is True
+        assert CharacterRegistry(tmp_path).require("yuri").loops.hands is True
+
+
+async def test_clone_copies_a_quiet_tree_without_freezing_other_rooms(tmp_path, monkeypatch):
+    registry = CharacterRegistry(tmp_path)
+    registry.add(record(tmp_path))
+    monkeypatch.setattr("yurios.world.host.hosting.create_app", fake_character_app)
+    app = create_host_app(Config(data_dir=tmp_path, _env_file=None), registry)
+    host = app.state.host
+    await host.start("yuri")
+
+    from yurios.characters import clone as clone_module
+    original_copy = clone_module.shutil.copytree
+    copying = threading.Event()
+    release = threading.Event()
+
+    def held_copy(*args, **kwargs):
+        copying.set()
+        if not release.wait(3):
+            raise AssertionError("copy was never released")
+        return original_copy(*args, **kwargs)
+
+    monkeypatch.setattr(clone_module.shutil, "copytree", held_copy)
+    try:
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),
+                                    base_url="http://localhost") as client:
+            request = asyncio.create_task(client.post(
+                "/api/characters/yuri/clone", json={"name": "Yuri copy"}))
+            await asyncio.wait_for(asyncio.to_thread(copying.wait), 2)
+            await asyncio.wait_for(asyncio.sleep(0.01), 1)
+            assert not request.done(), "copy must leave the event loop free"
+            assert host.runtime("yuri") is None, "the copied tree must be quiet"
+            with pytest.raises(RuntimeError, match="being cloned"):
+                await host.start("yuri")
+            racing = await client.post("/api/characters/yuri/start")
+            assert racing.status_code == 409, "a clone in progress is a conflict"
+            release.set()
+            response = await asyncio.wait_for(request, 5)
+            assert response.status_code == 201
+            assert host.runtime("yuri") is not None
+            assert host.runtime(response.json()["character"]["id"]) is not None
+    finally:
+        release.set()
+        await host.stop_all()
+
+
+async def test_failed_clone_restarts_its_source(tmp_path, monkeypatch):
+    registry = CharacterRegistry(tmp_path)
+    registry.add(record(tmp_path))
+    monkeypatch.setattr("yurios.world.host.hosting.create_app", fake_character_app)
+    app = create_host_app(Config(data_dir=tmp_path, _env_file=None), registry)
+    host = app.state.host
+    await host.start("yuri")
+
+    from yurios.characters import clone as clone_module
+
+    def fail_copy(*_args, **_kwargs):
+        assert host.runtime("yuri") is None
+        raise OSError("copy failed")
+
+    monkeypatch.setattr(clone_module.shutil, "copytree", fail_copy)
+    try:
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),
+                                    base_url="http://localhost") as client:
+            response = await client.post("/api/characters/yuri/clone",
+                                         json={"name": "Copy"})
+        assert response.status_code == 400
+        assert host.runtime("yuri") is not None
+        assert len(registry) == 1
+    finally:
+        await host.stop_all()
+
+
+async def test_a_source_that_fails_to_restart_does_not_undo_its_clone(tmp_path,
+                                                                     monkeypatch):
+    registry = CharacterRegistry(tmp_path)
+    registry.add(record(tmp_path))
+    builds = 0
+
+    def restart_fails(cfg, **kwargs):
+        nonlocal builds
+        builds += 1
+        if builds == 2:                # the source, coming back after the copy
+            raise RuntimeError("LM Studio unavailable")
+        return fake_character_app(cfg, **kwargs)
+
+    monkeypatch.setattr("yurios.world.host.hosting.create_app", restart_fails)
+    app = create_host_app(Config(data_dir=tmp_path, _env_file=None), registry)
+    host = app.state.host
+    await host.start("yuri")
+    try:
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),
+                                    base_url="http://localhost") as client:
+            response = await client.post("/api/characters/yuri/clone",
+                                         json={"name": "Copy"})
+        assert response.status_code == 201
+        body = response.json()
+        assert body["source_error"] == "LM Studio unavailable"
+        assert body["started"] is True
+        assert host.runtime("yuri") is None
+        assert host.runtime(body["character"]["id"]) is not None
+        assert len(registry) == 2
+    finally:
+        await host.stop_all()
+
+
+async def test_a_cancelled_turn_finishes_its_post_turn_writes(tmp_path, monkeypatch):
+    """Stop cancels a turn; it must not strand a worker mid-write with the Vault
+    lock released, because the lock is what Stop waits on before it closes her
+    memory index (SPEC §29.5)."""
+    from yurios.app.memory.store import Record
+    from yurios.app.routes import chat as pipeline
+
+    writing, release, written = threading.Event(), threading.Event(), threading.Event()
+
+    def slow_write():
+        writing.set()
+        release.wait(3)
+        written.set()
+
+    class Store:
+        async def remember(self, _record):
+            await asyncio.to_thread(slow_write)
+
+    commits = []
+    monkeypatch.setattr(pipeline.vaultgit, "commit",
+                        lambda *args, **kwargs: commits.append(args))
+    state = SimpleNamespace(vault_lock=asyncio.Lock(), store=Store(), utility=None,
+                            cfg=SimpleNamespace(vault_dir=tmp_path))
+    turn = asyncio.create_task(pipeline.post_turn(
+        state, Record("s" * 32, 0, "hello", "hi"), "s" * 32, 1))
+    await asyncio.wait_for(asyncio.to_thread(writing.wait), 2)
+    turn.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await turn
+    assert state.vault_lock.locked(), "the lock went while the worker still writes"
+
+    release.set()
+    async with state.vault_lock:       # what Runtime.stop_async waits on
+        assert written.is_set()
+        assert commits, "the pipeline's commit ran"
+
+
+@pytest.mark.parametrize("client_id", [None, "browser-1"])
+async def test_stopping_a_character_cancels_and_drains_chat(tmp_path, monkeypatch,
+                                                           client_id):
+    class SlowBrain(FakeBrain):
+        def __init__(self):
+            super().__init__()
+            self.entered = asyncio.Event()
+            self.resume = asyncio.Event()
+
+        async def stream_reply(self, session_id, text, image=None):
+            self.entered.set()
+            await self.resume.wait()
+            yield "a reply after shutdown"
+
+    registry = CharacterRegistry(tmp_path)
+    item = record(tmp_path, autostart=False)
+    item.loops.mind = False
+    registry.add(item)
+    brain = SlowBrain()
+    monkeypatch.setattr(
+        "yurios.world.host.hosting.create_app",
+        lambda cfg, **kwargs: create_character_app(cfg, brain=brain, **kwargs))
+    app = create_host_app(Config(
+        data_dir=tmp_path, _env_file=None, tools_backend="off", selfie_backend="off",
+        search_backend="off", mind_enabled=False, notify_enabled=False,
+        chat_image_input="off", telegram_bot_token="", telegram_chat_id=""), registry)
+    host = app.state.host
+    await host.start("yuri")
+    rt = host.runtime("yuri")
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),
+                                base_url="http://localhost") as client:
+        body = {"text": "Hello there"}
+        if client_id:
+            body["client_id"] = client_id
+        request = asyncio.create_task(client.post("/api/characters/yuri/chat", json=body))
+        await asyncio.wait_for(brain.entered.wait(), 5)
+        stopped = await asyncio.wait_for(client.post("/api/characters/yuri/stop"), 5)
+        assert stopped.status_code == 200
+        assert request.done(), "stop must wait for the active request to end"
+        response = await request
+        assert response.status_code == 503, "a Stop is not a crash"
+        brain.resume.set()
+        await asyncio.sleep(0)
+        assert brain.persisted is None
+        assert not any(row.get("role") == "assistant" for row in rt.chatlog.entries())
+
+
+async def test_stop_finishes_a_turn_whose_reply_is_already_posted(tmp_path, monkeypatch):
+    """Past her reply the turn is in the transcript: Stop waits for its commit
+    and the request gets its 200, rather than an error for a turn that happened."""
+    class SlowPersist(FakeBrain):
+        def __init__(self):
+            super().__init__()
+            self.persisting = asyncio.Event()
+            self.release = asyncio.Event()
+
+        async def persist(self, session_id, user_text, reply):
+            self.persisting.set()
+            await self.release.wait()
+            return await super().persist(session_id, user_text, reply)
+
+    registry = CharacterRegistry(tmp_path)
+    item = record(tmp_path, autostart=False)
+    item.loops.mind = False
+    registry.add(item)
+    brain = SlowPersist()
+    monkeypatch.setattr(
+        "yurios.world.host.hosting.create_app",
+        lambda cfg, **kwargs: create_character_app(cfg, brain=brain, **kwargs))
+    app = create_host_app(Config(
+        data_dir=tmp_path, _env_file=None, tools_backend="off", selfie_backend="off",
+        search_backend="off", mind_enabled=False, notify_enabled=False,
+        chat_image_input="off", telegram_bot_token="", telegram_chat_id=""), registry)
+    host = app.state.host
+    await host.start("yuri")
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),
+                                base_url="http://localhost") as client:
+        request = asyncio.create_task(client.post(
+            "/api/characters/yuri/chat", json={"text": "Hello there", "client_id": "b-1"}))
+        await asyncio.wait_for(brain.persisting.wait(), 5)
+        stop = asyncio.create_task(client.post("/api/characters/yuri/stop"))
+        await asyncio.sleep(0.05)
+        assert not stop.done(), "stop must wait for the committing turn"
+        brain.release.set()
+        assert (await asyncio.wait_for(stop, 5)).status_code == 200
+        response = await asyncio.wait_for(request, 5)
+        assert response.status_code == 200
+        assert response.json()["message"]["role"] == "assistant"
+        assert brain.persisted is not None

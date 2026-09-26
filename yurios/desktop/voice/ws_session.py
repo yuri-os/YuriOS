@@ -54,14 +54,46 @@ async def serve(ws: WebSocket, handler: Callable[[WebSocket, object], Awaitable[
     including a raise: a slot leaked here is a slot nobody can ever have again.
     """
     rt = ws.app.state.rt
+    stopping = getattr(rt, "stopping", None)
+    if stopping is not None and stopping.is_set():
+        await close_stopping(ws)
+        return
     limiter = rt.voice_ws_limiter
     if not limiter.try_acquire():
         await reject_capacity(ws)
         return
     try:
-        await handler(ws, rt)
+        start = getattr(rt, "start_live_task", None)
+        if start is None:                      # the native window has no Stop
+            await handler(ws, rt)
+            return
+        # Her own task, not the server's connection task: Stop (SPEC §29.5)
+        # cancels this and waits for it, and the transport's lifetime around
+        # it is not something a Stop can wait on.
+        room = start(handler(ws, rt), name="voice-socket")
+        try:
+            await room                         # a cancel of ours reaches `room` too
+        except asyncio.CancelledError:
+            # Stop cancelled the room, not the server this connection: that is
+            # an ending, not a crash. Let it reach uvicorn and the client gets
+            # a dropped socket (1006) and the log a traceback.
+            current = asyncio.current_task()
+            if not (room.cancelled() and stopping is not None and stopping.is_set()
+                    and current is not None and not current.cancelling()):
+                raise
+            await close_stopping(ws)
     finally:
         limiter.release()
+
+
+async def close_stopping(ws: WebSocket) -> None:
+    """Close with 1012 (service restart): she is stopping, not broken."""
+    if ws.application_state == WebSocketState.DISCONNECTED:
+        return
+    try:
+        await ws.close(code=1012, reason="character is stopping")
+    except (WebSocketDisconnect, RuntimeError):
+        pass
 
 
 def make_sender(ws: WebSocket) -> Sender:

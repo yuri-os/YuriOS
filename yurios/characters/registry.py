@@ -138,15 +138,14 @@ class CharacterRegistry:
             raise
 
     def upsert(self, record: CharacterRecord) -> None:
-        previous = self._records.get(record.id)
         self._records[record.id] = record
         try:
             self.save()
         except Exception:
-            if previous is None:
-                del self._records[record.id]
-            else:
-                self._records[record.id] = previous
+            # Callers may have edited the stored record in place before this
+            # call. An in-memory reference can already contain the failed edit.
+            # The persisted file is the only reliable rollback snapshot.
+            self.reload()
             raise
 
     def remove(self, character_id: str) -> CharacterRecord:

@@ -2922,6 +2922,12 @@ changes; a runtime does not know it has neighbours.
   when the file is absent — a portrait the user replaced or the forge rendered is hers and is
   never overwritten. A missing packaged portrait is a cosmetic loss and **MUST NOT** fail a
   migration.
+- §33.5 **Her description reaches the board.** When a legacy SOUL manifest maps the card's
+  `description` to readable, exportable SOUL sections, migration **MUST** copy that resolved
+  description into the new character's display metadata. Later starts **MUST** fill this field
+  for an already-migrated character only while it remains blank; they **MUST NOT** replace a
+  nonblank profile description. An absent, broken, or runtime-only reference **MUST NOT** put
+  private SOUL content on the board or prevent migration.
 
 ## §34 — Her desk and her skills
 

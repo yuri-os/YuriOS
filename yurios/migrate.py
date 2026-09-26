@@ -39,6 +39,8 @@ from yurios.characters import (
     atomic_write_json,
     install_default_portrait,
 )
+from yurios.characters.privacy import PRIVATE_SOUL_FILES
+from yurios.characters.soulfiles import SoulPrivacyError, SoulReader
 
 
 LEGACY_LAYOUT_VERSION = "0.1"
@@ -175,6 +177,35 @@ def _read_soul_name(vault: Path, config: object) -> str:
     if not isinstance(name, str) or not name.strip():
         raise MigrationError("soul.yaml has no name and companion_name is empty")
     return name.strip()
+
+
+def _soul_description(vault: Path) -> str:
+    """Read the card description from the same manifest references as export.
+
+    Legacy Vaults may have no card fields. A missing or unsafe reference must
+    leave the dashboard field blank rather than expose a runtime-only SOUL file.
+    """
+    soul = vault / "soul"
+    try:
+        manifest = yaml.safe_load((soul / "soul.yaml").read_text(encoding="utf-8"))
+        if not isinstance(manifest, Mapping):
+            return ""
+        fields = manifest.get("fields")
+        if not isinstance(fields, Mapping):
+            return ""
+        refs = fields.get("description")
+        if not isinstance(refs, str) and not (
+            isinstance(refs, list) and all(isinstance(ref, str) for ref in refs)
+        ):
+            return ""
+        runtime_only = manifest.get("runtime_only")
+        forbidden = set(PRIVATE_SOUL_FILES)
+        if isinstance(runtime_only, list):
+            forbidden.update(name for name in runtime_only if isinstance(name, str))
+        return SoulReader(soul, forbidden=frozenset(forbidden)).resolve_field(refs).strip()
+    except (OSError, UnicodeError, yaml.YAMLError, SoulPrivacyError,
+            FileNotFoundError, KeyError, TypeError, ValueError):
+        return ""
 
 
 def _any_source_exists(sources: tuple[_Source, ...]) -> bool:
@@ -325,6 +356,21 @@ def _backfill_default_portrait(
         install_default_portrait(record.paths, record.display.name)
 
 
+def _backfill_description(
+    registry: CharacterRegistry, character_id: str | None
+) -> None:
+    """Fill the omitted dashboard field on older migrations, preserving edits."""
+    if character_id is None:
+        return
+    record = registry.get(character_id)
+    if record is None or record.display.description.strip():
+        return
+    description = _soul_description(record.paths.vault)
+    if description:
+        record.display.description = description
+        registry.upsert(record)
+
+
 def _next_character_id(registry: CharacterRegistry, characters_dir: Path) -> str:
     for number in range(1, 10_001):
         candidate = "yuri" if number == 1 else f"yuri-{number}"
@@ -339,7 +385,7 @@ def _connection_binding(config: object) -> ConnectionBinding:
 
 
 def _record(
-    config: object, character_id: str, display_name: str, root: Path
+    config: object, character_id: str, display_name: str, root: Path, vault: Path
 ) -> CharacterRecord:
     chat = str(_value(config, "chat_model", "") or "")
     utility = str(_value(config, "utility_model", "") or "")
@@ -356,7 +402,10 @@ def _record(
     }
     return CharacterRecord(
         id=character_id,
-        display=DisplayMetadata(name=display_name),
+        # SPEC §33.5: a migrated character must arrive on the board with the
+        # description her SOUL already gives the card exporter.
+        display=DisplayMetadata(name=display_name,
+                                description=_soul_description(vault)),
         paths=CharacterPaths.under(root),
         lifecycle=LifecycleFlags(
             enabled=True, autostart=True, review_required=False
@@ -567,6 +616,7 @@ def migrate_legacy_data(
         result = _current_result(marker, target_registry, target)
         if not (check or dry_run):
             _backfill_default_portrait(target_registry, result.character_id)
+            _backfill_description(target_registry, result.character_id)
             _repair_legacy_model_bindings(target_registry, marker, marker_path)
         return result
 
@@ -593,6 +643,7 @@ def migrate_legacy_data(
             )
         completed_at = datetime.now(timezone.utc).isoformat()
         install_default_portrait(recovered.paths, recovered.display.name)
+        _backfill_description(target_registry, recovered.id)
         atomic_write_json(
             marker_path, _layout_payload(recovered, sources, completed_at)
         )
@@ -606,7 +657,7 @@ def migrate_legacy_data(
 
     character_id = _next_character_id(target_registry, characters_dir)
     final_root = characters_dir / character_id
-    record = _record(config, character_id, display_name, final_root)
+    record = _record(config, character_id, display_name, final_root, vault)
     if check or dry_run:
         return MigrationResult("needed", target, character_id, final_root, display_name)
 

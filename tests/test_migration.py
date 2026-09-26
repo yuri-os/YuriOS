@@ -63,6 +63,18 @@ def _tree_digest(root: Path) -> dict[str, str]:
     }
 
 
+def _set_card_description(config: SimpleNamespace, refs: list[str]) -> None:
+    soul = config.vault_dir / "soul"
+    manifest = yaml.safe_load((soul / "soul.yaml").read_text(encoding="utf-8"))
+    manifest["fields"] = {"description": refs}
+    (soul / "soul.yaml").write_text(yaml.safe_dump(manifest), encoding="utf-8")
+    (soul / "CONSTITUTION.md").write_text(
+        "# Yuri\n\n## Identity\n\nYuri is a Lumina.\n\n"
+        "## History\n\nShe listened for the unrouted.\n", encoding="utf-8")
+    (soul / "PERSONA.md").write_text(
+        "# Persona\n\n## Manner\n\nWarm and curious.\n", encoding="utf-8")
+
+
 def test_migrates_all_roots_atomically_and_is_idempotent(tmp_path):
     config = _config(tmp_path)
     data = tmp_path / "data"
@@ -125,6 +137,66 @@ def test_migration_gives_yuri_the_packaged_portrait(tmp_path):
     portrait.write_bytes(b"\x89PNG\r\n\x1a\nmine")
     assert migrate_legacy_data(config, data).status == "already-migrated"
     assert portrait.read_bytes() == b"\x89PNG\r\n\x1a\nmine"
+
+
+def test_migration_seeds_dashboard_description_from_soul(tmp_path):
+    config = _config(tmp_path)
+    _set_card_description(config, ["CONSTITUTION.md#Identity", "PERSONA.md#Manner"])
+    source_before = _tree_digest(config.vault_dir)
+    data = tmp_path / "data"
+
+    migrate_legacy_data(config, data)
+
+    assert CharacterRegistry(data).require("yuri").display.description == (
+        "Yuri is a Lumina.\n\nWarm and curious.")
+    assert _tree_digest(config.vault_dir) == source_before
+
+
+def test_shipped_soul_gives_a_fresh_install_yuris_description(tmp_path):
+    config = _config(tmp_path)
+    shipped_soul = Path(__file__).resolve().parents[1] / "soul-src"
+    shutil.copytree(shipped_soul, config.vault_dir / "soul", dirs_exist_ok=True)
+
+    migrate_legacy_data(config, tmp_path / "data")
+
+    description = CharacterRegistry(tmp_path / "data").require("yuri").display.description
+    assert description.startswith("Yuri is a Lumina")
+    assert "She was built for a small, quiet project" in description
+
+
+def test_already_migrated_description_backfills_blank_but_preserves_edits(tmp_path):
+    config = _config(tmp_path)
+    _set_card_description(config, ["CONSTITUTION.md#Identity"])
+    data = tmp_path / "data"
+    migrate_legacy_data(config, data)
+    registry = CharacterRegistry(data)
+    record = registry.require("yuri")
+    record.display.description = ""
+    registry.upsert(record)
+
+    assert check_migration(config, data).status == "already-migrated"
+    assert CharacterRegistry(data).require("yuri").display.description == ""
+    assert migrate_legacy_data(config, data).status == "already-migrated"
+    assert CharacterRegistry(data).require("yuri").display.description == "Yuri is a Lumina."
+
+    record = CharacterRegistry(data).require("yuri")
+    record.display.description = "My own profile note"
+    CharacterRegistry(data).upsert(record)
+    (record.paths.vault / "soul" / "CONSTITUTION.md").write_text(
+        "## Identity\n\nChanged in her SOUL.\n", encoding="utf-8")
+    migrate_legacy_data(config, data)
+    assert CharacterRegistry(data).require("yuri").display.description == "My own profile note"
+
+
+def test_migration_never_uses_runtime_only_soul_as_dashboard_description(tmp_path):
+    config = _config(tmp_path)
+    _set_card_description(config, ["USER.md"])
+    (config.vault_dir / "soul" / "USER.md").write_text(
+        "private partner details", encoding="utf-8")
+
+    migrate_legacy_data(config, tmp_path / "data")
+
+    assert CharacterRegistry(tmp_path / "data").require("yuri").display.description == ""
 
 
 def test_unconfigured_legacy_models_inherit_the_house_setting(tmp_path):

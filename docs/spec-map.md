@@ -43,9 +43,9 @@ a section are folded into it.
 | **§30** — Character cards: import, review, edit, export | `scripts/bench_cards.py`<br>`web/dashboard/dashboard.js`<br>`web/dashboard/model.js`<br>`web/studio/optimize.js`<br>*+3 more* | `tests/test_studio_routes.py` |
 | **§31** — Connections and per-character bindings | `yurios/world/host/hosting.py`<br>`yurios/world/main.py`<br>`web/dashboard/dashboard.js`<br>`web/shared/settings.js`<br>*+5 more* | `tests/test_host.py`<br>`tests/test_character_overrides.py`<br>`tests/test_one_rule_hands.py`<br>*+2 more* |
 | **§32** — The switchboard | `yurios/world/host/hosting.py`<br>`yurios/world/host/pages.py`<br>`web/dashboard/dashboard.js`<br>`web/dashboard/model.js` | `tests/test_host.py` |
-| **§33** — The 0.1 → 0.2 migration | — | — |
+| **§33** — The 0.1 → 0.2 migration | `yurios/migrate.py` | — |
 | **§34** — Her desk and her skills | `yurios/characters/importer.py`<br>`yurios/desktop/brain.py`<br>`yurios/mind/goalwork.py`<br>`yurios/mind/handwork.py`<br>*+3 more* | `tests/test_mcp_contract.py`<br>`tests/test_workspace.py` |
 | **§35** — Pictures you send her | `yurios/world/main.py`<br>`yurios/world/channels/telegram.py`<br>`yurios/world/routes/chat.py`<br>`web/js/chat.js`<br>*+11 more* | `tests/test_channels.py`<br>`tests/test_context_meter.py`<br>`tests/test_integration.py`<br>*+1 more* |
 | **§36** — Command-line control | `yurios/ctl/__init__.py`<br>`yurios/ctl/characters.py`<br>`yurios/ctl/client.py`<br>`yurios/world/host/switchboard.py`<br>*+1 more* | `tests/test_cli_camera.py`<br>`tests/test_cli_characters.py` |
 
-*876 citation sites over 118 sections.*
+*877 citation sites over 119 sections.*

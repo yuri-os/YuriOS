@@ -100,8 +100,9 @@ What stands between you and that:
   the run it starts.
 - **The inner-life tab is the meter.** Every run, the document being read right now, its
   passage and model-call counts, and a stop button that keeps what she has already read.
-- **`RESEARCH_MAX_PAGES` and `TOOL_RATE_RESEARCH`** bound how far one run and one minute
-  can reach.
+- **`RESEARCH_MAX_CALLS=100`** caps estimated model calls admitted to one run; pages that do
+  not fit wait unread on the shelf. `RESEARCH_MAX_PAGES` and `TOOL_RATE_RESEARCH` also bound
+  how far one run and one minute can reach.
 - **`MIND_TOOLS_ENABLED=false` is the default**, and it is the switch that decides whether
   any of this can happen *without you in the room*. Everything above assumes you said
   something first. With this off — the shipped state — her background loop thinks and

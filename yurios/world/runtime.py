@@ -133,6 +133,7 @@ def build_reading(rt) -> tuple[Researcher | None, str]:
     desk = Researcher(
         search, fetcher, clock=rt.clock,
         post=rt.post_message, speak=rt.speak_ambient,
+        max_calls=cfg.research_max_calls,
         knowledge=lambda: rt.mind.knowledge if rt.mind else None,
         notify=rt.hub.publish, signal=rt.post_signal)
     return desk, cfg.search_backend

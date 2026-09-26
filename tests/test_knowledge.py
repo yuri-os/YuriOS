@@ -548,3 +548,13 @@ async def test_a_parked_page_waits_on_the_shelf_unread(summarising_store):
     store.resume(doc)
     assert store.pending_docs() == [doc]
     assert (await store.scan())[0].chunks == held["passages"]
+
+
+def test_an_unpriceable_page_can_still_be_parked(summarising_store):
+    store = summarising_store
+    store.estimate = lambda text: (_ for _ in ()).throw(ValueError("no price"))
+    doc = store.park("web-unpriceable.md", "The fetched page remains here.")
+
+    assert doc in store.shelf()
+    assert store.pending_docs() == []
+    assert store.holds()[0]["doc"] == doc

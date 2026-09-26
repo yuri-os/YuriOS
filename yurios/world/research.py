@@ -105,6 +105,7 @@ class Researcher:
     def __init__(self, search, fetcher, *, clock: Clock,
                  post: Callable[..., dict],
                  speak: Callable[[str], Awaitable[bool]],
+                 max_calls: int = 100,
                  knowledge: Optional[Callable[[], object]] = None,
                  notify: Optional[Callable[[str, dict], None]] = None,
                  signal: Optional[Callable[..., object]] = None):
@@ -113,6 +114,7 @@ class Researcher:
         self.clock = clock
         self.post = post                       # Runtime.post_message
         self.speak = speak                     # Runtime.speak_ambient (§8.4)
+        self.max_calls = max(0, max_calls)      # §7.7, per-run estimated ceiling
         self.knowledge = knowledge             # () -> KnowledgeStore | None
         self.notify = notify                   # EventHub.publish, when hosted
         # SignalBus.post — the return path for work the loop dispatched (§16).
@@ -138,29 +140,34 @@ class Researcher:
             log.exception("research: couldn't reach the knowledge shelf")
             return None
 
-    def _price(self, entry: dict, page: dict) -> None:
+    def _price(self, entry: dict, page: dict) -> int | None:
         """What reading this page is going to cost, in model calls, before any
-        of them are made. Best-effort: no store, no estimate, no drama."""
+        of them are made. No store means no model calls; an unpriceable page
+        cannot be admitted under a model-call ceiling."""
         store = self._store()
         if store is None:
-            return
+            return 0
         try:
             est = store.estimate(as_document(page, retrieved=self._stamp()))
             entry["calls"] = est["calls"]
             entry["passages"] = est["passages"]
             entry["digested"] = est["digested"]
+            return max(0, int(est["calls"]))
         except Exception:  # noqa: BLE001 — a price tag is not worth a traceback
             log.debug("research: couldn't price %s", page.get("url"),
                       exc_info=True)
+            return None
 
-    def _park(self, page: dict) -> str:
+    def _park(self, page: dict, *,
+              reason: str = "you stopped it before she read it") -> str:
         """Shelve a fetched page without reading it (KnowledgeStore.park)."""
         store = self._store()
         if store is None:
             return ""
         try:
             return store.park(_doc_name(page),
-                              as_document(page, retrieved=self._stamp()))
+                              as_document(page, retrieved=self._stamp()),
+                              reason=reason)
         except Exception:  # noqa: BLE001
             log.warning("research: couldn't park %s", page.get("url"),
                         exc_info=True)
@@ -229,7 +236,8 @@ class Researcher:
             "id": run_id, "topic": str(contract.get("topic") or ""),
             "depth": int(contract.get("depth") or 3),
             "stage": "searching", "started_at": self.clock.now(),
-            "pages": [], "stopped": False, "corr_id": contract.get("_corr_id")}
+            "pages": [], "stopped": False, "corr_id": contract.get("_corr_id"),
+            "max_calls": self.max_calls, "budget_calls": 0}
         self._trim()
         task = asyncio.create_task(self._job(dict(contract)),
                                    name=f"research-{run_id}")
@@ -262,19 +270,16 @@ class Researcher:
     def runs(self) -> list[dict]:
         """Every run this process knows about, newest last — the panel's list.
 
-        `calls` is what the reading is *estimated* to cost in model calls, page
-        by page, and it only becomes knowable as pages arrive: a search result
-        is a URL, and a URL's length is whatever the server sends back. So the
-        number grows during the fetch phase and then counts down — which is the
-        honest shape of it, and better than a spinner that implies nothing is
-        being spent.
+        `calls` is the estimated cost admitted to this run. Individual page
+        estimates remain visible even when a page is held: a search result is
+        only a URL, and its length is unknown until the fetch finishes.
         """
         out = []
         for run in self._runs.values():
             pages = run["pages"]
             row = dict(run)
             row["pages"] = list(pages)
-            row["calls"] = sum(p.get("calls", 0) for p in pages)
+            row["calls"] = run["budget_calls"]
             row["read"] = sum(1 for p in pages if p.get("state") == "read")
             row["elapsed_s"] = round(
                 (run.get("ended_at") or self.clock.now()) - run["started_at"], 1)
@@ -305,7 +310,9 @@ class Researcher:
     async def _job(self, c: dict) -> None:
         topic = str(c.get("topic") or "").strip()
         depth = max(1, int(c.get("depth") or 3))
-        run = self._runs.get(str(c.get("id", "")), {"pages": [], "stopped": False})
+        run = self._runs.get(str(c.get("id", "")),
+                             {"pages": [], "stopped": False, "budget_calls": 0})
+        max_calls = run.get("max_calls", self.max_calls)
         try:
             hits = await self.search.search(topic, depth)
         except Exception as e:
@@ -341,7 +348,7 @@ class Researcher:
                          "chars": len(page["text"]), "state": "fetched",
                          "calls": 0, "doc": ""}
                 run["pages"].append(entry)
-                self._price(entry, page)
+                calls = self._price(entry, page)
                 if run["stopped"]:
                     # Fetched between the flag going up and this line. Somebody
                     # already paid a stranger's web server for it — put it on the
@@ -350,6 +357,16 @@ class Researcher:
                     entry["doc"] = self._park(page)
                     entry["state"] = "held" if entry["doc"] else "dropped"
                     return None
+                # Reservations happen before the first await of an ingest.
+                # Fetches can overlap, but two pages cannot both spend the
+                # same remaining calls (SPEC §7.7).
+                if (calls is None or
+                        run["budget_calls"] + calls > max_calls):
+                    entry["doc"] = self._park(
+                        page, reason="research run reached its model-call ceiling")
+                    entry["state"] = "held" if entry["doc"] else "dropped"
+                    return None
+                run["budget_calls"] += calls
                 entry["state"] = "reading"   # …for however long the read takes
                 entry["doc"] = await self._shelve(page)
                 entry["state"] = self._page_state(entry["doc"])
@@ -364,8 +381,18 @@ class Researcher:
             self._status(c, "stopped")
             return
         if not pages:
-            self._say(c, f"(found some links about {topic}, but none of them "
-                         "would open)")
+            if any(p["state"] == "held" for p in run["pages"]):
+                self._say(c, f"(found pages about {topic}, but reading them "
+                             "would exceed this run's model-call ceiling — "
+                             "they're held on the shelf for you)")
+                self._completed(c, {"pages": 0, "shelved": 0,
+                                    "held": sum(p["state"] == "held"
+                                                for p in run["pages"]),
+                                    "docs": [],
+                                    "error": "research call ceiling held every page"})
+            else:
+                self._say(c, f"(found some links about {topic}, but none of them "
+                             "would open)")
             self._status(c, "done")
             return
 
@@ -381,9 +408,14 @@ class Researcher:
         else:
             lines.append("(not shelved this time — I'll have to read them "
                          "again if you need the detail)")
+        held = sum(p["state"] == "held" for p in run["pages"])
+        if held:
+            noun = "page" if held == 1 else "pages"
+            lines.append(f"({held} more {noun} held on the shelf — this run's "
+                         "model-call ceiling would be exceeded)")
         self._say(c, "\n".join(lines))
         self._status(c, "done")
-        self._completed(c, {"pages": len(pages), "shelved": kept,
+        self._completed(c, {"pages": len(pages), "shelved": kept, "held": held,
                             "docs": [p.get("doc") for p in pages if p.get("doc")]})
 
         if _to_vault(c):

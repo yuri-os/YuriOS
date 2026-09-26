@@ -301,20 +301,26 @@ class KnowledgeStore:
         log.info("knowledge: holding %s after %d/%d passages (%s)",
                  doc, done, passages, reason)
 
-    def park(self, name: str, text: str) -> str:
+    def park(self, name: str, text: str, *,
+             reason: str = "you stopped it before she read it") -> str:
         """Shelve a document without reading it: it waits for you.
 
         The other half of stopping a research run. Pages she already fetched
         shouldn't be thrown away because you stopped the reading — they cost a
         request to somebody's web server, and re-fetching them on resume would
         cost another. The file lands on the shelf held, so nothing indexes it
-        until you say so, and `holds()` can price it for the panel.
+        until you say so, and `holds()` can price it for the panel. A run that
+        reaches its call ceiling uses the same hold with its own reason.
         """
         doc = self._place(name, text)
-        est = self.estimate(text)
+        try:
+            est = self.estimate(text)
+        except Exception:  # noqa: BLE001 — a price failure must not lose the page
+            log.warning("knowledge: couldn't price held %s", doc, exc_info=True)
+            est = {"passages": 0, "digested": False}
         self.hold(doc, done=0, passages=est["passages"],
                   digested=est["digested"],
-                  reason="you stopped it before she read it")
+                  reason=reason)
         return doc
 
     def resume(self, doc: str) -> bool:

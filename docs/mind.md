@@ -101,8 +101,10 @@ job. The ledger rolls at local midnight and is rendered in the inner-life tab.
 number is an *estimate* of tokens, not a bill; pressure changes what the loop chooses to do next
 rather than stopping work already under way, so it will not abort a long read in flight; and it
 does not stand between a tool call and the run it starts — a `research` call you provoked in
-conversation goes ahead at any pressure. The hard bounds are `RESEARCH_MAX_PAGES`,
-`TOOL_RATE_RESEARCH`, and the stop button on the inner-life tab.
+conversation goes ahead at any pressure. A separate `RESEARCH_MAX_CALLS` ceiling checks each
+fetched page's estimated model calls before reading starts; pages that do not fit wait unread on
+the shelf. `RESEARCH_MAX_PAGES`, `TOOL_RATE_RESEARCH`, and the stop button on the inner-life tab
+bound the rest of the run.
 
 ## The two gates
 

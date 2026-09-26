@@ -64,6 +64,7 @@ class Config(VoiceConfig):
     fetch_timeout_s: float = 8.0                # one page, inside TOOL_TIMEOUT_S
     fetch_max_bytes: int = 2_000_000            # read_page stops here
     research_max_pages: int = 5                 # ceiling on `research(depth=…)`
+    research_max_calls: int = 100               # estimated model calls per run (§7.7)
     tool_rate_search: int = 6                   # calls/minute
     tool_rate_read: int = 6
     tool_rate_research: int = 2                 # a run is many requests — cheap

@@ -147,6 +147,7 @@ SEARCH_SAFESEARCH=1               # 0 none | 1 moderate | 2 strict
 FETCH_TIMEOUT_S=8
 FETCH_MAX_BYTES=2000000
 RESEARCH_MAX_PAGES=5
+RESEARCH_MAX_CALLS=100
 TOOL_RATE_SEARCH=6
 TOOL_RATE_READ=6
 TOOL_RATE_RESEARCH=2
@@ -164,8 +165,10 @@ dead one, the same rule as `SELFIE_BACKEND=off`.
 >
 > `MIND_DAILY_TOKENS` is a governor, not a spend cap: it is an estimate, it never gates
 > conversation, it does not abort a read already in flight, and it does not stand between a tool
-> call and the run it starts. What actually bounds a run is `RESEARCH_MAX_PAGES`, the
-> `TOOL_RATE_RESEARCH` bucket, and you — the **inner life** tab shows every run and the document
+> call and the run it starts. `RESEARCH_MAX_CALLS` limits the estimated model calls admitted to
+> each run before a page is read. Pages that do not fit are held unread on the shelf for you to
+> resume. `RESEARCH_MAX_PAGES` also bounds the number of pages and `TOOL_RATE_RESEARCH` limits
+> starts per minute. The **inner life** tab shows every run and the document
 > being read right now with its model-call count, and the stop button there loses nothing. If she
 > is pointed at a paid API, set a spend limit with the provider as well.
 

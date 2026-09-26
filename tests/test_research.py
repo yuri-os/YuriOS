@@ -23,6 +23,10 @@ class FakeShelf:
         self.docs: dict[str, str] = {}
         self.fail = fail
 
+    def estimate(self, text):
+        return {"passages": 1, "calls": 2, "digested": False,
+                "chars": len(text)}
+
     async def ingest(self, name, text=None):
         if self.fail:
             raise RuntimeError("no embedder backend")
@@ -284,7 +288,7 @@ class StoreFake(FakeShelf):
         return {"passages": passages, "calls": passages * 2,
                 "digested": len(text) > 40_000, "chars": len(text)}
 
-    def park(self, name, text):
+    def park(self, name, text, *, reason="you stopped it before she read it"):
         self.parked[name] = text
         return name
 
@@ -311,6 +315,110 @@ async def test_a_run_says_what_it_is_doing_and_what_it_will_cost(clock):
     assert run["found"] == 2 and run["read"] == len(run["pages"])
     assert all(p["calls"] > 0 and p["state"] == "read" for p in run["pages"])
     assert run["calls"] == sum(p["calls"] for p in run["pages"])
+
+
+async def test_run_ceiling_parks_pages_before_their_calls_begin(clock):
+    shelf = StoreFake()
+    r, post, _speak = make(clock, shelf=shelf)
+    r.max_calls = 2
+    r.start(CONTRACT)
+    await drain(r)
+
+    (run,) = r.runs()
+    assert len(shelf.docs) == 1
+    assert len(shelf.parked) == 1
+    assert run["budget_calls"] == 2
+    assert run["calls"] == 2, "the panel must not count held calls as admitted"
+    assert sorted(p["state"] for p in run["pages"]) == ["held", "read"]
+    assert "1 more page held" in post.messages[0]["text"]
+
+
+async def test_concurrent_pages_cannot_reserve_the_same_remaining_calls(clock):
+    class SlowShelf(StoreFake):
+        def __init__(self):
+            super().__init__()
+            self.entered = asyncio.Event()
+            self.release = asyncio.Event()
+
+        async def ingest(self, name, text=None):
+            self.entered.set()
+            await self.release.wait()
+            return await super().ingest(name, text)
+
+    shelf = SlowShelf()
+    r, _post, _speak = make(clock, shelf=shelf)
+    r.max_calls = 2
+    r.start(CONTRACT)
+    await asyncio.wait_for(shelf.entered.wait(), timeout=2)
+    await asyncio.sleep(0)  # let the other fetched page attempt its reservation
+    assert len(shelf.parked) == 1
+    assert r.runs()[0]["budget_calls"] == 2
+    shelf.release.set()
+    await drain(r)
+    assert len(shelf.docs) == 1
+
+
+async def test_page_over_ceiling_is_held_while_smaller_page_can_be_read(clock):
+    class PricedShelf(StoreFake):
+        def estimate(self, text):
+            calls = 8 if "overview" in text else 2
+            return {"passages": calls // 2, "calls": calls,
+                    "digested": False, "chars": len(text)}
+
+    shelf = PricedShelf()
+    r, post, _speak = make(clock, shelf=shelf)
+    r.max_calls = 2
+    r.start(CONTRACT)
+    await drain(r)
+
+    (run,) = r.runs()
+    assert run["budget_calls"] == 2
+    assert len(shelf.docs) == len(shelf.parked) == 1
+    assert "overview" in next(iter(shelf.parked.values()))
+    assert "current" in next(iter(shelf.docs.values()))
+
+
+async def test_when_every_page_exceeds_ceiling_run_reports_held_pages(clock):
+    shelf = StoreFake()
+    r, post, _speak = make(clock, shelf=shelf)
+    r.max_calls = 0
+    r.start(CONTRACT)
+    await drain(r)
+
+    (run,) = r.runs()
+    assert run["stage"] == "done" and run["budget_calls"] == 0
+    assert len(shelf.parked) == 2 and shelf.docs == {}
+    assert "model-call ceiling" in post.messages[0]["text"]
+
+
+async def test_a_fully_held_run_wakes_the_goal_that_dispatched_it(clock):
+    signals = []
+    shelf = StoreFake()
+    r, _post, _speak = make(clock, shelf=shelf)
+    r.max_calls = 0
+    r.signal = lambda kind, payload, **kw: signals.append((kind, payload))
+    r.start({**CONTRACT, "_goal_id": "goal-1", "_deliver": "vault"})
+    await drain(r)
+
+    assert len(signals) == 1
+    assert signals[0][0] == "task_completion"
+    assert signals[0][1]["goal_id"] == "goal-1"
+    assert signals[0][1]["held"] == 2
+    assert signals[0][1]["error"]
+
+
+async def test_unpriceable_page_is_held_without_starting_its_read(clock):
+    class Unpriceable(StoreFake):
+        def estimate(self, text):
+            raise ValueError("cannot plan this document")
+
+    shelf = Unpriceable()
+    r, _post, _speak = make(clock, shelf=shelf)
+    r.start(CONTRACT)
+    await drain(r)
+
+    assert shelf.docs == {}
+    assert len(shelf.parked) == 2
 
 
 async def test_stopping_before_she_reads_costs_nothing(clock):

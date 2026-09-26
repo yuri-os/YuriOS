@@ -277,6 +277,7 @@ See [Tools](tools.md).
 | `FETCH_TIMEOUT_S` | `8` | one page, kept inside `TOOL_TIMEOUT_S` |
 | `FETCH_MAX_BYTES` | `2000000` | `read_page` stops here |
 | `RESEARCH_MAX_PAGES` | `5` | ceiling on `research(depth=…)` |
+| `RESEARCH_MAX_CALLS` | `100` | estimated model calls per research run; excess pages are held unread |
 | `TOOL_RATE_SEARCH` / `_READ` / `_RESEARCH` | `6` / `6` / `2` | calls per minute |
 
 `SEARCH_BACKEND` is the one knob on this page that can turn into a bill: `research` keeps reading

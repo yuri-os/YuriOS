@@ -1085,6 +1085,15 @@ to every new subscriber before its first live event. Malformed JSON is logged an
   won't open **MUST** be skipped rather than failing the run, and a run where nothing opens **MUST**
   still end in words.
 
+  Before ingesting each fetched page, `research` **MUST** reserve its estimated model calls
+  against the per-run `RESEARCH_MAX_CALLS` ceiling (default 100). Concurrent fetches **MUST NOT**
+  admit pages whose combined estimates exceed that ceiling. A page that cannot be priced or would
+  exceed the remaining allowance **MUST** be shelved held and unread, so it can be resumed later;
+  other pages that fit **MAY** still be read. When the ceiling leaves no page read, the run **MUST**
+  report that pages were held rather than saying none opened, and **MUST** send a failed
+  `task_completion` to release any goal waiting for the run. This limits calls admitted by a
+  research run; an individual page's estimate is not a billing guarantee.
+
 ## §8 — Ambient life is the mind's, not a scripted machine
 
 There is no scripted idle state machine. Ambient speech and timer announcements are *decided*

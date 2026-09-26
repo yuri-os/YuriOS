@@ -147,6 +147,13 @@ def test_the_desk_asks_for_the_knowledge_store_rather_than_holding_one(cfg, cloc
     assert desk.knowledge() == "the store"             # …and it follows the mind
 
 
+def test_research_call_ceiling_reaches_the_desk(cfg, clock):
+    rt = _half_built(cfg.model_copy(update={"search_backend": "fake",
+                                            "research_max_calls": 7}), clock)
+    desk, _ = runtime.build_reading(rt)
+    assert desk is not None and desk.max_calls == 7
+
+
 def test_building_the_brain_does_not_wait_for_the_embedder(monkeypatch):
     """The sentence-transformers load is the slow part of a cold boot, and it
     used to sit in front of her hands and mind. Construction now returns

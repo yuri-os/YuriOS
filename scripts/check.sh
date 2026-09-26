@@ -3,7 +3,7 @@
 #
 #   ./scripts/check.sh              lint, typecheck, the Python suite, the web suite
 #   ./scripts/check.sh --fast       …without the Python suite (~1m15s across 8 workers)
-#   ./scripts/check.sh --release    …plus the install smoke test, on the 3.11 floor
+#   ./scripts/check.sh --release    …plus the install and real embedder checks
 #
 # There is no CI behind this. That is a choice, not an omission: YuriOS is installed
 # from a checkout onto one machine, its test suite drives a voice stack and a GPU
@@ -33,7 +33,8 @@ Usage: ./scripts/check.sh [options]
               half-finished edit does.
   --release   Also run scripts/smoke_install.sh against Python 3.11, the floor in
               requires-python: build the wheel, install it, resolve the declared
-              dependency set. Run before tagging, or after touching dependencies.
+              dependency set. Check the real embedder with cached weights and a
+              fresh download. Run before tagging, or after touching dependencies.
   -h, --help  Show this help
 
 Needs the dev tools: pip install -e ".[dev]"  (and `cd web && npm install`).
@@ -141,6 +142,17 @@ if [ "$RELEASE" = true ]; then
     start "install smoke test"
     ./scripts/smoke_install.sh --python 3.11
     verdict $?
+
+    # Pytest uses FakeEmbedder, so dependency resolution alone cannot establish
+    # that the real sentence-transformers backend still loads and embeds. The
+    # cold run also exercises the first download on a new installation.
+    start "embedder (cached)"
+    "$PY" scripts/check_embedder.py
+    verdict $?
+
+    start "embedder (cold download)"
+    "$PY" scripts/check_embedder.py --cold
+    verdict $?
 fi
 
 # --- the verdict ------------------------------------------------------------------
@@ -148,7 +160,7 @@ printf '\n'
 if [ ${#FAILED[@]} -eq 0 ]; then
     printf '\033[1mAll checks passed.\033[0m\n'
     [ "$FAST" = true ] && printf 'Note: the Python suite did not run (--fast).\n'
-    [ "$RELEASE" = false ] && printf 'Before a release, run with --release for the install smoke test.\n'
+    [ "$RELEASE" = false ] && printf 'Before a release, run with --release for the install and embedder checks.\n'
     exit 0
 fi
 printf '\033[1m%d failed:\033[0m %s\n' "${#FAILED[@]}" "$(printf '%s; ' "${FAILED[@]}")"

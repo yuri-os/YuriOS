@@ -20,7 +20,8 @@ So: run this after moving `sentence-transformers`, `transformers`,
     python scripts/check_embedder.py            # the cached path
     python scripts/check_embedder.py --cold     # …and a first-ever download
 
-It downloads ~130 MB on a cold cache and is deliberately not a gate stage.
+The release gate runs both paths. The cold path downloads ~130 MB, so the
+ordinary offline gate does not run it.
 """
 from __future__ import annotations
 

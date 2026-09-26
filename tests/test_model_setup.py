@@ -67,7 +67,8 @@ def test_first_run_endpoint_exposes_recommendation_and_saves_none(cfg, tmp_path,
     # the normal fresh server, which has no configured model.
     app.state.rt.model_configured = False
 
-    with TestClient(app, client=("127.0.0.1", 5555)) as client:
+    with TestClient(app, base_url="http://127.0.0.1:8768",
+                    client=("127.0.0.1", 5555)) as client:
         shown = client.get("/api/onboarding").json()
         saved = client.post("/api/onboarding", json={"model": "NONE"}).json()
 
@@ -101,7 +102,8 @@ def test_first_run_endpoint_saves_the_same_gguf_profile_the_cli_does(
     app.state.rt.model_configured = False
 
     model = f"gguf/{DEFAULT_HUGGINGFACE_MODEL}"
-    with TestClient(app, client=("127.0.0.1", 5555)) as client:
+    with TestClient(app, base_url="http://127.0.0.1:8768",
+                    client=("127.0.0.1", 5555)) as client:
         assert client.post("/api/onboarding", json={"model": model}).json()["ok"]
 
     saved = env.read_text(encoding="utf-8")
@@ -127,7 +129,8 @@ def test_first_run_endpoint_writes_no_gguf_profile_for_a_hosted_model(
     app = create_app(cfg, brain=FakeBrain())
     app.state.rt.model_configured = False
 
-    with TestClient(app, client=("127.0.0.1", 5555)) as client:
+    with TestClient(app, base_url="http://127.0.0.1:8768",
+                    client=("127.0.0.1", 5555)) as client:
         client.post("/api/onboarding", json={"model": "ollama/qwen3"})
 
     assert "GGUF_N_GPU_LAYERS" not in env.read_text(encoding="utf-8")

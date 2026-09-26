@@ -35,7 +35,8 @@ def client(cfg):
     cfg = cfg.model_copy(update={"tools_backend": "off", "mind_enabled": False})
     app = create_app(cfg, brain=FakeBrain())
     # loopback client host so the settings router's local-only gate opens
-    with TestClient(app, client=("127.0.0.1", 5555)) as c:
+    with TestClient(app, base_url="http://127.0.0.1:8768",
+                    client=("127.0.0.1", 5555)) as c:
         c.app = app
         yield c
 

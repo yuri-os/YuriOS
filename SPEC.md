@@ -1060,8 +1060,11 @@ to every new subscriber before its first live event. Malformed JSON is logged an
 
   Fetching **MUST** sit behind a `PageFetcher` seam (`yurios/world/tools/fetch.py`) with an offline
   fake, extract text with no new dependency, and — the load-bearing rule — **validate the URL
-  before every request and again on every redirect hop**: http(s) only, and never an address that
-  resolves into private, loopback, link-local, reserved or multicast space. `url` is the first tool
+  before every request and again on every redirect hop**: http(s) only, and only an address that
+  is globally routable — never private, loopback, link-local, reserved, multicast or shared
+  (100.64.0.0/10, which is where a Tailscale network lives), with an IPv6 address that wraps an IPv4
+  one judged by the address inside it. The test is "is this public", not "is this one of the ranges
+  someone listed". `url` is the first tool
   argument authored by a language model rather than by a person, and the local network it would
   otherwise reach includes her own control surface (§11.4). Redirects **MUST** therefore be followed
   by hand. Non-text responses and bodies past `FETCH_MAX_BYTES` **MUST** be refused.
@@ -1458,6 +1461,14 @@ frozen) around `GET /auth?token=…`, which trades the token for the HttpOnly se
 redirects. The phone never stores the token. It costs what every magic link costs — the token is
 in that device's history — which is why this is a LAN affordance, why the redirect leaves the URL
 behind at once, and why rotating is one button.
+
+A loopback bind asks for no token, and so what stands in for one is where the request came from.
+The peer address alone is not enough: a page whose own hostname has been re-pointed at 127.0.0.1
+(DNS rebinding) connects from loopback, and its GETs are same-origin and carry no `Origin`, so it
+could read `GET /api/pairing` and walk off with the token this section guards. A request the
+boundary would admit without the token because it is local **MUST** therefore also arrive under a
+loopback `Host` — `localhost`, a loopback IP, or this machine's own hostname — and is refused
+otherwise, HTTP and WebSocket alike. A browser cannot forge `Host`.
 
 `HOST=0.0.0.0` is not an address. The candidate origins **MUST** come from the machine's own
 interfaces and from the Host header the request arrived on — something on that network

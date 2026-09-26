@@ -17,6 +17,7 @@ import html
 import ipaddress
 import json
 import secrets
+import socket
 from http.cookies import SimpleCookie
 from urllib.parse import parse_qs, quote, urlsplit
 
@@ -75,6 +76,30 @@ def _header_hostname(value: str) -> str:
     return parsed.hostname or ""
 
 
+def _host_is_local(value: str, peer: str | None) -> bool:
+    """Whether a loopback request's Host header names this machine (SPEC §11.1).
+
+    This is the DNS-rebinding door. A page on `attacker.example` that re-points
+    its own name at 127.0.0.1 makes *same-origin* requests, and a browser sends
+    no `Origin` on a same-origin GET — so the Origin check never sees them, and
+    the page reads whatever a loopback caller may read, the owner token from
+    `/api/pairing` included. The one thing it cannot forge is `Host`, which
+    still names the attacker's domain; so a loopback request must arrive under
+    a loopback name, or under this machine's own name (Debian maps it to
+    127.0.1.1, and nobody else can make a browser send it).
+    """
+    hostname = _header_hostname(value).lower().rstrip(".")
+    if not hostname:
+        return False
+    if is_loopback(hostname):
+        return True
+    # Starlette's in-process TestClient, the same sentinel `is_loopback` takes
+    # for the peer — honoured only from that peer, which no socket can claim.
+    if peer == "testclient" and hostname == "testserver":
+        return True
+    return hostname == socket.gethostname().lower().rstrip(".")
+
+
 def _forwarded_host(headers: dict[str, str], configured_local: bool) -> str:
     """Return a proxy's public host only for a loopback reverse-proxy hop.
 
@@ -118,8 +143,10 @@ def _origin_allowed(origin: str, host_headers: list[str], local_only: bool) -> b
     if parsed.scheme not in ("http", "https") or not parsed.hostname:
         return False
     if local_only:
-        # This also closes DNS rebinding: a browser page on an attacker hostname
-        # is rejected even after that hostname resolves to 127.0.0.1.
+        # This closes DNS rebinding for every request that carries an Origin: a
+        # page on an attacker hostname is rejected even after that hostname
+        # resolves to 127.0.0.1. Same-origin GETs carry none; `_host_is_local`
+        # is what closes those.
         return is_loopback(parsed.hostname)
     authority = parsed.netloc.lower().rstrip(".")
     return any(authority == host.lower().rstrip(".") for host in host_headers)
@@ -272,6 +299,14 @@ class OwnerAccessMiddleware:
                             "reason": "origin not allowed"})
             else:
                 response = JSONResponse({"detail": "origin not allowed"}, status_code=403)
+                await response(scope, receive, send)
+            return
+        if not remote_mode and not _host_is_local(headers.get("host", ""), peer):
+            if scope["type"] == "websocket":
+                await send({"type": "websocket.close", "code": 4403,
+                            "reason": "host not allowed"})
+            else:
+                response = JSONResponse({"detail": "host not allowed"}, status_code=403)
                 await response(scope, receive, send)
             return
 

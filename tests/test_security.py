@@ -113,10 +113,47 @@ def test_cross_site_origins_are_rejected_in_remote_and_loopback_modes():
             raise AssertionError("cross-site WebSocket was accepted")
 
     with TestClient(secured_app(host="127.0.0.1", token=""),
+                    base_url="http://127.0.0.1:8768",
                     client=("127.0.0.1", 5000)) as local:
         assert local.get("/api/private").status_code == 200
         assert local.get("/api/private", headers={
             "Origin": "http://attacker.example"}).status_code == 403
+
+
+def test_loopback_bind_refuses_a_rebound_hostname_that_sends_no_origin():
+    """DNS rebinding (SPEC §11.1): a page whose own name now resolves to
+    127.0.0.1 makes same-origin GETs, which carry no Origin — so the Host header
+    is the only thing that still says whose page this is."""
+    with TestClient(secured_app(host="127.0.0.1", token=""),
+                    client=("127.0.0.1", 5000)) as local:
+        for host in ("127.0.0.1:8768", "localhost:8768", "[::1]:8768"):
+            assert local.get("/api/private",
+                             headers={"Host": host}).status_code == 200
+        assert local.get("/api/private", headers={
+            "Host": "attacker.example:8768"}).status_code == 403
+        try:
+            with local.websocket_connect(
+                    "/ws/private", headers={"Host": "attacker.example:8768"}):
+                pass
+        except WebSocketDisconnect as exc:
+            assert exc.code == 4403
+        else:
+            raise AssertionError("rebound WebSocket was accepted")
+
+
+def test_loopback_bind_answers_to_this_machines_own_name(monkeypatch):
+    monkeypatch.setattr("yurios.security.socket.gethostname", lambda: "Mybox")
+    with TestClient(secured_app(host="127.0.0.1", token=""),
+                    client=("127.0.0.1", 5000)) as local:
+        assert local.get("/api/private", headers={
+            "Host": "mybox:8768"}).status_code == 200
+
+
+def test_testclient_host_sentinel_is_honoured_only_from_the_testclient_peer():
+    with TestClient(secured_app(host="127.0.0.1", token=""),
+                    client=("127.0.0.1", 5000)) as local:
+        assert local.get("/api/private", headers={
+            "Host": "testserver"}).status_code == 403
 
 
 def test_loopback_reverse_proxy_accepts_its_forwarded_public_origin_only():

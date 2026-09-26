@@ -74,6 +74,29 @@ async def system_resolver(host: str, port: int) -> list[str]:
     return [info[4][0] for info in infos]
 
 
+_NAT64 = ipaddress.ip_network("64:ff9b::/96")
+
+
+def _public(addr: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    """Whether an address is on the public internet (SPEC §7.7).
+
+    `is_global`, not a list of the ranges to refuse: a list only ever names
+    the ranges its author thought of, and the one this missed was 100.64.0.0/10
+    — carrier-grade NAT, which Python counts as neither private nor global and
+    which is exactly where a Tailscale network lives, MagicDNS included. An
+    IPv6 address that only wraps an IPv4 one (`::ffff:a.b.c.d`, or NAT64's
+    `64:ff9b::a.b.c.d`) is judged by the address inside it.
+    """
+    if isinstance(addr, ipaddress.IPv6Address):
+        inner = addr.ipv4_mapped
+        if inner is None and addr in _NAT64:
+            inner = ipaddress.IPv4Address(addr.packed[-4:])
+        if inner is not None:
+            return _public(inner)
+    # Multicast is "global" to Python, and is never a page.
+    return addr.is_global and not addr.is_multicast
+
+
 async def _validated_addresses(url: str, resolve) -> list[str]:
     """Return every address after applying the public-endpoint policy."""
     parsed = urlparse(url)
@@ -88,9 +111,7 @@ async def _validated_addresses(url: str, resolve) -> list[str]:
     if not addresses:
         raise UnsafeURL(f"couldn't resolve {host}")
     for raw in addresses:
-        addr = ipaddress.ip_address(raw)
-        if (addr.is_private or addr.is_loopback or addr.is_link_local
-                or addr.is_reserved or addr.is_multicast or addr.is_unspecified):
+        if not _public(ipaddress.ip_address(raw)):
             raise UnsafeURL(
                 f"{host} is on this machine or this network — pages she reads "
                 "have to be on the public internet")

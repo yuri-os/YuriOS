@@ -655,3 +655,122 @@ def test_uninstall_refuses_to_remove_another_global_command(tmp_path, monkeypatc
     assert launcher.exists()
     assert venv.exists()
     assert "Refusing to remove" in capsys.readouterr().err
+
+
+# ---- the connection probe (SPEC §3): doctor --probe-model and configure ----
+
+def test_model_probe_uses_selected_local_endpoint_and_key(cfg, monkeypatch):
+    from yurios.models import probe_model
+
+    seen = []
+
+    def answer(request):
+        seen.append(request)
+        if request.url.path == "/v1/models":
+            return httpx.Response(200, json={"data": [{"id": "gemma-4"}]})
+        return httpx.Response(200, json={"models": [{"name": "qwen3"}]})
+
+    client = httpx.Client
+    timeouts = []
+    monkeypatch.setattr(httpx, "Client", lambda **kw: (
+        timeouts.append(kw["timeout"]) or
+        client(transport=httpx.MockTransport(answer), **kw)))
+    local = cfg.model_copy(update={"lmstudio_base_url": "http://gpu:1234/v1",
+                                   "ollama_base_url": "http://ollama:11434",
+                                   "connection_api_key": "private-key"})
+
+    assert probe_model(local, "lm_studio/gemma-4").ok is True
+    assert probe_model(local, "ollama/qwen3").ok is True
+    assert [str(request.url) for request in seen] == [
+        "http://gpu:1234/v1/models", "http://ollama:11434/api/tags"]
+    assert all(request.headers["Authorization"] == "Bearer private-key"
+               for request in seen)
+    assert timeouts == [3.0, 3.0]
+
+
+def test_model_probe_reports_missing_model_and_auth_rejection(cfg, monkeypatch):
+    from yurios.models import probe_model
+
+    requests = []
+
+    def answer(request):
+        requests.append(request)
+        if request.url.path == "/v1/models":
+            return httpx.Response(200, json={"data": []})
+        return httpx.Response(401, text="secret-token should not appear")
+
+    client = httpx.Client
+    monkeypatch.setattr(httpx, "Client", lambda **kw: client(
+        transport=httpx.MockTransport(answer), **kw))
+    local = cfg.model_copy(update={"chat_model": "lm_studio/gemma-4",
+                                   "openrouter_api_key": "secret-token"})
+
+    assert "selected model gemma-4 is absent" in probe_model(
+        local, local.chat_model).detail
+    denied = probe_model(local, "bare/model")
+    assert denied.ok is False
+    assert "authentication rejected" in denied.detail
+    assert "secret-token" not in denied.detail
+    assert str(requests[-1].url) == "https://openrouter.ai/api/v1/auth/key"
+    assert requests[-1].headers["Authorization"] == "Bearer secret-token"
+
+
+def test_model_probe_handles_timeout_and_unprobeable_models(cfg, monkeypatch):
+    from yurios.models import probe_model
+
+    def time_out(request):
+        raise httpx.ReadTimeout("secret-url")
+
+    client = httpx.Client
+    monkeypatch.setattr(httpx, "Client", lambda **kw: client(
+        transport=httpx.MockTransport(time_out), **kw))
+    timed_out = probe_model(cfg, "ollama/qwen3")
+    assert timed_out.ok is False and timed_out.detail == "timed out after 3s"
+    assert probe_model(cfg, "gguf/example/model").ok is None
+    assert probe_model(cfg, "NONE").ok is None
+    assert probe_model(cfg, "openai/gpt-5.2").ok is None
+
+
+def test_ollama_probe_treats_an_untagged_name_as_latest(cfg, monkeypatch):
+    """`/api/tags` always spells the tag; chat takes `ollama/qwen3` as `qwen3:latest`.
+    Comparing the raw strings failed doctor for a model that answers fine."""
+    from yurios.models import probe_model
+
+    listed = {"models": [{"name": "qwen3:latest"}, {"name": "gemma4:12b"},
+                         {"name": "registry.local:5000/team/tiny"}]}
+    client = httpx.Client
+    monkeypatch.setattr(httpx, "Client", lambda **kw: client(
+        transport=httpx.MockTransport(lambda request: httpx.Response(200, json=listed)),
+        **kw))
+
+    assert probe_model(cfg, "ollama/qwen3").ok is True
+    assert probe_model(cfg, "ollama/qwen3:latest").ok is True
+    assert probe_model(cfg, "ollama/gemma4:12b").ok is True
+    assert probe_model(cfg, "ollama/registry.local:5000/team/tiny").ok is True
+    missing = probe_model(cfg, "ollama/gemma4")
+    assert missing.ok is False and "gemma4:latest is absent" in missing.detail
+
+
+def test_configure_validates_with_the_same_probe_as_doctor(cfg, monkeypatch):
+    """One probe, two callers: configure sends the connection key the way chat
+    and doctor do, accepts a route it cannot probe, and refuses an OpenRouter
+    id with no key to check."""
+    seen = []
+
+    def answer(request):
+        seen.append(request)
+        return httpx.Response(200, json={"data": [{"id": "gemma-4"}]})
+
+    client = httpx.Client
+    monkeypatch.setattr(httpx, "Client", lambda **kw: client(
+        transport=httpx.MockTransport(answer), **kw))
+    keyed = cfg.model_copy(update={"connection_api_key": "private-key",
+                                   "openrouter_api_key": ""})
+
+    check = validate_model(keyed, "lm_studio/gemma-4")
+    assert check.ok
+    assert seen[-1].headers["Authorization"] == "Bearer private-key"
+    assert not validate_model(keyed, "lm_studio/absent").ok
+    assert validate_model(keyed, "openai/gpt-5.2").ok
+    no_key = validate_model(keyed, "vendor/model")
+    assert not no_key.ok and "OPENROUTER_API_KEY" in no_key.detail

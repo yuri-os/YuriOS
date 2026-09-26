@@ -33,6 +33,9 @@ class ModelCheck:
 #: `doctor._LOCAL_PREFIXES` is the same tuple, kept there so the doctor does
 #: not import this module.
 LOCAL_MODEL_PREFIXES = ("ollama/", "lm_studio/", "gguf/")
+#: Hosted routes LiteLLM reaches directly rather than through OpenRouter.
+#: `doctor._OTHER_HOSTS` is the same tuple, for the same reason.
+OTHER_HOSTED_PREFIXES = ("openai/", "anthropic/")
 
 
 def model_is_local(model: str) -> bool:
@@ -42,6 +45,13 @@ def model_is_local(model: str) -> bool:
     with. A bare id is OpenRouter.
     """
     return (model or "").strip().startswith(LOCAL_MODEL_PREFIXES)
+
+
+def hosted_on_openrouter(model: str) -> bool:
+    """True when this id is routed to OpenRouter: a bare id, or `openrouter/…`."""
+    model = (model or "").strip()
+    return bool(model and model.upper() != NONE
+                and not model.startswith(LOCAL_MODEL_PREFIXES + OTHER_HOSTED_PREFIXES))
 
 
 def is_configured(model: str) -> bool:
@@ -124,41 +134,99 @@ def save_model_choice(path: Path, model: str, *, connection: dict[str, str] | No
     return model
 
 
+@dataclass(frozen=True)
+class ModelProbe:
+    ok: bool | None                 # None means there is no HTTP endpoint to test
+    detail: str
+
+
+def _ollama_tagged(name: str) -> str:
+    """Ollama's own spelling of a model name: an untagged `qwen3` is `qwen3:latest`.
+
+    `/api/tags` always lists the tag, while chat accepts either. Only the last
+    path segment can carry one — a registry host's `:port` is not a tag."""
+    return name if ":" in name.rsplit("/", 1)[-1] else f"{name}:latest"
+
+
+def probe_model(cfg, model: str, *, timeout: float = 3.0) -> ModelProbe:
+    """Check a model's configured HTTP endpoint without generating a billable turn.
+
+    SPEC §3. The model-list routes prove that a local server is answering and
+    serving the selected id; OpenRouter's authenticated key route proves the
+    configured key works (its public model list cannot do that). Never include
+    a response body or exception text in the result: either may contain a key.
+    """
+    model = normalize_model(model)
+    if model == NONE:
+        return ModelProbe(None, "no model selected")
+    if model.startswith("gguf/"):
+        return ModelProbe(None, "in-process GGUF has no HTTP endpoint")
+
+    key = ""
+    wanted = ""
+    listing = ""
+    id_field = ""
+    if model.startswith("lm_studio/"):
+        url = f"{cfg.lmstudio_base_url.rstrip('/')}/models"
+        key = cfg.connection_api_key
+        wanted = model.removeprefix("lm_studio/")
+        listing, id_field = "data", "id"
+    elif model.startswith("ollama/"):
+        url = f"{cfg.ollama_base_url.rstrip('/')}/api/tags"
+        key = cfg.connection_api_key
+        wanted = model.removeprefix("ollama/")
+        listing, id_field = "models", "name"
+    elif hosted_on_openrouter(model):
+        if not cfg.openrouter_api_key:
+            return ModelProbe(False, "OPENROUTER_API_KEY is not configured")
+        url = "https://openrouter.ai/api/v1/auth/key"
+        key = cfg.openrouter_api_key
+    else:
+        return ModelProbe(None, "this model route has no connection check")
+
+    headers = {"Authorization": f"Bearer {key}"} if key else {}
+    try:
+        with httpx.Client(timeout=timeout, follow_redirects=False) as client:
+            response = client.get(url, headers=headers)
+        if response.status_code in (401, 403):
+            return ModelProbe(False, f"HTTP {response.status_code}: authentication rejected")
+        if response.status_code != 200:
+            return ModelProbe(False, f"HTTP {response.status_code} from model endpoint")
+        if not listing:
+            return ModelProbe(True, "reachable; API key authenticated")
+        rows = response.json()[listing]
+        if not isinstance(rows, list):
+            raise ValueError("invalid model listing")
+        ids = {row.get(id_field) for row in rows if isinstance(row, dict)}
+        if id_field == "name":
+            ids = {_ollama_tagged(name) for name in ids if isinstance(name, str)}
+            wanted = _ollama_tagged(wanted)
+        if wanted not in ids:
+            return ModelProbe(False, f"reachable, but selected model {wanted} is absent")
+        return ModelProbe(True, "reachable; selected model is listed"
+                          + ("; request with configured key succeeded" if key else ""))
+    except httpx.TimeoutException:
+        return ModelProbe(False, f"timed out after {timeout:g}s")
+    except httpx.RequestError:
+        return ModelProbe(False, "could not connect to model endpoint")
+    except httpx.InvalidURL:
+        return ModelProbe(False, "configured model endpoint URL is invalid")
+    except (ValueError, KeyError, TypeError):
+        return ModelProbe(False, "model endpoint returned an invalid listing")
+
+
 def validate_model(cfg, model: str) -> ModelCheck:
-    """Check a selected connection without loading an LLM into memory."""
+    """Check a selected connection without loading an LLM into memory.
+
+    The same probe `yurios doctor --probe-model` runs; a route with nothing to
+    probe is accepted rather than refused."""
     model = normalize_model(model)
     if model == NONE:
         return ModelCheck(True, "no language model selected")
     if model.startswith("gguf/"):
         return ModelCheck(True, "GGUF will download into the configured model cache")
-    try:
-        with httpx.Client(timeout=3.0) as client:
-            if model.startswith("lm_studio/"):
-                response = client.get(f"{cfg.lmstudio_base_url.rstrip('/')}/models")
-                response.raise_for_status()
-                data = response.json()
-                wanted = model.split("/", 1)[1]
-                ids = {item.get("id") for item in data.get("data", [])}
-                if wanted not in ids:
-                    return ModelCheck(False, f"LM Studio is reachable but does not serve {wanted}")
-            elif model.startswith("ollama/"):
-                response = client.get(f"{cfg.ollama_base_url.rstrip('/')}/api/tags")
-                response.raise_for_status()
-                data = response.json()
-                wanted = model.split("/", 1)[1]
-                ids = {item.get("name") for item in data.get("models", [])}
-                if wanted not in ids:
-                    return ModelCheck(False, f"Ollama is reachable but has not pulled {wanted}")
-            elif model.startswith("openrouter/"):
-                if not cfg.openrouter_api_key:
-                    return ModelCheck(False, "OPENROUTER_API_KEY is required for an openrouter/ model")
-                response = client.get("https://openrouter.ai/api/v1/auth/key", headers={
-                    "Authorization": f"Bearer {cfg.openrouter_api_key}",
-                })
-                response.raise_for_status()
-    except (httpx.HTTPError, ValueError) as exc:
-        return ModelCheck(False, f"could not reach the configured model connection: {exc}")
-    return ModelCheck(True, "connection verified")
+    probe = probe_model(cfg, model)
+    return ModelCheck(probe.ok is not False, probe.detail)
 
 
 def download_gguf(cfg, model: str) -> Path:

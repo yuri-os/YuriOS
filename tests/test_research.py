@@ -421,6 +421,48 @@ async def test_unpriceable_page_is_held_without_starting_its_read(clock):
     assert len(shelf.parked) == 2
 
 
+async def test_unpriceable_pages_are_not_blamed_on_the_ceiling(clock):
+    class Unpriceable(StoreFake):
+        def estimate(self, text):
+            raise ValueError("cannot plan this document")
+
+    signals = []
+    r, post, _speak = make(clock, shelf=Unpriceable())
+    r.signal = lambda kind, payload, **kw: signals.append(payload)
+    r.start(CONTRACT)
+    await drain(r)
+
+    text = post.messages[0]["text"]
+    assert "couldn't estimate what reading them would cost" in text
+    assert "ceiling" not in text
+    assert signals[0]["held"] == 2 and signals[0]["error"]
+
+
+async def test_a_read_stopped_from_the_shelf_is_not_counted_as_held_by_the_run(clock):
+    """The reading panel's stop (no run id) is store-wide: it ends whatever read
+    is in flight, research page or not, and that page comes back held. It was
+    read in part and it is listed; the ceiling had nothing to do with it."""
+    class StoppedMidRead(StoreFake):
+        async def ingest(self, name, text=None):
+            self.parked[name] = text      # what ingest does when the flag is up
+
+            class R:
+                doc = name
+            return R()
+
+    signals = []
+    r, post, _speak = make(clock, shelf=StoppedMidRead())
+    r.signal = lambda kind, payload, **kw: signals.append(payload)
+    r.start(CONTRACT)
+    await drain(r)
+
+    (run,) = r.runs()
+    assert [p["state"] for p in run["pages"]] == ["held", "held"]
+    text = post.messages[0]["text"]
+    assert "more page" not in text and "ceiling" not in text
+    assert signals[0]["held"] == 0
+
+
 async def test_stopping_before_she_reads_costs_nothing(clock):
     """The flag goes up before the first fetch: nothing is fetched, nothing is
     shelved, and she says so rather than going quiet."""

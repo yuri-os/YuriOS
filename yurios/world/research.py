@@ -46,6 +46,15 @@ ANNOUNCE_CUE = (
     "((You've finished reading up on {topic} — {count} page(s), and it's in "
     "the chat now. Say one short line about what you found, nothing else.))")
 
+#: Why a run shelved a fetched page held instead of reading it (`held_by` on the
+#: page's entry), as the summary says it. Only these count as "held" there: a
+#: page whose read was stopped mid-way is also held, but it was read in part,
+#: it is already listed, and the stop was somebody else's (SPEC §7.7).
+HELD_BECAUSE = {
+    "ceiling": "reading {it} would exceed this run's model-call ceiling",
+    "unpriced": "I couldn't estimate what reading {it} would cost",
+}
+
 
 def _to_vault(contract: dict) -> bool:
     """Does this run's product land in the Vault rather than in the chat?
@@ -360,11 +369,15 @@ class Researcher:
                 # Reservations happen before the first await of an ingest.
                 # Fetches can overlap, but two pages cannot both spend the
                 # same remaining calls (SPEC §7.7).
-                if (calls is None or
-                        run["budget_calls"] + calls > max_calls):
-                    entry["doc"] = self._park(
-                        page, reason="research run reached its model-call ceiling")
+                if calls is None or run["budget_calls"] + calls > max_calls:
+                    why = "unpriced" if calls is None else "ceiling"
+                    entry["doc"] = self._park(page, reason=(
+                        "research run couldn't estimate its model calls"
+                        if calls is None else
+                        "research run reached its model-call ceiling"))
                     entry["state"] = "held" if entry["doc"] else "dropped"
+                    if entry["doc"]:
+                        entry["held_by"] = why
                     return None
                 run["budget_calls"] += calls
                 entry["state"] = "reading"   # …for however long the read takes
@@ -380,16 +393,17 @@ class Researcher:
                          "fetched is on her shelf, waiting for you)")
             self._status(c, "stopped")
             return
+        held = {why: sum(p.get("held_by") == why for p in run["pages"])
+                for why in HELD_BECAUSE}
         if not pages:
-            if any(p["state"] == "held" for p in run["pages"]):
-                self._say(c, f"(found pages about {topic}, but reading them "
-                             "would exceed this run's model-call ceiling — "
+            if any(held.values()):
+                because = ", and ".join(HELD_BECAUSE[why].format(it="them")
+                                        for why, n in held.items() if n)
+                self._say(c, f"(found pages about {topic}, but {because} — "
                              "they're held on the shelf for you)")
                 self._completed(c, {"pages": 0, "shelved": 0,
-                                    "held": sum(p["state"] == "held"
-                                                for p in run["pages"]),
-                                    "docs": [],
-                                    "error": "research call ceiling held every page"})
+                                    "held": sum(held.values()), "docs": [],
+                                    "error": "research held every page unread"})
             else:
                 self._say(c, f"(found some links about {topic}, but none of them "
                              "would open)")
@@ -408,14 +422,15 @@ class Researcher:
         else:
             lines.append("(not shelved this time — I'll have to read them "
                          "again if you need the detail)")
-        held = sum(p["state"] == "held" for p in run["pages"])
-        if held:
-            noun = "page" if held == 1 else "pages"
-            lines.append(f"({held} more {noun} held on the shelf — this run's "
-                         "model-call ceiling would be exceeded)")
+        for why, n in held.items():
+            if n:
+                noun, it = ("page", "it") if n == 1 else ("pages", "them")
+                lines.append(f"({n} more {noun} held on the shelf — "
+                             f"{HELD_BECAUSE[why].format(it=it)})")
         self._say(c, "\n".join(lines))
         self._status(c, "done")
-        self._completed(c, {"pages": len(pages), "shelved": kept, "held": held,
+        self._completed(c, {"pages": len(pages), "shelved": kept,
+                            "held": sum(held.values()),
                             "docs": [p.get("doc") for p in pages if p.get("doc")]})
 
         if _to_vault(c):

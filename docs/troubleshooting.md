@@ -13,8 +13,10 @@ importable, and prints the exact install command for anything missing — plus t
 that avoids the download altogether where one exists.
 `--probe-model` checks the selected house chat model and enabled utility model with a
 three-second timeout per request. It reports connection, authentication and missing-model
-failures, and exits nonzero for a failed probe. GGUF and unset models have no HTTP endpoint to
-check. Character-specific connections are configured separately from the house `.env`.
+failures, and exits nonzero for a failed probe. An untagged Ollama name counts as `:latest`, the
+way Ollama itself reads it. GGUF and unset models have no HTTP endpoint to check. `yurios
+configure` and the first-run panel run the same check before saving a model, and refuse one that
+fails it. Character-specific connections are configured separately from the house `.env`.
 `/api/health` reports the live truth:
 voice, tools, mind, selfies, channels, viewers and context. Its `ok` is up **and** working —
 `false` with a `degraded` list naming what's wrong (no model chosen, a channel or tool server that

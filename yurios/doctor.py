@@ -21,7 +21,6 @@ import importlib.util
 import os
 import sys
 from pathlib import Path
-from typing import NamedTuple
 
 from yurios import attribution
 
@@ -341,82 +340,14 @@ def search_lines(cfg, root: Path | None = None) -> list[str]:
     return lines
 
 
-class ModelProbe(NamedTuple):
-    ok: bool | None                 # None means there is no HTTP endpoint to test
-    detail: str
-
-
-def probe_model(cfg, model: str, *, timeout: float = 3.0) -> ModelProbe:
-    """Check a model's configured HTTP endpoint without generating a billable turn.
-
-    SPEC §3. The model-list routes prove that a local server is answering and
-    serving the selected id; OpenRouter's authenticated key route proves the
-    configured key works (its public model list cannot do that). Never include
-    a response body or exception text in the result: either may contain a key.
-    """
-    import httpx
-
-    model = model.strip()
-    if not model or model.upper() == "NONE":
-        return ModelProbe(None, "no model selected")
-    if model.startswith("gguf/"):
-        return ModelProbe(None, "in-process GGUF has no HTTP endpoint")
-
-    key = ""
-    wanted = ""
-    if model.startswith("lm_studio/"):
-        url = f"{cfg.lmstudio_base_url.rstrip('/')}/models"
-        key = cfg.connection_api_key
-        wanted = model.removeprefix("lm_studio/")
-        listing = "data"
-        id_field = "id"
-    elif model.startswith("ollama/"):
-        url = f"{cfg.ollama_base_url.rstrip('/')}/api/tags"
-        key = cfg.connection_api_key
-        wanted = model.removeprefix("ollama/")
-        listing = "models"
-        id_field = "name"
-    elif _hosted_on_openrouter(model):
-        if not cfg.openrouter_api_key:
-            return ModelProbe(False, "OPENROUTER_API_KEY is not configured")
-        url = "https://openrouter.ai/api/v1/auth/key"
-        key = cfg.openrouter_api_key
-        listing = ""
-        id_field = ""
-    else:
-        return ModelProbe(None, "this model route has no supported doctor probe")
-
-    headers = {"Authorization": f"Bearer {key}"} if key else {}
-    try:
-        with httpx.Client(timeout=timeout, follow_redirects=False) as client:
-            response = client.get(url, headers=headers)
-        if response.status_code in (401, 403):
-            return ModelProbe(False, f"HTTP {response.status_code}: authentication rejected")
-        if response.status_code != 200:
-            return ModelProbe(False, f"HTTP {response.status_code} from model endpoint")
-        if not listing:
-            return ModelProbe(True, "reachable; API key authenticated")
-        data = response.json()
-        rows = data[listing]
-        if not isinstance(rows, list):
-            raise ValueError("invalid model listing")
-        ids = {row.get(id_field) for row in rows if isinstance(row, dict)}
-        if wanted not in ids:
-            return ModelProbe(False, f"reachable, but selected model {wanted} is absent")
-        return ModelProbe(True, "reachable; selected model is listed"
-                          + ("; request with configured key succeeded" if key else ""))
-    except httpx.TimeoutException:
-        return ModelProbe(False, f"timed out after {timeout:g}s")
-    except httpx.RequestError:
-        return ModelProbe(False, "could not connect to model endpoint")
-    except httpx.InvalidURL:
-        return ModelProbe(False, "configured model endpoint URL is invalid")
-    except (ValueError, KeyError, TypeError):
-        return ModelProbe(False, "model endpoint returned an invalid listing")
-
-
 def model_probe_lines(cfg) -> tuple[list[str], bool]:
-    """Probe the house model choices; a failed requested probe fails doctor."""
+    """Probe the house model choices; a failed requested probe fails doctor.
+
+    The probe is `models.probe_model`, the check `yurios configure` runs too —
+    imported here rather than at the top, so a plain `yurios doctor` stays free.
+    """
+    from yurios.models import probe_model
+
     models = [("chat", cfg.chat_model)]
     if getattr(cfg, "utility_enabled", True):
         models.append(("utility", cfg.utility_model))

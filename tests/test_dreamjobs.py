@@ -22,6 +22,7 @@ from yurios.mind.dreamjobs import (JOB_NAME_RE, PROMPT_OVERHEAD_CHARS,
                                    validate_job_file)
 # The internals are addressed at the module that owns them rather than through
 # the package's public face, so a test that pokes at one says which it means.
+from yurios.mind.dreamjobs.builtins import fill
 from yurios.mind.dreamjobs.filedsl import _shorter_effort
 from yurios.mind.dreamjobs.research import _already_asked, _lede, _query_key
 from yurios.mind.vaultio import MindVault
@@ -538,6 +539,33 @@ async def test_the_report_carries_the_prompt_verbatim(rig):
     assert "diary entry" in exchange.system
     assert "the rain kept up" in exchange.user
     assert "rain kept up all afternoon" in exchange.completion
+
+
+async def test_a_prompt_with_braces_in_it_still_runs(rig):
+    """A dream prompt is prose the person edits, and showing the model the JSON
+    you want back is ordinary prose. `str.format` read `{"mood": …}` as a slot
+    and raised KeyError, and the job then failed the same way every night."""
+    runner, _clock, vault = rig
+    _write_job(vault, "diary", """---
+name: diary
+title: Diary
+description: A diary entry.
+enabled: true
+---
+
+You are {char}. Answer as JSON: {"mood": "one word", "entry": "the diary"}.
+""")
+    runner.reload()
+    _day_file(vault, "2026-07-04", ["user: the rain kept up  \u21c4  yuri: mm"])
+    report = await runner.run(only="diary", day="2026-07-04", dry_run=True)
+    system = report.exchanges[0].system
+    assert '{"mood": "one word", "entry": "the diary"}' in system
+    assert "{char}" not in system
+
+
+def test_fill_substitutes_only_the_slots_it_is_given():
+    assert fill("{char} at {day}: {x} {}", char="Yuri", day="2026-07-04") \
+        == "Yuri at 2026-07-04: {x} {}"
 
 
 async def test_pinning_a_day_overrides_the_backlog(rig):

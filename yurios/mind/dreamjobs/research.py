@@ -19,6 +19,7 @@ from .context import (PROMPT_OVERHEAD_CHARS, REPORT_REASONING_ALLOWANCE,
                       REPORT_TIMEOUT_S, REPORT_WINDOW_MARGIN,
                       ROUND_MAX_TOKENS, SEARCH_SNIPPET_CHARS, DreamContext,
                       JobReport)
+from .builtins import fill
 from .filedsl import FileJob, JobFile, _as_effort, _as_int, _shorter_effort
 from ..hands import Hands, parse_intent
 
@@ -335,7 +336,7 @@ class ResearchJob(FileJob):
         # file cannot opt out of having read something, only say how much
         # (§26.1's one-way rule, applied to a floor instead of a ceiling).
         min_pages = max(1, min(pages, _as_int(self._min_pages, 2, ceiling=pages)))
-        brief = self.system("").format(char=ctx.char_name, user=ctx.user_name)
+        brief = fill(self.system(""), char=ctx.char_name, user=ctx.user_name)
         gathered = _Gathering()
         if self.topics:
             gathered.add("plan", "What you set out to look at: "

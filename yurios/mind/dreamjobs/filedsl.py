@@ -20,7 +20,7 @@ from pathlib import Path
 import yaml
 
 from .builtins import (DIARY_SYSTEM, SELFIE_SYSTEM, STRATEGY_SYSTEM, DiaryJob,
-                       DreamJob, SelfieJob, StrategyJob)
+                       DreamJob, SelfieJob, StrategyJob, fill)
 from .context import REPORT_EFFORTS, DreamContext, JobReport
 from ..workspace import FRONTMATTER_RE
 
@@ -378,7 +378,7 @@ class FileJob(DreamJob):
         rest: a path out of the desk, a dotfile, a `..`. A job file is written
         by the person who owns the vault, but it is still a path from a file.
         """
-        rel = self.output.format(day=day)
+        rel = fill(self.output, day=day)
         await ctx.put(rel, text)
         return rel
 
@@ -401,8 +401,8 @@ class PromptJob(FileJob):
         if not journal.strip() and not self.standing:
             out.result = "nothing in the journal for that day"
             return out
-        system = self.system("").format(char=ctx.char_name,
-                                        user=ctx.user_name)
+        system = fill(self.system(""), char=ctx.char_name,
+                      user=ctx.user_name)
         answer = await ctx.ask(system, f"Today is {day}.\n\n{journal}")
         if not answer:
             out.result = "nothing came of it"

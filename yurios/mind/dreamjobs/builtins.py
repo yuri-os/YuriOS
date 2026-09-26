@@ -23,6 +23,23 @@ from ..util import day_of
 log = logging.getLogger("mind.dreamjobs")
 
 
+
+_SLOT = re.compile(r"\{([a-z_]+)\}")
+
+
+def fill(template: str, **values: object) -> str:
+    """Put `{char}`, `{user}` or `{day}` into a job's prompt or path — and
+    nothing else.
+
+    Not `str.format`: these templates are prose from `vault/dreams/*.md`, which
+    the person edits, and prose has braces in it. A prompt that shows the model
+    the JSON it wants back — `{"mood": …}` — made `.format` raise KeyError, and
+    the job then failed the same way every night. Here a brace that names none
+    of the given slots is left as written.
+    """
+    return _SLOT.sub(lambda m: str(values[m.group(1)]) if m.group(1) in values
+                     else m.group(0), template)
+
 class DreamJob:
     """One thing that happens at night.
 
@@ -262,8 +279,8 @@ class DiaryJob(DreamJob):
             out.result = "nothing happened that day"
             return out
         entry = await ctx.ask(
-            self.system(DIARY_SYSTEM).format(char=ctx.char_name,
-                                             user=ctx.user_name),
+            fill(self.system(DIARY_SYSTEM), char=ctx.char_name,
+                 user=ctx.user_name),
             f"The day: {day}\n\n{text}")
         if not entry or entry.strip().upper().startswith("NOTHING"):
             out.result = "nothing worth writing down"
@@ -425,7 +442,7 @@ class StrategyJob(DreamJob):
     def cost(self, ctx: DreamContext, day: str) -> int:
         open_goals = list(ctx.goals.open_goals()) if ctx.goals is not None else []
         context = ctx.strategy_context(day, open_goals)
-        system = (self.system(STRATEGY_SYSTEM).format(
+        system = (fill(self.system(STRATEGY_SYSTEM),
             char=ctx.char_name, user=ctx.user_name) + "\n\n" + STRATEGY_OUTPUT)
         # 800 output tokens is the `max_tokens` below; convert it to the same
         # conservative character accounting the rest of the night uses.
@@ -436,7 +453,7 @@ class StrategyJob(DreamJob):
         open_goals = []
         if ctx.goals is not None:
             open_goals = [g for g in ctx.goals.open_goals()]
-        system = (self.system(STRATEGY_SYSTEM).format(
+        system = (fill(self.system(STRATEGY_SYSTEM),
             char=ctx.char_name, user=ctx.user_name)
                   + "\n\n" + STRATEGY_OUTPUT)
         thinking = await ctx.ask(
@@ -531,8 +548,8 @@ class SelfieJob(DreamJob):
             out.result = "nothing happened that day"
             return out
         look = await ctx.ask(
-            self.system(SELFIE_SYSTEM).format(char=ctx.char_name,
-                                              user=ctx.user_name),
+            fill(self.system(SELFIE_SYSTEM), char=ctx.char_name,
+                 user=ctx.user_name),
             f"The day: {day}\n\n{text}")
         if not look or look.strip().upper().startswith("NOTHING"):
             out.result = "no picture in that day"

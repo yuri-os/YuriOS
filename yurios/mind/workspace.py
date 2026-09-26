@@ -46,6 +46,7 @@ so it must work knowing nothing but a path.
 """
 from __future__ import annotations
 
+import json
 import logging
 import re
 from dataclasses import dataclass
@@ -450,6 +451,12 @@ class Skill:
 
 SKILL_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,48}$")
 
+def _yaml_str(value: str) -> str:
+    """One frontmatter value as a double-quoted scalar. JSON's string syntax is
+    YAML's, so this round-trips anything — colons, `#`, quotes, unicode."""
+    return json.dumps(value, ensure_ascii=False)
+
+
 SKILL_TEMPLATE = """---
 name: {name}
 description: {description}
@@ -558,9 +565,14 @@ class SkillStore(Workspace):
             raise ValueError("a skill needs a description — it is the only "
                              "part she reads before deciding to open it")
         existing = self.get(name)
+        # Quoted, not pasted: the description is free text she writes, and a
+        # bare `when they ask: set a timer` is a YAML mapping error — the
+        # frontmatter then fails to parse, the description reads as empty and
+        # `catalog()` drops the skill she has just been told was saved. A
+        # ` #` truncated it the same way, silently.
         text = SKILL_TEMPLATE.format(
-            name=name, description=" ".join(description.split()),
-            author=author or (existing.author if existing else "her"),
+            name=name, description=_yaml_str(" ".join(description.split())),
+            author=_yaml_str(author or (existing.author if existing else "her")),
             body=body.strip())
         self.write(f"{name}/SKILL.md", text)
         return self.get(name)

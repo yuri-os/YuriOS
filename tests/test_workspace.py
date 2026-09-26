@@ -203,6 +203,20 @@ def test_a_saved_skill_round_trips_through_its_frontmatter(skills):
     assert skill.author == "her"
 
 
+@pytest.mark.parametrize("description", [
+    "when they ask: set a timer",               # a colon made it a YAML mapping
+    "when the # of guests changes",             # ` #` cut it off as a comment
+    '"oven" timers, when asked',                # a leading quote broke the scalar
+    "when they say 'brew' — or ask for tea",
+])
+def test_a_skill_description_she_writes_survives_whatever_it_says(skills, description):
+    """Her descriptions are free text; one that broke the frontmatter read back
+    as empty, and `catalog()` silently dropped the skill she had just saved."""
+    skills.save("tea-timer", description=description, body="method")
+    assert skills.get("tea-timer").description == description
+    assert description in skills.catalog()
+
+
 def test_the_catalog_is_one_line_per_skill_and_never_the_body(skills):
     """The whole economics of §34.3: twenty skills cost twenty lines until one
     of them is actually opened."""

@@ -113,9 +113,11 @@ OVERRIDES: dict = {
     "telegram_bot_token": "", "telegram_chat_id": "",
     "telegram_bot_token_env": "", "telegram_chat_id_env": "",
     # her hands, on purpose: the selfie scenario is only worth anything if the
-    # camera is reached the way a tick reaches it (§26)
+    # camera is reached the way a tick reaches it (§26); `create_goal` because
+    # its tool server answers a contract the mind has to file (§22.1c)
     "mind_tools_enabled": True,
-    "mind_tool_allowlist": "take_selfie,write_note,append_note,read_note,list_notes",
+    "mind_tool_allowlist": ("take_selfie,write_note,append_note,read_note,"
+                            "list_notes,create_goal"),
     "mind_enabled": True, "utility_enabled": True,
     # DREAM would run a night in the middle of a scenario; nights have their own
     # tests and this rig is about the waking day
@@ -491,6 +493,53 @@ async def scenario_told(rig: Rig) -> str:
         rig.mind.cfg.mind_interrupt_threshold = old_threshold
 
 
+async def scenario_filed(rig: Rig) -> str:
+    """A goal step's `create_goal` files a goal, through the real tool server (SPEC §22.1c).
+
+    Every test files against `FakeToolRunner`; this asks her spawned server, whose
+    answer is only a validation contract — `{"status": "ready"}` — which is all a
+    goal step used to get, audited as ok, with nothing filed.
+    """
+    for other in rig.open_goals():
+        rig.mind.goals.set_state(other.id, "abandoned")
+    goal = rig.goal("plan the garden shed")
+    split = "ask which wood the shed roof should be"
+    rig.scripted_utility(
+        f'use create_goal {{"text": "{split}", "kind": "reach_out"}}',
+        "think that part is on the list now; back to the plan",
+        'use create_goal {"text": "buy paint for the shed door"}',
+        "think fine, one at a time")
+    await rig.tick_until(lambda t: any(
+        g.provenance == f"goal:{goal.id}" for g in rig.goals()))
+    [child] = [g for g in rig.goals() if g.provenance == f"goal:{goal.id}"]
+    want(child.text == split and child.kind == "reach_out"
+         and child.commitment == "open-minded",
+         f"filed the wrong goal: {child!r}")
+    log = rig.rt.cfg.tool_log_dir / "calls.jsonl"
+    lines = [json.loads(x) for x in log.read_text(encoding="utf-8").splitlines() if x]
+    filed = [x for x in lines if x.get("tool") == "create_goal"
+             and x.get("origin") == "mind_tool"]
+    want(len(filed) == 1 and filed[0]["verdict"] == "ok"
+         and child.id in filed[0]["result"],
+         f"the audit does not name the filed goal: {filed!r}")
+    want(f"({child.id})" in rig.desk(goal), f"the desk does not say it: {rig.desk(goal)!r}")
+    rig.later(rig.mind.cfg.mind_consider_cooldown_s + 60)
+
+    def calls() -> list[dict]:
+        # Any origin: a refusal is audited under the step (`goal_work`), before
+        # anything is dispatched under `mind_tool`.
+        return [x for x in map(json.loads, log.read_text(encoding="utf-8")
+                               .splitlines()) if x.get("tool") == "create_goal"]
+    await rig.tick_until(lambda t: len(calls()) > 1)
+    second = calls()[1:2]
+    want(bool(second) and second[0]["verdict"].startswith(
+        "denied: this goal already has one open goal it filed"),
+        f"the second call was not refused for the open one: {second!r}")
+    want([g.id for g in rig.goals() if g.provenance == f"goal:{goal.id}"]
+         == [child.id], "a second goal was filed while the first was open")
+    return "a goal step's create_goal filed one real goal, and refused the second"
+
+
 async def scenario_followup(rig: Rig) -> str:
     """A follow-up is filed on provenance, not on its words (SPEC §22.1).
 
@@ -858,6 +907,7 @@ async def _quiet_heartbeat(rig: Rig) -> None:
 SCENARIOS = {
     "waiting": scenario_waiting,
     "told": scenario_told,
+    "filed": scenario_filed,
     "picture": scenario_picture,
     "rescue": scenario_rescue,
     "followup": scenario_followup,

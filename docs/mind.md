@@ -474,7 +474,7 @@ cat data/characters/yuri/vault/goals.md
 Each goal carries a kind, a priority, an optional due time, its **provenance**, and a **commitment
 strategy**, and moves `pending → active → waiting → done | abandoned`.
 
-Goals come from four designed sources:
+Goals come from five designed sources:
 
 | Provenance | Where it came from |
 |---|---|
@@ -482,6 +482,7 @@ Goals come from four designed sources:
 | `promise:her-own-words` | **her own promises** — REFLECT scans every committed reply for first-person commitments ("I'll look into that") and files each as a reach-out goal with a due time |
 | maintenance | DREAM backlog, shelf drops |
 | `strategy:<day>` | **her own judgement** — the night's stock-take, below |
+| `goal:<id>` | **a goal step's** — `create_goal` while working goal `<id>`, below |
 
 A companion who forgets her own promises is worse than one who forgets yours. Near-duplicate open
 goals merge rather than multiply.
@@ -517,6 +518,15 @@ Four things keep that from turning the list into landfill, and one keeps it hone
 
 The point of the default being *on*: a companion whose every intention traces back to something you
 said is a queue with a voice.
+
+**From a goal step.** `create_goal` is one of her hands, so a step working one goal can split
+another off onto the list. The mind files it itself: the tool server only checks the text, and
+until this was fixed a step that used it read back *ready*, journalled *ok*, and nothing was ever
+filed. Now she reads back the real `g-…` ID, or the goal she's already carrying under another
+wording. These are filed like the night's: `open-minded` with a due date, marked hers, and off with
+the same switch. Each goal may have one of these open at a time, a goal filed this way can't file
+another, and DREAM's own work is refused. Night jobs aren't offered the hand — the stock-take is how
+a night files a goal.
 
 **Commitment governs staleness.** `blind` is defended past due (a birthday is a birthday);
 `single-minded` drops only when it's moot; `open-minded` is abandoned the moment it stops being

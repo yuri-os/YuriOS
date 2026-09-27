@@ -19,6 +19,7 @@ means importing `MindLoop`, and `tests/test_layering.py` reads a
 """
 from __future__ import annotations
 
+import json
 import logging
 
 from yurios.app.core.assemble import age_tag
@@ -28,7 +29,7 @@ from . import acts
 from .goals import Goal, night_owned, trim
 from . import handwork
 from .handwork import Reach
-from .hands import TELL, Offer, klass
+from .hands import FILE_GOAL, TELL, Offer, klass
 from .prompts import goal_history
 from .util import closing, iso_of
 
@@ -486,6 +487,22 @@ def journal_reach(loop, goal: Goal, reach: Reach) -> str:
         said = trim(str(reach.args.get("text") or ""), 300)
         note = (f"decided to tell {loop.cfg.user_name}: “{said}” — queued, "
                 "not sent yet; it goes when the gate allows")
+        desk_write(loop, goal, f"{reach.why}\n\n{note}" if reach.why else note)
+        return note
+    if reach.tool == FILE_GOAL and reach.verdict == "ok":
+        # Said in words, because this is the line recall and the night read:
+        # "reached for create_goal → {…}" is a tool log, and the step that
+        # reads it back should know whether there is now a goal or not.
+        try:
+            filed = json.loads(reach.result)
+        except ValueError:
+            filed = {}
+        what = trim(str(filed.get("text") or ""), 200)
+        if filed.get("status") == "created":
+            note = (f"filed a goal of its own: “{what}” ({filed.get('id')}) — "
+                    "it gets worked on its own turn")
+        else:
+            note = f"wanted to file a goal, but I'm already carrying it: “{what}”"
         desk_write(loop, goal, f"{reach.why}\n\n{note}" if reach.why else note)
         return note
     if reach.verdict == "denied" and reach.refused:

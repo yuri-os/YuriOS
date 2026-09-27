@@ -249,8 +249,9 @@ import { detailMessage } from '../shared/http.js';
   // Her own goals are marked as hers and nothing else about them is hidden:
   // the raw provenance stays visible beside the plain-language tag, because
   // `strategy:2026-08-23` is the thing you would grep for and "she filed this"
-  // is the thing you can read at a glance. Both, not one.
-  const HERS = 'strategy:';
+  // is the thing you can read at a glance. Both, not one. `goal:<id>` is one a
+  // goal step filed (SPEC §22.1c) — hers as much as the night's.
+  const HERS = ['strategy:', 'goal:'];
 
   function visibleIntentions(goals) {
     const crossed = (g) => g.state === 'abandoned' || droppingGoals.has(g.id);
@@ -274,7 +275,7 @@ import { detailMessage } from '../shared/http.js';
 
   function goalRow(g) {
     deskPaths.set(g.id, deskPath(g));
-    const hers = String(g.provenance || '').startsWith(HERS);
+    const hers = HERS.some(p => String(g.provenance || '').startsWith(p));
     const abandoned = g.state === 'abandoned';
     if (abandoned) droppingGoals.delete(g.id);
     const dropping = !abandoned && droppingGoals.has(g.id);

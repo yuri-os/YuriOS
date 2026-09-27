@@ -166,8 +166,12 @@ def echoes(text: str, existing: Iterable[Goal]) -> Goal | None:
     return None
 
 
+#: Provenance of a goal a goal step filed with `create_goal` (SPEC §22.1c): the
+#: step's own goal is the parent, and it has at most one such goal open.
+STEP_GOAL = "goal:"
+
 #: Provenance prefixes that name a parent goal, deduplicated on the parent.
-PARENTED = ("followup:", "told:")
+PARENTED = ("followup:", "told:", STEP_GOAL)
 
 
 def already_carrying(text: str, provenance: str,
@@ -198,6 +202,11 @@ def already_carrying(text: str, provenance: str,
     A message she decided to send from a goal step (`told:<id>`, §18.2b) is
     the same shape for the same reason: it quotes the goal it came from, and
     the rewording test would fold her words back into the goal they finish.
+
+    A goal a step filed (`goal:<id>`) is exact on its parent here because that
+    is the cap — one open at a time per parent; the rewording test against
+    every *other* open goal is `acts.file_from_step`'s, which can say which
+    goal she is already carrying rather than handing one back unexplained.
     """
     if provenance.startswith(PARENTED):
         return next((g for g in existing if g.provenance == provenance), None)

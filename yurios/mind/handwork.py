@@ -27,7 +27,7 @@ from typing import Awaitable, Callable
 from yurios.kernel import correlate
 
 from . import acts
-from .hands import (START_DONT_AWAIT, TELL, Hands, Intent, Offer, parse_intent,
+from .hands import (FILE_GOAL, START_DONT_AWAIT, TELL, Hands, Intent, Offer, parse_intent,
                     stamp_contract)
 
 log = logging.getLogger("mind.handwork")
@@ -97,6 +97,9 @@ async def dispatch(loop, tool: str, args: dict, *, goal_id: str = "") -> Reach:
         tool, args, state=loop.activity.state,
         pressure=loop.budget.pressure(),
         user_present=bool(loop.world.snapshot().get("user_present")))
+    if ok and tool == FILE_GOAL:
+        why = acts.filing_refused(loop, args, goal_id=goal_id)
+        ok = not why
     if not ok:
         loop.hands.deny(tool, args, why)
         return Reach(tool, args, "denied", f"denied ({why})", refused=why)
@@ -105,8 +108,12 @@ async def dispatch(loop, tool: str, args: dict, *, goal_id: str = "") -> Reach:
     # might do. A night job's call names none, and lands in the Vault the same.
     loop.hands.spend(tool, args)
     with correlate.scope(kind=correlate.MIND_TOOL):
+        # The one hand filed on this side of the wire (§7.5, SPEC §22.1c): what she
+        # reads back, and what the audit records, is the goal as filed.
+        filing = ((lambda contract: acts.file_from_step(
+            loop, contract, goal_id=goal_id)) if tool == FILE_GOAL else None)
         verdict, result = await loop.hands.execute(
-            tool, args, timeout_s=loop.cfg.tool_timeout_s)
+            tool, args, timeout_s=loop.cfg.tool_timeout_s, realise=filing)
         # Host-side realisation (§7.5) — the timer actually scheduled, the
         # render actually started. The stamp is what makes the product land in
         # the Vault instead of in the chat (§18, principle 8).
@@ -184,10 +191,19 @@ class LoopHands:
         self.loop = loop
 
     def offer(self) -> Offer:
+        """Her hands, less `create_goal`: a goal is filed from one of her
+        goals (§22.1), and a night files its own through the stock-take.
+        Left in, it was a hand every call of which would be refused."""
         loop = self.loop
-        return loop.hands.offer(
+        offer = loop.hands.offer(
             state=loop.activity.state, pressure=loop.budget.pressure(),
             user_present=bool(loop.world.snapshot().get("user_present")))
+        if FILE_GOAL not in offer.tools:
+            return offer
+        tools = tuple(t for t in offer.tools if t != FILE_GOAL)
+        return Offer(tools=tools, held=offer.held, held_why=offer.held_why,
+                     reason="" if tools else "no hand but create_goal, which "
+                                             "a night job does not file with")
 
     async def run(self, messages: list[dict],
                   ask: Callable[[list[dict]], Awaitable[str]]) -> str:

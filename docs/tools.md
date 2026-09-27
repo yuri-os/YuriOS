@@ -73,6 +73,8 @@ TOOL_RATE_TIMER=6                 # calls per minute
 Explicit requests such as "set a goal to…" use `create_goal`, which writes through the host-owned
 standing `GoalStore` and returns the exact `g-…` ID. A file under `workspace/goals/` is only a
 working note and never becomes a goal by resembling one. The tool is absent when the mind is off.
+Working one of her goals, she can use it too: the mind files that goal itself, as `goal:<id>` —
+one open per goal, and not from a goal filed that way (see [mind.md](mind.md#goals-she-files-herself)).
 
 ```ini
 TOOL_RATE_GOAL=6

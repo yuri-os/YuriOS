@@ -926,7 +926,8 @@ to every new subscriber before its first live event. Malformed JSON is logged an
   goal and its kind, but the host-owned `GoalStore` **MUST** perform the mutation: `goals.md` is
   one lifecycle read-modify-write store and the spawned tool process must not race the mind for
   it. The continuation **MUST** receive the actual assigned id and whether an equivalent open
-  goal already existed. A `write_note` under `workspace/goals/` **MUST NOT** claim or imply that
+  goal already existed. From a goal step the mind's hand path performs the mutation instead,
+  under §22.1c. A `write_note` under `workspace/goals/` **MUST NOT** claim or imply that
   it created a standing goal. A request that both reviews existing goals and creates one **MUST**
   retain the tools block while still receiving §22.6's authoritative status reminder. Because a
   recent failed turn may show `write_note` masquerading as creation, an explicit creation request
@@ -2180,7 +2181,7 @@ optional due time, **provenance**, and a **commitment strategy**; lifecycle
   ("I'll look into that") and files each one, because a companion who forgets her own promises is
   worse than one who forgets yours; maintenance (DREAM backlog, shelf drops); and **her own
   judgement** (`strategy:<day>`) — the night's stock-take (§21.2) already asks her for the one thing
-  worth doing next, and MAY file it. A companion whose every intention traces back to something the
+  worth doing next, and MAY file it — and a goal step's (`goal:<id>`, §22.1c). A companion whose every intention traces back to something the
   user said is a queue with a voice. Near-duplicate open goals **MUST** merge, not multiply —
   **except a goal that names a parent** (`followup:<id>`, the news half of a kept promise). That
   one is a second act about content she already has a goal for, so its words are the wrong test:
@@ -2237,6 +2238,22 @@ optional due time, **provenance**, and a **commitment strategy**; lifecycle
   is owned by a successful `set_timer` call **MUST** retain that timer id (and its real due time)
   and becomes `done` when §7.5 delivers the timer announcement, not when REFLECT files it or the
   countdown merely elapses. While linked it is not independently actionable goal work.
+- §22.1c **A goal step may file a goal, and what it reads back is what was filed.** `create_goal` is
+  one of her hands (§26.1), so a goal step may reach for it; the mind **MUST** then file the goal
+  itself, as `ToolBrain` does for a reply (§7.5), because the tool server only validates. Before
+  this, a step that used it read the server's `ready`, journalled `ok`, and nothing was filed — the
+  audit, the trace, her desk and the journal all said a goal existed that did not. The goal is
+  stamped `goal:<parent id>` and filed like the night's own (§22.1b): `open-minded`, with a due
+  date, ranked under a promise, marked hers on the inner-life surface, and refused while
+  `MIND_GOAL_FILING_ENABLED` is off. A parent **MUST** have at most one such goal open, and a goal
+  filed this way **MUST NOT** file another — the bound that keeps a step from growing the list by
+  a goal per tick. It **MUST NOT** file a goal she is already carrying (the rewording test against
+  every open goal but its parent, which it quotes by nature) or DREAM's own work (`night_owned`).
+  A refusal is a denial she reads, audited before anything is spent. A filed or already-carried
+  goal **MUST** come back to her with its real id, and the audit line and the journal **MUST**
+  record the goal as filed, not the contract. A night job is not offered `create_goal`: the
+  stock-take is how a night files a goal, and a hand every call of which is refused is not one to
+  describe (§26.1).
 - §22.2 **Commitment governs staleness:** `blind` is defended past due (a birthday is a birthday),
   `single-minded` drops only when moot, `open-minded` is abandoned the moment it stops being timely.
   The suspend-gap catch-up (§15.4) applies these in one pass, and so **MUST** the local-day

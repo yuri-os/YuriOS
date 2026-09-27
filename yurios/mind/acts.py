@@ -25,7 +25,8 @@ from yurios.app.core.assemble import OWN_VOICE
 from yurios.kernel import correlate
 
 
-from .goals import (Goal, trim, PROMISE_REVIEW_RESPONSE_FORMAT, PromiseCandidate,
+from .goals import (STEP_GOAL, Goal, echoes, night_owned, trim,
+                    PROMISE_REVIEW_RESPONSE_FORMAT, PromiseCandidate,
                     PromiseReviewError, parse_promise_review,
                     promise_decision_grounded, promise_kind,
                     promise_review_messages, timer_for_promise)
@@ -541,6 +542,88 @@ def settle_telling(loop, told: Goal, *, delivered: bool) -> list[str]:
         return [f"back to: {parent.text}, now that {user} has what I told them"]
     return [f"what I was going to tell {user} was let go before it went; "
             f"back to: {parent.text}"]
+
+
+#: A goal a step filed ranks and lets go of itself as the night's own do
+#: (`dreamjobs.context.DreamContext.file_goal`): 0.68 clears the act gate and
+#: sits under a promise, and open-minded with a due date is what lets
+#: `reconsider()` retire one she never comes back to.
+STEP_GOAL_PRIORITY = 0.68
+STEP_GOAL_TTL_DAYS = 3.0
+
+
+def filing_refused(loop, args: dict, *, goal_id: str) -> str:
+    """Why this goal step may not file a goal with `create_goal`, or "" (SPEC §22.1c).
+
+    Checked before the call is dispatched or spent, so a refusal is a denial
+    in the audit and a sentence she reads — never a goal she believes exists.
+    """
+    parent = loop.goals.get(goal_id) if goal_id else None
+    if parent is None:
+        return "a goal can only be filed from one of your own goals"
+    if not getattr(loop.cfg, "mind_goal_filing_enabled", True):
+        return "filing goals of your own is switched off"
+    if parent.provenance.startswith(STEP_GOAL):
+        # One level. A goal a step filed that files its own is how a list
+        # grows a goal per tick with nobody having asked for any of them.
+        return ("this goal was itself filed from another goal; do this part "
+                "here rather than filing another")
+    child = next((g for g in loop.goals.open_goals()
+                  if g.provenance == f"{STEP_GOAL}{parent.id}"), None)
+    if child is not None:
+        return (f"this goal already has one open goal it filed — "
+                f"“{child.text}” ({child.id}); finish or let go of that first")
+    text = str(args.get("text") or "") if isinstance(args, dict) else ""
+    if night_owned(text):
+        return "the night already does that; it isn't a goal"
+    return ""
+
+
+def file_from_step(loop, contract: str, *, goal_id: str) -> str:
+    """File the goal a step asked for with `create_goal` (SPEC §22.1c).
+
+    The tool server only validates — it answers `{"status": "ready"}` — and the
+    host files the goal (§7.5). A reply does that in `ToolBrain._execute`; a
+    goal step's call never passed through there, so for as long as she has had
+    the hand, a step that used it read "ready", journalled "ok", and filed
+    nothing. Returns what she reads back: the real id, or the goal she is
+    already carrying. Raises on a contract that is not one, which the caller
+    audits as an error.
+    """
+    data = json.loads(contract)
+    if data.get("status") != "ready":
+        raise RuntimeError("create_goal did not return a goal to file")
+    text = " ".join(str(data.get("text") or "").split())
+    kind = str(data.get("kind") or "task")
+    if not text or len(text) > 200 or "|" in text:
+        raise ValueError("invalid standing goal text")
+    if kind not in ("task", "reach_out"):
+        raise ValueError("invalid standing goal kind")
+    parent = loop.goals.get(goal_id) if goal_id else None
+    if parent is None:
+        raise RuntimeError("the goal this was filed from is gone")
+    # Against every open goal but the one filing it: a part of a goal quotes
+    # the goal, and the rewording test would fold it back into its parent —
+    # the trap `already_carrying` describes for follow-ups.
+    echo = echoes(text, [g for g in loop.goals.open_goals() if g.id != parent.id])
+    if echo is not None:
+        return json.dumps({"status": "existing", "id": echo.id, "text": echo.text,
+                           "kind": echo.kind, "state": echo.state,
+                           "note": "Not filed — you are already carrying this."},
+                          ensure_ascii=False)
+    now = loop.clock.now()
+    goal = loop.goals.add(
+        text, kind=kind, priority=STEP_GOAL_PRIORITY,
+        due=iso_of(now + STEP_GOAL_TTL_DAYS * 86400), commitment="open-minded",
+        provenance=f"{STEP_GOAL}{parent.id}")
+    written = getattr(loop, "_goal_written", None)
+    if callable(written):
+        written(goal)
+    return json.dumps({"status": "created", "id": goal.id, "text": goal.text,
+                       "kind": goal.kind, "state": goal.state,
+                       "note": "On your list as its own goal. It gets its own "
+                               "turn; this step goes on without it."},
+                      ensure_ascii=False)
 
 
 async def reach_out(loop, goal: Goal) -> tuple[dict, dict, list[str]]:

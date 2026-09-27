@@ -46,6 +46,7 @@ import asyncio
 import json
 import logging
 from dataclasses import dataclass, field
+from typing import Callable
 
 from yurios.kernel import correlate
 from yurios.kernel.clock import Clock
@@ -132,7 +133,7 @@ HANDS: dict[str, Hand] = {
         "cheap", "start or stop the room's music",
         '{"action": "play", "track": "warm_pad", "volume": 0.4}'),
     "create_goal": Hand(
-        "cheap", "put a standing goal on her list",
+        "cheap", "put a separate goal on her list, worked on its own turn",
         '{"text": "...", "kind": "task"}'),
     "propose_edit": Hand(
         "cheap", "propose a change to one of her own soul files, for review",
@@ -175,6 +176,13 @@ START_DONT_AWAIT = ("research", "take_selfie", "show_picture")
 #: not speak was a step that acted the conversation out on her desk instead.
 TELL = "tell_them"
 TELL_ARGS = '{"text": "exactly what you want them to hear"}'
+
+#: The one hand whose tool server only *validates*: `goals.md` belongs to the
+#: host process, so the goal is filed on this side of the wire (§7.5). In a
+#: reply `ToolBrain._execute` files it; from a goal step `handwork.dispatch`
+#: does, under SPEC §22.1c. A night job is not
+#: offered it — the stock-take is how a night files a goal.
+FILE_GOAL = "create_goal"
 
 #: `needs` -> the config attribute that says whether that backend is on.
 _BACKEND_ATTR = {"SEARCH_BACKEND": "search_backend",
@@ -570,8 +578,9 @@ class Hands:
 
     # ------------------------------------------------------------ the dispatch
 
-    async def execute(self, tool: str, args: dict, *,
-                      timeout_s: float) -> tuple[str, str]:
+    async def execute(self, tool: str, args: dict, *, timeout_s: float,
+                      realise: Callable[[str], str] | None = None
+                      ) -> tuple[str, str]:
         """Guard → MCP → audit. Never raises: a failed hand is a sentence in the
         journal, not a dead heartbeat.
 
@@ -586,6 +595,12 @@ class Hands:
         the mind's own instance, with its own buckets, so this can never spend
         conversation's. The one that doesn't: there is no `Turn`, because there
         is no turn — the persistent ledger above is the mind's dedupe scope.
+
+        `realise` turns the tool's answer into what actually happened, before
+        the audit line is written — `create_goal`'s server returns a contract
+        saying the goal is *ready*, and an audit that recorded that as the
+        outcome said "ok" about a goal nobody filed. A raise is an error, as it
+        is from the tool itself.
 
         The audit line lands in the SAME `calls.jsonl` as her conversational
         hands, because there must be exactly one honest record of what her hands
@@ -603,6 +618,8 @@ class Hands:
         try:
             text = await asyncio.wait_for(runner.call(tool, args),
                                           timeout=timeout_s)
+            if realise is not None:
+                text = realise(text)
         except Exception as e:                 # timeout, tool error, transport
             dt = (self.guard.clock.now() - t0) * 1000
             why = failure(e, timeout_s)

@@ -29,9 +29,24 @@ from .goals import Goal, night_owned, trim
 from . import handwork
 from .handwork import Reach
 from .hands import klass, parse_intent
+from .prompts import goal_history
 from .util import iso_of
 
 log = logging.getLogger("mind.goalwork")
+
+
+def record_decision(loop, goal: Goal, acted: dict, interrupt: dict) -> None:
+    """Keep six completed attempts across restarts and long stretches of REST."""
+    history = goal.meta.get("decisions", [])
+    history = [line for line in history if isinstance(line, str)] \
+        if isinstance(history, list) else []
+    result = str(acted.get("result", ""))
+    if interrupt:
+        result += (f"; Gate 2 {interrupt['outcome']} "
+                   f"({interrupt.get('reason', '')}, "
+                   f"{interrupt['score']}/{interrupt['threshold']})")
+    line = f"{iso_of(loop.clock.now())}: {result}"[:400]
+    loop.goals.update(goal.id, meta={"decisions": [*history[-5:], line]})
 
 
 
@@ -196,6 +211,9 @@ async def context(loop, goal: Goal) -> str:
     why every private step read like a fortune cookie.
     """
     parts: list[str] = [f"THE GOAL\n\n{goal.text}"]
+    history = goal_history(goal)
+    if history:
+        parts.append(history)
     meta = [f"kind: {goal.kind}", f"state: {goal.state}",
             f"step {goal.steps + 1} of {loop.cfg.mind_goal_max_steps}",
             f"why you have it: {goal.provenance}"]

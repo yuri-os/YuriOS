@@ -29,6 +29,7 @@ from .goals import (Goal, trim, PROMISE_REVIEW_RESPONSE_FORMAT, PromiseCandidate
                     promise_review_messages, timer_for_promise)
 from .hands import strip_native_calls
 from .policy import DREAM, score_interrupt
+from .prompts import goal_history
 from .signals import Signal, failure_of
 from .util import day_of, iso_of, ts_of_iso
 
@@ -427,6 +428,14 @@ async def reach_out(loop, goal: Goal) -> tuple[dict, dict, list[str]]:
         loop.interrupts = {"date": today, "count": 0}
     world = loop.world.snapshot()
     last_out = world.get("last_contact_out")
+    # Dated goals keep their real timing; waiting must not bring an appointment
+    # forward. Missing legacy timestamps earn no invented age (SPEC §18.2).
+    waiting_hours = 0.0
+    if not goal.due and goal.created:
+        try:
+            waiting_hours = (loop.clock.now() - ts_of_iso(goal.created)) / 3600
+        except (ValueError, TypeError, OverflowError):
+            pass
     decision = score_interrupt(
         clock=loop.clock,
         relevance=goal.priority,
@@ -434,10 +443,15 @@ async def reach_out(loop, goal: Goal) -> tuple[dict, dict, list[str]]:
         last_contact_out=ts_of_iso(last_out) if last_out else None,
         interrupts_today=loop.interrupts["count"],
         max_interrupts_per_day=loop.cfg.mind_max_interrupts_per_day,
-        threshold=loop.cfg.mind_interrupt_threshold)
+        threshold=loop.cfg.mind_interrupt_threshold,
+        waiting_hours=waiting_hours)
+    reason = ("daily cap" if loop.interrupts["count"] >= loop.cfg.mind_max_interrupts_per_day
+              else "quiet hours" if decision.factors["availability"] < 0.5
+              else "below threshold" if decision.outcome == "SILENT"
+              else "eligible")
     interrupt = {"score": decision.score, "threshold": decision.threshold,
                  "outcome": decision.outcome, "factors": decision.factors,
-                 "goal": goal.text}
+                 "goal": goal.text, "reason": reason}
 
     # The picture this goal has been holding, if it has one (§18.2a). Gate 2
     # still rules on whether she reaches out at all; what changed is that when
@@ -449,6 +463,9 @@ async def reach_out(loop, goal: Goal) -> tuple[dict, dict, list[str]]:
     found = "" if shot else _what_came_of(loop, goal)
     if found:
         cue = cue[:-2] + REACH_OUT_FOUND.format(found=found) + "))"
+    history = goal_history(goal)
+    if history:
+        cue = cue[:-2] + "\n\n" + history + "))"
 
     if decision.outcome == "SILENT":
         # THE DEFAULT: do it silently and journal it
@@ -464,7 +481,7 @@ async def reach_out(loop, goal: Goal) -> tuple[dict, dict, list[str]]:
             loop.goals.set_state(goal.id, "abandoned")
             note = f"let it go quietly: {goal.text} (the moment passed)"
         else:
-            note = f"thought about {goal.text}; chose not to interrupt"
+            note = f"thought about {goal.text}; chose not to interrupt ({reason})"
         return ({"what": None, "result": "stayed quiet"}, interrupt, [note])
 
     if decision.outcome == "SUGGEST":

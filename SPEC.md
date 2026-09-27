@@ -1626,6 +1626,14 @@ them is precisely the always-interrupting-assistant failure.
   (roughly 22:00–09:00) are SILENT regardless of score, and `MIND_MAX_INTERRUPTS_PER_DAY` zeroes the
   score outright. Both dials are the **user's** (§25) — you cannot tune the dial against someone who
   holds it.
+  An undated reach-out **MUST** earn a bounded waiting credit from its creation time:
+  +0.20 linearly over 48 hours, clamped to [0, 0.20], with the total score capped at 1.
+  Retry count **MUST NOT** earn credit. Dated goals retain their actual time-sensitivity
+  without this credit; absent or invalid creation times earn none. Quiet hours, the daily
+  cap and the user's threshold still apply. The trace **MUST** show the waiting credit
+  and whether silence came from quiet hours, the daily cap or the score. This makes an
+  undated priority-0.7 reach-out eligible after about 29 hours in otherwise favourable
+  daytime conditions; previously its lifetime ceiling was 0.63 against the default 0.75.
 - §18.2a **A tool product is not a delivery** (normative, the landing rule). Work the *mind* started
   stamps its contract `_deliver: "vault"`, and `Researcher` / `SelfieLab` **MUST** honour it by
   writing the product to the shelf or the gallery and **posting nothing**; they post a
@@ -2232,6 +2240,12 @@ optional due time, **provenance**, and a **commitment strategy**; lifecycle
   a step handed the title alone reconsiders the objective from scratch rather than doing what she
   had already decided to do first. A field that only restates the goal's text is not a plan and is
   left out.
+  **And what previous attempts actually did**: the six most recent goal attempts **MUST**
+  persist on the goal, each bounded to 400 characters, with timestamps, action outcomes
+  and any Gate 2 outcome, score and blocking reason. Working steps and reach-out composition
+  **MUST** receive this history newest-last. REST ticks **MUST NOT** displace it. The prompt
+  **MUST** distinguish attempted work from completion and a blocked reach-out from delivery;
+  history is context for progress, never permission to bypass an interrupt gate.
 - §22.5 **Provenance covers dispatched work.** `meta.dispatched` names the tool a `waiting` goal is
   blocked on and when it went out; `task_completion` (§16) returns the goal to `active`, and a
   scheduled `wakeup` is the floor under how long it may be stranded by a run that never reports.

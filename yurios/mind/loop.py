@@ -611,6 +611,8 @@ class MindLoop:
                 acted = {"what": "error", "result": f"error: {e}"}
 
         # ---- REFLECT: journal + trace, always ----------------------------------
+        if chosen is not None and chosen.kind in ("goal", "tool_step"):
+            goalwork.record_decision(self, chosen.subject, acted, interrupt)
         # Desk writes happened on the *turn's* task, outside this tick entirely
         # (§34.2). Drain them here so they are journalled in tick order with
         # everything else, rather than racing the journal from another task.

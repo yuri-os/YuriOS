@@ -29,6 +29,22 @@ from yurios.world.vram import PATIENT_WAIT_S
 log = logging.getLogger("mind.prompts")
 
 
+def goal_history(goal) -> str:
+    """A bounded record of actual attempts, including gate refusals (SPEC §22.4)."""
+    history = goal.meta.get("decisions", [])
+    if not isinstance(history, list):
+        return ""
+    lines = [str(line)[:400] for line in history[-6:] if isinstance(line, str)]
+    if not lines:
+        return ""
+    return ("RECENT DECISIONS ON THIS GOAL (newest last)\n\n"
+            + "\n".join(f"- {line}" for line in lines)
+            + "\n\nThese are outcomes, not evidence that the work was completed. "
+              "Use them to advance the goal rather than repeating an unchanged "
+              "attempt. A blocked reach-out has not been delivered; do not "
+              "invent urgency or another delivery route to evade the gate.")
+
+
 def with_soul(messages: list[dict], preamble: str) -> list[dict]:
     """Prepend the persona blocks to a prompt's system message (SPEC §22.4).
 

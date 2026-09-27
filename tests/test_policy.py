@@ -215,3 +215,22 @@ def test_the_factors_are_shown(clock):
     for k in ("relevance", "time_sensitivity", "contact_license",
               "availability", "welcome"):
         assert k in d.factors                              # auditable, not vibes
+
+
+def test_undated_reach_out_can_earn_an_opportunity(clock):
+    args = dict(relevance=0.7, time_sensitivity=0.2)
+    assert _score(clock, **args).score == 0.63
+    ready = _score(clock, waiting_hours=30, **args)
+    assert ready.outcome == "SUGGEST"
+    assert ready.factors["waiting_credit"] == 0.125
+    assert _score(clock, waiting_hours=48, **args).score == \
+        _score(clock, waiting_hours=10000, **args).score == 0.83
+    assert _score(clock, waiting_hours=-10, **args).score == 0.63
+
+
+def test_waiting_never_overrides_user_interrupt_limits(clock):
+    args = dict(waiting_hours=1000, relevance=0.7, time_sensitivity=0.2)
+    assert _score(clock, threshold=0.9, **args).outcome == "SILENT"
+    assert _score(clock, interrupts_today=3, **args).score == 0.0
+    clock.advance(17 * 3600)
+    assert _score(clock, **args).outcome == "SILENT"

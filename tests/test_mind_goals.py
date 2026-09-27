@@ -21,6 +21,49 @@ from yurios.app.core.soul import Soul
 from .conftest import ScriptedChat, ScriptedUtility, collect, make_mind, run_mind
 
 
+async def test_undated_reach_out_progresses_with_persistent_decision_history(cfg, seeded_vault):
+    cfg = cfg.model_copy(update={"dream_enabled": False})
+    rig = make_mind(cfg, seeded_vault)
+    goal = rig.mind.goals.add("share an unspoken wish", kind="reach_out",
+                              priority=0.7)
+    for _ in range(8):
+        await rig.mind.tick()
+        rig.clock.advance(3600)
+    saved = rig.mind.goals.get(goal.id)
+    assert len(saved.meta["decisions"]) == 6
+    assert all("SILENT" in line and "below threshold" in line
+               for line in saved.meta["decisions"])
+    assert rig.post.proactive() == []
+
+    restarted = make_mind(cfg, seeded_vault, clock=rig.clock)
+    restored = restarted.mind.goals.get(goal.id)
+    context = await restarted.mind._goal_context(restored)
+    assert "RECENT DECISIONS ON THIS GOAL" in context
+    assert all(line in context for line in saved.meta["decisions"])
+    assert "has not been delivered" in context
+    # Tuesday 15:00: 30 hours old, no invented deadline and no threshold change.
+    restarted.clock.advance(22 * 3600)
+    for _ in range(3):     # the suspend-gap observation may take the first tick
+        await restarted.mind.tick()
+    assert restarted.mind.goals.get(goal.id).state == "done"
+    assert len(restarted.post.proactive()) == 1
+    assert restarted.mind.interrupts["count"] == 1
+    assert len(restarted.mind.goals.get(goal.id).meta["decisions"]) == 6
+
+
+async def test_dated_reach_out_does_not_earn_waiting_credit(cfg, seeded_vault):
+    from yurios.mind import acts
+    from yurios.mind.util import iso_of
+
+    rig = make_mind(cfg, seeded_vault)
+    goal = rig.mind.goals.add("ask about the interview afterwards", kind="reach_out",
+                              priority=0.7, due=iso_of(rig.clock.now() + 120 * 3600))
+    rig.clock.advance(48 * 3600)
+    _, interrupt, _ = await acts.reach_out(rig.mind, goal)
+    assert interrupt["outcome"] == "SILENT"
+    assert interrupt["factors"]["waiting_credit"] == 0
+
+
 # --- the conversational prompt knows what she is already working on ------------
 
 def _soul() -> Soul:

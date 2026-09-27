@@ -402,6 +402,38 @@ async def scenario_rescue(rig: Rig) -> str:
     return f"swept goal handed its photo to {heir[0].id} ({heir[0].commitment})"
 
 
+async def scenario_waiting(rig: Rig) -> str:
+    """An undated reach-out waits, then reaches the durable chat at default Gate 2."""
+    from yurios.mind.util import day_of
+
+    old_threshold = rig.mind.cfg.mind_interrupt_threshold
+    old_cap = rig.mind.cfg.mind_max_interrupts_per_day
+    try:
+        rig.mind.cfg.mind_interrupt_threshold = 0.75
+        rig.mind.cfg.mind_max_interrupts_per_day = 3
+        rig.mind.interrupts = {"date": day_of(rig.clock.now()), "count": 0}
+        goal = rig.goal("share one small thing you look forward to today",
+                        kind="reach_out", priority=0.7)
+        before = len(rig.chat())
+        traces = await rig.tick_until(lambda t: bool(t.get("interrupt")))
+        want(traces[-1]["interrupt"].get("outcome") == "SILENT",
+             "a fresh undated goal should wait at the default threshold")
+        want(len(rig.chat()) == before, "a blocked attempt posted a message")
+        rig.later(48 * 3600)  # same daytime hour, enough age even after recent contact
+        await rig.tick_until(lambda t: rig.mind.goals.get(goal.id).state == "done")
+        entries = [e for e in rig.chat()[before:]
+                   if e.get("role") == "assistant" and e.get("proactive")]
+        want(len(entries) == 1 and bool(entries[0].get("text")),
+             f"expected one durable proactive line, got {entries!r}")
+        want(bool(entries[0].get("unheard")), "the line did not reach the inbox lane")
+        want(rig.mind.interrupts["count"] == 1, "delivery did not spend one interrupt")
+        want(rig.mind.goals.get(goal.id).state == "done", "delivered goal stayed open")
+        return "undated goal waited, then delivered one durable unheard chat line"
+    finally:
+        rig.mind.cfg.mind_interrupt_threshold = old_threshold
+        rig.mind.cfg.mind_max_interrupts_per_day = old_cap
+
+
 async def scenario_followup(rig: Rig) -> str:
     """A follow-up is filed on provenance, not on its words (SPEC §22.1).
 
@@ -758,6 +790,7 @@ async def _quiet_heartbeat(rig: Rig) -> None:
 
 
 SCENARIOS = {
+    "waiting": scenario_waiting,
     "picture": scenario_picture,
     "rescue": scenario_rescue,
     "followup": scenario_followup,

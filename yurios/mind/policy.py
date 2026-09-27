@@ -160,7 +160,8 @@ def score_interrupt(*, clock: Clock,
                     last_contact_out: float | None,
                     interrupts_today: int,
                     max_interrupts_per_day: int,
-                    threshold: float) -> InterruptDecision:
+                    threshold: float,
+                    waiting_hours: float = 0.0) -> InterruptDecision:
     now = clock.now()
     hours_since_contact = ((now - last_contact_out) / 3600
                            if last_contact_out else 48.0)
@@ -170,8 +171,13 @@ def score_interrupt(*, clock: Clock,
     availability = 1.0 if 9 <= h < 22 else 0.15             # don't ping at 3am
     welcome = max(0.0, 1.0 - interrupts_today / max(1, max_interrupts_per_day))
 
-    score = (0.30 * relevance + 0.35 * time_sensitivity
-             + 0.10 * contact_license + 0.15 * availability + 0.10 * welcome)
+    # An undated intention otherwise tops out at 0.72, below the default
+    # threshold even at maximum relevance. Waiting earns a bounded opportunity,
+    # independent of how often the heartbeat retries it (SPEC §18.2).
+    waiting_credit = 0.20 * min(1.0, max(0.0, waiting_hours) / 48.0)
+    score = min(1.0, 0.30 * relevance + 0.35 * time_sensitivity
+                + 0.10 * contact_license + 0.15 * availability + 0.10 * welcome
+                + waiting_credit)
     if interrupts_today >= max_interrupts_per_day:
         score = 0.0                                          # the hard daily cap
 
@@ -186,4 +192,5 @@ def score_interrupt(*, clock: Clock,
         "contact_license": round(contact_license, 2),
         "availability": availability, "welcome": round(welcome, 2),
         "interrupts_today": interrupts_today,
+        "waiting_credit": round(waiting_credit, 3),
     })

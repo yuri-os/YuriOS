@@ -29,7 +29,7 @@ from pydantic import BaseModel, Field
 
 from yurios.app.providers.admission import InferenceBusy
 from yurios.desktop.voice.transcript import is_meaningful_transcript
-from yurios.world.turns import RuntimeStopping
+from yurios.world.turns import EmptyReply, RuntimeStopping
 
 log = logging.getLogger("world.chat")
 router = APIRouter()
@@ -170,6 +170,8 @@ async def chat(req: ChatRequest, request: Request):
         raise HTTPException(503, str(e)) from e
     except LookupError as e:   # the picture was pruned between upload and turn
         raise HTTPException(404, str(e))
+    except EmptyReply as e:    # already says what happened, in words for the room
+        raise HTTPException(502, str(e))
     except Exception as e:  # noqa: BLE001 — the turn left no trace (turns.py)
         raise HTTPException(502, f"turn failed: {e}")
 

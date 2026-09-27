@@ -88,7 +88,7 @@ name of the variable holding it. The same fields are on the switchboard's profil
 | `CHAT_REASONING_EFFORT` | blank | `low`, `medium`, or `high` when reply thinking is enabled; blank uses the provider default |
 | `UTILITY_THINKING` | `true` | on: it runs off the hot path, where quality beats latency |
 | `UTILITY_MAX_TOKENS` | `10048` | room for the `<think>` block *and* the JSON answer |
-| `MAX_REPLY_TOKENS` | `1600` | a roomy ceiling, not a target |
+| `MAX_REPLY_TOKENS` | `8192` | a ceiling, not a target — a reasoning model's thinking is spent inside it |
 | `TEMPERATURE` | `0.9` | |
 
 ### Pictures you send her

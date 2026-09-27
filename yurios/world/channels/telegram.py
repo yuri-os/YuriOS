@@ -41,6 +41,8 @@ from pathlib import Path
 
 import httpx
 
+from yurios.world.turns import EmptyReply
+
 from .base import Channel
 
 log = logging.getLogger("world.telegram")
@@ -194,9 +196,14 @@ class TelegramChannel(Channel):
                             text="(I can only read text and pictures here, for now.)")
             return
         await self._api("sendChatAction", chat_id=chat_id, action="typing")
-        result = await self.rt.turns.run(
-            text, channel=self.name, session_id=self._sessions.get(chat_id),
-            image_id=picture.id if picture else None)
+        try:
+            result = await self.rt.turns.run(
+                text, channel=self.name, session_id=self._sessions.get(chat_id),
+                image_id=picture.id if picture else None)
+        except EmptyReply as e:              # silence reads as being ignored; say so
+            await self._api("sendMessage", chat_id=chat_id, text=(
+                f"(No reply came back — {e.why}. Try sending it again?)"))
+            return
         self._sessions[chat_id] = result["session_id"]
         # the reply itself arrives via _deliver — one outbound path, no echoes
 

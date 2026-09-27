@@ -22,7 +22,8 @@ import litellm
 
 from yurios import attribution
 from yurios.app.providers.admission import inference_admission
-from yurios.app.providers.usage import chunk_prompt_tokens, chunk_text
+from yurios.app.providers.usage import (StreamTally, chunk_prompt_tokens,
+                                        chunk_text)
 
 log = logging.getLogger("app.providers")
 
@@ -163,13 +164,15 @@ class LiteLLMChatModel:
                     "reasoning_effort": self.reasoning_effort}
             if self.meter is not None:
                 self.meter.note_prompt(messages)      # the estimate, before the call
+            max_tokens = params.get("max_tokens", 1024)
+            tally = StreamTally(max_tokens)
             response = await litellm.acompletion(
                 model=self.model,
                 messages=messages,
                 api_key=self.api_key,
                 api_base=self.api_base,
                 temperature=params.get("temperature", self.temperature),
-                max_tokens=params.get("max_tokens", 1024),
+                max_tokens=max_tokens,
                 stream=True,
                 **_attribution(self.model),
                 **_ask_for_usage(self.model, self.meter),
@@ -183,8 +186,10 @@ class LiteLLMChatModel:
                     if prompt_tokens:
                         self.meter.note_usage(prompt_tokens)
                 text = chunk_text(chunk)
+                tally.note(chunk, text)
                 if text:
                     yield text
+            tally.settle()                    # why, if that was nothing (usage.py)
 
 
 class LiteLLMUtilityModel:

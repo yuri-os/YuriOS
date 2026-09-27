@@ -236,3 +236,53 @@ it('says not received when the request never landed', async () => {
   await vi.waitFor(() => expect(window.WorldChat.failPending)
     .toHaveBeenCalledWith(expect.any(String), 'not received'));
 });
+
+it('marks the line when a spoken turn comes back with no reply', async () => {
+  // The socket is fine; the turn is what failed. Same words as the HTTP path:
+  // 'no reply' on the line, the reason in the composer — and not a red status
+  // light, which would say the connection broke when it did not.
+  document.body.innerHTML = `
+    <div class="composer"><input id="text"><button id="send">send</button></div>
+    <button id="mic"></button><span id="mic-label"></span>
+    <span id="status"></span><span id="caption"></span><span id="latency"></span>
+  `;
+  vi.stubGlobal('WebSocket', FakeWebSocket);
+  vi.stubGlobal('fetch', vi.fn());
+  window.YuriOSRuntime = {
+    apiPath: (path) => path,
+    wsUrl: (path) => path,
+    sessionKey: () => 'test.session',
+  };
+  window.WorldControls = { isVoiceMuted: () => false };
+  window.WorldChat = {
+    addPendingUser: vi.fn(),
+    confirmUser: vi.fn(),
+    receiveMessage: vi.fn(),
+    failPending: vi.fn(),
+    stopPending: vi.fn(),
+  };
+  const { initVoice } = await import('../js/voice.js');
+  const els = {
+    text: document.getElementById('text'),
+    send: document.getElementById('send'),
+    mic: document.getElementById('mic'),
+    micLabel: document.getElementById('mic-label'),
+    status: document.getElementById('status'),
+    caption: document.getElementById('caption'),
+    latency: document.getElementById('latency'),
+  };
+
+  initVoice({ viseme: { context: vi.fn() }, els });
+  const socket = FakeWebSocket.instances[0];
+  socket.onmessage({ data: JSON.stringify({
+    type: 'processing', client_id: 'voice-client',
+  }) });
+  socket.onmessage({ data: JSON.stringify({
+    type: 'error', client_id: 'voice-client',
+    message: "she didn't answer — the model refused to answer. Send it again to retry.",
+  }) });
+
+  expect(window.WorldChat.failPending).toHaveBeenCalledWith('voice-client', 'no reply');
+  expect(els.text.placeholder).toContain('the model refused to answer');
+  expect(els.status.textContent).not.toBe('error');
+});

@@ -220,6 +220,8 @@ async def _in_the_room(ws: WebSocket, rt, session_id: str, safe_send,
                     elif ev.kind in ("cancelled", "error"):   # no trace
                         rt.hub.publish("draft_cancel", {})
                     payload = encode_event(ev)
+                    if ev.kind == "error":         # whose line got no answer
+                        payload["client_id"] = client_id
                     if ev.kind == "done":
                         payload["client_id"] = client_id
                         if committed_message:
@@ -233,7 +235,8 @@ async def _in_the_room(ws: WebSocket, rt, session_id: str, safe_send,
         except Exception:
             log.exception("turn stream failed")
             rt.hub.publish("draft_cancel", {})
-            await safe_send({"type": "error", "message": "turn failed"})
+            await safe_send({"type": "error", "message": "turn failed",
+                             "client_id": client_id})
         finally:
             rt.turn_ended()
             # "no trace" has to mean her memory too. `stream_reply`

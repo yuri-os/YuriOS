@@ -117,9 +117,6 @@ class Config(BrainConfig):
     mask_latency: bool = True                   # play a filler while the LLM spins up (§5)
     expression_default: str = "neutral"         # avatar's resting face (§6)
     avatar_model: str = "hiyori"                # which Live2D rig she wears (§6, desktop/avatar_models.py)
-    max_reply_tokens: int = 1600                # a roomy cap, not a target: leaves room
-                                                #   for a heartfelt turn (→ ch. 28). A
-                                                #   no-think reply stops when done, rarely near it.
 
     # --- desktop-pet window (`python -m desktop --window`, desktop/window.py) ---
     # A frameless, transparent, always-on-top native window that hosts the same

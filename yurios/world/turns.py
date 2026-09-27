@@ -39,6 +39,7 @@ import logging
 import re
 from contextlib import nullcontext
 
+from yurios.app.providers.usage import LAST_STREAM, unanswered
 from yurios.desktop.voice.emotion import EmotionParser
 
 log = logging.getLogger("world.turns")
@@ -122,6 +123,20 @@ class _Drafts:
 
 class RuntimeStopping(RuntimeError):
     """A request arrived after this character began shutting down."""
+
+
+class EmptyReply(RuntimeError):
+    """The model answered with nothing to show — a turn that didn't happen (SPEC §10.5).
+
+    It used to be rolled back and then *returned*, as a success with no
+    message in it, so the page drew nothing and the log said nothing: from the
+    chair, she had just ignored you. It is a failure like any other now, and
+    `why` is the provider's reason in words (usage.StreamTally) — a refusal, a
+    reasoning pass that spent the whole reply budget, or plain silence."""
+
+    def __init__(self, why: str):
+        self.why = why
+        super().__init__(unanswered(why))
 
 
 class TextTurns:
@@ -276,6 +291,7 @@ class TextTurns:
             # keeps its two-argument signature.
             reply_kw = {"image": rt.uploads.data_url(attachment)} \
                 if attachment else {}
+            LAST_STREAM.set(None)        # this turn's reason, not an earlier one's
             try:
                 with context:
                     async for token in rt.brain.stream_reply(session_id, text,
@@ -314,6 +330,12 @@ class TextTurns:
             reply = drafts.text
             if not reply:
                 rt.brain.abandon(session_id)   # nothing to commit — same rollback
+                tally = LAST_STREAM.get()
+                why = (tally.reason() if tally else "") \
+                    or "her reply had nothing in it to show"
+                log.warning("text turn came back empty (channel %s): %s %s",
+                            channel, why, tally.detail() if tally else "")
+                raise EmptyReply(why)
             if reply:
                 entry = rt.post_message("assistant", reply, channel=channel,
                                         session_id=session_id)

@@ -167,7 +167,8 @@ Real conversation is full of these and it reads as attentiveness, not lag. Two r
 honest: the clips are pre-rendered once and cached (firing one is tens of milliseconds), and
 filler is real audio, so the same barge-in path that kills a reply kills a filler.
 
-`MAX_REPLY_TOKENS` (1600) is a roomy ceiling, not a target — it leaves room for a heartfelt turn.
+`MAX_REPLY_TOKENS` (8192) is a roomy ceiling, not a target — it leaves room for a heartfelt turn,
+and for a reasoning model's thinking.
 A no-think reply stops when it's done and rarely nears it.
 
 `CHAT_THINKING=false` is the other half of real-time: a reasoning model that thinks before it

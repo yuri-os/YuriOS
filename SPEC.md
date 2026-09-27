@@ -1301,7 +1301,15 @@ a frontend:
   a line break, or a bounded run of neither. Per-token drafts are quadratic in bytes on a bus whose
   per-subscriber queues are bounded and drop when full (§4), and the drop lands on whatever is
   published next — her committed `message`. It **MUST** mirror the voice route's contract minus the audio,
-  including the rule that a failed turn leaves no trace. Text turns from all channels serialise on
+  including the rule that a failed turn leaves no trace. **An empty reply is a failed turn, not a
+  quiet success:** after `abandon()` the runner **MUST** raise it, so `POST /api/chat` answers `502`
+  — and the voice socket's reply, which has its own runner, **MUST** end in an `error` frame naming
+  the `client_id` instead of `done`, persisting nothing — and every channel **MUST** tell the person
+  that no reply came, and why — a refusal, a reasoning
+  pass that spent the whole `MAX_REPLY_TOKENS` budget, or plain silence. The reply stream keeps that
+  reason (`finish_reason`, reasoning and refusal fields, token counts) for the turn that consumed it
+  (`app/providers/usage.py`), and the runner **MUST** log it: a turn that answered with nothing and
+  said nothing anywhere is, from the chair, being ignored. Text turns from all channels serialise on
   one lock. Exposed as `POST /api/chat` (`{text, session_id?, channel, client_id?}` →
   `{session_id, user_message, message, active_selfies}`). It has `POST /api/chat/cancel` for a
   correlated browser Stop request and **MUST NOT** wait on the voice warm-up. A text channel has

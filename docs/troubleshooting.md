@@ -132,8 +132,12 @@ without pinning, chat and embeddings evict each other every turn. Set `LMSTUDIO_
 **She thinks out loud before answering** — `CHAT_THINKING=true` with a reasoning model. Set it to
 `false`; the utility model keeps thinking on, off the hot path.
 
-**An empty reply** — `MAX_REPLY_TOKENS` too small for a reasoning model: the `<think>` block eats
-the budget and the reply comes back empty.
+**She doesn't answer** — your line is marked *no reply* and the composer says why; the log has a
+`text turn came back empty` line with the numbers. *She ran out of room thinking* means
+`MAX_REPLY_TOKENS` is too small for a reasoning model: the `<think>` block ate the budget. Raise it
+(the default is 8192), or lower `CHAT_REASONING_EFFORT`. *The model refused to answer* is the
+provider's content filter; a different `CHAT_MODEL` is the fix. Your line is kept on the page but
+out of her window, so sending it again doesn't make her read it twice.
 
 **A hosted model refuses to stay in character** — that's the model, not the runtime. See the note
 about refusal-trained models in [Models → LM Studio](models.md#lm-studio).

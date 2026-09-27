@@ -32,6 +32,7 @@ from pathlib import Path
 from typing import AsyncIterator
 
 from yurios.app.providers.admission import inference_admission
+from yurios.app.providers.usage import StreamTally
 
 
 log = logging.getLogger(__name__)
@@ -673,6 +674,7 @@ class GGUFChatModel:
                 args = {"messages": messages,
                         "temperature": params.get("temperature", self.temperature),
                         "max_tokens": params.get("max_tokens", 1024), "stream": True}
+                tally = StreamTally(args["max_tokens"])
                 handler = getattr(loaded, "no_think_handler", None)
                 if not self.thinking and handler is not None:
                     response = await asyncio.to_thread(handler,
@@ -683,9 +685,11 @@ class GGUFChatModel:
                 for_more, chunk = await asyncio.to_thread(_next, response)
                 while for_more:
                     text = _stream_content(chunk)
+                    tally.note(chunk, text)
                     if text:
                         yield text
                     for_more, chunk = await asyncio.to_thread(_next, response)
+                tally.settle()                # why, if that was nothing (usage.py)
             finally:
                 loaded.lock.release()
 

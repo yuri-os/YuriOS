@@ -282,9 +282,18 @@ export function initVoice({ viseme, els }) {
         if (!m.client_id || m.client_id === requestId) finishProcessing();
         break;
       case 'error':
-        setStatus('error', 'error');
-        if (m.message) els.caption.textContent = m.message;
         console.warn('server:', m.message);
+        if (m.client_id) {
+          // A turn that failed on a socket that did not: the line reached her
+          // and the answer is what is missing, same as the HTTP path. Marked on
+          // the line and said in the composer — `.caption` is display:none in
+          // the browser room, so a reason written only there is never seen.
+          window.WorldChat?.failPending?.(m.client_id, 'no reply');
+          if (m.message) notice(m.message);
+        } else {
+          setStatus('error', 'error');
+          if (m.message) els.caption.textContent = m.message;
+        }
         finishProcessing();
         break;
     }

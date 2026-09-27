@@ -2362,7 +2362,10 @@ The product half of autonomy: what converts an always-on process from creepy to 
   generation, because the graph links into it. A tick's detail **MUST** describe the tick in the
   same shape and sentence the graph does. The six views share one loaded window, one range, one set
   of kind filters, one search and one selection, all carried in the hash; a bus event that means new
-  records marks them stale and says so, and **MUST NOT** redraw them under the reader.
+  records marks them stale and says so, and **MUST NOT** redraw them under the reader. A successful
+  manual reload **MUST** clear the stale notice; when the visible range reached the previous window's
+  newest edge, it **MUST** advance to the new edge while retaining its duration. A range focused on older
+  records **MUST** stay in place.
 
 ## §25 — Config (the mind's knobs)
 

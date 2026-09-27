@@ -162,14 +162,21 @@ export function invalidateGraph() {
   ws.stale = true;
 }
 
-async function load(days, { keepRange = false } = {}) {
+async function load(days, { keepRange = false, followLatest = false } = {}) {
+  const oldMax = ws.model?.tMax;
+  const atLatest = followLatest && oldMax != null && ws.state.t1 >= oldMax - 1;
+  const oldSpan = ws.state.t1 - ws.state.t0;
   const data = await ws.deps.load(days);
   ws.model = createModel(data);
   ws.loadedDays = days;
   ws.stale = false;
+  if (ws.els) ws.els.stale.hidden = true;
   const { tMin, tMax } = ws.model;
   if (!keepRange || ws.state.t0 == null) {
     ws.state.t0 = tMin;
+    ws.state.t1 = tMax;
+  } else if (atLatest) {
+    ws.state.t0 = tMax - oldSpan;
     ws.state.t1 = tMax;
   }
   clampRange();
@@ -260,7 +267,7 @@ function buildChrome() {
     ws.state.ledgerLimit = PAGE * 2;
     await reload();
   }));
-  $("[data-reload]").addEventListener("click", () => reload({ keepRange: true }));
+  $("[data-reload]").addEventListener("click", () => reload({ keepRange: true, followLatest: true }));
   let debounce = 0;
   els.search.addEventListener("input", () => {
     clearTimeout(debounce);
@@ -291,12 +298,12 @@ function buildChrome() {
   return els;
 }
 
-async function reload({ keepRange = false } = {}) {
+async function reload({ keepRange = false, followLatest = false } = {}) {
   const els = ws.els;
   if (els) els.view.replaceChildren(Object.assign(document.createElement("p"),
     { className: "gx-empty", textContent: "Reading her traces…" }));
   try {
-    await load(ws.state.days, { keepRange });
+    await load(ws.state.days, { keepRange, followLatest });
   } catch (error) {
     ws.deps.toast(error?.message || "Could not read her traces.");
   }

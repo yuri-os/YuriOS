@@ -18,7 +18,8 @@ from dataclasses import dataclass
 
 from .context import (JobLedger, JOURNAL_CHARS, PROMPT_OVERHEAD_CHARS, DreamContext, JobReport)
 from ..dream import DreamConsolidator
-from ..util import day_of
+from ..goals import trim
+from ..util import closing, day_of
 
 log = logging.getLogger("mind.dreamjobs")
 
@@ -257,6 +258,34 @@ DIARY_SYSTEM = (
     "held nothing worth a diary entry, output NOTHING.")
 
 
+#: Asked of every diary night after its own prompt, a job file's included:
+#: `vault/dreams/diary.md` replaces the prompt above for every vault seeded
+#: since that folder existed, so a line added only to DIARY_SYSTEM would reach
+#: no character who already has a diary. The same reason STRATEGY_OUTPUT is
+#: appended rather than written into STRATEGY_SYSTEM.
+DIARY_TAKEAWAY = (
+    "After the entry, on a line of its own at the very end, write "
+    "'takeaway:' and then the one thing from this day you want to carry "
+    "forward, in a single sentence of your own. Leave it out if you wrote "
+    "NOTHING.")
+
+#: Pulls that line back off. Anchored and tolerant of the bold or bullet a
+#: model reaches for, the way NEXT_RE is for the stock-take.
+TAKEAWAY_RE = re.compile(
+    r"^\s*(?:[-*]\s*)?(?:\*\*)?takeaway(?:\*\*)?\s*:\s*(?:\*\*)?\s*(.+?)\s*$",
+    re.IGNORECASE | re.MULTILINE)
+
+
+def split_takeaway(entry: str) -> tuple[str, str]:
+    """`(the entry without its takeaway line, the takeaway or "")`."""
+    hits = list(TAKEAWAY_RE.finditer(entry or ""))
+    if not hits:
+        return (entry or "").strip(), ""
+    last = hits[-1]
+    body = (entry[:last.start()] + entry[last.end():]).strip()
+    return body, " ".join(last.group(1).split())
+
+
 class DiaryJob(DreamJob):
     """A private entry per day, on her desk (`workspace/diary/`).
 
@@ -280,15 +309,23 @@ class DiaryJob(DreamJob):
             return out
         entry = await ctx.ask(
             fill(self.system(DIARY_SYSTEM), char=ctx.char_name,
-                 user=ctx.user_name),
+                 user=ctx.user_name) + "\n\n" + DIARY_TAKEAWAY,
             f"The day: {day}\n\n{text}")
         if not entry or entry.strip().upper().startswith("NOTHING"):
+            out.result = "nothing worth writing down"
+            return out
+        # The entry stays on the desk; the takeaway is what reaches the
+        # journal, which recall and consolidation read and the desk is not
+        # (SPEC §21.2). "wrote a diary entry" told them only that it existed.
+        entry, kept = split_takeaway(entry)
+        if not entry:
             out.result = "nothing worth writing down"
             return out
         await ctx.put(f"diary/{day}.md", f"# {day}\n\n{entry}\n")
         out.changed = True
         out.result = f"wrote {len(entry)} chars"
-        out.note = f"wrote a diary entry for {day}"
+        out.note = (f"what I took from {day}: {trim(kept, 240)}" if kept
+                    else f"wrote a diary entry for {day}")
         return out
 
 
@@ -485,12 +522,20 @@ class StrategyJob(DreamJob):
                   "first_action": candidate.first_action,
                   "capability": candidate.capability}
         ) if candidate else None
+        # The note stays on the desk; what reaches the journal is where the
+        # thinking landed — the reason for the goal she filed, or the close of
+        # the stock-take — because the journal is what recall reads (§21.2).
+        ended = closing(note, 240)
+        why = candidate.why if candidate is not None else ""
         if filed is not None:
             out.result = f"{reviewed}, filed one of my own"
-            out.note = f"decided this matters: {filed.text}"
+            out.note = (f"decided this matters: {filed.text} — because "
+                        f"{trim(why, 240)}" if why
+                        else f"decided this matters: {filed.text}")
         elif candidate is None:
             out.result = reviewed
-            out.note = "stood back and looked at what I'm carrying"
+            out.note = ("stood back and looked at what I'm carrying: " + ended
+                        if ended else "stood back and looked at what I'm carrying")
         else:
             # Say which silence this was. A night with nothing to add, a night
             # that was capped or switched off, and a night that named something
@@ -502,7 +547,8 @@ class StrategyJob(DreamJob):
                 out.result = f"{reviewed}, the night already does that"
             else:
                 out.result = f"{reviewed}, kept one to myself"
-            out.note = "stood back and looked at what I'm carrying"
+            out.note = ("stood back and looked at what I'm carrying: " + ended
+                        if ended else "stood back and looked at what I'm carrying")
         return out
 
 

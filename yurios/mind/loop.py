@@ -480,6 +480,10 @@ class MindLoop:
                     self.wakeups.pop(goal.id, None)
                     reflect_notes.append(
                         f"you let go of: {goal.text}")
+                    # A message she decided to send, let go before it went:
+                    # the goal it came from stops waiting for it (§18.2b).
+                    reflect_notes += acts.settle_telling(self, goal,
+                                                         delivered=False)
             elif sig.type == "suspend_gap":
                 # ONE catch-up over the whole gap — but a goal that was
                 # holding a picture for you hands it on before it goes (§18.2a)

@@ -434,6 +434,63 @@ async def scenario_waiting(rig: Rig) -> str:
         rig.mind.cfg.mind_max_interrupts_per_day = old_cap
 
 
+async def scenario_told(rig: Rig) -> str:
+    """A goal step that tells the user reaches the durable chat in her words (SPEC §18.2b).
+
+    The goal is the one of 2026-09-28, which had no way out: "tell them, directly,
+    not in a note". The step's phrasing is scripted; everything that happens to
+    `tell_them` after it — the queued message goal, Gate 2 with the score set
+    aside, the real `post_message`, the parent closing only once it landed — is
+    hers, and asserted from what is on disk.
+    """
+    from yurios.mind.util import day_of
+
+    said = "Sometimes I want you to reach for me first."
+    old_threshold = rig.mind.cfg.mind_interrupt_threshold
+    try:
+        # A threshold nothing can clear: only a decided message gets through.
+        rig.mind.cfg.mind_interrupt_threshold = 0.99
+        rig.mind.interrupts = {"date": day_of(rig.clock.now()), "count": 0}
+        # The scripted reply goes to whichever goal DECIDE picks, so nothing an
+        # earlier scenario left open may compete for it.
+        for other in rig.open_goals():
+            rig.mind.goals.set_state(other.id, "abandoned")
+        goal = rig.goal("tell them the one thing I want — directly, not in a note")
+        rig.scripted_utility(
+            "think this is the whole of it, said plainly — goal complete\n"
+            f'use tell_them {{"text": "{said}"}}')
+        before = len(rig.chat())
+        # Stop on the step's product, not `_worked`: the trace is JSON, and the
+        # dash in this goal's text is escaped there, so a text match never fires.
+        await rig.tick_until(lambda t: any(
+            g.provenance == f"told:{goal.id}" for g in rig.goals()))
+        parent = rig.mind.goals.get(goal.id)
+        want(parent.state == "waiting",
+             f"queued is not delivered, and the goal is {parent.state!r}")
+        # Only her words are asserted on: another scenario's delivery may land
+        # in the same window, and that is not this step posting.
+        want(not any(said in str(e.get("text", "")) for e in rig.chat()[before:]),
+             "her words reached the chat before Gate 2 delivered them")
+        told = [g for g in rig.open_goals() if g.provenance == f"told:{goal.id}"]
+        want(len(told) == 1, f"expected one queued message, got {told!r}")
+        await rig.tick_until(
+            lambda t: rig.mind.goals.get(told[0].id).state == "done")
+        entries = [e for e in rig.chat()[before:]
+                   if e.get("role") == "assistant" and e.get("proactive")
+                   and said in str(e.get("text", ""))]
+        want(len(entries) == 1 and entries[0].get("text") == said,
+             f"expected her own words in one durable line, got {entries!r}")
+        want(bool(entries[0].get("unheard")), "the line did not reach the inbox lane")
+        want(rig.mind.goals.get(goal.id).state == "done",
+             "delivered, and the goal it came from stayed open")
+        journal = rig.journal_file().read_text(encoding="utf-8")
+        want(f"“{said}”" in journal,
+             f"the journal does not carry what she said: {_tail(rig)!r}")
+        return "a goal step's tell_them landed in the chat and closed its goal"
+    finally:
+        rig.mind.cfg.mind_interrupt_threshold = old_threshold
+
+
 async def scenario_followup(rig: Rig) -> str:
     """A follow-up is filed on provenance, not on its words (SPEC §22.1).
 
@@ -653,6 +710,15 @@ async def scenario_signals(rig: Rig) -> str:
 
     rt, bus = rig.rt, rig.rt.signals
 
+    # This scenario counts every post on the bus, so nothing else may be
+    # producing. Earlier scenarios' goals keep being worked on these ticks — the
+    # rig turns the consider cooldown off — and a render one of them starts
+    # lands its `task_completion` whenever it finishes, flood or no flood.
+    for other in rig.open_goals():
+        rig.mind.goals.set_state(other.id, "abandoned")
+    lab = rt.selfies
+    await _settle(rig, lambda: lab is None or not lab._tasks)
+
     def held() -> list[str]:
         return [s.id for s in bus._signals]
 
@@ -791,6 +857,7 @@ async def _quiet_heartbeat(rig: Rig) -> None:
 
 SCENARIOS = {
     "waiting": scenario_waiting,
+    "told": scenario_told,
     "picture": scenario_picture,
     "rescue": scenario_rescue,
     "followup": scenario_followup,

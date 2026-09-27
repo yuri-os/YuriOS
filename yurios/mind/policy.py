@@ -12,6 +12,7 @@ the two gates is precisely Clippy (→ ch. 18).
 """
 from __future__ import annotations
 
+import datetime
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -154,6 +155,32 @@ class InterruptDecision:
     factors: dict = field(default_factory=dict)
 
 
+#: Quiet hours, local: from QUIET_FROM until QUIET_UNTIL nothing she initiates
+#: goes out (SPEC §18.2). A gate, not a weight — named here because a decided
+#: message that the hour holds back is woken again at QUIET_UNTIL.
+QUIET_FROM, QUIET_UNTIL = 22, 9
+
+
+def quiet_hour(ts: float) -> bool:
+    h = dt_of(ts).hour
+    return not (QUIET_UNTIL <= h < QUIET_FROM)
+
+
+def next_open(ts: float) -> float:
+    """The next local QUIET_UNTIL o'clock strictly after `ts`.
+
+    Both hard gates open there: quiet hours end, and a daily cap spent before
+    midnight has rolled by the following morning. A decided message held by
+    either is looked at again at that moment rather than on the next hourly
+    reconsideration after it.
+    """
+    now = dt_of(ts)
+    at = now.replace(hour=QUIET_UNTIL, minute=0, second=0, microsecond=0)
+    if at <= now:
+        at += datetime.timedelta(days=1)
+    return at.timestamp()
+
+
 def score_interrupt(*, clock: Clock,
                     relevance: float,
                     time_sensitivity: float,
@@ -161,14 +188,17 @@ def score_interrupt(*, clock: Clock,
                     interrupts_today: int,
                     max_interrupts_per_day: int,
                     threshold: float,
-                    waiting_hours: float = 0.0) -> InterruptDecision:
+                    waiting_hours: float = 0.0,
+                    decided: bool = False) -> InterruptDecision:
+    """Gate 2. `decided` is a message she chose to send from a goal step
+    (`tell_them`, SPEC §18.2b): the score no longer rules on it, and the two
+    hard gates — quiet hours and the daily cap — still do."""
     now = clock.now()
     hours_since_contact = ((now - last_contact_out) / 3600
                            if last_contact_out else 48.0)
     contact_license = min(1.0, hours_since_contact / 24.0)  # quiet → more license
 
-    h = dt_of(now).hour
-    availability = 1.0 if 9 <= h < 22 else 0.15             # don't ping at 3am
+    availability = 0.15 if quiet_hour(now) else 1.0          # don't ping at 3am
     welcome = max(0.0, 1.0 - interrupts_today / max(1, max_interrupts_per_day))
 
     # An undated intention otherwise tops out at 0.72, below the default
@@ -181,8 +211,15 @@ def score_interrupt(*, clock: Clock,
     if interrupts_today >= max_interrupts_per_day:
         score = 0.0                                          # the hard daily cap
 
-    if score < threshold or availability < 0.5:
-        outcome = "SILENT"   # THE DEFAULT — and quiet hours are a gate, not a weight
+    capped = interrupts_today >= max_interrupts_per_day
+    if availability < 0.5 or capped:
+        outcome = "SILENT"   # the two hard gates, whoever is asking
+    elif decided:
+        # She already made the judgement the score stands in for. It goes as
+        # a line in the chat, never aloud: she chose the words, not the moment.
+        outcome = "SUGGEST"
+    elif score < threshold:
+        outcome = "SILENT"   # THE DEFAULT
     elif score < threshold + 0.1:
         outcome = "SUGGEST"  # a soft line in the journal/chat, never spoken aloud
     else:
@@ -193,4 +230,5 @@ def score_interrupt(*, clock: Clock,
         "availability": availability, "welcome": round(welcome, 2),
         "interrupts_today": interrupts_today,
         "waiting_credit": round(waiting_credit, 3),
+        "decided": decided,
     })

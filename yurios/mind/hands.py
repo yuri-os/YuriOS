@@ -167,6 +167,15 @@ NEEDS_CAMERA = tuple(n for n, h in HANDS.items() if h.needs == "SELFIE_BACKEND")
 #: that dispatches one goes to `waiting` and is woken by `task_completion`.
 START_DONT_AWAIT = ("research", "take_selfie", "show_picture")
 
+#: How a goal step says something to the user (SPEC §18.2b). Not a row in
+#: `HANDS`: nothing runs and no tool server is asked, so neither the switches
+#: nor the allowlist nor the daily call cap are its business — it files a
+#: decided message for Gate 2, whose quiet hours and daily cap still hold. It
+#: is offered on every goal step, hands or none, because a step told it could
+#: not speak was a step that acted the conversation out on her desk instead.
+TELL = "tell_them"
+TELL_ARGS = '{"text": "exactly what you want them to hear"}'
+
 #: `needs` -> the config attribute that says whether that backend is on.
 _BACKEND_ATTR = {"SEARCH_BACKEND": "search_backend",
                  "SELFIE_BACKEND": "selfie_backend"}
@@ -645,14 +654,18 @@ class Hands:
             f"— read, then change; search, then open — up to {limit} in this "
             "step. End the step with a `think` line. Never reach for something "
             "you already did. Whatever a hand produces is kept for you, not "
-            "sent to anyone: nothing you do here reaches them until you decide, "
-            "separately, to say so.")
+            "sent to anyone"
+            + (f" — `{TELL}` is the one line here that reaches them."
+               if TELL in tools else "."))
 
     @staticmethod
     def rows(tools: tuple[str, ...]) -> str:
         """One `use` example per hand, with the argument shape it takes."""
-        return "\n".join(
-            f"  use {t} {HANDS[t].args if t in HANDS else '{...}'}" for t in tools)
+        def args(t: str) -> str:
+            if t == TELL:
+                return TELL_ARGS
+            return HANDS[t].args if t in HANDS else '{...}'
+        return "\n".join(f"  use {t} {args(t)}" for t in tools)
 
 
 @dataclass(frozen=True)

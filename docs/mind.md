@@ -143,6 +143,19 @@ Three outcomes, in ascending imposition:
 
 Both dials are yours, in `.env`. You cannot tune the dial against someone who holds it.
 
+**When she has already decided.** Working a goal, she can write `tell_them` with the exact words
+she wants you to read. That files a reach-out goal (`told:<goal>`) carrying those words, and Gate 2
+treats it differently in one way: the score no longer rules on it, because she has already made
+the judgement it stands in for. Your two hard gates still do. Inside quiet hours or past today's
+cap it waits, parked, until 09:00, and then it arrives as a chat line in her words, never re-composed
+and never spoken aloud. The goal she was working waits for the message to land, and closes only once
+it has.
+
+The journal line for each outcome says what actually happened: the words she sent, or what held
+the message back (quiet hours, today's cap, "not pressing enough to interrupt yet"). It never says
+she *chose* silence. Her diary and her stock-take read the journal back, and a week of "chose not to
+interrupt" about a threshold she couldn't clear read to them as her own avoidance.
+
 ### Where a reach-out actually goes
 
 The gate decides whether she speaks. It does not decide whether you hear it, and those used to be
@@ -436,6 +449,14 @@ how she grew. A skill, by contrast, is a durable statement about how she does so
 being able to read back and revert. `workspace/.gitignore` carries the rule from inside the folder,
 so existing vaults get it without a migration.
 
+**What's on her mind reaches the conversation.** Every turn gets the desk as a list of paths, plus
+one small labelled block, `ON YOUR MIND`: the close of her latest diary entry, where her latest
+stock-take landed, and the last words she left on each goal she's working. It is a few hundred
+tokens, and it is labelled as her own writing, not a record of events. Only the conversation and her
+memories say what actually happened, and the block tells her so. The night's jobs do the same for
+recall: the diary ends with a `takeaway:` line, and the journal (which recall indexes and the desk
+isn't) gets that line rather than "wrote a diary entry".
+
 The sandbox is dull and absolute: relative paths only, no `..`, no dotfiles, symlinks resolved
 *before* the containment check, and per-file/whole-tree/file-count ceilings. Nothing in there
 executes; the coming code harness gets its own workspace **outside** the Vault precisely so that
@@ -713,8 +734,11 @@ their backend, budget pressure under `MIND_TOOL_PRESSURE_CEILING`, and DORMANT/D
 absent — including while she is talking. `MIND_TOOL_CALLS_PER_DAY` is a cap, not a governor: it is checked before the call and
 it refuses. The default daily cap is **64 calls**, checked before dispatch. The same call is
 refused for hours by a fingerprint ledger that survives restarts.
-Nothing she makes this way is sent to you — it goes on her shelf, in her gallery, or on her
-desk. Whether you hear about it is the same reach-out gate as everything else.
+Nothing she makes this way is sent to you. It goes on her shelf, in her gallery, or on her
+desk. Whether you hear about it is the same reach-out gate as everything else. The one way a goal
+step says something to you is `tell_them`, which is offered on every step, hands or none. It isn't a
+hand, and it still goes through Gate 2's quiet hours and daily cap (see *When she has already
+decided*, above).
 
 The switchboard's fourth toggle revokes her hands before her next tick, without restarting her.
 `tool-logs/calls.jsonl` marks every one of them `mind_tool`. See

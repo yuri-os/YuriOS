@@ -1687,12 +1687,44 @@ them is precisely the always-interrupting-assistant failure.
   mind ever took could be talked about and none of it could be shown, and "show me" was answered
   with `goals/g-….md`. Only a **picture** travels this way, for this section's own reason — a
   research digest is not a gift.
+- §18.2b **A message she decided to send is hers to word, and still Gate 2's to time.** Every goal
+  step is offered `tell_them {"text": …}`, hands or none. It is not a hand — nothing runs, no tool
+  server is asked, and §26's switches and call cap do not apply — it files a `reach_out` goal under
+  `told:<goal>` (deduplicated on that provenance, as `followup:` is), `blind`, priority 1.0,
+  carrying her words exactly (`meta.say`, `meta.decided`). A second `tell_them` from the same goal
+  before the first has gone replaces the words rather than queueing another message. Gate 2 **MUST
+  NOT** score a decided message against the threshold — the judgement the score stands in for is
+  the one she has already made — and **MUST** still hold it for quiet hours and the daily cap,
+  which are the user's dials. Delivered, it is a SUGGEST line of *her* words, drawn (§18.3), never
+  re-composed and never spoken aloud; held, it is parked `waiting` with a wakeup at the next moment
+  both hard gates are open (`policy.next_open`) rather than retried every hour, because each retry
+  is a journal line and a night of them reads back as hesitation. The goal it came from waits on
+  it (`meta.telling`) and **MUST NOT** become `done` before the message is delivered: a done-mark
+  on the step that told closes the goal on delivery, delivery without one returns the goal to
+  work — with its consider cooldown restarted from the delivery, because what she said is often a
+  question and the answer needs time to arrive (live, "which framing do you want?" was followed
+  nineteen seconds later by her shooting her own guess) — and a message the user lets go returns
+  it to work as well. The step prompt **MUST** name
+  this as the way to reach them. Told only that nothing it wrote reached anyone, a step whose goal
+  was "tell him, directly, in conversation, not in a note" wrote a scene of saying it on her desk,
+  read its own desk back on the next step as the event, recorded the conversation in her diary,
+  and closed the goal on an `append_note` (28 Sep).
 - §18.3 **Outcomes, ascending imposition:** **SILENT** — the default: do it quietly and journal it
   (a stale non-blind goal is let go with a journal line; the journal, not notifications, carries the
   value); **SUGGEST** — one composed line posted to the chat, waiting for the user's next glance,
   never spoken aloud; **SPEAK** — aloud through the ambient seam if a page is open (full turn
   pipeline, barge-in-able), as a `proactive` chat line if the room is empty. Every delivery **MUST**
   bump the daily count, note the contact in the world model, and close the goal.
+  **The journal line says what happened, not what it resembled.** A delivery's line **MUST**
+  carry what was said — her words, quoted and bounded — or, when they went aloud through the turn
+  pipeline this act never sees, that they did and where they are. A held reach-out's line **MUST**
+  name what held it (quiet hours, today's cap, not pressing enough yet) and **MUST NOT** say she
+  chose silence. The journal is what the diary, the stock-take and recall read back: "left a quiet
+  note" about a message that had in fact been sent read to them as one more note written instead
+  of speaking, and a week of "chose not to interrupt" about a threshold she could not clear read
+  as avoidance — until a night filed a goal to say what she had already said (§18.2b). A compose
+  that comes back empty with no picture to carry is not a delivery: no interrupt is spent, the goal
+  stays open, and the line says the words did not come.
   The composed line has no hands, so its cue **MUST** carry what it is about rather than point at
   it: a follow-up on a kept promise quotes the last entry of that goal's desk file, never just its
   path. Told "it's in goals/…md" she reached for `read_note` in her model's native call markup, and
@@ -1929,6 +1961,14 @@ that set and a poor place to stop.
   down is a fact the next reader inherits wrong. Overridable per character like any other flag.
   `DreamJob.cost()` **MUST** price the preamble it will send, or the night's first item is
   underbilled and §21.2's anti-wedge rule starves everything queued behind it.
+- **What a night wrote reaches the journal as its conclusion.** The desk is not indexed and the
+  journal is, so a job's journal line is the only part of its writing that recall, consolidation
+  and the conversation ever see — and "wrote a diary entry for <day>" told them only that one
+  existed. The diary is asked, after its own prompt, for a closing `takeaway:` line; it is taken
+  off the entry and journalled as "what I took from <day>: …". The instruction is appended in code,
+  as `STRATEGY_OUTPUT` is, because `vault/dreams/diary.md` replaces the prompt text for every vault
+  seeded since that folder existed. The stock-take journals the reason for the goal it filed, or
+  the close of its reflection.
 - **Priority order over one shared budget — and one job may declare its own lane.** Jobs run
   highest-priority first and share `MIND_DREAM_TICK_TOKENS`; `consolidate` runs first because the
   others read `facts.md`. A job with `own_budget` is billed instead against
@@ -2204,8 +2244,12 @@ optional due time, **provenance**, and a **commitment strategy**; lifecycle
   a machine left on.
 - §22.3 **The lifecycle is used, not decorative.** A goal becomes `active` on its first working
   step and stays there across ticks; it becomes `waiting` when it is blocked on the user or on work
-  it dispatched and will not await (§7.6); it becomes `done` only when a step says so in as many
-  words. Each step's product **MUST** be written to `workspace/goals/<id>.md` as well as journalled,
+  it dispatched and will not await (§7.6), or on a message it decided to send (§18.2b); it becomes
+  `done` only when a step says so in as many words — and a step that said so beside `tell_them` is
+  done when that message is delivered, not when it is queued. The step's journal line **MUST**
+  carry where the step ended (her last `think` line, else the note's closing sentences), not how it
+  began: the journal is what recall and the night read, and the first 160 characters of a step
+  that opened in scene were the one part that said nothing. Each step's product **MUST** be written to `workspace/goals/<id>.md` as well as journalled,
   and the next step **MUST** read it back — a private step that starts from the goal's one-line text
   every time is a goal that never advances. A `list_notes` result **MUST** be kept whole on that
   desk file: clipping the catalog to a sentence is the same failure as truncating the tool, one
@@ -2455,7 +2499,9 @@ needs a sandbox.
   hands go: she answers with a `use` line, the hand runs through every precondition below, its
   result comes back as the next message, and she is asked again — until she ends on prose or
   `TOOL_MAX_CALLS_PER_TURN` calls are spent, past which a `use` line is dropped rather than run
-  (`mind/handwork.py`). A done-mark beside any call in the step finishes the goal. What she wrote
+  (`mind/handwork.py`). A done-mark beside any call in the step finishes the goal — beside
+  `tell_them`, which is offered on every goal step and is not a hand (§18.2b), it finishes the goal
+  once the message is delivered, and `tell_them` ends the step as off-tick work does. What she wrote
   *above* a `use` line is her reason for it; lines *below* it **MUST** be discarded, because they
   were written before the result existed — live, they were results she had invented. Work that
   finishes off-tick (§7.6) ends a goal step early, and the goal waits for it. A research night
@@ -3001,12 +3047,26 @@ the things she *is* and the wrong shape for the things she is *doing*.
   loaded only through `read_skill`, once she has decided this is the skill the moment calls for.
   Twenty skills therefore cost twenty lines of context until one is used. The `description` is
   written as *when to reach for this*, not as a title. The desk gets the same treatment: the prompt
-  carries a listing of the newest `WORKSPACE_DIGEST_FILES` files, never their contents. A mangled
+  carries a listing of the newest `WORKSPACE_DIGEST_FILES` files, never their contents — the one
+  exception is §34.5's bounded block of her own recent thinking. A mangled
   `SKILL.md` **MUST** cost that one entry, never the block.
 
 - §34.4 **Nothing here executes.** The desk holds inert text. The coming code harness (§28's
   workshop) gets its own workspace **outside** the Vault precisely so that "she can write here" and
   "this can run" never become the same sentence, and its own skills folder for the same reason.
+- §34.5 **What is on her mind reaches the conversation, labelled.** Every conversational prompt
+  carries an `ON YOUR MIND` block (`Workspace.on_your_mind`): the close of her newest dated diary
+  entry and of her newest stock-take, each with its date, and the last words she left on the desk
+  file of each goal she is working (`active` or `waiting`; not a queued `told:` message, whose words
+  are already its title, and not the night's maintenance). Whole sentences within fixed bounds —
+  500 characters each for the diary and the stock-take, 240 for each of at most four goals — so it
+  costs a few hundred tokens a turn. Without it the self that talks never met the self that writes:
+  the goals block is titles, the digest is paths, and the desk is not indexed for recall. The block
+  **MUST** be labelled as her own writing and not a record of events, and **MUST** say that only
+  the conversation and the memory blocks can confirm that something happened — the desk has held a
+  diary entry describing a conversation that never took place (§18.2b), and shown unlabelled she
+  would have spoken as though it had. Building it never raises: a failure costs the block, not the
+  turn.
 
 ---
 

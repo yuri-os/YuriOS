@@ -12,6 +12,7 @@ from __future__ import annotations
 import datetime
 import json
 import os
+import re
 import uuid
 from pathlib import Path
 from typing import Any, Callable, Iterator
@@ -51,6 +52,30 @@ def ts_of_iso(s: str) -> float:
 
 def day_of(ts: float) -> str:
     return dt_of(ts).strftime("%Y-%m-%d")
+
+
+#: Where a sentence ends and the next begins, for `closing()`.
+_SENTENCE_END = re.compile(r"[.!?…][\"”’')\]*]*\s+")
+
+
+def closing(text: str, limit: int = 240) -> str:
+    """The end of a piece of writing, on one line, starting on a sentence.
+
+    For the places that keep one line of something longer — a journal line
+    about a step, a stock-take, a diary — where the conclusion is at the end
+    and the scene-setting at the start. Whole sentences when one fits inside
+    `limit`; otherwise the last `limit` characters, entered at a word and
+    marked as cut.
+    """
+    one = " ".join((text or "").split())
+    if len(one) <= limit:
+        return one
+    tail = one[-limit:]
+    for m in _SENTENCE_END.finditer(tail):
+        rest = tail[m.end():]
+        if rest:
+            return rest
+    return "…" + (tail.partition(" ")[2] or tail[1:])
 
 
 def read_json(path: Path, default: Any = None) -> Any:

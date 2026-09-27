@@ -195,6 +195,34 @@ class BrainAdapter:
                 "it is.\n\n" + desk)
         return "\n\n".join(parts)
 
+    def _mind_block(self) -> str:
+        """Her own recent thinking, bounded and labelled (SPEC §34.5).
+
+        Goals only while she is working them — `active` or `waiting` — and not
+        the messages she has queued (`told:`), whose words are already their
+        title in the goals block, nor the night's maintenance, which is
+        bookkeeping and not thought. Never raises: the shelf's rule.
+        """
+        if self.workspace is None:
+            return ""
+        working: list = []
+        if self.goals is not None:
+            try:
+                working = [g for g in self.goals.open_goals()
+                           if g.state in ("active", "waiting")
+                           and not str(g.provenance).startswith("told:")
+                           and not g.meta.get("auto")]
+            except Exception:   # noqa: BLE001 — a mangled goals.md
+                log.warning("goal list failed; on-your-mind without goals",
+                            exc_info=True)
+        try:
+            return self.workspace.on_your_mind(
+                working, user_name=self.cfg.user_name)
+        except Exception:       # noqa: BLE001 — same rule as the shelf
+            log.warning("on-your-mind block failed; assembling without it",
+                        exc_info=True)
+            return ""
+
     async def _recall_knowledge(self, text: str) -> list:
         """The shelf, searched for this turn. Never raises: a broken index is a
         turn without the block, not a turn that doesn't happen."""
@@ -264,9 +292,9 @@ class BrainAdapter:
         if origin is not None and origin.channel == "voice":
             prompt.messages[0]["content"] += f"\n\n## VOICE\n\n{SPOKEN_STYLE_DIRECTIVE}"
         prompt.messages[0]["content"] += f"\n\n## EXPRESSION\n\n{EXPRESSION_DIRECTIVE}"
-        desk = self._desk_block()
-        if desk:
-            prompt.messages[0]["content"] += f"\n\n{desk}"
+        for block in (self._mind_block(), self._desk_block()):
+            if block:
+                prompt.messages[0]["content"] += f"\n\n{block}"
         return soul, prompt
 
     # -- the ReplyBrain seam ----------------------------------------------------

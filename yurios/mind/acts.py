@@ -17,8 +17,10 @@ means importing `MindLoop`, and `tests/test_layering.py` reads a
 """
 from __future__ import annotations
 
+import json
 import logging
 
+from yurios.app.conversation import drawn
 from yurios.app.core.assemble import OWN_VOICE
 from yurios.kernel import correlate
 
@@ -28,10 +30,10 @@ from .goals import (Goal, trim, PROMISE_REVIEW_RESPONSE_FORMAT, PromiseCandidate
                     promise_decision_grounded, promise_kind,
                     promise_review_messages, timer_for_promise)
 from .hands import strip_native_calls
-from .policy import DREAM, score_interrupt
+from .policy import DREAM, next_open, quiet_hour, score_interrupt
 from .prompts import goal_history
 from .signals import Signal, failure_of
-from .util import day_of, iso_of, ts_of_iso
+from .util import day_of, dt_of, iso_of, ts_of_iso
 
 log = logging.getLogger("mind.acts")
 
@@ -422,12 +424,135 @@ def deliver_report(loop, *, title: str, path: str, summary: str,
         log.exception("DREAM: couldn't deliver %s", path)
 
 
+#: Why Gate 2 held a reach-out, in words the journal can carry (SPEC §18.3).
+#: The journal is what her diary and her stock-take read back, and "chose not
+#: to interrupt" on every held tick read to them as her own avoidance — four
+#: days of diary about a cowardice that was really a threshold she could not
+#: clear. These say what held it, and none of them says she chose.
+HELD_BECAUSE = {
+    "quiet hours": "it's quiet hours",
+    "daily cap": "today's reach-outs are used up",
+    "below threshold": "not pressing enough to interrupt yet",
+}
+
+#: The most of her words a journal line quotes. The whole line is in the chat;
+#: this is what the diary, recall and the night read back as the record.
+QUOTE_CHARS = 300
+
+#: The longest message `tell_them` takes. A message, not a letter: past this
+#: she is writing a document, and the desk is where documents go.
+TELL_MAX_CHARS = 1200
+
+
+def _quoted(text: str) -> str:
+    return f"“{trim(text, QUOTE_CHARS)}”"
+
+
+def _clock_word(ts: float) -> str:
+    """09:00 today, or tomorrow's — the way she would say when it goes."""
+    return dt_of(ts).strftime("%H:%M")
+
+
+def queue_telling(loop, args: dict, *, goal_id: str) -> tuple[str, str, str]:
+    """`tell_them` from a goal step: file what she decided to say (§18.2b).
+
+    Returns `(verdict, what she reads back, the message goal's id)`. The words
+    are kept exactly — Gate 2 delivers them, it does not re-compose them — and
+    a second `tell_them` for the same goal before the first has gone replaces
+    it rather than queueing two, because she changed her mind about the words,
+    not about how many messages to send.
+    """
+    user = loop.cfg.user_name
+    parent = loop.goals.get(goal_id) if goal_id else None
+    if parent is None:
+        return "denied", "denied (tell_them only works from one of your goals)", ""
+    raw = args.get("text") if isinstance(args, dict) else None
+    text = strip_native_calls(str(raw or "")).strip()
+    # `|` is the goals.md field separator: inside the meta JSON it cuts the
+    # line and the whole meta reads back as {} — her words with it.
+    text = text.replace("|", "/")
+    if not text:
+        return "error", ("error (tell_them needs `text`: the words you want "
+                         f"{user} to read)"), ""
+    if len(text) > TELL_MAX_CHARS:
+        return "error", (f"error (that is {len(text)} characters — a message is "
+                         f"at most {TELL_MAX_CHARS}; put the rest on your desk "
+                         "and tell them where it is)"), ""
+    provenance = f"told:{parent.id}"
+    waiting = next((g for g in loop.goals.open_goals()
+                    if g.provenance == provenance), None)
+    if waiting is not None:
+        loop.goals.update(waiting.id, meta={"say": text})
+        child = waiting
+    else:
+        child = loop.goals.add(
+            trim(f"tell {user} what I decided to: “{text}”", 200),
+            kind="reach_out", priority=1.0, commitment="blind",
+            provenance=provenance, meta={"say": text, "decided": True})
+    # The picture the goal is holding goes with her words, as one message
+    # (§18.2a). Found live: a goal whose photo had landed told them "here —
+    # the one I promised", closed on the delivery, and the photo never went,
+    # because the exit that hands a picture on is the done-mark one and this
+    # goal closes on delivery instead. Handed over once, like every exit.
+    product = parent.product
+    if (product.get("image_url") and product.get("deliver") != "chat"
+            and not parent.meta.get("offered")):
+        loop.goals.update(child.id, meta={"product": dict(product)})
+        loop.goals.update(parent.id, meta={"offered": child.id})
+    now = loop.clock.now()
+    when = (f"It's quiet hours, so it reaches them at {_clock_word(next_open(now))}."
+            if quiet_hour(now) else
+            "It reaches them as a message from you on your next moment, unless "
+            "today's reach-outs are already used up — then tomorrow morning.")
+    # Not audited to `calls.jsonl` like a hand: that audit also draws a tool
+    # row in the chat column, and a row quoting the message would show it to
+    # them hours before it was sent. The journal line is the record (§18.2b).
+    result = json.dumps({"status": "queued", "goal_id": child.id,
+                         "note": f"Not sent yet. {when}"}, ensure_ascii=False)
+    return "ok", result, child.id
+
+
+def settle_telling(loop, told: Goal, *, delivered: bool) -> list[str]:
+    """The goal a decided message came from, once the message has an ending.
+
+    Delivered: the goal is done if the step that told said so, and otherwise
+    goes back to work with the message behind it. Let go of before it went:
+    back to work, and saying so — the goal was waiting on something that is no
+    longer coming.
+    """
+    parent_id = told.provenance.partition("told:")[2]
+    parent = loop.goals.get(parent_id) if parent_id else None
+    if parent is None or parent.state in ("done", "abandoned"):
+        return []
+    telling = parent.meta.get("telling") or {}
+    if telling.get("goal") != told.id:
+        return []
+    user = loop.cfg.user_name
+    if delivered and telling.get("completes"):
+        loop.goals.update(parent.id, state="done", meta={"telling": {}})
+        return [f"finished: {parent.text} — {user} has it now"]
+    # Back to work — but not on the next tick. What she said is often a
+    # question, and the answer needs time to come: found live, "which framing
+    # do you want?" was followed nineteen seconds later by her shooting her own
+    # guess. The consider cooldown starts from the delivery, not the step.
+    loop.considered[parent.id] = loop.clock.now()
+    loop.goals.update(parent.id, state="active", meta={"telling": {}})
+    if delivered:
+        return [f"back to: {parent.text}, now that {user} has what I told them"]
+    return [f"what I was going to tell {user} was let go before it went; "
+            f"back to: {parent.text}"]
+
+
 async def reach_out(loop, goal: Goal) -> tuple[dict, dict, list[str]]:
     today = day_of(loop.clock.now())       # her day rolls at local midnight
     if loop.interrupts.get("date") != today:
         loop.interrupts = {"date": today, "count": 0}
     world = loop.world.snapshot()
     last_out = world.get("last_contact_out")
+    user = loop.cfg.user_name
+    # A message she wrote herself on a goal step (§18.2b): her words, already
+    # chosen, and the score no longer asked.
+    say = str(goal.meta.get("say") or "").strip() if goal.meta.get("decided") else ""
     # Dated goals keep their real timing; waiting must not bring an appointment
     # forward. Missing legacy timestamps earn no invented age (SPEC §18.2).
     waiting_hours = 0.0
@@ -444,10 +569,12 @@ async def reach_out(loop, goal: Goal) -> tuple[dict, dict, list[str]]:
         interrupts_today=loop.interrupts["count"],
         max_interrupts_per_day=loop.cfg.mind_max_interrupts_per_day,
         threshold=loop.cfg.mind_interrupt_threshold,
-        waiting_hours=waiting_hours)
+        waiting_hours=waiting_hours,
+        decided=bool(say))
     reason = ("daily cap" if loop.interrupts["count"] >= loop.cfg.mind_max_interrupts_per_day
               else "quiet hours" if decision.factors["availability"] < 0.5
               else "below threshold" if decision.outcome == "SILENT"
+              else "decided" if say
               else "eligible")
     interrupt = {"score": decision.score, "threshold": decision.threshold,
                  "outcome": decision.outcome, "factors": decision.factors,
@@ -469,44 +596,64 @@ async def reach_out(loop, goal: Goal) -> tuple[dict, dict, list[str]]:
 
     if decision.outcome == "SILENT":
         # THE DEFAULT: do it silently and journal it
-        if shot:
+        why = HELD_BECAUSE.get(reason, reason)
+        if say:
+            # Only a hard gate can hold what she decided, and each opens at a
+            # known moment. Parked until then rather than retried hourly: every
+            # retry is a journal line, and a night of "still waiting" lines is
+            # what her diary would read back as hesitation.
+            at = next_open(loop.clock.now())
+            loop.goals.update(goal.id, state="waiting")
+            loop.wakeups[goal.id] = at
+            note = (f"what I decided to tell {user} waits until "
+                    f"{_clock_word(at)} — {why}: {_quoted(say)}")
+        elif shot:
             # …but not by dropping it. A stale reach-out is normally let go
             # because news keeps badly and opening with something three days
             # old is worse company than saying nothing. A photo she promised
             # is not news: it is the promise, it is already made, and "let it
             # go quietly" is precisely how it disappears (§18.2a). So it keeps
             # its turn at Gate 2 for as long as it takes.
-            note = f"still holding the picture for: {goal.text}"
+            note = f"still holding the picture for: {goal.text} — {why}"
         elif goal.is_stale(loop.clock) and goal.commitment != "blind":
             loop.goals.set_state(goal.id, "abandoned")
             note = f"let it go quietly: {goal.text} (the moment passed)"
         else:
-            note = f"thought about {goal.text}; chose not to interrupt ({reason})"
+            note = f"wanted to reach {user} about {goal.text}; not sent — {why}"
         return ({"what": None, "result": "stayed quiet"}, interrupt, [note])
 
     if decision.outcome == "SUGGEST":
         # a soft line in the chat — waiting when they next look, never spoken
-        text = await loop._compose(cue)
-        if text:
-            # `unheard`: a SUGGEST is *by definition* a line waiting for the
-            # next time they look, so it belongs in the inbox whether or not
-            # a page happens to be open right now (world/inbox.py).
-            # One entry, her line and the picture together — the message and
-            # the thing it is about were never two deliveries.
-            loop.post_message("assistant", text, proactive=True, unheard=True,
-                              **shot)
-        elif shot:
-            # No line came back, but the photo IS the delivery. Sending it
-            # wordlessly beats spending one of two or three interrupts a day
-            # on nothing (§18.4).
-            loop.post_message("assistant", "", proactive=True, unheard=True,
-                              **shot)
+        text = drawn(say) if say else await loop._compose(cue)
+        if not text and not shot:
+            # Nothing to post is nothing delivered: no interrupt spent, the
+            # goal still open, and the journal saying so. This used to close
+            # the goal and write "left a quiet note" about a message that was
+            # never posted.
+            return ({"what": None, "result": "no words came"}, interrupt,
+                    [f"went to reach {user} about {goal.text} and the words "
+                     "didn't come; not sent"])
+        # `unheard`: a SUGGEST is *by definition* a line waiting for the
+        # next time they look, so it belongs in the inbox whether or not
+        # a page happens to be open right now (world/inbox.py).
+        # One entry, her line and the picture together — the message and
+        # the thing it is about were never two deliveries. No line but a
+        # photo: the photo IS the delivery, and sending it wordlessly beats
+        # spending one of two or three interrupts a day on nothing (§18.4).
+        loop.post_message("assistant", text or "", proactive=True, unheard=True,
+                          **shot)
         loop.world.note_contact_out()
         loop.interrupts["count"] += 1
         loop.goals.set_state(goal.id, "done")
-        sent = "sent the picture with a line" if shot else "left a quiet note"
-        return ({"what": "chat", "result": f"{sent}: {goal.text}"},
-                interrupt, [f"{sent} about {goal.text}"])
+        if say:
+            notes = [f"told {user}: {_quoted(text)}"]
+            notes += settle_telling(loop, goal, delivered=True)
+        elif shot:
+            notes = [f"sent {user} the picture for {goal.text}"
+                     + (f", with: {_quoted(text)}" if text else "")]
+        else:
+            notes = [f"reached out to {user} about {goal.text}: {_quoted(text)}"]
+        return ({"what": "chat", "result": notes[0]}, interrupt, notes)
 
     # SPEAK: aloud through the ambient seam if a page is open (the full turn
     # pipeline — voice, face, barge-in); as a chat line if the room is empty
@@ -519,6 +666,7 @@ async def reach_out(loop, goal: Goal) -> tuple[dict, dict, list[str]]:
         loop.post_message("assistant", "", proactive=True, unheard=True, **shot)
     with correlate.scope(kind=correlate.COMPOSE):
         spoken = await loop.speak(cue)
+    text = ""
     if not spoken:
         # `speak` said no: there is no page to say it through, so this is the
         # case the inbox exists for — she spent an interrupt on an empty room.
@@ -526,12 +674,23 @@ async def reach_out(loop, goal: Goal) -> tuple[dict, dict, list[str]]:
         text = await loop._compose(cue)
         if text:
             loop.post_message("assistant", text, proactive=True, unheard=True)
+        elif not shot:
+            return ({"what": None, "result": "no words came"}, interrupt,
+                    [f"went to reach {user} about {goal.text} and the words "
+                     "didn't come; not sent"])
     loop.world.note_contact_out()
     loop.interrupts["count"] += 1
     loop.goals.set_state(goal.id, "done")
-    reached = "reached out with the picture" if shot else "reached out"
-    return ({"what": "speak", "result": f"{reached}: {goal.text}"},
-            interrupt, [f"{reached} first about {goal.text}"])
+    picture = " with the picture" if shot else ""
+    if spoken:
+        # The words went through the turn pipeline and are in the
+        # conversation; this act never sees them, so it says where they are.
+        note = f"said it aloud to {user}{picture}, first: {goal.text}"
+    elif text:
+        note = f"reached out to {user}{picture} about {goal.text}: {_quoted(text)}"
+    else:
+        note = f"sent {user} the picture for {goal.text}"
+    return ({"what": "speak", "result": note}, interrupt, [note])
 
 
 def wake_goal(loop, goal_id: str) -> str:

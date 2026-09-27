@@ -26,7 +26,8 @@ from typing import Awaitable, Callable
 
 from yurios.kernel import correlate
 
-from .hands import (START_DONT_AWAIT, Hands, Intent, Offer, parse_intent,
+from . import acts
+from .hands import (START_DONT_AWAIT, TELL, Hands, Intent, Offer, parse_intent,
                     stamp_contract)
 
 log = logging.getLogger("mind.handwork")
@@ -62,6 +63,8 @@ class Reach:
     why: str = ""
     #: Why the preconditions refused it, when they did.
     refused: str = ""
+    #: The message goal a `tell_them` filed (§18.2b), or "".
+    told: str = ""
 
 
 @dataclass
@@ -84,6 +87,12 @@ async def dispatch(loop, tool: str, args: dict, *, goal_id: str = "") -> Reach:
     she can read; it is never an exception, and it never ends the step.
     """
     args = dict(args)
+    if tool == TELL:
+        # Not a hand: no tool server, no switch, no call cap. What it files is
+        # Gate 2's to deliver, under Gate 2's hard limits (§18.2b).
+        verdict, result, told = acts.queue_telling(loop, args, goal_id=goal_id)
+        return Reach(tool, args, verdict, result, told=told,
+                     refused=result if verdict == "denied" else "")
     ok, why = loop.hands.check(
         tool, args, state=loop.activity.state,
         pressure=loop.budget.pressure(),
@@ -152,7 +161,10 @@ async def work(loop, messages: list[dict], *, offer: Offer,
         done.reaches.append(reach)
         if on_reach is not None:
             on_reach(reach)
-        if reach.dispatched and stop_on_dispatch:
+        if (reach.dispatched or reach.told) and stop_on_dispatch:
+            # A message filed ends the step as a dispatch does: the goal now
+            # waits on it being delivered, and anything she wrote after it would
+            # be written about a message nobody has read yet.
             done.answer = Intent("think", text=reach.why)
             return done
         messages += [{"role": "assistant", "content": reply},

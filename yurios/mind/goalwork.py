@@ -28,9 +28,9 @@ from . import acts
 from .goals import Goal, night_owned, trim
 from . import handwork
 from .handwork import Reach
-from .hands import klass, parse_intent
+from .hands import TELL, Offer, klass
 from .prompts import goal_history
-from .util import iso_of
+from .util import closing, iso_of
 
 log = logging.getLogger("mind.goalwork")
 
@@ -396,8 +396,40 @@ def finished(loop, note: str) -> bool:
     return loop.DONE_MARK in (note or "").lower()
 
 
+def takeaway(note: str) -> str:
+    """The line of a step worth journalling: where she ended up, not how she began.
+
+    The journal is what recall, the diary and the night read back, and it used
+    to get the first 160 characters of the step — which, for a step that opened
+    in scene ("*The rain has been steady against the glass…*"), was the one
+    part that said nothing. Her last `think` line is her own conclusion when
+    she wrote one; otherwise the note's closing sentences.
+    """
+    text = (note or "").strip()
+    thought = ""
+    for line in text.splitlines():
+        if line.strip().lower().startswith("think "):
+            thought = line.strip()[6:].strip()
+    return closing(thought or text, 240)
+
+
+def step_offer(offer) -> Offer:
+    """What a goal step may reach for: her hands, if any, and always `tell_them`.
+
+    Always, because a goal whose point is that the user hears something must
+    have a way to get there that is not a hand (§18.2b). Told only that
+    nothing here reached anyone, the step that should have said something wrote
+    a scene of saying it on her desk, then believed its own desk.
+    """
+    if not offer:
+        return Offer(tools=(TELL,))
+    return Offer(tools=(*offer.tools, TELL), held=offer.held,
+                 held_why=offer.held_why)
+
+
 def work_system(loop, goal: Goal, offer, last: bool) -> str:
     """The instruction half of a working step."""
+    user = loop.cfg.user_name
     lines = [
         # The persona blocks arrive above this, fused on by `_utility`
         # (§22.4). So this opens by saying what the moment *is* rather than
@@ -405,20 +437,23 @@ def work_system(loop, goal: Goal, offer, last: bool) -> str:
         # card behind it "you" pointed at nobody and every character wrote
         # the same note.
         "This is you, alone, between conversations — quietly advancing one "
-        "of your own goals. Nobody is waiting on this and nothing you write "
-        "here is sent to anyone: it goes on your own desk, for you to pick "
-        "up next time. Think it through as yourself, not as an assistant "
-        "reporting on a task.",
+        "of your own goals. Nobody is waiting on this. What you write here "
+        "goes on your own desk, for you to pick up next time. Think it "
+        "through as yourself, not as an assistant reporting on a task.",
+        "",
+        # The way out that a goal about *them* needs (§18.2b). Said plainly and
+        # early, because the failure it ends was not refusal: it was a step
+        # that wanted to speak, was told it couldn't, and performed it instead.
+        f"When the point is for {user} to hear something from you, `{TELL}` "
+        "is how you say it: your words reach them as a message from you, "
+        "sent at the first moment that isn't quiet hours. Writing on your "
+        "desk that you told them is not telling them — only this is.",
         "",
     ]
-    if offer:
-        lines.append(loop.hands.catalog(tuple(offer.tools)))
-        if offer.waiting():
-            lines += ["", offer.waiting()]
-    else:
-        lines.append(
-            "Write a short working note (<=80 words) of what you concluded "
-            "or want to try next. Just the note.")
+    offer = step_offer(offer)
+    lines.append(loop.hands.catalog(tuple(offer.tools)))
+    if offer.waiting():
+        lines += ["", offer.waiting()]
     lines += [
         "",
         # "in your note" was ambiguous the moment she had hands: she read it
@@ -426,8 +461,10 @@ def work_system(loop, goal: Goal, offer, last: bool) -> str:
         # `append_note`, where nothing reads them, and a finished goal parked
         # for twelve hours instead of closing. Name the line instead.
         f'When the goal is genuinely finished, write "{loop.DONE_MARK}" '
-        + ("on your `think` line — and only then. Words inside a tool call "
-           "are not read." if offer else "in your note — and only then."),
+        "on your `think` line — and only then. Words inside a tool call "
+        f"are not read. If what finishes it is {user} hearing something, "
+        f"write it on the `think` line above `{TELL}`: the goal closes "
+        "itself once the message has reached them.",
     ]
     if last:
         lines.append(
@@ -443,6 +480,14 @@ def journal_reach(loop, goal: Goal, reach: Reach) -> str:
     hand returned reads, three ticks later, as a list of things that happened
     to her rather than steps she took — and she re-does them.
     """
+    if reach.told and reach.verdict == "ok":
+        # Queued is not sent, and the desk must not let a later step read it
+        # as sent: the next step reads this file back as what she has done.
+        said = trim(str(reach.args.get("text") or ""), 300)
+        note = (f"decided to tell {loop.cfg.user_name}: “{said}” — queued, "
+                "not sent yet; it goes when the gate allows")
+        desk_write(loop, goal, f"{reach.why}\n\n{note}" if reach.why else note)
+        return note
     if reach.verdict == "denied" and reach.refused:
         # A refused reach is still a reach, and the desk should say so: "she
         # thought about it" and "she tried to look it up and the cap was spent"
@@ -507,26 +552,33 @@ async def goal_work(loop, goal: Goal,
     messages = [{"role": "system", "content": work_system(loop, goal, offer, last)},
                 {"role": "user", "content": await context(loop, goal)}]
     with correlate.scope(kind=correlate.GOAL_WORK):
-        if offer:
-            # A step may chain hands now (mind/handwork.py) — read the note,
-            # then fix the passage — each one journalled as it lands.
-            worked = await handwork.work(
-                loop, messages, offer=offer, ask=ask, goal_id=goal.id,
-                stop_on_dispatch=True,
-                on_reach=lambda reach: notes.append(journal_reach(loop, goal, reach)))
-        else:
-            worked = handwork.Worked(parse_intent(await ask(messages), allowed=()))
+        # A step may chain hands now (mind/handwork.py) — read the note,
+        # then fix the passage — each one journalled as it lands. With no
+        # hands it is still offered `tell_them`, so it always goes this way.
+        worked = await handwork.work(
+            loop, messages, offer=step_offer(offer), ask=ask, goal_id=goal.id,
+            stop_on_dispatch=True,
+            on_reach=lambda reach: notes.append(journal_reach(loop, goal, reach)))
 
     intent = worked.answer
     note = (intent.text or "").strip()
     if note or not worked.reaches:
         note = note or f"(sat with it; nothing new yet on: {goal.text})"
         desk_write(loop, goal, note)
-        notes.append(f"worked on: {goal.text} — {note[:160]}")
+        notes.append(f"worked on: {goal.text} — {takeaway(note)}")
 
     meta: dict = {"steps": step, "last_step": iso_of(loop.clock.now())}
     started = worked.dispatched
-    if started is not None:
+    told = next((r for r in worked.reaches if r.told and r.verdict == "ok"), None)
+    if told is not None:
+        # She said something (§18.2b). The goal waits on it arriving, and a
+        # done-mark beside it closes the goal *then* — not now, when all that
+        # has happened is that a message was queued behind the quiet hours.
+        completes = (finished(loop, intent.text)
+                     or any(finished(loop, r.why) for r in worked.reaches))
+        meta["telling"] = {"goal": told.told, "completes": completes}
+        state = "waiting"
+    elif started is not None:
         # Start-don't-await: the answer comes back as `task_completion`, and
         # until it does there is nothing to think about (§7.6, §16).
         meta["dispatched"] = {"tool": started.tool, "at": iso_of(loop.clock.now())}

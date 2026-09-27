@@ -166,6 +166,10 @@ def echoes(text: str, existing: Iterable[Goal]) -> Goal | None:
     return None
 
 
+#: Provenance prefixes that name a parent goal, deduplicated on the parent.
+PARENTED = ("followup:", "told:")
+
+
 def already_carrying(text: str, provenance: str,
                      existing: Iterable[Goal]) -> Goal | None:
     """Is this a goal she is already carrying? Two questions, not one.
@@ -190,10 +194,15 @@ def already_carrying(text: str, provenance: str,
     For these the honest question is whether this parent already has one —
     which is an exact test, and idempotent. Everything else asks the original
     question: is this the same intention, rephrased (`echoes`)?
+
+    A message she decided to send from a goal step (`told:<id>`, §18.2b) is
+    the same shape for the same reason: it quotes the goal it came from, and
+    the rewording test would fold her words back into the goal they finish.
     """
-    if provenance.startswith("followup:"):
+    if provenance.startswith(PARENTED):
         return next((g for g in existing if g.provenance == provenance), None)
     return echoes(text, existing)
+
 
 
 LINE_RE = re.compile(r"^- \[(?P<done>[ x~])\] \((?P<id>[\w-]+)\) (?P<text>.*?)"

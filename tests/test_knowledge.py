@@ -95,10 +95,27 @@ async def test_research_source_archive_keeps_file_without_embedding(store):
 
     # A URL previously indexed under the old policy loses those rows when
     # research archives a fresh copy of it.
-    await store.ingest(name, DOC)
+    store._rewrite_index([{"id": "old", "doc": name, "span": "chars 0-10",
+                           "text": "Tea is steeped.", "context": "",
+                           "embedding": [1.0, 0.0]}])
     assert store.inspect(name)
     await store.archive_source(name, DOC)
     assert store.inspect(name) == []
+
+
+async def test_ingesting_a_source_archives_it_instead(store):
+    """Every door that files a web page — a turn's `read_page`, a `research`
+    run, a held page resumed, a tick finding one pending — ends here, and none
+    of them may pay to embed what §20.2 will never retrieve."""
+    embedded = []
+    real = store.embedder.embed
+    store.embedder.embed = lambda texts: embedded.extend(texts) or real(texts)
+    result = await store.ingest("web-tea-source.md", DOC)
+    assert result.doc == "web-tea-source.md" and result.chunks == 0
+    assert embedded == [] and store.inspect("web-tea-source.md") == []
+    assert store.pending_docs() == []
+    assert store.estimate(DOC, name="web-tea-source.md")["calls"] == 0
+    assert store.estimate(DOC)["calls"] > 0          # a book still costs its read
 
 
 async def test_drop_scan_ingest_search_with_citation(store):
@@ -214,8 +231,9 @@ async def test_a_doc_being_read_is_not_still_pending(store):
 
 
 async def test_the_same_doc_is_not_read_twice_at_once(store):
-    """The tick and the research run race for one page: it gets read once, and
-    the loser is handed the same answer rather than repeating the work."""
+    """Two callers race for one document — the tick and whoever shelved it: it
+    gets read once, and the loser is handed the same answer rather than
+    repeating the work. (A web page no longer races: it is archived, not read.)"""
     calls = []
     real = store._contextualize
 
@@ -226,8 +244,8 @@ async def test_the_same_doc_is_not_read_twice_at_once(store):
     store._contextualize = counted
     import asyncio
     a, b = await asyncio.gather(
-        store.ingest("web-tea.md", text=DOC),
-        store.ingest("web-tea.md", text=DOC))
+        store.ingest("tea-notes.md", text=DOC),
+        store.ingest("tea-notes.md", text=DOC))
 
     assert a.doc == b.doc
     assert a.chunks == b.chunks >= 2           # both callers get the real count

@@ -170,6 +170,7 @@ class Researcher:
             log.warning("research: couldn't index topic page for %s", job,
                         exc_info=True)
             return ""
+
     def _price(self, entry: dict, page: dict) -> int | None:
         """What reading this page is going to cost, in model calls, before any
         of them are made. No store means no model calls; an unpriceable page
@@ -178,7 +179,8 @@ class Researcher:
         if store is None:
             return 0
         try:
-            est = store.estimate(as_document(page, retrieved=self._stamp()))
+            est = store.estimate(as_document(page, retrieved=self._stamp()),
+                                 name=_doc_name(page))
             entry["calls"] = est["calls"]
             entry["passages"] = est["passages"]
             entry["digested"] = est["digested"]

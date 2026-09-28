@@ -23,7 +23,7 @@ class FakeShelf:
         self.docs: dict[str, str] = {}
         self.fail = fail
 
-    def estimate(self, text):
+    def estimate(self, text, *, name=""):
         return {"passages": 1, "calls": 2, "digested": False,
                 "chars": len(text)}
 
@@ -262,8 +262,50 @@ async def test_a_page_she_read_herself_is_archived_without_entering_rag(
     await asyncio.gather(*r._tasks)
 
     assert store.search("sencha steamed", k=2) == []
-    assert any("Sencha is steamed" in p.read_text()
-               for p in store.reference.glob("web-*.md"))
+    (doc,) = [p for p in store.reference.glob("web-*.md")]
+    assert "Sencha is steamed" in doc.read_text()
+    assert store.inspect(doc.name) == []            # kept, never embedded
+    assert store.pending_docs() == []               # …and no tick will read it
+
+
+async def test_a_research_run_spends_no_model_calls_on_its_sources(clock, tmp_path):
+    """§20.2 never retrieves a raw page, so reading one into the index is calls
+    spent on chunks nothing can find. The run keeps them for nothing — which is
+    also why its ceiling never has a page to hold back."""
+    from yurios.mind.knowledge import KnowledgeStore
+    from yurios.mind.vaultio import MindVault
+
+    from .conftest import FakeEmbedder
+
+    embedder = FakeEmbedder()
+    embedded = []
+    real = embedder.embed
+    embedder.embed = lambda texts: embedded.extend(texts) or real(texts)
+    store = KnowledgeStore(MindVault(tmp_path / "vault"), embedder, clock)
+    r, post, _speak = make(clock, shelf=store)
+    r.max_calls = 0
+    await r._job(dict(CONTRACT))
+
+    assert embedded == []
+    assert len(store.shelf()) == 2
+    assert "2 of 2 shelved" in post.messages[0]["text"]
+    assert "ceiling" not in post.messages[0]["text"]
+
+
+async def test_a_held_source_resumed_is_kept_not_read(clock, tmp_path):
+    from yurios.mind.knowledge import KnowledgeStore
+    from yurios.mind.vaultio import MindVault
+
+    from .conftest import FakeEmbedder
+
+    store = KnowledgeStore(MindVault(tmp_path / "vault"), FakeEmbedder(), clock)
+    doc = store.park("web-sencha-0123456789.md", "# Sencha\n\nSteamed, not fired.\n")
+    (held,) = store.holds()
+    assert held["remaining_calls"] == 0             # nothing to spend on it
+    assert store.resume(doc)
+    (result,) = await store.scan()
+    assert result.doc == doc and result.chunks == 0
+    assert store.holds() == [] and store.pending_docs() == []
 
 
 async def test_dream_archives_a_source_without_embedding_it(clock, tmp_path):
@@ -301,7 +343,7 @@ class StoreFake(FakeShelf):
         self.parked: dict[str, str] = {}
         self.stops = 0
 
-    def estimate(self, text):
+    def estimate(self, text, *, name=""):
         passages = max(1, len(text) // 400)
         return {"passages": passages, "calls": passages * 2,
                 "digested": len(text) > 40_000, "chars": len(text)}
@@ -378,7 +420,7 @@ async def test_concurrent_pages_cannot_reserve_the_same_remaining_calls(clock):
 
 async def test_page_over_ceiling_is_held_while_smaller_page_can_be_read(clock):
     class PricedShelf(StoreFake):
-        def estimate(self, text):
+        def estimate(self, text, *, name=""):
             calls = 8 if "overview" in text else 2
             return {"passages": calls // 2, "calls": calls,
                     "digested": False, "chars": len(text)}
@@ -427,7 +469,7 @@ async def test_a_fully_held_run_wakes_the_goal_that_dispatched_it(clock):
 
 async def test_unpriceable_page_is_held_without_starting_its_read(clock):
     class Unpriceable(StoreFake):
-        def estimate(self, text):
+        def estimate(self, text, *, name=""):
             raise ValueError("cannot plan this document")
 
     shelf = Unpriceable()
@@ -441,7 +483,7 @@ async def test_unpriceable_page_is_held_without_starting_its_read(clock):
 
 async def test_unpriceable_pages_are_not_blamed_on_the_ceiling(clock):
     class Unpriceable(StoreFake):
-        def estimate(self, text):
+        def estimate(self, text, *, name=""):
             raise ValueError("cannot plan this document")
 
     signals = []

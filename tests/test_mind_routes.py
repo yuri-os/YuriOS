@@ -387,7 +387,9 @@ def test_reading_answers_even_when_she_is_reading_nothing(client_with_mind):
 
 def test_reading_shows_what_is_held_and_what_finishing_it_costs(client_with_mind):
     c, rig = client_with_mind
-    doc = rig.mind.knowledge.park("web-a-long-page.md",
+    # A book, not a web page: a held source is kept rather than read, and
+    # finishing it costs nothing (SPEC §20.1).
+    doc = rig.mind.knowledge.park("a-long-book.md",
                                   text="A paragraph.\n\n" * 400)
     (held,) = c.get("/api/mind/reading").json()["held"]
     assert held["doc"] == doc and held["done"] == 0

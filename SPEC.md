@@ -1893,10 +1893,13 @@ turn** — separate files, separate indexes, separate `inspect()`.
   The ingest impulse **MUST NOT** fire while a read holds the shelf lock. `scan()`
   already steps aside rather than queueing; scoring "new document on the shelf"
   and then ingesting nothing is the retry loop that check exists to prevent
-  (measured: 320 empty ingests against one overnight research run). A DREAM
-  research page **MUST** be archived under the same shelf lock with a seen marker
-  but **MUST NOT** be embedded; if an earlier run indexed that source, archiving
-  it again **MUST** remove its old rows. The compiled topic page is indexed instead.
+  (measured: 320 empty ingests against one overnight research run). A raw web
+  source (`web-`) — read by a DREAM research job, a conversational `research` run or
+  `read_page`, or a held page resumed — **MUST** be archived under the same shelf lock
+  with a seen marker but **MUST NOT** be embedded, and pricing one **MUST** come to zero
+  model calls: §20.2 never retrieves it, so every call spent reading it would buy chunks
+  nothing can find. If an earlier run indexed that source, archiving it again **MUST**
+  remove its old rows. A DREAM job's compiled topic page is indexed instead.
 - §20.2 **Retrieval is grounded, and it reaches the prompt.** Every returned `Chunk` carries `doc`
   + `span` (character range) — a citation she can show. `search()` **MUST** run on every assembled
   turn and join conversation as the assembler's knowledge slot (§7.1 block 8), carrying its

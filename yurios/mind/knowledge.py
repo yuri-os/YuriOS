@@ -48,6 +48,16 @@ SUFFIXES = (".md", ".txt")
 # neighbouring chunks from the same page.
 MAX_CHUNKS_PER_DOC = 2
 
+#: The doc-name prefix of a fetched web page (`world/research._doc_name`). A
+#: source is kept on the shelf as evidence, with its URL, and never embedded or
+#: retrieved (SPEC §7.7, §20.2) — so keeping one costs no model calls at all.
+SOURCE_PREFIX = "web-"
+
+
+def is_source(doc: str) -> bool:
+    """Is this a raw web page, kept for verification rather than read?"""
+    return doc.startswith(SOURCE_PREFIX)
+
 #: Past this many characters a document is *read for notes* rather than
 #: transcribed (`_passages`). Roughly a long feature article: short enough that
 #: an ordinary page is still indexed word-for-word, long enough that the
@@ -317,7 +327,7 @@ class KnowledgeStore:
         """
         doc = self._place(name, text)
         try:
-            est = self.estimate(text)
+            est = self.estimate(text, name=doc)
         except Exception:  # noqa: BLE001 — a price failure must not lose the page
             log.warning("knowledge: couldn't price held %s", doc, exc_info=True)
             est = {"passages": 0, "digested": False}
@@ -368,9 +378,15 @@ class KnowledgeStore:
         that summarises or situates it when there's a utility tier at all."""
         return 2 if self.utility is not None else 1
 
-    def estimate(self, text: str) -> dict:
+    def estimate(self, text: str, *, name: str = "") -> dict:
         """What reading this would cost, without reading it. The number the
-        panel shows before you decide whether to let it happen."""
+        panel shows before you decide whether to let it happen.
+
+        `name` is the doc it would be filed as: a source (`is_source`) is kept,
+        not read, and keeping it is free."""
+        if is_source(name):
+            return {"passages": 0, "digested": False, "calls": 0,
+                    "chars": len(text)}
         plan, digested = self._plan(text)
         return {"passages": len(plan), "digested": digested,
                 "calls": len(plan) * self._calls_each(),
@@ -387,23 +403,25 @@ class KnowledgeStore:
 
     # ----------------------------------------------------------------- ingest
 
-    async def archive_source(self, name: str, text: str) -> str:
+    async def archive_source(self, name: str, text: str | None = None) -> str:
         """Keep a fetched page for verification without embedding it.
 
         SPEC §20.1: DREAM research has already read the page while gathering.
         Its compiled topic page is what the ordinary prompt needs. Claim this
         file under the same lock as ingest so a tick cannot read it in between
         the write and the seen marker; clear older chunks if this URL had been
-        indexed under the previous policy.
+        indexed under the previous policy. `text=None` is a source already on
+        the shelf — one a tick found pending, or a held page resumed.
         """
-        if not name.startswith("web-"):
-            raise ValueError("source archive names must start with web-")
+        if not is_source(name):
+            raise ValueError(f"source archive names must start with {SOURCE_PREFIX}")
         async with self._busy:
             doc = await asyncio.to_thread(self._place, name, text)
             rows = list(jsonl_read(self.index_path))
             if any(r["doc"] == doc for r in rows):
                 self._rewrite_index([r for r in rows if r["doc"] != doc])
             self._mark_seen(doc)
+            self._clear_hold(doc)       # nothing left to read, so nothing held
             return doc
 
     async def ingest(self, name: str, text: str | None = None) -> IngestResult:
@@ -423,7 +441,13 @@ class KnowledgeStore:
         after it, so it stops looking pending the moment somebody starts; and a
         caller that arrives while it's claimed finds it already read and takes
         the shelved answer instead of doing the work again.
+
+        A source (`is_source`) is archived instead: §20.2 never retrieves one,
+        so every call spent reading it — a `read_page` in a turn, a `research`
+        run, a held page resumed — would buy chunks nothing can find.
         """
+        if is_source(name):
+            return IngestResult(doc=await self.archive_source(name, text), chunks=0)
         if not getattr(self.embedder, "ready", True):
             ensure = getattr(self.embedder, "ensure_ready", None)
             if ensure is not None:
@@ -732,7 +756,7 @@ class KnowledgeStore:
         # SPEC §20.2: fetched pages are evidence for research, not prompt
         # material. Older web-* rows may still be in a rebuilt index; only
         # curated research pages and user documents can fill this slot.
-        rows = [r for r in self._rows() if not r["doc"].startswith("web-")]
+        rows = [r for r in self._rows() if not is_source(r["doc"])]
         if not rows:
             return []
         q_words = set(_WORD_RE.findall(query.lower()))

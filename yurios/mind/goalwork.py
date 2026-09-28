@@ -354,6 +354,43 @@ def rescue_pictures(loop, dropped) -> list[str]:
     return notes
 
 
+def settle_strays(loop) -> list[str]:
+    """Either end of a decided message that has lost the other (SPEC §18.2b).
+
+    `acts.settle_telling` is how the two normally part: on delivery, or when
+    the message is let go of by hand. Anything else that closes one end — the
+    goal let go of or retired by `reconsider` while its message waits, a line
+    edited out of `goals.md` — used to strand the other: a message about a goal
+    she no longer has, still going out at 09:00, or a goal in `waiting`, with
+    no wakeup, on a message that no longer exists. Run every tick in SENSE,
+    before ACT can send anything.
+    """
+    notes: list[str] = []
+    user = loop.cfg.user_name
+    goals = loop.goals.all()
+    by_id = {g.id: g for g in goals}
+    for g in goals:
+        if not acts.is_open(g):
+            continue
+        if g.provenance.startswith("told:"):
+            if acts.telling_for(loop, g) is not None:
+                continue
+            # Nothing left for the words to finish, so they don't go — but a
+            # photo riding with them was made *for them*, and is handed on to
+            # an ordinary errand rather than dropped with the words (§18.2a).
+            notes += offer_the_picture(loop, g)
+            loop.goals.set_state(g.id, "abandoned")
+            loop.wakeups.pop(g.id, None)
+            said = str(g.meta.get("say") or g.text)
+            notes.append(f"didn't send what I was going to tell {user} — the "
+                         f"goal it was for is closed: “{trim(said, 300)}”")
+        elif g.state == "waiting":
+            told = str((g.meta.get("telling") or {}).get("goal") or "")
+            if told and not acts.is_open(by_id.get(told)):
+                notes += acts.resume_after_telling(loop, g, delivered=False)
+    return notes
+
+
 def offer_to_tell(loop, goal: Goal) -> list[str]:
     """A promise she has now kept becomes something to say (§18.2, §22.1).
 

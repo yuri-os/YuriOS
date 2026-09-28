@@ -513,6 +513,22 @@ def queue_telling(loop, args: dict, *, goal_id: str) -> tuple[str, str, str]:
     return "ok", result, child.id
 
 
+def is_open(goal: Goal | None) -> bool:
+    return goal is not None and goal.state in ("pending", "active", "waiting")
+
+
+def telling_for(loop, told: Goal) -> Goal | None:
+    """The goal a decided message is for, while that goal is still waiting on
+    it — or None, and then there is nobody left for the message to finish."""
+    parent_id = told.provenance.partition("told:")[2]
+    parent = loop.goals.get(parent_id) if parent_id else None
+    if parent is None or not is_open(parent):
+        return None
+    if (parent.meta.get("telling") or {}).get("goal") != told.id:
+        return None
+    return parent
+
+
 def settle_telling(loop, told: Goal, *, delivered: bool) -> list[str]:
     """The goal a decided message came from, once the message has an ending.
 
@@ -521,13 +537,16 @@ def settle_telling(loop, told: Goal, *, delivered: bool) -> list[str]:
     back to work, and saying so — the goal was waiting on something that is no
     longer coming.
     """
-    parent_id = told.provenance.partition("told:")[2]
-    parent = loop.goals.get(parent_id) if parent_id else None
-    if parent is None or parent.state in ("done", "abandoned"):
+    parent = telling_for(loop, told)
+    if parent is None:
         return []
+    return resume_after_telling(loop, parent, delivered=delivered)
+
+
+def resume_after_telling(loop, parent: Goal, *, delivered: bool) -> list[str]:
+    """`settle_telling`'s half that moves the goal, for when the message itself
+    may already be gone (`goalwork.settle_strays`)."""
     telling = parent.meta.get("telling") or {}
-    if telling.get("goal") != told.id:
-        return []
     user = loop.cfg.user_name
     if delivered and telling.get("completes"):
         loop.goals.update(parent.id, state="done", meta={"telling": {}})
@@ -790,6 +809,12 @@ def wake_goal(loop, goal_id: str) -> str:
         return ""
     loop.considered.pop(goal.id, None)
     if goal.state != "waiting":
+        return ""
+    told = str((goal.meta.get("telling") or {}).get("goal") or "")
+    if told and is_open(loop.goals.get(told)):
+        # Waiting on a message she decided to send (§18.2b), which is still on
+        # its way: a stale wake from an earlier park must not put her back to
+        # work on it before they have read it. Its delivery wakes it.
         return ""
     dispatched = goal.dispatched
     loop.goals.update(goal.id, state="active", meta={"dispatched": {}})

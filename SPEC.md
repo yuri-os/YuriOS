@@ -1733,7 +1733,12 @@ them is precisely the always-interrupting-assistant failure.
   work — with its consider cooldown restarted from the delivery, because what she said is often a
   question and the answer needs time to arrive (live, "which framing do you want?" was followed
   nineteen seconds later by her shooting her own guess) — and a message the user lets go returns
-  it to work as well. The step prompt **MUST** name
+  it to work as well. Neither end **MUST** be stranded by the other closing some other way, checked
+  every tick in SENSE before ACT: a message whose goal is closed, or no longer waiting on it,
+  **MUST NOT** be sent — it is let go, and a picture riding with it is handed on as an ordinary
+  errand (§18.2a) — and a goal waiting on a message that is no longer open returns to work. A
+  wakeup **MUST NOT** return a goal to work while the message it waits on is still open. The step
+  prompt **MUST** name
   this as the way to reach them. Told only that nothing it wrote reached anyone, a step whose goal
   was "tell him, directly, in conversation, not in a note" wrote a scene of saying it on her desk,
   read its own desk back on the next step as the event, recorded the conversation in her diary,

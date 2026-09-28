@@ -523,6 +523,9 @@ class MindLoop:
         # writes are lines REFLECT has to journal now. Idempotent and dated, so
         # a restart at 23:59 does not do the day twice.
         reflect_notes.extend(self._day_rollover(now))
+        # After the rollover, whose `reconsider` can retire a goal that has a
+        # message waiting on it, and before ACT, which could send that message.
+        reflect_notes.extend(goalwork.settle_strays(self))
         reflect_notes.extend(self._bootstrap_handoff(now))
         # Partner-model → PERSONA is gated, not daily: a DREAM rewrite at 2am
         # must be able to queue the same night, not wait for tomorrow's rollover.

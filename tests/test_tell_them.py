@@ -185,6 +185,82 @@ async def test_a_message_let_go_before_it_went_frees_the_goal(cfg, seeded_vault)
     assert "was let go before it went" in _journal(seeded_vault)
 
 
+async def _queued_overnight(cfg, seeded_vault, **goal_kw):
+    """A goal told at 23:00, its message parked for the morning."""
+    utility = ScriptedUtility(
+        f'think goal complete\nuse tell_them {{"text": "{SAID}"}}')
+    clock = VirtualClock(start=datetime.datetime(2026, 7, 6, 23, 0).timestamp())
+    rig = make_mind(_cfg(cfg), seeded_vault, clock=clock, utility=utility)
+    goal = rig.mind.goals.add("tell Sam the one thing", kind="task", priority=0.9,
+                              **goal_kw)
+    await rig.mind.tick()
+    told = next(g for g in rig.mind.goals.open_goals()
+                if g.provenance == f"told:{goal.id}")
+    assert rig.mind.goals.get(goal.id).state == "waiting"
+    return rig, goal, told
+
+
+async def test_letting_go_of_the_goal_takes_its_waiting_message_with_it(
+        cfg, seeded_vault):
+    """The words were for a goal she no longer has: they must not still go out
+    at 09:00, about something the user already let go of."""
+    rig, goal, told = await _queued_overnight(cfg, seeded_vault)
+    rig.mind.bus.post("goal_decision", {"id": goal.id, "abandon": True})
+    rig.clock.advance(60)
+    await rig.mind.tick()
+    assert rig.mind.goals.get(told.id).state == "abandoned"
+    assert told.id not in rig.mind.wakeups
+    assert "didn't send what I was going to tell Sam" in _journal(seeded_vault)
+
+    rig.clock.advance(datetime.datetime(2026, 7, 7, 9, 0).timestamp()
+                      - rig.clock.now() + 1)
+    for _ in range(4):
+        await rig.mind.tick()
+        rig.clock.advance(60)
+    assert rig.post.proactive() == []
+
+
+async def test_a_photo_riding_with_dropped_words_is_still_handed_on(
+        cfg, seeded_vault):
+    """Let go of the words, not the picture made for them (§18.2a)."""
+    shot = {"image_url": "/selfies/s1.png", "selfie_id": "s1"}
+    rig, goal, told = await _queued_overnight(
+        cfg, seeded_vault, meta={"product": shot})
+    assert rig.mind.goals.get(told.id).product["image_url"] == shot["image_url"]
+    rig.mind.bus.post("goal_decision", {"id": goal.id, "abandon": True})
+    rig.clock.advance(60)
+    await rig.mind.tick()
+    assert rig.mind.goals.get(told.id).state == "abandoned"
+    heir = next(g for g in rig.mind.goals.open_goals()
+                if g.provenance == f"followup:{told.id}")
+    assert heir.product["image_url"] == shot["image_url"]
+    assert not heir.meta.get("say")                  # an errand, not her words
+
+
+async def test_a_message_gone_without_a_word_does_not_strand_its_goal(
+        cfg, seeded_vault):
+    """Closed by some other door than the let-go signal — here, set straight
+    on the store, as an edit to goals.md would — the goal it was for must not
+    sit in `waiting` forever with no wakeup, on a message that is not coming."""
+    rig, goal, told = await _queued_overnight(cfg, seeded_vault)
+    rig.mind.goals.set_state(told.id, "abandoned")
+    rig.clock.advance(60)
+    await rig.mind.tick()
+    parent = rig.mind.goals.get(goal.id)
+    assert parent.state == "active" and parent.meta["telling"] == {}
+    assert "was let go before it went" in _journal(seeded_vault)
+
+
+async def test_a_stale_wake_does_not_pull_the_goal_back_before_delivery(
+        cfg, seeded_vault):
+    rig, goal, told = await _queued_overnight(cfg, seeded_vault)
+    rig.mind.wakeups[goal.id] = rig.clock.now()      # left over from a park
+    rig.clock.advance(60)
+    await rig.mind.tick()
+    assert rig.mind.goals.get(goal.id).state == "waiting"
+    assert acts.is_open(rig.mind.goals.get(told.id))
+
+
 def test_a_second_tell_replaces_the_words_rather_than_sending_twice(
         cfg, seeded_vault):
     rig = make_mind(_cfg(cfg), seeded_vault)

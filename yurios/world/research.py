@@ -8,14 +8,10 @@ the actual going-and-finding-out happens here, off-turn, exactly the way a
 selfie renders (world/selfies.py — this file is deliberately its sibling, down
 to the callables it's handed).
 
-What makes this more than a slow `web_search` is where the text lands. Every
-page read — by `research`, or by a plain `read_page` she made herself — is
-ingested into the §20 KnowledgeStore: chunked, situated, embedded, and indexed
-with a doc + span she can cite. So a tool result stops being 600 characters that
-expire at the end of the turn and becomes something she still has next week,
-retrievable through the same assembler slot as the books you drop on her shelf.
-A page she read is a page she read; the fact that a tool call fetched it rather
-than you copying it in is not a distinction worth keeping.
+Every page read — by `research`, or by a plain `read_page` she made herself — is
+kept with its source URL in the §20 KnowledgeStore. Raw pages remain there for
+verification, while §20.2 keeps their chunks out of ordinary prompt retrieval.
+The curated page a DREAM research job writes is what enters that prompt slot.
 
 The store is reached through a **getter**, not a reference, because it belongs
 to the MindLoop (mind/loop.py) — built after the tools are wired, and not built
@@ -91,7 +87,7 @@ def _doc_name(page: dict) -> str:
 
 
 def as_document(page: dict, *, retrieved: str) -> str:
-    """One fetched page, as a document for the shelf.
+    """One fetched page, as a source document for the shelf.
 
     The header is the whole point of writing it this way: `KnowledgeStore`
     citations are `doc (chars a-b)`, which tells you *which file* and *where in
@@ -149,6 +145,31 @@ class Researcher:
             log.exception("research: couldn't reach the knowledge shelf")
             return None
 
+    def research_note(self, job: str) -> str:
+        """The current curated page for a recurring research job (SPEC §21.2a)."""
+        store = self._store()
+        if store is None:
+            return ""
+        path = store.reference / f"research-{_slug(job)}.md"
+        try:
+            return path.read_text(encoding="utf-8") if path.is_file() else ""
+        except OSError:
+            log.warning("research: couldn't read topic page for %s", job,
+                        exc_info=True)
+            return ""
+
+    async def publish_research_note(self, job: str, text: str) -> str:
+        """Replace a job's topic page and wait until it is retrievable."""
+        store = self._store()
+        if store is None:
+            return ""
+        name = f"research-{_slug(job)}.md"
+        try:
+            return (await store.ingest(name, text)).doc
+        except Exception:
+            log.warning("research: couldn't index topic page for %s", job,
+                        exc_info=True)
+            return ""
     def _price(self, entry: dict, page: dict) -> int | None:
         """What reading this page is going to cost, in model calls, before any
         of them are made. No store means no model calls; an unpriceable page
@@ -211,6 +232,19 @@ class Researcher:
                         exc_info=True)
             return ""
         return result.doc
+
+    async def archive_source(self, page: dict) -> str:
+        """Keep a DREAM research source without adding retrieval chunks."""
+        store = self._store()
+        if store is None:
+            return ""
+        try:
+            return await store.archive_source(
+                _doc_name(page), as_document(page, retrieved=self._stamp()))
+        except Exception:
+            log.warning("research: couldn't archive %s", page.get("url"),
+                        exc_info=True)
+            return ""
 
     def _stamp(self) -> str:
         import datetime

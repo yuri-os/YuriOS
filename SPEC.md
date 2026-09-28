@@ -1069,11 +1069,17 @@ to every new subscriber before its first live event. Malformed JSON is logged an
   argument authored by a language model rather than by a person, and the local network it would
   otherwise reach includes her own control surface (§11.4). Redirects **MUST** therefore be followed
   by hand. Non-text responses and bodies past `FETCH_MAX_BYTES` **MUST** be refused.
+  Extraction **MUST** remove navigation, related-content, sharing and comment widgets identified
+  by their tags, roles, or CSS identifiers, even when a site renders them as ordinary containers,
+  while retaining the article body. A large HTML shell with too little readable body after
+  extraction **MUST** be treated as an unreadable
+  page rather than shelved as a title and controls.
 
-  **A page she read is knowledge, not a tool result.** The full text of every page — fetched by
-  `research` or by a `read_page` she made herself — **MUST** be ingested into the §20
-  `KnowledgeStore` and carry its source URL in the document, so the doc+span citation survives the
-  round trip back to where it came from. The model **MUST** see only a short `gist`: §7.3's result
+  **A page she read is durable source evidence, not a tool result.** The readable body of every
+  page — fetched by `research` or by a `read_page` she made herself — **MUST** be kept in the §20
+  `KnowledgeStore` with its source URL. Raw web pages **MUST NOT** enter default prompt retrieval;
+  a `kind: research` job's cited topic page is the retrievable product (§21.2a). The model
+  **MUST** see only a short `gist`: §7.3's result
   truncation bounds the model-facing and audit copies while the host realises against the
   untruncated one (`ToolBrain._execute`), which is the same two-audience contract the camera's
   contract JSON already relies on. With no mind running there is no shelf; she **MUST** still
@@ -1868,18 +1874,29 @@ turn** — separate files, separate indexes, separate `inspect()`.
   The ingest impulse **MUST NOT** fire while a read holds the shelf lock. `scan()`
   already steps aside rather than queueing; scoring "new document on the shelf"
   and then ingesting nothing is the retry loop that check exists to prevent
-  (measured: 320 empty ingests against one overnight research run).
+  (measured: 320 empty ingests against one overnight research run). A DREAM
+  research page **MUST** be archived under the same shelf lock with a seen marker
+  but **MUST NOT** be embedded; if an earlier run indexed that source, archiving
+  it again **MUST** remove its old rows. The compiled topic page is indexed instead.
 - §20.2 **Retrieval is grounded, and it reaches the prompt.** Every returned `Chunk` carries `doc`
   + `span` (character range) — a citation she can show. `search()` **MUST** run on every assembled
   turn and join conversation as the assembler's knowledge slot (§7.1 block 8), carrying its
   citations with it; a store that indexes what it is never asked for is not a knowledge layer.
   The store is late-bound onto the brain (`set_knowledge`, the `set_world` pattern), because it
   belongs to the MindLoop and there is no shelf with the mind off. Retrieval is an **enhancement,
-  never a dependency**: a search that raises costs the block, not the reply. Every route onto the
-  shelf — a dropped file, `read_page`, `research` — is the same store and therefore the same slot.
+  never a dependency**: a search that raises costs the block, not the reply. A dropped file or
+  curated research page reaches the slot; raw pages fetched by `read_page` or `research` remain
+  source evidence outside it.
   `search()` **MUST NOT** re-parse the index per turn (cache on the index file's own size+mtime, so
   a fresh ingest is picked up without a signal). `forget(selector)` drops a doc off the shelf and
-  out of the index. The index (`knowledge/index/`) is derived, gitignored, rebuildable.
+  out of the index. The index (`knowledge/index/`) is derived, gitignored, rebuildable. Retrieval
+  **MUST** exclude raw `web-` source documents, including chunks indexed before this rule;
+  source files remain on the shelf for verification. A completed `kind: research` job **MUST**
+  attempt to publish one cited, stable `research-<job>.md` topic page to this store, replacing its
+  previous version, and report an indexing failure while preserving its desk report. A published
+  page **MUST** be eligible for retrieval. Retrieval **MUST** cap a single
+  document at two of the returned chunks so one long page cannot occupy the entire default
+  prompt slot.
 
 ## §21 — DREAM consolidation
 
@@ -2030,18 +2047,32 @@ written from a vault alone.
   beside `ask()` and `put()`, backed by the `Researcher` the runtime already built (§7.7) — so a
   night reaches the web through the same `SearchProvider` and `PageFetcher` seams a turn does,
   with the same SSRF validation, and both have offline fakes. A page she reads at night **MUST**
-  be shelved like one she reads at noon (§7.7's *what she reads she keeps*), unless the job file
-  says `shelve: false`.
+  be kept as source evidence like one she reads at noon (§7.7), unless the job file says
+  `shelve: false`. DREAM source pages **MUST** be archived without embedding (§20.1).
+  Raw source pages **MUST NOT** be retrieved into ordinary context (§20.2).
+  A successful report **MUST** also become a stable topic page keyed by job name; a later run
+  **MUST** see that page and revise it from newly opened sources, retaining sourced useful findings
+  and resolving stale or conflicting ones. The page **MUST** tell the writer to synthesize rather
+  than copy fetched text, cite source URLs beside material claims, and include a deterministic list
+  of pages opened. A visibly cut-off writing call **MUST** get one shorter rewrite from the same
+  evidence; if that also ends mid-sentence, the draft **MUST** remain on the desk marked incomplete
+  and **MUST NOT** replace the topic page. A dry run or empty report **MUST NOT** update the topic
+  page.
 - **Agentic, and hard-bounded.** She chooses each next search from what the last one returned,
   because following the one thing that turned out to matter is most of what makes research worth
   reading — and a fixed query list cannot. The cost of that is every way an unattended loop goes
   wrong at 4am, so the failure mode **MUST** always be a *shorter report*, never no report:
   `max_steps` rounds, `max_searches`, `max_pages`, a context ceiling, and a write step that runs on
   whatever was gathered even when the loop raised. A loop that raised with **nothing** gathered
-  re-raises, so the day stays unmarked and it retries.
+  re-raises, so the day stays unmarked and it retries. A search requested after `max_searches`
+  **MUST** be refused as one move, leaving later rounds to open an already found result; exceeding
+  the search cap **MUST NOT** end the night while opened pages are still below `min_pages`.
+  `max_pages` **MUST** count pages with readable text, not failed fetches; every failed fetch still
+  spends a `max_steps` move and repeated URLs remain refused.
 - **Stopping early means *she* stopped reaching — never that the web failed to cooperate.** Two
   consecutive rounds in which she reached for nothing end the night, and a dead page, a paywall, a
-  page that needs a browser and a repeated URL **MUST NOT** count among them. This is not a
+  page that needs a browser and a repeated URL **MUST NOT** count among them. Quiet rounds
+  **MUST NOT** end a run before `min_pages` readable pages have been gathered. This is not a
   refinement: against the real web the first version ended a night two steps into a twelve-step
   budget — one search, one Morningstar page that returned zero characters, one retry — and wrote
   nothing. Those failures are bounded by `max_steps` and the caps, which is enough. A bare thought

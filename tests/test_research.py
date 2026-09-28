@@ -209,11 +209,9 @@ async def _drain(r: Researcher) -> None:
         await asyncio.sleep(0)
 
 
-async def test_a_research_run_is_retrievable_afterwards(clock, tmp_path):
-    """Against the **real** KnowledgeStore, not the recording fake: the point of
-    shelving is that the same text comes back out of `search()` later. This is
-    the half of §20.2 that lives on the research side; test_knowledge_slot.py
-    carries it the rest of the way, from the index into the prompt."""
+async def test_raw_sources_are_archived_but_only_the_topic_page_is_retrieved(
+        clock, tmp_path):
+    """The old web rows may exist, but only the compiled topic page reaches RAG."""
     from yurios.mind.knowledge import KnowledgeStore
     from yurios.mind.vaultio import MindVault
 
@@ -235,17 +233,21 @@ async def test_a_research_run_is_retrievable_afterwards(clock, tmp_path):
     assert shelved, "the run put documents on the shelf"
     assert all(name.startswith("web-") for name in shelved)
 
-    hits = store.search("chanoyu matcha whisked", k=3)
-    assert hits, "and they come back out of the index"
-    assert hits[0].citation.startswith("web-")
-    # the provenance header rode along, so a citation traces back to a URL
-    doc = (store.reference / hits[0].doc).read_text()
+    assert store.search("chanoyu matcha whisked", k=3) == []
+    doc = (store.reference / shelved[0]).read_text()
     assert "Source: http" in doc
+    note = ("# Tea ceremony\n\nChanoyu whisks matcha, according to "
+            "https://example.invalid/overview.\n")
+    assert await r.publish_research_note("tea-ceremony", note) == (
+        "research-tea-ceremony.md")
+    assert r.research_note("tea-ceremony") == note
+    hits = store.search("chanoyu matcha whisked", k=3)
+    assert hits and all(hit.doc == "research-tea-ceremony.md" for hit in hits)
 
 
-async def test_a_page_she_read_herself_is_retrievable(clock, tmp_path):
-    """`read_page` shelves through the same door — fire-and-forget from a turn
-    that is still streaming — so it must end up equally retrievable."""
+async def test_a_page_she_read_herself_is_archived_without_entering_rag(
+        clock, tmp_path):
+    """A direct read is kept on disk for verification, outside the prompt."""
     import asyncio
 
     from yurios.mind.knowledge import KnowledgeStore
@@ -259,8 +261,24 @@ async def test_a_page_she_read_herself_is_retrievable(clock, tmp_path):
               "text": "Sencha is steamed rather than pan-fired."})
     await asyncio.gather(*r._tasks)
 
-    hits = store.search("sencha steamed", k=2)
-    assert hits and "steamed" in hits[0].text
+    assert store.search("sencha steamed", k=2) == []
+    assert any("Sencha is steamed" in p.read_text()
+               for p in store.reference.glob("web-*.md"))
+
+
+async def test_dream_archives_a_source_without_embedding_it(clock, tmp_path):
+    from yurios.mind.knowledge import KnowledgeStore
+    from yurios.mind.vaultio import MindVault
+
+    from .conftest import FakeEmbedder
+
+    store = KnowledgeStore(MindVault(tmp_path / "vault"), FakeEmbedder(), clock)
+    r, _post, _speak = make(clock, shelf=store)
+    doc = await r.archive_source({"url": "https://example.invalid/sencha",
+                                  "title": "Sencha", "text": "Sencha is steamed."})
+    assert doc in store.shelf()
+    assert store.inspect(doc) == []
+    assert store.pending_docs() == []
 
 
 # ------------------------------------------------- watching it, stopping it

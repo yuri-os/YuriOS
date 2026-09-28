@@ -248,7 +248,11 @@ for this kind the body is the brief for the *report*, not for the search. It
 needs `SEARCH_BACKEND` to be on, and it is bounded: `max_searches`, `max_pages`
 and `max_steps` (each capped by the house `MIND_DREAM_RESEARCH_*` settings),
 `topics:` for where to start, and `shelve: false` if you would rather what she
-read did not go into her knowledge store.
+read was not kept as source evidence. Raw web pages are kept for verification
+but excluded from ordinary RAG retrieval. A finished report also updates the
+stable `research-<job>.md` topic page in her knowledge shelf; the next run
+revises that page from newly opened sources. Only the topic page is retrieved
+into conversation context.
 
 `min_pages` (default 2, floored at 1, never above `max_pages`) is how many
 pages she must actually open — with something in them — before "nothing

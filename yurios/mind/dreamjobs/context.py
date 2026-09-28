@@ -666,10 +666,10 @@ class DreamContext:
         """Open one page. `{"url", "title", "text"}`, or {} with no backend.
 
         `shelve` is §7.7's rule applied to the night: a page she read is
-        knowledge, not a tool result, so unless the job says otherwise it goes
-        to the shelf with its source URL and is hers to cite tomorrow. The
-        ingestion is fire-and-forget by construction (`Researcher.shelve`), so
-        this does not make the night wait on an embedder.
+        durable source evidence, not a tool result, so unless the job says
+        otherwise it goes to the shelf with its source URL. DREAM uses
+        `Researcher.archive_source`, which writes the page without embedding
+        it; the compiled report is indexed after writing.
         """
         fetcher = getattr(self.research, "fetcher", None)
         if fetcher is None:
@@ -688,11 +688,29 @@ class DreamContext:
         # which is exactly the class of thing a rehearsal must not do.
         if shelve and not self.dry_run:
             try:
-                self.research.shelve(page)  # type: ignore[attr-defined]
+                archive = getattr(self.research, "archive_source", None)
+                if archive is not None:
+                    await archive(page)
+                else:
+                    self.research.shelve(page)  # type: ignore[attr-defined]
             except Exception:  # noqa: BLE001 — the shelf is not the report
                 log.warning("DREAM job %s: couldn't shelve %s", self.job, url,
                             exc_info=True)
         return dict(page)
+
+    async def research_note(self, job: str) -> str:
+        """Read the last curated page so a recurring job can revise it."""
+        if self.research is None:
+            return ""
+        reader = getattr(self.research, "research_note", None)
+        return str(await asyncio.to_thread(reader, job) or "") if reader is not None else ""
+
+    async def publish_research_note(self, job: str, text: str) -> str:
+        """Index the finished page, never a rehearsal (SPEC §21.2a)."""
+        if self.dry_run or self.research is None:
+            return ""
+        publish = getattr(self.research, "publish_research_note", None)
+        return str(await publish(job, text) or "") if publish is not None else ""
 
     def soul_chars(self) -> int:
         """How many characters of persona this job's prompt will carry (§22.4).

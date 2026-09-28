@@ -64,6 +64,43 @@ def test_shelf_creation_survives_a_read_only_vault(tmp_path, monkeypatch):
     assert store.pending_docs() == []
 
 
+def test_raw_web_sources_are_excluded_and_curated_pages_are_balanced(
+        store, monkeypatch):
+    chrome = ("Tea tips\nOpen Lemon8 app\nSee more on the app\n"
+              "You may also like\nFollow\n2 saved\nRead more\nTea tips\n"
+              "A comment about tea")
+    rows = [
+        {"id": "noise", "doc": "web-app.md", "span": "chars 0-100",
+         "text": chrome, "embedding": [1.0, 0.0]},
+        *[{"id": f"thread-{i}", "doc": "research-tea.md",
+           "span": f"chars {i}-{i + 1}", "text": f"Tea note {i}",
+           "embedding": [1.0, 0.0]} for i in range(3)],
+        {"id": "guide", "doc": "tea-guide.md", "span": "chars 0-20",
+         "text": "Tea brewing guide", "embedding": [1.0, 0.0]},
+    ]
+    monkeypatch.setattr(store, "_rows", lambda: rows)
+    hits = store._score("tea", [1.0, 0.0], 3)
+    assert [hit.id for hit in hits] == ["thread-0", "thread-1", "guide"]
+    assert store._score("tea", [1.0, 0.0], 0) == []
+
+
+async def test_research_source_archive_keeps_file_without_embedding(store):
+    name = "web-tea-source.md"
+    archived = await store.archive_source(name, DOC)
+    assert archived == name
+    assert (store.reference / name).read_text() == DOC
+    assert store.pending_docs() == []
+    assert store.inspect(name) == []
+    assert store.search("tea", k=3) == []
+
+    # A URL previously indexed under the old policy loses those rows when
+    # research archives a fresh copy of it.
+    await store.ingest(name, DOC)
+    assert store.inspect(name)
+    await store.archive_source(name, DOC)
+    assert store.inspect(name) == []
+
+
 async def test_drop_scan_ingest_search_with_citation(store):
     ref = store.reference
     ref.mkdir(parents=True, exist_ok=True)

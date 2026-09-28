@@ -271,6 +271,27 @@ def test_extraction_never_raises_on_broken_markup():
     assert "half a" in text and isinstance(title, str)
 
 
+def test_article_keeps_its_text_without_related_posts_or_comment_widgets():
+    html = ("<title>Tea</title><main><article><h1>Brewing</h1>"
+            "<p>Gyokuro needs cooler water to preserve its sweet flavor.</p>"
+            "<div class='related'><div><p>Buy a kettle today.</p></div></div>"
+            "<section id='comments'><div><p>Nice post!</p></div></section>"
+            "<p>A second steep can be a little warmer.</p></article></main>"
+            "<div role='complementary'>Subscribe now</div>")
+    title, body = extract(html)
+    assert title == "Tea"
+    assert "Gyokuro needs cooler water" in body
+    assert "second steep" in body
+    assert not any(s in body for s in ("Buy a kettle", "Nice post", "Subscribe"))
+
+
+async def test_large_app_shell_with_no_article_is_not_shelved():
+    html = "<title>Tea</title><script>" + "x" * 6_000 + "</script><p>Open app</p>"
+    fetcher = HttpFetcher(transport=html_response(html), resolve=public())
+    with pytest.raises(ValueError, match="no substantive readable text"):
+        await fetcher.fetch("https://example.com/empty")
+
+
 def test_gist_cuts_on_a_word_not_mid_name():
     out = gist("Kagoshima is a prefecture in southern Kyushu", 20)
     assert out.endswith("…") and "Kagoshim…" not in out

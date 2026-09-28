@@ -48,6 +48,18 @@ GIST_CHARS = 400
 
 _SKIP_TAGS = {"script", "style", "noscript", "template", "svg", "canvas",
               "nav", "header", "footer", "aside", "form", "button", "iframe"}
+_VOID_TAGS = {"area", "base", "br", "col", "embed", "hr", "img", "input",
+              "link", "meta", "param", "source", "track", "wbr"}
+# SPEC §7.7: sites often render furniture as ordinary divs. Match whole CSS
+# tokens, never substrings: an article about a "social contract" is content.
+_FURNITURE = {"advert", "advertisement", "ads", "app-banner", "breadcrumb",
+              "breadcrumbs", "comment", "comments", "comtr", "cookie",
+              "newsletter", "pagination", "recommendation", "recommendations",
+              "related", "related-posts", "share", "sharing", "sidebar",
+              "social-links", "toolbar"}
+_FURNITURE_ROLES = {"complementary", "contentinfo", "navigation", "search"}
+_MIN_SUBSTANTIVE_CHARS = 160
+_LARGE_HTML_BYTES = 5_000
 _BLOCK_TAGS = {"p", "div", "section", "article", "br", "li", "tr", "blockquote",
                "pre", "figcaption", "h1", "h2", "h3", "h4", "h5", "h6"}
 _HEADINGS = {"h1": "#", "h2": "##", "h3": "###", "h4": "####", "h5": "#####",
@@ -312,6 +324,10 @@ class HttpFetcher:
                     title, text = "", body.strip()
                 else:
                     title, text = extract(body)
+                    # SPEC §7.7: a large app shell with only a title or a few
+                    # controls left is no readable page to shelve or cite.
+                    if len(body) >= _LARGE_HTML_BYTES and len(text) < _MIN_SUBSTANTIVE_CHARS:
+                        raise ValueError(f"{url} has no substantive readable text")
                 return {"url": url, "title": title or url, "text": text}
         raise ValueError(f"too many redirects from {url}")
 
@@ -349,14 +365,25 @@ class _Reader(HTMLParser):
         super().__init__(convert_charrefs=True)
         self.parts: list[str] = []
         self.title = ""
-        self._skip = 0
+        self._tags: list[tuple[str, bool]] = []
+        self._skip = False
         self._in_title = False
         self._heading = ""
 
     def handle_starttag(self, tag, attrs):
-        if tag in _SKIP_TAGS:
-            self._skip += 1
-        elif tag == "title" and not self.title:
+        props = dict(attrs)
+        css = {token.lower() for key in ("class", "id")
+               for token in (props.get(key) or "").split()}
+        ignored = (self._skip or tag in _SKIP_TAGS
+                   or bool(css & _FURNITURE)
+                   or (props.get("role") or "").lower() in _FURNITURE_ROLES)
+        if tag not in _VOID_TAGS:
+            self._tags.append((tag, ignored))
+        if ignored:
+            if tag not in _VOID_TAGS:
+                self._skip = True
+            return
+        if tag == "title" and not self.title:
             # Only the FIRST one. Real pages carry a second <title> more often
             # than you'd think (a stray one in the body, a framework template
             # rendering twice), and appending them produced doc names and chat
@@ -369,9 +396,16 @@ class _Reader(HTMLParser):
             self.parts.append("\n")
 
     def handle_endtag(self, tag):
-        if tag in _SKIP_TAGS:
-            self._skip = max(0, self._skip - 1)
-        elif tag == "title":
+        # Pop through the matching opener. HTML in the wild is often malformed;
+        # this also prevents a nested div from ending its parent's skip early.
+        for i in range(len(self._tags) - 1, -1, -1):
+            if self._tags[i][0] == tag:
+                del self._tags[i:]
+                break
+        self._skip = any(ignored for _, ignored in self._tags)
+        if self._skip:
+            return
+        if tag == "title":
             self._in_title = False
         elif tag in _HEADINGS:
             self._heading = ""

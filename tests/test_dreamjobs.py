@@ -920,9 +920,21 @@ class _Shelf:
         self.search = FakeSearch()
         self.fetcher = fetcher
         self.shelved: list[dict] = []
+        self.notes: dict[str, str] = {}
 
     def shelve(self, page):
         self.shelved.append(page)
+
+    async def archive_source(self, page):
+        self.shelved.append(page)
+        return "web-source.md"
+
+    def research_note(self, job):
+        return self.notes.get(job, "")
+
+    async def publish_research_note(self, job, text):
+        self.notes[job] = text
+        return f"research-{job}.md"
 
 
 @pytest.fixture
@@ -1060,12 +1072,107 @@ async def test_she_searches_reads_and_writes_a_report(research_rig):
     job = report.jobs[0]
     assert job.changed and not job.failed
     assert fetcher.fetched, "she never opened anything"
+    assert len(runner.research.shelved) == 1
     written = (vault / "workspace" / "reports" / "market-brief"
                / "2026-07-05.md")
     assert written.is_file()
     assert "THE TAPE" in written.read_text().upper()
+    assert "## Sources opened" in written.read_text()
+    assert "https://example.invalid/overview" in written.read_text()
+    assert runner.research.notes["market-brief"] == written.read_text()
+    assert "indexed research-market-brief.md" in job.result
     # the corpus reached the writing call, not just the loop
     assert "example.invalid" in model.calls[-1][1]
+
+
+async def test_search_cap_still_leaves_a_round_to_open_found_results(
+        research_rig_with):
+    runner, _vault, model, fetcher = research_rig_with([
+        'use web_search {"query": "agency"}',
+        'use web_search {"query": "proactive companions"}',
+        'use web_search {"query": "persistent memory"}',
+        'use web_search {"query": "one more search"}',
+        'use read_page {"url": "https://example.invalid/overview"}',
+        "think nothing further",
+        REPORT,
+    ], front={"max_searches": 3, "max_steps": 7, "min_pages": 1})
+    result = await runner.run(only="market-brief")
+    assert result.jobs[0].changed
+    assert fetcher.fetched == ["https://example.invalid/overview"]
+    assert "no searches remain" in model.calls[4][1]
+    assert runner.research.notes["market-brief"]
+
+
+async def test_unreadable_pages_spend_moves_but_not_the_page_limit(
+        research_rig_with):
+    urls = [f"https://example.invalid/blocked-{i}" for i in range(3)]
+    runner, _vault, _model, fetcher = research_rig_with([
+        *[f'use read_page {{"url": "{url}"}}' for url in urls],
+        'use read_page {"url": "https://example.invalid/overview"}',
+        "think nothing further", REPORT,
+    ], front={"max_pages": 1, "max_steps": 6, "min_pages": 1})
+    fetcher.fail.update(urls)
+    result = await runner.run(only="market-brief")
+    assert result.jobs[0].changed
+    assert len(fetcher.fetched) == 4
+    assert "read 1 pages" in result.jobs[0].result
+
+
+async def test_quiet_rounds_cannot_end_research_before_a_page_is_read(
+        research_rig_with):
+    runner, _vault, _model, fetcher = research_rig_with([
+        'use web_search {"query": "intimacy"}',
+        "think I should look for a source",
+        "think nothing further",
+        'use read_page {"url": "https://example.invalid/overview"}',
+        "think nothing further", REPORT,
+    ], front={"min_pages": 1, "max_steps": 6})
+    result = await runner.run(only="market-brief")
+    assert result.jobs[0].changed
+    assert fetcher.fetched == ["https://example.invalid/overview"]
+
+
+async def test_research_revises_its_existing_topic_page(research_rig):
+    runner, _vault, model, _fetcher = research_rig
+    runner.research.notes["market-brief"] = (
+        "Old finding from https://example.invalid/old")
+    await runner.run(only="market-brief")
+    writing_prompt = model.calls[-1][1]
+    assert "Old finding from https://example.invalid/old" in writing_prompt
+    assert "Revise and reorganize" in writing_prompt
+    assert "Old finding" not in runner.research.notes["market-brief"]
+
+
+async def test_cut_off_report_gets_shorter_rewrite_before_indexing(
+        research_rig_with):
+    runner, vault, model, _fetcher = research_rig_with([
+        'use read_page {"url": "https://example.invalid/overview"}',
+        "think nothing further",
+        "This report ends halfway through the point about",
+        REPORT,
+    ], front={"min_pages": 1, "report_thinking": False})
+    result = await runner.run(only="market-brief")
+    assert result.jobs[0].changed
+    assert "indexed research-market-brief.md" in result.jobs[0].result
+    assert runner.research.notes["market-brief"].startswith(REPORT)
+    assert "at most 600 words" in model.calls[-1][1]
+    written = (vault / "workspace/reports/market-brief/2026-07-05.md").read_text()
+    assert "halfway through" not in written
+
+
+async def test_twice_cut_off_report_stays_off_the_retrieval_shelf(
+        research_rig_with):
+    runner, vault, _model, _fetcher = research_rig_with([
+        'use read_page {"url": "https://example.invalid/overview"}',
+        "think nothing further",
+        "First unfinished draft that ends with",
+        "Second unfinished draft that ends with",
+    ], front={"min_pages": 1, "report_thinking": False})
+    result = await runner.run(only="market-brief")
+    assert "topic page not indexed" in result.jobs[0].result
+    assert runner.research.notes == {}
+    written = (vault / "workspace/reports/market-brief/2026-07-05.md").read_text()
+    assert "Incomplete draft; not indexed" in written
 
 
 class _FakeHands:
@@ -1121,7 +1228,7 @@ async def test_the_loop_stops_after_two_quiet_rounds(research_rig_with):
          "I think that's the picture, really.",
          "Yes, that about covers it.",
          "use web_search {\"query\": \"this should never run\"}",
-         REPORT])
+         REPORT], front={"min_pages": 1})
     report = await runner.run(only="market-brief")
     assert report.jobs[0].changed
     assert "two quiet rounds" in report.jobs[0].result
@@ -1170,13 +1277,12 @@ async def test_a_paywall_is_not_her_having_had_enough(research_rig_with):
 
 
 async def test_two_quiet_rounds_still_stop_it_once_she_has_gathered(research_rig_with):
-    """…and the forgiveness is only for the empty session. Once she has reached
-    for something, two rounds that gather nothing mean she is done."""
+    """Once she has read the required page, two empty rounds mean she is done."""
     runner, _vault, _model, _fetcher = research_rig_with(
         ['use read_page {"url": "https://example.invalid/overview"}',
          "Hmm.", "Yes, quite.",
          'use web_search {"query": "never runs"}',
-         REPORT])
+         REPORT], front={"min_pages": 1})
     report = await runner.run(only="market-brief")
     assert "two quiet rounds" in report.jobs[0].result
 
@@ -1298,7 +1404,7 @@ async def test_the_write_call_is_told_the_corpus_is_all_she_has(research_rig_wit
     have to come from and what to do where they run out."""
     runner, _vault, model, _fetcher = research_rig_with(
         ['use read_page {"url": "https://example.invalid/overview"}',
-         "think nothing further", REPORT])
+         "think nothing further", REPORT], front={"min_pages": 1})
     runner.utility = _recording(model)
     await runner.run(only="market-brief")
     write = model.seen[-1][-1]["content"]
@@ -1348,7 +1454,7 @@ async def test_the_writing_call_is_given_a_nights_worth_of_wall_clock(research_r
     call was given. Nobody is waiting at 4am."""
     runner, _vault, model, _fetcher = research_rig_with(
         ['use read_page {"url": "https://example.invalid/overview"}',
-         "think nothing further", REPORT])
+         "think nothing further", REPORT], front={"min_pages": 1})
     runner.utility = _recording(model)
     await runner.run(only="market-brief")
     rounds, write = model.params[:-1], model.params[-1]
@@ -1414,7 +1520,7 @@ async def test_the_report_is_the_call_that_gets_to_think(research_rig_with):
     actually thinks about what she read."""
     runner, _vault, model, _fetcher = research_rig_with(
         ['use read_page {"url": "https://example.invalid/overview"}',
-         "think nothing further", REPORT])
+         "think nothing further", REPORT], front={"min_pages": 1})
     runner.utility = _recording(model)
     await runner.run(only="market-brief")
     assert model.params[-1]["thinking"] is True
@@ -1429,7 +1535,8 @@ async def test_the_report_call_is_tunable_from_the_file(research_rig_with):
     runner, _vault, model, _fetcher = research_rig_with(
         ['use read_page {"url": "https://example.invalid/overview"}',
          "think nothing further", REPORT],
-        front={"report_thinking": True, "report_max_tokens": 9000})
+        front={"min_pages": 1, "report_thinking": True,
+               "report_max_tokens": 9000})
     runner.utility = _recording(model)
     await runner.run(only="market-brief")
     write = model.params[-1]
@@ -1471,7 +1578,7 @@ async def test_the_length_of_the_reasoning_pass_is_the_files_call(research_rig_w
     runner, _vault, model, _fetcher = research_rig_with(
         ['use read_page {"url": "https://example.invalid/overview"}',
          "think nothing further", REPORT],
-        front={"report_effort": "high"})
+        front={"min_pages": 1, "report_effort": "high"})
     runner.utility = _recording(model)
     await runner.run(only="market-brief")
     assert model.params[-1]["reasoning_effort"] == "high"
@@ -1560,18 +1667,16 @@ async def test_declaring_done_on_searches_alone_is_refused(research_rig_with):
 
 async def test_a_snippet_only_night_still_gets_a_shorter_report_not_none(
         research_rig_with):
-    """Refusing the declaration is not the same as an infinite loop: two
-    refusals in a row are still two quiet rounds, and §21.2's rule holds — a
-    job that gathered something writes from what it has rather than nothing at
-    all, even short of `min_pages`."""
+    """The move cap still ends a thin night with a report from the page read,
+    even when the minimum page target was not reached."""
     runner, vault, _model, fetcher = research_rig_with(
         ['use read_page {"url": "https://example.invalid/overview"}',
          "think nothing further",   # refused: only 1 of 2 required
          "Yes, that about covers it.",
-         REPORT])
+         REPORT], front={"max_steps": 3})
     report = await runner.run(only="market-brief")
     assert report.jobs[0].changed
-    assert "two quiet rounds" in report.jobs[0].result
+    assert "out of rounds" in report.jobs[0].result
     assert len(fetcher.fetched) == 1
     assert (vault / "workspace" / "reports" / "market-brief"
             / "2026-07-05.md").is_file()
@@ -1612,7 +1717,7 @@ async def test_the_caps_are_the_houses_and_the_file_may_only_lower_them(research
     and the ceiling is the machine's."""
     runner, _vault, _model, fetcher = research_rig_with(
         ["use read_page {\"url\": \"https://example.invalid/%d\"}" % i
-         for i in range(8)] + [REPORT],
+         for i in range(3)] + [REPORT],
         front={"max_pages": 99})            # asks for far more than the house
     runner.cfg = runner.cfg.model_copy(update={"mind_dream_research_pages": 2})
     report = await runner.run(only="market-brief")
@@ -1684,7 +1789,7 @@ async def test_deliver_chat_hands_the_report_to_the_inbox(research_rig_with):
     instruction its owner wrote into a job file."""
     runner, _vault, _model, _fetcher = research_rig_with(
         ["use read_page {\"url\": \"https://example.invalid/overview\"}",
-         "think nothing further", REPORT])
+         "think nothing further", REPORT], front={"min_pages": 1})
     delivered: list[dict] = []
     runner.deliver_report = lambda **kw: delivered.append(kw)
     report = await runner.run(only="market-brief")

@@ -511,23 +511,27 @@ def test_a_promise_is_split_into_work_and_news():
 
 
 async def test_what_she_read_reaches_the_next_prompt(cfg, seeded_vault):
-    """§20.2 end to end, on the real MindLoop and the real brain: a doc lands on
-    the shelf, the tick ingests it, and the *next turn she assembles* carries it
-    with its citation. Everything the web hands shelve arrives the same way —
-    `read_page`, `research` and a book you dropped are one shelf and one slot."""
+    """§20.2 end to end: a compiled note reaches the prompt; its raw source
+    remains available on the shelf without contributing a prompt chunk."""
     rig = make_mind(cfg, seeded_vault)
     ref = seeded_vault / "knowledge" / "reference"
     ref.mkdir(parents=True, exist_ok=True)
     (ref / "web-sencha.md").write_text(
         "# Sencha\n\nSource: https://example.invalid/sencha\n\n"
-        "Sencha is steamed rather than pan-fired, which keeps it green.\n")
+        "RAW SOURCE: Sencha is steamed rather than pan-fired.\n")
+    (ref / "research-sencha.md").write_text(
+        "# Sencha\n\nSencha is steamed rather than pan-fired "
+        "(https://example.invalid/sencha).\n")
     await rig.mind.tick()                               # SENSE → ingest
 
     _soul, prompt = await rig.mind.brain._assemble(
         "s1", "how is sencha made?", window=[], lore=[])
     assert "WHAT YOU'VE READ" in prompt.system
-    assert "steamed rather than pan-fired" in prompt.system
-    assert "web-sencha.md (chars" in prompt.system      # the citation, grounded
+    read_block = prompt.system.split("## WHAT YOU'VE READ", 1)[1].split("\n## ", 1)[0]
+    assert "steamed rather than pan-fired" in read_block
+    assert "research-sencha.md (chars" in read_block
+    assert "web-sencha.md" not in read_block
+    assert "RAW SOURCE" not in read_block
 
 
 async def test_a_turn_survives_a_broken_shelf(cfg, seeded_vault):
@@ -721,4 +725,3 @@ async def test_a_composed_line_loses_its_tags_wherever_they_fall(cfg, seeded_vau
     assert "[" not in line
     assert line.startswith("It's done.") and "The frame I wrote for you" in line
     assert "*quietly*" in line, "narration is part of what she wrote on the page"
-

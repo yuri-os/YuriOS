@@ -44,6 +44,9 @@ UtilityCall = Callable[[list[dict]], Awaitable[str]]
 
 _WORD_RE = re.compile(r"[a-z0-9']+")
 SUFFIXES = (".md", ".txt")
+# SPEC §20.2: even curated documents should not spend every retrieval slot on
+# neighbouring chunks from the same page.
+MAX_CHUNKS_PER_DOC = 2
 
 #: Past this many characters a document is *read for notes* rather than
 #: transcribed (`_passages`). Roughly a long feature article: short enough that
@@ -384,6 +387,25 @@ class KnowledgeStore:
 
     # ----------------------------------------------------------------- ingest
 
+    async def archive_source(self, name: str, text: str) -> str:
+        """Keep a fetched page for verification without embedding it.
+
+        SPEC §20.1: DREAM research has already read the page while gathering.
+        Its compiled topic page is what the ordinary prompt needs. Claim this
+        file under the same lock as ingest so a tick cannot read it in between
+        the write and the seen marker; clear older chunks if this URL had been
+        indexed under the previous policy.
+        """
+        if not name.startswith("web-"):
+            raise ValueError("source archive names must start with web-")
+        async with self._busy:
+            doc = await asyncio.to_thread(self._place, name, text)
+            rows = list(jsonl_read(self.index_path))
+            if any(r["doc"] == doc for r in rows):
+                self._rewrite_index([r for r in rows if r["doc"] != doc])
+            self._mark_seen(doc)
+            return doc
+
     async def ingest(self, name: str, text: str | None = None) -> IngestResult:
         """Ingest one doc: a file already on the shelf (text=None), or given
         content — written to the shelf first, so the shelf is the durable home.
@@ -705,7 +727,12 @@ class KnowledgeStore:
         return self._score(query, qv, k)
 
     def _score(self, query: str, qv, k: int) -> list[Chunk]:
-        rows = self._rows()
+        if k <= 0:
+            return []
+        # SPEC §20.2: fetched pages are evidence for research, not prompt
+        # material. Older web-* rows may still be in a rebuilt index; only
+        # curated research pages and user documents can fill this slot.
+        rows = [r for r in self._rows() if not r["doc"].startswith("web-")]
         if not rows:
             return []
         q_words = set(_WORD_RE.findall(query.lower()))
@@ -728,7 +755,16 @@ class KnowledgeStore:
                              text=r["text"], context=r.get("context", ""),
                              score=score, summary=r.get("summary", False)))
         out.sort(key=lambda c: c.score, reverse=True)
-        return out[:k]
+        selected: list[Chunk] = []
+        per_doc: Counter = Counter()
+        for chunk in out:
+            if per_doc[chunk.doc] >= MAX_CHUNKS_PER_DOC:
+                continue
+            selected.append(chunk)
+            per_doc[chunk.doc] += 1
+            if len(selected) >= k:
+                break
+        return selected
 
     # ------------------------------------------------------- forget / inspect
 

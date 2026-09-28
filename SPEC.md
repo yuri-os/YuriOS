@@ -1421,6 +1421,16 @@ tool caps/timeouts/log dir and per-tool rate limits, `TIMER_MAX_MINUTES`,
 `IDLE_ACT_MIN/MAX_S`, `IDLE_TALK_MIN/MAX_S`). The mind's knobs are §25; `DATA_DIR` — the root
 of the character tree — is Part III's (§29.1).
 
+`MAX_REPLY_TOKENS` is a ceiling a reasoning model may think up to, not what a reply spends. The
+context readout **MUST** count room for a working reply beside the prompt — the smaller of the
+ceiling and 2048 tokens (`world/context.REPLY_FLOOR`) — and **MUST NOT** hold the whole ceiling
+against the window: reserving 8192 put every turn on an 8k local window "over" from the first
+line, and a warning that is always on is not read the day it is true. With the window known, a
+chat provider **MUST** ask for no more than it has left after the prompt (`ContextMeter.reply_room`,
+never below 256), because a server that checks prompt + `max_tokens` against its window refuses
+an oversized ask rather than trimming it; and a reply that then runs out of room **MUST** name
+`CONTEXT_LENGTH`, not `MAX_REPLY_TOKENS`, as the knob (§10.5).
+
 A knob in `.env` is the **host default**: every character inherits it unless her registry record
 overrides that field (§31.2). The knobs a character may override are hers alone; the rest —
 the port, the room, the reflex windows, what leaves the machine — are the house's.

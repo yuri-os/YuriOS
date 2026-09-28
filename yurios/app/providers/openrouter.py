@@ -162,10 +162,15 @@ class LiteLLMChatModel:
             elif self.reasoning_effort:
                 extra["extra_body"] = {
                     "reasoning_effort": self.reasoning_effort}
+            max_tokens = asked = params.get("max_tokens", 1024)
             if self.meter is not None:
                 self.meter.note_prompt(messages)      # the estimate, before the call
-            max_tokens = params.get("max_tokens", 1024)
-            tally = StreamTally(max_tokens)
+                # …and no bigger an ask than the window has left: a server that
+                # checks prompt + max_tokens refuses rather than trims.
+                room = getattr(self.meter, "reply_room", None)
+                if callable(room):
+                    max_tokens = room(max_tokens)
+            tally = StreamTally(max_tokens, window_bound=max_tokens < asked)
             response = await litellm.acompletion(
                 model=self.model,
                 messages=messages,

@@ -13,8 +13,8 @@ import json
 import pytest
 
 from yurios.app.providers.usage import chunk_prompt_tokens, chunk_text
-from yurios.world.context import (ContextMeter, IMAGE_TOKENS, estimate_messages,
-                                  short_tokens)
+from yurios.world.context import (MIN_REPLY_ASK, REPLY_FLOOR, ContextMeter,
+                                  IMAGE_TOKENS, estimate_messages, short_tokens)
 from yurios.kernel.hub import EventHub
 
 pytest.importorskip("fastapi")
@@ -143,13 +143,70 @@ def test_measurements_append_character_local_history(tmp_path):
 
 
 def test_the_reply_is_part_of_what_must_fit():
-    """A gauge that ignores MAX_REPLY_TOKENS reads green right up to the failure,
-    so `reserve` rides the wire and the UI thresholds count it."""
-    m = ContextMeter(limit=8192, reserve=2048)
+    """A gauge that ignores the reply reads green right up to the failure, so
+    `reserve` rides the wire and the UI thresholds count it."""
+    m = ContextMeter(limit=8192, reply_max=2048)
     m.note_usage(7000)
     snap = m.snapshot()
     assert snap["reserve"] == 2048
     assert snap["used"] + snap["reserve"] > snap["limit"]
+
+
+def test_a_roomy_reply_ceiling_is_not_held_against_a_small_window(caplog):
+    """MAX_REPLY_TOKENS=8192 is a ceiling a reasoning model may think up to, not
+    what a reply spends. Reserving all of it put every turn on an 8k window
+    "over" from the first line; the gauge keeps a working reply free instead."""
+    import logging
+    m = ContextMeter(limit=8192, reply_max=8192)
+    with caplog.at_level(logging.WARNING, "world.context"):
+        m.note_usage(3000)
+    assert m.snapshot()["reserve"] == REPLY_FLOOR
+    assert m.snapshot()["used"] + m.snapshot()["reserve"] <= 8192   # green
+    assert not caplog.records
+    with caplog.at_level(logging.WARNING, "world.context"):
+        m.note_usage(7000)                          # 1192 left: crowded out
+    assert any("leave less than 2048 for the reply" in r.getMessage()
+               for r in caplog.records)
+
+
+def test_a_small_ceiling_is_its_own_reserve():
+    assert ContextMeter(limit=8192, reply_max=1600).reserve == 1600
+
+
+def test_the_reply_ask_is_what_the_window_has_left():
+    m = ContextMeter(limit=8192, reply_max=8192)
+    m.note_usage(3000)
+    assert m.reply_room(8192) == 8192 - 3000        # the window, not the ceiling
+    assert m.reply_room(1024) == 1024               # the ceiling, when it's smaller
+    m.note_usage(8100)
+    assert m.reply_room(8192) == MIN_REPLY_ASK      # never nothing
+    assert ContextMeter().reply_room(8192) == 8192  # no window known: as asked
+
+
+async def test_the_provider_asks_for_no_more_than_fits(monkeypatch):
+    """A server that checks prompt + max_tokens refuses an oversized ask rather
+    than trimming it, so the ceiling goes out clamped to the window's room."""
+    from types import SimpleNamespace
+    from yurios.app.providers.openrouter import LiteLLMChatModel
+
+    sent = {}
+
+    async def fake(**kwargs):
+        sent.update(kwargs)
+
+        async def stream():
+            yield SimpleNamespace(choices=[SimpleNamespace(
+                delta=SimpleNamespace(content="hi"), finish_reason="stop")],
+                usage=None)
+        return stream()
+
+    monkeypatch.setattr("litellm.acompletion", fake)
+    meter = ContextMeter(limit=8192, reply_max=8192)
+    chat = LiteLLMChatModel("some/model", meter=meter)
+    said = [t async for t in chat.stream(
+        [{"role": "user", "content": "x" * 20000}], max_tokens=8192)]
+    assert said == ["hi"]
+    assert sent["max_tokens"] == 8192 - meter.used < 8192
 
 
 # ---- reaching the frontend ---------------------------------------------------
@@ -157,7 +214,7 @@ def test_the_reply_is_part_of_what_must_fit():
 async def test_every_measurement_publishes_a_sticky_event():
     hub = EventHub()
     q = hub.subscribe()
-    m = ContextMeter(hub, limit=8192, reserve=1600)
+    m = ContextMeter(hub, limit=8192, reply_max=1600)
     m.note_prompt([{"role": "user", "content": "x" * 4000}])
     events = drain(q)
     assert events[-1]["type"] == "context"
@@ -188,7 +245,7 @@ def test_api_context_serves_the_snapshot(cfg):
     with TestClient(app) as c:
         body = c.get("/api/context").json()
         assert body["limit"] == 16384 and body["limit_source"] == "env"
-        assert body["reserve"] == cfg.max_reply_tokens
+        assert body["reserve"] == min(cfg.max_reply_tokens, REPLY_FLOOR)
         # and it's on the health page too, where "why did that turn fail?" is asked
         assert c.get("/api/health").json()["context"]["limit"] == 16384
 

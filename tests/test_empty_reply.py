@@ -63,6 +63,15 @@ def test_a_budget_spent_thinking_says_so_and_names_the_knob():
     assert "reasoning_chars=950" in detail
 
 
+def test_a_budget_the_window_cut_short_names_the_window_not_the_ceiling():
+    """Raising MAX_REPLY_TOKENS does nothing when the prompt left no more room."""
+    tally = StreamTally(1500, window_bound=True)
+    tally.note(chunk(finish="length"), "")
+    assert "whole 1500-token" in tally.reason()
+    assert "CONTEXT_LENGTH" in tally.reason()
+    assert "MAX_REPLY_TOKENS" not in tally.reason()
+
+
 def test_a_filtered_reply_reads_as_a_refusal():
     assert tally_of(chunk(finish="content_filter")).reason() \
         == "the model refused to answer"

@@ -21,9 +21,14 @@ So the numbers go in the masthead instead. This class holds two of them:
 
 Every update publishes one sticky `context` event on the hub, so a page that
 opens mid-conversation sees the last measurement instead of a blank gauge.
-`reserve` (MAX_REPLY_TOKENS) is on the wire too: the real ceiling for a turn is
-prompt + reply, and a gauge that ignores the reply half reads green right up to
-the failure.
+`reserve` is on the wire too: the real ceiling for a turn is prompt + reply, and
+a gauge that ignores the reply half reads green right up to the failure. It is
+room for a working reply (`REPLY_FLOOR`), not all of `MAX_REPLY_TOKENS`: that
+is a ceiling a reasoning model may think up to, and a reply almost never spends
+it. Reserving the whole ceiling put every turn on an 8k local window "over" from
+the first line, and a warning that is always on is one nobody reads the day it
+is true. The ceiling is honoured the other way round — `reply_room` asks the
+model for no more than the window has left.
 """
 from __future__ import annotations
 
@@ -41,17 +46,28 @@ log = logging.getLogger("world.context")
 # helps nobody. The UI is the real signal; this is for the terminal.
 _WARN_EVERY = 5
 
+#: What the gauge keeps free for her reply (SPEC §11): room for a real answer,
+#: and for a short think before it. Past this the prompt is crowding her out.
+REPLY_FLOOR = 2048
+
+#: The least `reply_room` asks for, however full the window. Below this a reply
+#: is cut off mid-sentence; asking for it anyway lets the server be the one to
+#: say the prompt no longer fits.
+MIN_REPLY_ASK = 256
+
 
 class ContextMeter:
     """Prompt size vs the context window, published for the UI (SPEC §11)."""
 
     def __init__(self, hub=None, *, limit: int = 0, limit_source: str = "",
-                 reserve: int = 0, trace_dir: Path | None = None,
+                 reply_max: int = 0, trace_dir: Path | None = None,
                  max_trace_bytes: int = 2_000_000):
         self.hub = hub
         self.limit = int(limit or 0)               # 0 = unknown, and say so
         self.limit_source = limit_source or ("env" if limit else "")
-        self.reserve = int(reserve or 0)           # MAX_REPLY_TOKENS
+        # MAX_REPLY_TOKENS is the ceiling; what must fit beside the prompt is a
+        # working reply, which is the smaller of the two (module docstring).
+        self.reserve = min(int(reply_max or 0), REPLY_FLOOR)
         self.used = 0
         self.exact = False                         # True once a server said so
         self._over = 0
@@ -99,6 +115,21 @@ class ContextMeter:
         self._publish()
         self._record("usage")
 
+    def reply_room(self, want: int) -> int:
+        """The reply budget to ask for, given the prompt just measured.
+
+        `want` (MAX_REPLY_TOKENS) when the window has room for it, else what the
+        window has left — a server that checks prompt + `max_tokens` against its
+        window refuses the request rather than trimming it. Never below
+        `MIN_REPLY_ASK`. With no window known there is nothing to fit against,
+        and `want` goes as it is. Call it after `note_prompt`, inside the same
+        `inference_admission`: the meter is shared, and `used` is this prompt's
+        only because admission lets one call be measured at a time.
+        """
+        if not self.limit or want <= 0:
+            return want
+        return max(MIN_REPLY_ASK, min(want, self.limit - self.used))
+
     # ---- what the UI and /api/context read -----------------------------------
 
     def snapshot(self) -> dict:
@@ -132,16 +163,16 @@ class ContextMeter:
             log.exception("could not append context history")
 
     def _warn(self) -> None:
-        """The prompt plus the reply she still has to write is what must fit."""
+        """The prompt plus room for the reply she still has to write must fit."""
         if not self.limit or self.used + self.reserve <= self.limit:
             self._over = 0
             return
         if self._over % _WARN_EVERY == 0:
             log.warning(
-                "context: %d prompt tokens + %d reserved for the reply exceeds "
-                "the %d-token window — turns will start failing. Raise "
-                "CONTEXT_LENGTH in .env (and restart), or lower "
-                "SYSTEM_BUDGET_TOKENS / RAW_WINDOW_TURNS / MAX_REPLY_TOKENS.",
+                "context: %d prompt tokens leave less than %d for the reply in "
+                "the %d-token window — replies will be cut short or refused. "
+                "Raise CONTEXT_LENGTH in .env (and restart), or lower "
+                "SYSTEM_BUDGET_TOKENS / RAW_WINDOW_TURNS.",
                 self.used, self.reserve, self.limit)
         self._over += 1
 

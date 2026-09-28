@@ -6,8 +6,9 @@
  * the ceiling" is only readable if the ceiling is on screen next to it; with no
  * window known (a hosted route never says) the used side stands alone.
  *
- * What must fit is the prompt PLUS the reply she hasn't written yet, so the
- * thresholds count `reserve` (MAX_REPLY_TOKENS) in: amber at 75% of the window,
+ * What must fit is the prompt PLUS room for the reply she hasn't written yet, so
+ * the thresholds count `reserve` in — a working reply's worth, not the whole
+ * MAX_REPLY_TOKENS ceiling (world/context.py): amber at 75% of the window,
  * magenta once prompt + reply no longer fit — the state that used to surface as
  * the server refusing the turn ("Context size has been exceeded").
  *
@@ -38,7 +39,7 @@ export function renderContext(el, c) {
     `${exact ? 'prompt' : 'estimated prompt'}: ${used.toLocaleString()} tokens`,
     limit ? `window: ${limit.toLocaleString()} tokens${src ? ` (${src})` : ''}`
           : 'window: unknown — set CONTEXT_LENGTH in .env to show it',
-    reserve ? `reserved for her reply: ${reserve.toLocaleString()}` : '',
+    reserve ? `kept free for her reply: ${reserve.toLocaleString()}` : '',
     pct != null ? `${pct}% used` : '',
     over ? 'over the window — raise CONTEXT_LENGTH in .env and restart' : '',
   ].filter(Boolean).join('\n');

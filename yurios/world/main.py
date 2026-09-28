@@ -142,7 +142,7 @@ class Runtime:
         # `context` event. CONTEXT_LENGTH names the initial ceiling; a direct GGUF
         # provider or LM Studio probe replaces it with the window actually in use.
         self.context = ContextMeter(self.hub, limit=cfg.context_length,
-                                    reserve=cfg.max_reply_tokens,
+                                    reply_max=cfg.max_reply_tokens,
                                     trace_dir=cfg.trace_dir,
                                     max_trace_bytes=cfg.mind_trace_max_bytes)
         self.stopping = asyncio.Event()        # ends open SSE streams on shutdown

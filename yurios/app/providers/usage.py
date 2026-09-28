@@ -85,8 +85,11 @@ def _field(obj, name: str):
 class StreamTally:
     """What one reply stream carried besides its text, for when it carried none."""
 
-    def __init__(self, max_tokens: int = 0):
+    def __init__(self, max_tokens: int = 0, *, window_bound: bool = False):
         self.max_tokens = int(max_tokens or 0)
+        #: The ask was cut to what the context window had left (world/context.py
+        #: `reply_room`), so the knob that would have helped is the window's.
+        self.window_bound = window_bound
         self.spoke = False
         self.finish_reason = ""
         self.reasoning_chars = 0
@@ -128,8 +131,10 @@ class StreamTally:
         if self.finish_reason == "length":
             budget = f"the whole {self.max_tokens}-token" if self.max_tokens \
                 else "the whole"
+            knob = ("the prompt left no more room — raise CONTEXT_LENGTH"
+                    if self.window_bound else "raise MAX_REPLY_TOKENS")
             return (f"she ran out of room thinking — {budget} reply budget went "
-                    "on reasoning (raise MAX_REPLY_TOKENS)")
+                    f"on reasoning ({knob})")
         return "the model sent back no text"
 
     def detail(self) -> str:

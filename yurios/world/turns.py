@@ -39,7 +39,7 @@ import logging
 import re
 from contextlib import nullcontext
 
-from yurios.app.providers.usage import LAST_STREAM, unanswered
+from yurios.app.providers.usage import ACTED, LAST_STREAM, unanswered
 from yurios.desktop.voice.emotion import EmotionParser
 
 log = logging.getLogger("world.turns")
@@ -292,6 +292,7 @@ class TextTurns:
             reply_kw = {"image": rt.uploads.data_url(attachment)} \
                 if attachment else {}
             LAST_STREAM.set(None)        # this turn's reason, not an earlier one's
+            ACTED.set(False)
             try:
                 with context:
                     async for token in rt.brain.stream_reply(session_id, text,
@@ -328,7 +329,7 @@ class TextTurns:
 
             entry = None
             reply = drafts.text
-            if not reply:
+            if not reply and not ACTED.get():
                 rt.brain.abandon(session_id)   # nothing to commit — same rollback
                 tally = LAST_STREAM.get()
                 why = (tally.reason() if tally else "") \
@@ -336,22 +337,26 @@ class TextTurns:
                 log.warning("text turn came back empty (channel %s): %s %s",
                             channel, why, tally.detail() if tally else "")
                 raise EmptyReply(why)
+            # No words, but a hand ran: the act is the reply. It is committed —
+            # her memory keeps the call, REFLECT gets its outcome — and nothing
+            # is drawn, because the tool row already is. Failing it would ask
+            # for a retry that does the act a second time.
             if reply:
                 entry = rt.post_message("assistant", reply, channel=channel,
                                         session_id=session_id)
-                rt.committing()                # Stop waits for the rest (§29.5)
-                # Persisting is another model call — the memory extractor's —
-                # and it runs *after* `turn_ended`, so as far as the parker is
-                # concerned the room has already gone quiet. Held, so a render
-                # that starts in this gap waits for it instead of unloading the
-                # model it is talking to (§7.6). No `wait` first: the turn came
-                # through the gate at the top, and this is the same turn.
-                async with rt.park_gate.hold():
-                    tool_outcomes = await rt.brain.persist(
-                        session_id, text, "".join(raw))
-                rt.signals.post("turn_committed",
-                                {"text": text, "reply": reply,
-                                 "tool_outcomes": tool_outcomes}, source=channel)
+            rt.committing()                    # Stop waits for the rest (§29.5)
+            # Persisting is another model call — the memory extractor's — and it
+            # runs *after* `turn_ended`, so as far as the parker is concerned the
+            # room has already gone quiet. Held, so a render that starts in this
+            # gap waits for it instead of unloading the model it is talking to
+            # (§7.6). No `wait` first: the turn came through the gate at the
+            # top, and this is the same turn.
+            async with rt.park_gate.hold():
+                tool_outcomes = await rt.brain.persist(
+                    session_id, text, "".join(raw))
+            rt.signals.post("turn_committed",
+                            {"text": text, "reply": reply,
+                             "tool_outcomes": tool_outcomes}, source=channel)
             selfies = rt.selfies.active_ids(client_id) if rt.selfies else []
             return {"session_id": session_id, "message": entry,
                     "user_message": user_entry, "active_selfies": selfies}

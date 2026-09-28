@@ -1166,8 +1166,8 @@ STT/TTS/VAD SDK, and fakes implement each seam so the whole loop runs offline (�
   line to the transcript before the first token (the model must see it) while `persist` appends
   hers, so a turn torn down in between leaves a half-written exchange behind. Every path that
   ends a turn without committing — barge-in, brain error, a client that vanished mid-turn, an
-  empty reply — **MUST** call `abandon()`, `persist()`'s opposite number, which drops the
-  pending turn and rolls the user's line back out of the §7.1 window
+  empty reply (one in which no hand ran, §10.5) — **MUST** call `abandon()`, `persist()`'s
+  opposite number, which drops the pending turn and rolls the user's line back out of the §7.1 window
   (`app/conversation.py`; it stays on the page). Without it the next
   prompt reads that line as a question still owed an answer and she answers it a second time,
   folded into the new turn.
@@ -1315,7 +1315,11 @@ a frontend:
   pass that spent the whole `MAX_REPLY_TOKENS` budget, or plain silence. The reply stream keeps that
   reason (`finish_reason`, reasoning and refusal fields, token counts) for the turn that consumed it
   (`app/providers/usage.py`), and the runner **MUST** log it: a turn that answered with nothing and
-  said nothing anywhere is, from the chair, being ignored. Text turns from all channels serialise on
+  said nothing anywhere is, from the chair, being ignored. A reply with no words in which a hand
+  ran to `ok` is **not** empty: the act already happened (a render started, a timer set, a goal
+  filed), so failing it would roll back her record of the act and ask for a retry that does it
+  twice. It **MUST** be committed — persisted, and teed as `turn_committed` with its tool outcomes —
+  with no message drawn. Text turns from all channels serialise on
   one lock. Exposed as `POST /api/chat` (`{text, session_id?, channel, client_id?}` →
   `{session_id, user_message, message, active_selfies}`). It has `POST /api/chat/cancel` for a
   correlated browser Stop request and **MUST NOT** wait on the voice warm-up. A text channel has

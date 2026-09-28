@@ -31,6 +31,7 @@ import re
 from typing import AsyncIterator, Callable, Optional
 
 from yurios.app.core import assemble as asm
+from yurios.app.providers.usage import ACTED
 from yurios.characters.setting import read_place
 from yurios.desktop.brain import BrainAdapter
 from yurios.desktop.config import Config
@@ -634,6 +635,7 @@ class ToolBrain(BrainAdapter):
         if outcomes is not None:
             outcomes.append({"tool": call.tool, "args": call.args,
                               "verdict": "ok", "result": text})
+        ACTED.set(True)                    # a wordless reply is still a turn (usage.py)
         self._realise(call, full_text)
         if goal_created:
             # The write, event and audit above have no await between them: a

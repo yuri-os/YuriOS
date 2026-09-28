@@ -206,11 +206,15 @@ async def _in_the_room(ws: WebSocket, rt, session_id: str, safe_send,
                         spoken.append(ev.text)
                         if not commit_text:            # …unless the text is given
                             rt.hub.publish("draft", {"text": " ".join(spoken)})
-                    elif ev.kind == "done" and (spoken or commit_text):  # commit
-                        committed_message = rt.post_message(
-                            "assistant", commit_text or " ".join(spoken),
-                            proactive=proactive, channel="voice",
-                            session_id=session_id)
+                    elif ev.kind == "done" and (spoken or commit_text
+                                                or ev.tool_outcomes):  # commit
+                        # Wordless with outcomes: a hand ran and that was the
+                        # reply (turn.py). Nothing to draw; REFLECT still hears it.
+                        if spoken or commit_text:
+                            committed_message = rt.post_message(
+                                "assistant", commit_text or " ".join(spoken),
+                                proactive=proactive, channel="voice",
+                                session_id=session_id)
                         if user_text:                  # the SignalBus tee
                             rt.signals.post("turn_committed",
                                             {"text": user_text,

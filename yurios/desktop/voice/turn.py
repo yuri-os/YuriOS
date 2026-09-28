@@ -34,7 +34,7 @@ from typing import AsyncIterator
 
 import numpy as np
 
-from yurios.app.providers.usage import LAST_STREAM, StreamTally, unanswered
+from yurios.app.providers.usage import ACTED, LAST_STREAM, StreamTally, unanswered
 
 from .emotion import EmotionParser
 from .fillers import FillerBank
@@ -142,16 +142,18 @@ class TurnController:
             else self.brain.stream_reply(session_id, text))
 
         silence: StreamTally | None = None  # why the model said nothing, if it didn't
+        acted = False                       # …or whether a hand ran instead (usage.ACTED)
 
         async def produce() -> None:
             """Drain brain tokens → expression events + sentences onto the queue."""
-            nonlocal silence
+            nonlocal silence, acted
             buf = ""
             prev_events = 0
             # The provider leaves its tally in the context of the task iterating
             # it — this one, not the controller's (usage.LAST_STREAM) — so it is
             # read here, where it lands.
             LAST_STREAM.set(None)
+            ACTED.set(False)
             try:
                 async for token in source:
                     if self._cancel.is_set():
@@ -174,6 +176,7 @@ class TurnController:
                 if buf.strip() and not self._cancel.is_set():
                     await sentence_q.put(("say", buf.strip()))
                 silence = LAST_STREAM.get()
+                acted = ACTED.get()
             except Exception as e:                      # brain blew up mid-stream
                 await sentence_q.put(("error", str(e)))
             finally:
@@ -216,11 +219,12 @@ class TurnController:
             trace.finish(barged_in=True, trace_dir=self.trace_dir)
             yield OutEvent("cancelled")
             return
-        if not said and tokens is None:
+        if not said and not acted and tokens is None:
             # A reply with nothing in it is a turn that didn't happen (SPEC
             # §10.5), not a clean one: persisting it would file an empty answer
             # in her memory, and the room would draw nothing and say nothing.
-            # An opener or a murmur that comes out empty is just quiet.
+            # An opener or a murmur that comes out empty is just quiet, and a
+            # reply whose hand ran is the act, committed like any turn.
             why = (silence.reason() if silence else "") \
                 or "her reply had nothing in it to say"
             log.warning("voice turn came back empty: %s %s",

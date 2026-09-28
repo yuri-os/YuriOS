@@ -64,6 +64,14 @@ def chunk_prompt_tokens(chunk) -> int:
 LAST_STREAM: ContextVar["StreamTally | None"] = ContextVar("last_stream",
                                                            default=None)
 
+#: Whether a hand of hers ran to "ok" in this task's turn. A reply with no words
+#: in it after one did is not a turn that didn't happen: the selfie is rendering,
+#: the timer is set, the goal is filed. Failing it would roll back the record of
+#: the act and tell them to send it again, which does the act twice. Set by
+#: `ToolBrain._execute`, in the same context as `LAST_STREAM` and for the same
+#: reason; the reader clears it first.
+ACTED: ContextVar[bool] = ContextVar("acted", default=False)
+
 
 def _field(obj, name: str):
     """`obj[name]` or `obj.name` — llama.cpp streams dicts, LiteLLM objects."""

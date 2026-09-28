@@ -456,13 +456,28 @@ is enforced it is worth having. But a route is free not to serve a given schema,
 OpenAI shape gives it only one way to say so: it answers nothing — `finish_reason: "stop"`,
 zero completion tokens — which reaches the caller as a parse failure naming the wrong cause.
 Measured on `openrouter/z-ai/glm-5.2` with the promise-review schema (§22.1a): empty with the
-schema, strict or not, and correct with `json_object` or with no `response_format` at all. So
+schema, strict or not, and correct with `json_object` or with no `response_format` at all (on
+the upstream that served it then — see the next paragraph for one where it is not). So
 an empty answer under a `json_schema` **MUST** be retried once in `json_object` mode before it
 is reported as a failure, and the downgrade **MUST** be visible in the call's metadata. The
 schema is never what holds the shape — every structured utility contract is also stated in the
 prompt and re-checked by its parser — so this gives up enforcement the route was not doing.
 The retry is deliberately narrow: only an *empty* answer, only at `stop`, only where a schema
 was sent, so a model with genuinely nothing to say is never asked twice.
+
+**A format MUST NOT cost a call the thought it asked for.** The quieter failure answers: on
+`openrouter/z-ai/glm-5.2` the Together upstream serves *any* `response_format` — `json_schema`
+and `json_object` alike — with no reasoning pass at all, while Wafer, Mistral and DigitalOcean
+reason under the same format. The promise review then answered a claim of "I read all 24 files",
+backed only by a `list_notes` index, with a well-formed and wrong `{"goal": null}` every time
+(17 of 17), and with a filed goal every time without the format (15 of 15). So a utility call
+that asks for thinking, sends a format, and gets a non-empty answer at `stop` with no thought in
+it (no reasoning tokens, no reasoning text, no leading `<think>` block) **MUST** be asked once
+more without the format. If the retry reasons, its answer stands, the call's metadata records
+`format_dropped`, and that model **MUST** stop sending a format on thinking calls. If it does
+not, the model does not reason: the first answer, with the format's enforcement, stands, and a
+model never seen to reason is not asked twice again — so a plain local model pays the probe
+once per process, never per call. A call with thinking off keeps its format.
 
 ### §2.5 — The situation block: she knows when and where she is
 

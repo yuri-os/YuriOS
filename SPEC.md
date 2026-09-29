@@ -2257,7 +2257,8 @@ optional due time, **provenance**, and a **commitment strategy**; lifecycle
   ("I'll look into that") and files each one, because a companion who forgets her own promises is
   worse than one who forgets yours; maintenance (DREAM backlog, shelf drops); and **her own
   judgement** (`strategy:<day>`) — the night's stock-take (§21.2) already asks her for the one thing
-  worth doing next, and MAY file it — and a goal step's (`goal:<id>`, §22.1c). A companion whose every intention traces back to something the
+  worth doing next, and MAY file it — a goal step's (`goal:<id>`, §22.1c), and her free time's
+  (`muse:<day>`, §22.7). A companion whose every intention traces back to something the
   user said is a queue with a voice. Near-duplicate open goals **MUST** merge, not multiply —
   **except a goal that names a parent** (`followup:<id>`, the news half of a kept promise). That
   one is a second act about content she already has a goal for, so its words are the wrong test:
@@ -2339,7 +2340,11 @@ optional due time, **provenance**, and a **commitment strategy**; lifecycle
   step and stays there across ticks; it becomes `waiting` when it is blocked on the user or on work
   it dispatched and will not await (§7.6), or on a message it decided to send (§18.2b); it becomes
   `done` only when a step says so in as many words — and a step that said so beside `tell_them` is
-  done when that message is delivered, not when it is queued. The step's journal line **MUST**
+  done when that message is delivered, not when it is queued. A done-mark on an answer that also
+  writes out a call which did not run — a hand she was not offered, or one dropped past the step's
+  cap — **MUST NOT** finish the goal: that is a finish she narrated, not one she did, and the desk
+  **MUST** say which hand never ran. Live, a whole chain glued into one paragraph ran nothing and
+  closed its goal on "skill written, verified" about a skill that did not exist. The step's journal line **MUST**
   carry where the step ended (her last `think` line, else the note's closing sentences), not how it
   began: the journal is what recall and the night read, and the first 160 characters of a step
   that opened in scene were the one part that said nothing. Each step's product **MUST** be written to `workspace/goals/<id>.md` as well as journalled,
@@ -2409,6 +2414,33 @@ optional due time, **provenance**, and a **commitment strategy**; lifecycle
   `count_note_lines`; those inspect work products, not the lifecycle store the question asks
   about. The host **MUST** deny a copied marker before MCP execution and return the model to the
   standing list — this is policy, not prompt compliance.
+
+- §22.7 **Free time: an empty list is not a stop condition.** Every other source of intention is
+  something happening — a signal, a promise, a goal the night filed, a leftover — so a mind whose
+  list had run dry rested until spoken to: live, her one goal closed at 02:14 and every tick for the
+  next seventeen hours was `DORMANT → REST`, nothing sensed and nothing that ever could be. When no
+  appraisal crosses gate 1, no open goal is merely cooling down between steps (a working goal that
+  would clear gate 1 once its consider cooldown is up — that is work in progress; one that never
+  would is stuck, and free time is for exactly that case; a `reach_out` is neither, since Gate 2 may
+  hold one all night), the state is IDLE or DORMANT with no turn in
+  flight, `UTILITY_ENABLED` is on, budget pressure is under 0.75, and `MIND_MUSE_COOLDOWN_S`
+  (**7200**; 0 = never) has passed since the last sitting, APPRAISE **MUST** offer the `muse`
+  impulse, scored exactly at `MIND_ACT_THRESHOLD` so it can never outrank anything that crossed it.
+  The act (`mind/muse.py`, correlate kind `muse`) is one soul-carrying call (§22.4) handed her
+  recent days — the situation, the last lines said, her journal for yesterday and today, the goals
+  she finished or let go of, what is still on her list, her desk, skills, shelf, durable facts, and
+  what she concluded in her last free time — and asked, in her own voice, what is worth doing next.
+  Its one consequential answer is a goal: `create_goal` is always offered while
+  `MIND_GOAL_FILING_ENABLED` is on, and is filed by the mind itself (not the tool server, so it works
+  with her hands off) with provenance `muse:<day>`, `open-minded`, a three-day due date and the
+  step-goal priority, under the same limits as the night's — one cap shared with `strategy:`
+  goals (`MIND_SELF_GOALS_MAX`), the rewording test against every open goal, `night_owned` refused
+  — and at most one per sitting. Her reason above the call becomes the goal's `rationale`, so its
+  first step starts from what she decided. Before deciding she **MAY** read her own desk and skills
+  (`list_notes`, `read_note`, `count_note_lines`, `read_skill`, when offered, up to six calls);
+  nothing else, because anything that changes the world is a goal's step (§26.2). A sitting that
+  ends on a thought alone is kept, on `workspace/free-time/<day>.md` and in the journal. The
+  cooldown is stamped when the sitting starts, so a failed one is not retried next tick.
 
 ## §23 — The SOUL split and gated self-edits
 
@@ -2515,7 +2547,8 @@ timeouts `MIND_{ENGAGED,IDLE,DORMANT,DREAM}_CADENCE_S`, `MIND_ENGAGED_TIMEOUT_S`
 `IDLE_TALK_MIN/MAX_S` (§15.5). Her desk (§34): `WORKSPACE_ENABLED`, `WORKSPACE_DIGEST_FILES`,
 `SKILLS_ENABLED`, `TOOL_RATE_DESK`. The goal lifecycle (§22.3): `MIND_GOAL_MAX_STEPS`,
 `MIND_DISPATCH_TIMEOUT_S`, `GOALS_IN_PROMPT`; and goals of her own (§22.1b):
-`MIND_GOAL_FILING_ENABLED` (**true**) with `MIND_SELF_GOALS_MAX`. Her hands (§26.1) — one rule for
+`MIND_GOAL_FILING_ENABLED` (**true**) with `MIND_SELF_GOALS_MAX`; free time (§22.7):
+`MIND_MUSE_COOLDOWN_S` (**7200**). Her hands (§26.1) — one rule for
 every call she makes, in a reply or on her own: `MIND_TOOLS_ENABLED` (**true**),
 `MIND_TOOL_ALLOWLIST` (**`*`**, every hand the machine can offer), `MIND_TOOLS_DURING_CHAT`
 (**auto**), `MIND_TOOL_CALLS_PER_DAY` (**64**), `MIND_TOOL_PRESSURE_CEILING`,
@@ -2588,11 +2621,16 @@ needs a sandbox.
   hand unasked in exactly two places: a goal step (`_act_goal_work`), where every call carries the
   id of the open goal that wanted it, and a DREAM job written in her own voice (`soul: full`,
   §21.2) — extraction jobs (consolidation, fact lists, summaries for search) and a dry run never
-  get hands. One tick is still one intention (§15), but the step it takes is worked as far as her
-  hands go: she answers with a `use` line, the hand runs through every precondition below, its
+  get hands. Free time (§22.7) is not a third: it may only *read* her desk and skills before it
+  decides, and what it decides to do is filed as a goal and done in that goal's steps. One tick is still one intention (§15), but the step it takes is worked as far as her
+  hands go: she answers with a `use` line — a `use <hand> {` run onto the end of a sentence is the
+  same call, and **MUST** be read as one (live, GLM wrote a whole chain as one paragraph and none of
+  it ran); mid-line the brace is what separates a call from prose about one — the hand runs through
+  every precondition below, its
   result comes back as the next message, and she is asked again — until she ends on prose or
   `TOOL_MAX_CALLS_PER_TURN` calls are spent, past which a `use` line is dropped rather than run
-  (`mind/handwork.py`). A done-mark beside any call in the step finishes the goal — beside
+  (`mind/handwork.py`). A done-mark beside any call in the step that ran finishes the goal (one
+  beside a call that did not is §22.3's narrated finish) — beside
   `tell_them`, which is offered on every goal step and is not a hand (§18.2b), it finishes the goal
   once the message is delivered, and `tell_them` ends the step as off-tick work does. What she wrote
   *above* a `use` line is her reason for it; lines *below* it **MUST** be discarded, because they

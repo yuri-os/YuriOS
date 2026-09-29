@@ -45,6 +45,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import Callable
 
@@ -696,6 +697,33 @@ class Intent:
     text: str = ""
     tool: str = ""
     args: dict = field(default_factory=dict)
+    #: Hands she wrote out as calls that this answer does not run: named on a
+    #: thought, or dropped past the step's cap. A done-mark beside one is a
+    #: finish she narrated rather than did (SPEC §22.3).
+    unrun: tuple[str, ...] = ()
+
+
+#: A `use <hand> {` anywhere in a line — at its start, or run onto the end of
+#: the sentence before it. Live on GLM, 29 Sep: a whole chain written as one
+#: paragraph, "…what I actually gathered.use read_note {…}use read_note {…}",
+#: parsed as a thought because no line *began* with `use`. None of the six
+#: calls ran, and the "goal complete" at its end closed the goal on a skill
+#: that was never written. Mid-line it needs the brace — "I'll use read_note to
+#: check" is prose — and a letter before it is a longer word ("reuse").
+CALL_SHAPE = re.compile(r"(?<!\w)use\s+`?([A-Za-z_][\w-]*)`?\s*(?=\{)",
+                        re.IGNORECASE)
+
+
+def _calls(line: str) -> list[tuple[int, str]]:
+    """Where a line reaches for a hand: (offset, name), in order."""
+    head = line.lower().startswith("use ")
+    found = [(m.start(), m.group(1)) for m in CALL_SHAPE.finditer(line)]
+    if head and not any(at == 0 for at, _ in found):
+        # The one shape that never needed the brace: a bare `use tool` line.
+        # The server refuses its empty arguments with a sentence she can read.
+        name = line[4:].strip().partition(" ")[0].strip("`\"'")
+        found.insert(0, (0, name))
+    return found
 
 
 def parse_intent(reply: str, *, allowed: tuple[str, ...]) -> Intent:
@@ -713,39 +741,44 @@ def parse_intent(reply: str, *, allowed: tuple[str, ...]) -> Intent:
                       text=_thought(strip_native_calls(text).splitlines()))
     text = strip_native_calls(text)
     lines = text.splitlines()
+    named: list[str] = []
     for index, raw in enumerate(lines):
         line = raw.strip().lstrip("-• ").strip()
-        if not line.lower().startswith("use "):
-            continue
-        rest = line[4:].strip()
-        tool, _, raw = rest.partition(" ")
-        tool = tool.strip().strip("`\"'")
-        if tool not in allowed:
-            continue
-        raw = raw.strip()
-        start = raw.find("{")
-        args: dict = {}
-        if start >= 0:
-            try:
-                # The first object, not first `{` to last `}`: a second call
-                # run onto the same line (`use a {…}use b {…}`, live on GLM)
-                # spanned both and lost the first call's arguments. The second
-                # is dropped — she is asked again once the first comes back.
-                parsed, _ = json.JSONDecoder().raw_decode(raw, start)
-                args = parsed if isinstance(parsed, dict) else {}
-            except ValueError:
-                # She named the hand and fumbled the JSON. An empty argument
-                # object is a call the *server* will refuse with a sentence she
-                # can read next tick, which beats guessing what she meant.
-                args = {}
-        # Her reason is what she wrote above the call. What comes after it was
-        # written before any result existed: live, GLM followed a `use` line
-        # with "Result: …" it had made up, and with "the note is there" about
-        # a read that had not run — kept, that was her reason for the call and
-        # a place a done-mark could be (SPEC §26.2).
-        return Intent("use", tool=tool, args=args, text=_thought(lines[:index]))
-    # everything else — including a plain paragraph — is her thinking
-    return Intent("think", text=_thought(lines))
+        for at, tool in _calls(line):
+            if tool not in allowed:
+                if tool in HANDS or tool == TELL:
+                    named.append(tool)
+                continue
+            raw = line[at:].strip()[4:].strip()
+            start = raw.find("{")
+            args: dict = {}
+            if start >= 0:
+                try:
+                    # The first object, not first `{` to last `}`: a second
+                    # call run onto the same line (`use a {…}use b {…}`, live
+                    # on GLM) spanned both and lost the first call's
+                    # arguments. The second is dropped — she is asked again
+                    # once the first comes back.
+                    parsed, _ = json.JSONDecoder().raw_decode(raw, start)
+                    args = parsed if isinstance(parsed, dict) else {}
+                except ValueError:
+                    # She named the hand and fumbled the JSON. An empty
+                    # argument object is a call the *server* will refuse with a
+                    # sentence she can read next tick, which beats guessing
+                    # what she meant.
+                    args = {}
+            # Her reason is what she wrote above the call — and, when she ran
+            # it onto a sentence, that sentence. What comes after it was
+            # written before any result existed: live, GLM followed a `use`
+            # line with "Result: …" it had made up, and with "the note is
+            # there" about a read that had not run — kept, that was her reason
+            # for the call and a place a done-mark could be (SPEC §26.2).
+            return Intent("use", tool=tool, args=args,
+                          text=_thought([*lines[:index], line[:at]]))
+    # everything else — including a plain paragraph — is her thinking. A call
+    # to a hand she was not offered is still named, so a done-mark written
+    # beside it is not read as a finish (goalwork).
+    return Intent("think", text=_thought(lines), unrun=tuple(named))
 
 
 def _thought(lines: list[str]) -> str:

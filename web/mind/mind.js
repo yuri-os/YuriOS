@@ -916,7 +916,7 @@ async function renderContext(ctx) {
 
   const kinds = element("select", { attrs: { "aria-label": "Filter by call kind" } },
     element("option", { text: "every kind", attrs: { value: "" } }),
-    ...["chat_turn", "ambient", "greeting", "compose", "utility", "dream", "goal_work", "knowledge"]
+    ...["chat_turn", "ambient", "greeting", "compose", "utility", "dream", "goal_work", "muse", "knowledge"]
       .map((k) => element("option", { text: k, attrs: { value: k } })));
   kinds.value = ctx.kind || "";
   kinds.addEventListener("change", () =>

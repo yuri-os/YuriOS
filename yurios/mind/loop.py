@@ -46,14 +46,14 @@ from yurios.world.vram import ParkGate
 
 from .budget import BudgetGovernor
 from .dream import DreamConsolidator
-from .dreamjobs import SELF_GOAL, DreamRunner
-from .goals import (Goal, GoalStore, discover_promise_candidates,
+from .dreamjobs import DreamRunner
+from .goals import (OWN_JUDGEMENT, Goal, GoalStore, discover_promise_candidates,
                     fallback_promises, timer_for_promise, trim)
 from .hands import (Hands, build_guard, strip_native_calls)
 from .journal import Journal
 from .knowledge import KnowledgeStore
 from .promptlog import PromptLog
-from . import acts, goalwork, handwork, housekeeping, prompts
+from . import acts, goalwork, handwork, housekeeping, muse, prompts
 from .policy import (DREAM, ENGAGED, IDLE, ActivityController, Appraisal,
                      appraise_goal, appraise_signal)
 from .selfedit import SelfEdit
@@ -229,6 +229,10 @@ class MindLoop:
         # The one-shot §5.4 handoff, below. A date rather than a bool so the
         # journal line and the goal it files can be traced back to the day.
         self.bootstrapped_on: str = st.get("bootstrapped_on", "")
+        # When she last had free time (§22.7) — persisted, so a restart does
+        # not hand her a fresh sitting the moment it comes back up.
+        self.last_mused: float = float(st.get("mused_at", 0) or 0)
+        self._muse_filed = ""                  # the one goal this sitting filed
         reviews = st.get("promise_reviews", [])
         self.promise_reviews: list[dict] = [
             review for review in reviews
@@ -588,6 +592,16 @@ class MindLoop:
                 "self_talk", "impulse", self.cfg.mind_act_threshold + 0.05,
                 "a long quiet stretch, with someone in the room"))
 
+        # Free time (§22.7): with nothing above gate 1 and no goal merely
+        # resting between its steps, REST forever is not a rest but a stop. A
+        # reach-out is not work in progress: Gate 2 can hold one all night.
+        busy = any(muse.cooling(self, g, now) for g in self.goals.open_goals()
+                   if g.state != "waiting" and g.kind != "reach_out"
+                   and not g.meta.get("timer_id"))
+        free = muse.appraise(self, appraisals, busy=busy, now=now)
+        if free is not None:
+            appraisals.append(free)
+
         # ---- DECIDE: exactly one intention, or REST ---------------------------
         appraisals.sort(key=lambda a: a.score, reverse=True)
         chosen = next((a for a in appraisals
@@ -691,6 +705,8 @@ class MindLoop:
             return acted, interrupt, notes
         if chosen.subject == "promise_review":
             return await acts.promise_review(self, offer)
+        if chosen.subject == "muse":
+            return await muse.muse(self, offer)
         if chosen.kind == "signal":
             sig: Signal = chosen.subject
             if sig.type == "task_completion":
@@ -842,6 +858,7 @@ class MindLoop:
             "considered": self.considered, "last_tick_ts": self.last_tick_ts,
             "wakeups": self.wakeups, "reconsidered_on": self.reconsidered_on,
             "bootstrapped_on": self.bootstrapped_on,
+            "mused_at": self.last_mused,
             "promise_reviews": self.promise_reviews,
             "delivered_timers": self.delivered_timers[-100:],
             # the fingerprint ledger and the daily call count, beside
@@ -997,7 +1014,7 @@ class MindLoop:
                 "enabled": bool(getattr(self.cfg,
                                         "mind_goal_filing_enabled", True)),
                 "open": sum(1 for g in self.goals.open_goals()
-                            if str(g.provenance or "").startswith(SELF_GOAL)),
+                            if str(g.provenance or "").startswith(OWN_JUDGEMENT)),
                 "max": int(getattr(self.cfg, "mind_self_goals_max", 3) or 0)},
             "shelf": self.knowledge.shelf(),
             "interrupts_today": self.interrupts.get("count", 0),

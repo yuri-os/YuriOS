@@ -24,7 +24,7 @@ from yurios.kernel.clock import Clock
 from ..journal import canonical_day, is_canonical_day
 from ..util import day_of, iso_of, read_json, write_json
 from ..vaultio import MindVault
-from ..goals import Goal, GoalStore, echoes, night_owned
+from ..goals import OWN_JUDGEMENT, Goal, GoalStore, echoes, night_owned
 from ..hands import Hands
 from ..workspace import SkillStore, Workspace
 
@@ -561,8 +561,10 @@ class DreamContext:
             return None
         open_goals = list(self.goals.open_goals())
         cap = int(getattr(self.cfg, "mind_self_goals_max", 3) or 0)
+        # Hers, whichever of her own judgements filed them — the night's or
+        # her free time's (§22.7). One cap for both, or two doors double it.
         mine = [g for g in open_goals
-                if str(g.provenance or "").startswith(SELF_GOAL)]
+                if str(g.provenance or "").startswith(OWN_JUDGEMENT)]
         if len(mine) >= cap:
             self.goal_refusal = "capped"
             return None

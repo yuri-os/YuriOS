@@ -622,6 +622,18 @@ async def goal_work(loop, goal: Goal,
         notes.append(f"worked on: {goal.text} — {takeaway(note)}")
 
     meta: dict = {"steps": step, "last_step": iso_of(loop.clock.now())}
+    # A finish she wrote beside calls that never ran is a finish she narrated
+    # (§22.3). Live, 29 Sep: six calls glued into one paragraph, none
+    # dispatched, and "goal complete — skill written, verified" closed a goal
+    # on a skill that did not exist. It stays open, and the desk says why, so
+    # the next step does the work instead of believing it.
+    narrated = bool(intent.unrun) and finished(loop, intent.text)
+    if narrated:
+        hands = ", ".join(dict.fromkeys(intent.unrun))
+        desk_write(loop, goal, f"(not finished: the {hands} I wrote out never "
+                               "ran — nothing it would have done is done)")
+        notes.append(f"not done yet: {goal.text} — the {hands} I wrote out "
+                     "never ran")
     started = worked.dispatched
     told = next((r for r in worked.reaches if r.told and r.verdict == "ok"), None)
     if told is not None:
@@ -640,8 +652,8 @@ async def goal_work(loop, goal: Goal,
         loop.wakeups[goal.id] = (loop.clock.now()
                                  + float(loop.cfg.mind_dispatch_timeout_s))
         notes.append("…and I'm waiting on it before I go further")
-    elif finished(loop, intent.text) or any(finished(loop, r.why)
-                                            for r in worked.reaches):
+    elif not narrated and (finished(loop, intent.text)
+                           or any(finished(loop, r.why) for r in worked.reaches)):
         # …or beside a call: found live, she wrote "goal complete" above the
         # `append_note` that finished it and said nothing more after.
         state = "done"

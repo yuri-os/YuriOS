@@ -170,6 +170,15 @@ def echoes(text: str, existing: Iterable[Goal]) -> Goal | None:
 #: step's own goal is the parent, and it has at most one such goal open.
 STEP_GOAL = "goal:"
 
+#: Provenance of a goal she filed in her free time (SPEC §22.7): nothing on her
+#: list was ready, she looked back over her days, and this is what she chose.
+MUSE_GOAL = "muse:"
+
+#: Goals she filed on her own judgement rather than for a parent goal — the
+#: night's stock-take (`strategy:<day>`, §22.1b) and her free time. These are
+#: what `MIND_SELF_GOALS_MAX` counts and what the inner-life panel marks hers.
+OWN_JUDGEMENT = ("strategy:", MUSE_GOAL)
+
 #: Provenance prefixes that name a parent goal, deduplicated on the parent.
 PARENTED = ("followup:", "told:", STEP_GOAL)
 

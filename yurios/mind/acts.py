@@ -25,12 +25,13 @@ from yurios.app.core.assemble import OWN_VOICE
 from yurios.kernel import correlate
 
 
-from .goals import (STEP_GOAL, Goal, echoes, night_owned, trim,
+from .goals import (MUSE_GOAL, OWN_JUDGEMENT, STEP_GOAL, Goal, echoes,
+                    night_owned, trim,
                     PROMISE_REVIEW_RESPONSE_FORMAT, PromiseCandidate,
                     PromiseReviewError, parse_promise_review,
                     promise_decision_grounded, promise_kind,
                     promise_review_messages, timer_for_promise)
-from .hands import strip_native_calls
+from .hands import FILE_GOAL, strip_native_calls
 from .policy import DREAM, next_open, quiet_hour, score_interrupt
 from .prompts import goal_history
 from .signals import Signal, failure_of
@@ -643,6 +644,70 @@ def file_from_step(loop, contract: str, *, goal_id: str) -> str:
                        "note": "On your list as its own goal. It gets its own "
                                "turn; this step goes on without it."},
                       ensure_ascii=False)
+
+
+def file_from_muse(loop, args: dict) -> tuple[str, str]:
+    """File the one goal a sitting of free time chose (SPEC §22.7).
+
+    Not a hand: filing a goal is her deciding what to do, which the night's
+    stock-take does without any tool server, and free time must still end in
+    work on a machine whose hands are off. So it is filed here, directly, under
+    the same limits the night's are — the switch, the cap on goals of her own,
+    the rewording test against everything open, and DREAM's own work refused —
+    and it is audited like a hand, so `calls.jsonl` still answers "what did she
+    decide on her own". One per sitting: free time that files three goals has
+    decided nothing. Returns `(verdict, what she reads)`.
+    """
+    def said(verdict: str, result: str) -> tuple[str, str]:
+        guard = getattr(loop.hands, "guard", None)
+        if guard is not None:
+            guard.audit(FILE_GOAL, args,
+                        verdict if verdict == "ok" else f"denied: {result}",
+                        0.0, result if verdict == "ok" else "")
+        return verdict, result if verdict == "ok" else f"denied ({result})"
+
+    text = " ".join(str((args or {}).get("text") or "").split())
+    kind = str((args or {}).get("kind") or "task")
+    if not getattr(loop.cfg, "mind_goal_filing_enabled", True):
+        return said("denied", "filing goals of your own is switched off")
+    if getattr(loop, "_muse_filed", ""):
+        return said("denied", "one new goal per sitting — you already chose "
+                              f"{loop._muse_filed}")
+    if not text or len(text) > 200 or "|" in text:
+        return said("denied", "a goal is one line of under 200 characters, "
+                              "with no '|'")
+    if kind not in ("task", "reach_out"):
+        return said("denied", 'kind is "task" or "reach_out"')
+    if night_owned(text):
+        return said("denied", "the night already does that; it isn't a goal")
+    open_goals = list(loop.goals.open_goals())
+    echo = echoes(text, open_goals)
+    if echo is not None:
+        return said("ok", json.dumps(
+            {"status": "existing", "id": echo.id, "text": echo.text,
+             "kind": echo.kind, "state": echo.state,
+             "note": "Not filed — you are already carrying this."},
+            ensure_ascii=False))
+    cap = int(getattr(loop.cfg, "mind_self_goals_max", 3) or 0)
+    mine = [g for g in open_goals
+            if str(g.provenance or "").startswith(OWN_JUDGEMENT)]
+    if len(mine) >= cap:
+        return said("denied", f"you already carry {len(mine)} goals of your "
+                              "own — finish or let go of one first")
+    now = loop.clock.now()
+    goal = loop.goals.add(
+        text, kind=kind, priority=STEP_GOAL_PRIORITY,
+        due=iso_of(now + STEP_GOAL_TTL_DAYS * 86400), commitment="open-minded",
+        provenance=f"{MUSE_GOAL}{day_of(now)}")
+    loop._muse_filed = goal.id
+    written = getattr(loop, "_goal_written", None)
+    if callable(written):
+        written(goal)
+    return said("ok", json.dumps(
+        {"status": "created", "id": goal.id, "text": goal.text,
+         "kind": goal.kind, "state": goal.state,
+         "note": "On your list. It gets its own turn, with all your hands."},
+        ensure_ascii=False))
 
 
 async def reach_out(loop, goal: Goal) -> tuple[dict, dict, list[str]]:

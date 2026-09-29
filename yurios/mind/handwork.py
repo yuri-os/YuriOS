@@ -78,7 +78,8 @@ class Worked:
         return next((r for r in self.reaches if r.dispatched), None)
 
 
-async def dispatch(loop, tool: str, args: dict, *, goal_id: str = "") -> Reach:
+async def dispatch(loop, tool: str, args: dict, *, goal_id: str = "",
+                   muse: bool = False) -> Reach:
     """check → spend → execute → realise, for one call. Never raises.
 
     Every precondition is checked again here, not because the offer was wrong
@@ -92,6 +93,12 @@ async def dispatch(loop, tool: str, args: dict, *, goal_id: str = "") -> Reach:
         # Gate 2's to deliver, under Gate 2's hard limits (§18.2b).
         verdict, result, told = acts.queue_telling(loop, args, goal_id=goal_id)
         return Reach(tool, args, verdict, result, told=told,
+                     refused=result if verdict == "denied" else "")
+    if tool == FILE_GOAL and muse:
+        # Free time's one decision (§22.7): filed by the mind, not the tool
+        # server, so it works whether or not her hands are on.
+        verdict, result = acts.file_from_muse(loop, args)
+        return Reach(tool, args, verdict, result,
                      refused=result if verdict == "denied" else "")
     ok, why = loop.hands.check(
         tool, args, state=loop.activity.state,
@@ -142,7 +149,7 @@ async def work(loop, messages: list[dict], *, offer: Offer,
                ask: Callable[[list[dict]], Awaitable[str]],
                goal_id: str = "", stop_on_dispatch: bool = False,
                on_reach: Callable[[Reach], None] | None = None,
-               cap: int | None = None) -> Worked:
+               cap: int | None = None, muse: bool = False) -> Worked:
     """Ask; while she answers with a `use` line, run it and ask again.
 
     `ask` is the model call — the caller's, so a goal step keeps its soul and a
@@ -161,9 +168,10 @@ async def work(loop, messages: list[dict], *, offer: Offer,
             # Past the cap a `use` line is dropped, not run — her reasoning
             # beside it is still the step's answer.
             done.answer = intent if intent.kind != "use" \
-                else Intent("think", text=intent.text)
+                else Intent("think", text=intent.text, unrun=(intent.tool,))
             return done
-        reach = await dispatch(loop, intent.tool, intent.args, goal_id=goal_id)
+        reach = await dispatch(loop, intent.tool, intent.args, goal_id=goal_id,
+                               muse=muse)
         reach.why = (intent.text or "").strip()
         done.reaches.append(reach)
         if on_reach is not None:

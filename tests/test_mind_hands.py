@@ -687,6 +687,101 @@ def test_a_second_call_run_onto_the_line_does_not_eat_the_first_ones_args():
     assert (intent.tool, intent.args) == ("list_notes", {"folder": "notes"})
 
 
+#: Verbatim shape from her prompt trace, 29 Sep (`t-d576030bfd7c`): a whole
+#: chain written as one answer, each `use` run onto the sentence before it.
+GLUED_CHAIN = (
+    "think Grant is here and it's late — but this goal is mine.\n\n"
+    "Let me read what I actually gathered."
+    'use read_note {"path": "notes/sensual-language-craft.md"}'
+    'use read_note {"path": "notes/desire-psychology.md"}'
+    "think Okay — I have all three."
+    'use write_skill {"name": "intimate-presence", "description": "d", '
+    '"instructions": "i"}'
+    "think Good — it's there.\n\n"
+    "goal complete — step 1 of 3 done. Skill written, verified, ready to use.")
+
+
+def test_a_call_run_onto_a_sentence_is_still_a_call():
+    """No line began with `use`, so the whole chain parsed as one thought."""
+    intent = parse_intent(GLUED_CHAIN, allowed=("read_note", "write_skill"))
+    assert (intent.kind, intent.tool) == ("use", "read_note")
+    assert intent.args == {"path": "notes/sensual-language-craft.md"}
+    # her reason is the sentence the call was glued to, and nothing after it —
+    # least of all the "goal complete" written before anything had run
+    assert intent.text.endswith("Let me read what I actually gathered.")
+    assert "goal complete" not in intent.text
+
+
+def test_prose_about_a_hand_is_not_a_reach_for_it():
+    """Mid-line it takes the brace; a longer word ending in "use" is a word."""
+    for words in ("think I'll use read_note to check it later",
+                  'think I could reuse read_note {"path": "a.md"} tomorrow'):
+        assert parse_intent(words, allowed=("read_note",)).kind == "think"
+    capital = parse_intent('Use read_note {"path": "a.md"}', allowed=("read_note",))
+    assert (capital.kind, capital.tool) == ("use", "read_note")
+
+
+def test_a_hand_she_was_not_offered_is_named_on_the_thought():
+    """So a done-mark written beside it is not read as a finish (goalwork)."""
+    intent = parse_intent('think that settles it — goal complete\n'
+                          'use web_search {"query": "x"}',
+                          allowed=("read_note",))
+    assert intent.kind == "think" and intent.unrun == ("web_search",)
+    # a word that is not a hand is not one she reached for
+    assert parse_intent("use my head {really}", allowed=()).unrun == ()
+
+
+async def test_a_glued_chain_runs_its_calls_instead_of_closing_on_them(
+        cfg, seeded_vault):
+    """The live failure end to end: every call ran, and only the answer she
+    gave once they had closes the goal."""
+    rig = rig_with_hands(
+        cfg, seeded_vault, GLUED_CHAIN,
+        'think read the second.use read_note {"path": "notes/desire-psychology.md"}',
+        'think now the skill.use write_skill {"name": "intimate-presence", '
+        '"description": "d", "instructions": "i"}',
+        "think it's written — goal complete",
+        allow="read_note,write_skill")
+    goal = rig.mind.goals.add("turn the research into a skill", kind="task",
+                              priority=0.95)
+    trace = (await work(rig))[0]
+    assert [c[0] for c in rig.runner.calls] == ["read_note", "read_note",
+                                                "write_skill"]
+    assert trace["acted"]["tools"][-1]["tool"] == "write_skill"
+    assert rig.mind.goals.get(goal.id).state == "done"
+
+
+async def test_a_finish_beside_a_call_that_never_ran_leaves_the_goal_open(
+        cfg, seeded_vault):
+    """"goal complete" next to a hand she was not offered is a narrated finish."""
+    rig = rig_with_hands(
+        cfg, seeded_vault,
+        'think found it all — goal complete\nuse web_search {"query": "tiles"}',
+        allow="write_note")
+    goal = rig.mind.goals.add("work out the tiles", kind="task", priority=0.95)
+    trace = (await work(rig))[0]
+    assert rig.runner.calls == []
+    assert trace["acted"]["state"] == "active"
+    assert rig.mind.goals.get(goal.id).state == "active"
+    desk = rig.mind.vault.read(f"workspace/goals/{goal.id}.md")
+    assert "web_search I wrote out never ran" in desk
+
+
+async def test_a_finish_above_a_call_past_the_cap_leaves_the_goal_open(
+        cfg, seeded_vault):
+    """The call that would have finished it was dropped, so it did not."""
+    rig = rig_with_hands(
+        cfg, seeded_vault,
+        'use write_note {"path": "notes/a.md", "text": "one"}',
+        'think that is the last of it — goal complete\n'
+        'use write_note {"path": "notes/b.md", "text": "two"}',
+        tool_max_calls_per_turn=1)
+    goal = rig.mind.goals.add("write both notes", kind="task", priority=0.95)
+    await work(rig)
+    assert [c[1]["path"] for c in rig.runner.calls] == ["notes/a.md"]
+    assert rig.mind.goals.get(goal.id).state == "active"
+
+
 def test_a_reach_in_deepseek_markup_is_the_call_she_meant():
     """No tools are ever declared, so DeepSeek sometimes writes its native
     markup instead of the `use` line. It is still a reach, not a thought —

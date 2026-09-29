@@ -250,8 +250,9 @@ import { detailMessage } from '../shared/http.js';
   // the raw provenance stays visible beside the plain-language tag, because
   // `strategy:2026-08-23` is the thing you would grep for and "she filed this"
   // is the thing you can read at a glance. Both, not one. `goal:<id>` is one a
-  // goal step filed (SPEC §22.1c) — hers as much as the night's.
-  const HERS = ['strategy:', 'goal:'];
+  // goal step filed (SPEC §22.1c) and `muse:<day>` one her free time filed
+  // (§22.7) — hers as much as the night's.
+  const HERS = ['strategy:', 'goal:', 'muse:'];
 
   function visibleIntentions(goals) {
     const crossed = (g) => g.state === 'abandoned' || droppingGoals.has(g.id);

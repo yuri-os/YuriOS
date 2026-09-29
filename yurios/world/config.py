@@ -217,6 +217,10 @@ class Config(VoiceConfig):
     # never advanced.
     mind_goal_filing_enabled: bool = True
     mind_self_goals_max: int = 3
+    # Free time (§22.7): with nothing on her list ready and nothing to react
+    # to, how often she looks back over her days and decides what to do next.
+    # 0 = never, which is a mind that stops the day its list runs dry.
+    mind_muse_cooldown_s: float = 7200.0
     # How long a goal sits in `waiting` on work it dispatched before the loop
     # wakes it anyway. `task_completion` is the ordinary way back; this is the
     # safety net for the run that died without posting one, because a goal

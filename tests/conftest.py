@@ -387,8 +387,11 @@ class ScriptedUtility:
     — the dream jobs, the partner ops — still gets the honest fake, or one
     night's consolidation would break every hands test."""
 
-    def __init__(self, *lines: str):
+    def __init__(self, *lines: str, muse: tuple[str, ...] = ()):
         self.lines = list(lines)
+        #: …and her free time (mind/muse.py, SPEC §22.7), scripted apart so a
+        #: test can say what a sitting decides without spending a goal line.
+        self.muse = list(muse)
         self.calls: list[list[dict]] = []
         self.fallback = FakeUtility()
 
@@ -397,6 +400,8 @@ class ScriptedUtility:
         system = (messages[0].get("content", "") if messages else "").lower()
         if "advancing one of your own goals" in system and self.lines:
             return self.lines.pop(0)
+        if "this is your free time" in system and self.muse:
+            return self.muse.pop(0)
         return await self.fallback.complete(messages, **params)
 
 

@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
+# The PATH of the shell that ran us, before install_uv adds ~/.local/bin to ours.
+# That shell is where the user types `yurios` next, and it never sees our exports.
+LAUNCH_PATH="$PATH"
 
 PYTHON_VERSION="3.12"
 NVM_VERSION="v0.40.3"
@@ -870,27 +873,48 @@ install_launcher() {
     # never require `source .venv/bin/activate`.
     local user_bin="$HOME/.local/bin"
     local launcher="$user_bin/yurios"
+    local target="$VENV_DIR/bin/yurios"
     mkdir -p "$user_bin"
     if [ -e "$launcher" ] && [ ! -L "$launcher" ]; then
         fail "$launcher already exists and is not a YuriOS launcher; move it aside, then rerun the installer"
     fi
-    ln -sfn "$VENV_DIR/bin/yurios" "$launcher"
+    ln -sfn "$target" "$launcher"
 
     case "${SHELL##*/}" in
         bash) local profile="$HOME/.bashrc" ;;
         zsh) local profile="$HOME/.zshrc" ;;
-        *)
-            log "Installed $launcher (add $user_bin to PATH for your shell)"
-            return
-            ;;
+        *) local profile="" ;;
     esac
-    if [[ ":$PATH:" != *":$user_bin:"* ]] && ! grep -Fq 'YuriOS command launcher' "$profile" 2>/dev/null; then
+    # Checked against LAUNCH_PATH, not PATH: install_uv has already put
+    # ~/.local/bin on ours, which says nothing about the user's shell.
+    if [[ ":$LAUNCH_PATH:" == *":$user_bin:"* ]]; then
+        return
+    fi
+    if [ -n "$profile" ] && ! grep -Fq '.local/bin' "$profile" 2>/dev/null; then
         {
             printf '\n# YuriOS command launcher\n'
             printf 'export PATH="$HOME/.local/bin:$PATH"\n'
         } >> "$profile"
-        log "Added $user_bin to PATH in $profile (open a new terminal to use yurios)"
+        log "Added $user_bin to PATH in $profile"
     fi
+
+    # New terminals will find it; this one won't — its PATH was fixed when it
+    # opened. So `yurios` works the moment the installer returns, link it into a
+    # directory that terminal already searches, when one is ours to write:
+    # Homebrew's bin on macOS and Linuxbrew, /usr/local/bin where it is
+    # user-owned, ~/bin. `yurios uninstall` knows the same list.
+    local dir
+    for dir in /opt/homebrew/bin /usr/local/bin /home/linuxbrew/.linuxbrew/bin "$HOME/bin"; do
+        [[ ":$LAUNCH_PATH:" == *":$dir:"* ]] || continue
+        [ -d "$dir" ] && [ -w "$dir" ] || continue
+        if [ -e "$dir/yurios" ] && [ ! -L "$dir/yurios" ]; then
+            continue                    # someone else's yurios; not ours to replace
+        fi
+        ln -sfn "$target" "$dir/yurios"
+        log "Linked yurios into $dir, so this terminal can run it now"
+        return
+    done
+    log "Open a new terminal to use yurios (or run: export PATH=\"$user_bin:\$PATH\")"
 }
 
 if [ "$SKIP_SYSTEM" = false ]; then

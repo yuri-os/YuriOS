@@ -1094,6 +1094,23 @@ def command_doctor(args) -> int:
     return main(probe_models=True) if args.probe_model else main()
 
 
+# Where install.sh also links the launcher when ~/.local/bin wasn't on the
+# installing shell's PATH, so `yurios` works in that terminal at once. Keep in
+# step with install_launcher's list.
+_EXTRA_LAUNCHER_DIRS = ("/opt/homebrew/bin", "/usr/local/bin",
+                        "/home/linuxbrew/.linuxbrew/bin")
+
+
+def _extra_launchers(expected: Path) -> list[Path]:
+    """The extra launcher links that point at this venv's yurios — only those."""
+    found = []
+    for d in [*map(Path, _EXTRA_LAUNCHER_DIRS), Path.home() / "bin"]:
+        link = d / "yurios"
+        if link.is_symlink() and link.resolve() == expected:
+            found.append(link)
+    return found
+
+
 def command_uninstall(args) -> int:
     """Remove the launcher and venv created by install.sh, but not project data."""
     root = _root().resolve()
@@ -1129,6 +1146,8 @@ def command_uninstall(args) -> int:
         print("YuriOS is still serving requests; refusing to uninstall.", file=sys.stderr)
         return 1
     launcher.unlink(missing_ok=True)
+    for extra in _extra_launchers(expected_launcher):
+        extra.unlink(missing_ok=True)
     print("Removed the YuriOS launcher. Removing the virtual environment.")
     print("Project files, .env, .yurios, and downloaded models were preserved.")
     sys.stdout.flush()

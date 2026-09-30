@@ -141,10 +141,54 @@ def test_installer_exposes_the_cli_without_activating_the_venv():
 
     installer = (Path(__file__).resolve().parent.parent / "install.sh").read_text()
 
-    assert 'ln -sfn "$VENV_DIR/bin/yurios" "$launcher"' in installer
+    assert "install_launcher() {" in installer
     assert '"$HOME/.local/bin/yurios" start </dev/null' in installer
     assert "cat <<'EOF'\n\nYuriOS is running as a background daemon:" in installer
     assert "source ${VENV_DIR#$ROOT_DIR}/bin/activate" not in installer
+
+
+def _run_install_launcher(tmp_path, launch_path):
+    """Run install.sh's own install_launcher in bash against a sandbox HOME."""
+    import os
+    import subprocess
+    from pathlib import Path
+
+    installer = (Path(__file__).resolve().parent.parent / "install.sh").read_text()
+    start = installer.index("install_launcher() {")
+    body = installer[start:installer.index("\n}\n", start) + 3]
+    home = tmp_path / "home"
+    (home / "bin").mkdir(parents=True)
+    venv = tmp_path / ".venv"
+    (venv / "bin").mkdir(parents=True)
+    (venv / "bin" / "yurios").write_text("#!/bin/sh\n", encoding="utf-8")
+    script = ("set -Eeuo pipefail\nlog() { echo \"$*\"; }\n"
+              "fail() { echo \"$*\" >&2; exit 1; }\n" + body + "install_launcher\n")
+    env = {**os.environ, "HOME": str(home), "SHELL": "/bin/zsh",
+           "VENV_DIR": str(venv), "LAUNCH_PATH": launch_path.format(home=home)}
+    run = subprocess.run(["bash", "-c", script], env=env,
+                         capture_output=True, text=True, check=True)
+    return home, venv, run.stdout
+
+
+def test_the_launcher_works_in_the_terminal_that_ran_the_installer(tmp_path):
+    """That terminal's PATH was fixed before ~/.local/bin existed, and the
+    installer can't change it — so the launcher also goes into a directory it
+    already searches, and `yurios` works the moment the installer returns."""
+    home, venv, out = _run_install_launcher(tmp_path, "{home}/bin:/usr/bin:/bin")
+
+    target = venv / "bin" / "yurios"
+    assert (home / ".local" / "bin" / "yurios").resolve() == target
+    assert (home / "bin" / "yurios").resolve() == target
+    assert 'export PATH="$HOME/.local/bin:$PATH"' in (home / ".zshrc").read_text()
+    assert "this terminal can run it now" in out
+
+
+def test_the_launcher_touches_nothing_else_when_the_path_already_has_it(tmp_path):
+    home, _, _ = _run_install_launcher(tmp_path, "{home}/.local/bin:{home}/bin:/usr/bin")
+
+    assert (home / ".local" / "bin" / "yurios").is_symlink()
+    assert not (home / "bin" / "yurios").exists()
+    assert not (home / ".zshrc").exists()
 
 
 def test_doctor_runs_through_the_yurios_command(monkeypatch):
@@ -612,6 +656,40 @@ def test_uninstall_removes_only_the_global_launcher_and_venv(tmp_path, monkeypat
     assert exec_calls == [("/bin/rm", ["rm", "-rf", str(venv)])]
     assert preserved.read_text(encoding="utf-8") == "CHAT_MODEL=NONE\n"
     assert "were preserved" in capsys.readouterr().out
+
+
+def test_uninstall_also_removes_the_link_that_made_yurios_work_at_once(
+        tmp_path, monkeypatch):
+    """install.sh links the launcher into a dir the installing shell already
+    searched (Homebrew's bin, say); uninstall takes that link too — and only a
+    link to this venv, never another checkout's."""
+    from argparse import Namespace
+
+    from yurios import cli
+
+    venv = tmp_path / ".venv"
+    target = venv / "bin" / "yurios"
+    target.parent.mkdir(parents=True)
+    target.write_text("#!/bin/sh\n", encoding="utf-8")
+    brew_bin, other_bin = tmp_path / "brew-bin", tmp_path / "other-bin"
+    brew_bin.mkdir()
+    other_bin.mkdir()
+    ours = brew_bin / "yurios"
+    ours.symlink_to(target)
+    theirs = other_bin / "yurios"
+    theirs.symlink_to(tmp_path / "elsewhere" / "yurios")
+    monkeypatch.setattr(cli, "_EXTRA_LAUNCHER_DIRS", (str(brew_bin), str(other_bin)))
+    monkeypatch.setattr(cli, "_root", lambda: tmp_path)
+    monkeypatch.setattr(cli.sys, "prefix", str(venv))
+    monkeypatch.setattr(cli.Path, "home", lambda: tmp_path / "home")
+    monkeypatch.setattr(cli, "command_stop", lambda args: 0)
+    monkeypatch.setattr(cli, "_wait_for_shutdown", lambda cfg: True)
+    monkeypatch.setattr(cli.os, "execv", lambda path, args: None)
+
+    assert cli.command_uninstall(Namespace(yes=True)) == 0
+
+    assert not ours.is_symlink()
+    assert theirs.is_symlink()
 
 
 def test_uninstall_refuses_to_remove_files_until_the_server_is_down(tmp_path, monkeypatch, capsys):

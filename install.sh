@@ -531,10 +531,10 @@ install_torch() {
     fi
     if [ "$TORCH_CHOICE" = "cuda" ]; then
         log "Installing the CUDA ${packages[*]} build (~4.5 GB; fast local selfies and GPU voice)"
-        uv pip install --python "$PYTHON" "${reinstall[@]}" "${packages[@]}"
+        uv pip install --python "$PYTHON" ${reinstall[@]+"${reinstall[@]}"} "${packages[@]}"
     else
         log "Installing the CPU-only ${packages[*]} wheels (skips ~3.8 GB of unused CUDA; --cuda-torch to opt out)"
-        uv pip install --python "$PYTHON" "${reinstall[@]}" "${packages[@]}" \
+        uv pip install --python "$PYTHON" ${reinstall[@]+"${reinstall[@]}"} "${packages[@]}" \
             --index-url https://download.pytorch.org/whl/cpu
     fi
 }
@@ -924,7 +924,9 @@ if [ "$USE_PINS" = true ]; then
     log "Pinning to constraints.txt (torch is not pinned — that build stays your choice)"
     PIN_ARGS=(--constraints "$ROOT_DIR/constraints.txt")
 fi
-uv pip install --python "$PYTHON" "${PIN_ARGS[@]}" -e ".[$EXTRAS]"
+# `${a[@]+"${a[@]}"}`, not `"${a[@]}"`: macOS's bash 3.2 calls an empty array
+# unbound under `set -u`, and PIN_ARGS is empty on every unpinned install.
+uv pip install --python "$PYTHON" ${PIN_ARGS[@]+"${PIN_ARGS[@]}"} -e ".[$EXTRAS]"
 install_launcher
 
 prepare_local_state

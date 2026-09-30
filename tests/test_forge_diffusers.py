@@ -211,17 +211,19 @@ def test_missing_deps_keep_the_local_camera_and_say_why(cfg, tmp_path, monkeypat
 
 # ---- the VRAM wall: OOM degrades, it never crashes the turn ----
 
-def _modes(backend, monkeypatch, outcomes, crowded=False):
+def _modes(backend, monkeypatch, outcomes, crowded=False, accel="cuda"):
     """Stub `_render` to record the mode each attempt ran in, setting
     `_offloading` the way the real `_load` would: the user's setting, or a
     forced retry, or `crowded` — a card too full for a resident load, which is
     the third way `_load` ends up offloading. `outcomes` is one entry per
-    attempt: an exception to raise, or a value to return."""
+    attempt: an exception to raise, or a value to return. `accel` is where the
+    pipeline landed (cuda, mps, or None for the CPU)."""
     seen: list[bool] = []
 
     def attempt(req, force_offload=False):
         seen.append(force_offload)
         backend._offloading = bool(backend.cpu_offload or force_offload or crowded)
+        backend._accel = accel
         out = outcomes[len(seen) - 1]
         if isinstance(out, Exception):
             raise out
@@ -291,6 +293,28 @@ def test_an_oom_on_a_card_too_full_to_be_resident_propagates(backend, monkeypatc
     with pytest.raises(RuntimeError, match="out of memory"):
         backend.generate(GenRequest(prompt="p"))
     assert modes == [False]
+
+
+def test_an_oom_on_apple_silicon_propagates(backend, monkeypatch):
+    """On mps the GPU's memory is the RAM offload would move the weights to:
+    there is no smaller way to run, so an OOM is the wall, not a retry."""
+    modes = _modes(backend, monkeypatch,
+                   [RuntimeError("MPS backend out of memory")], accel="mps")
+    with pytest.raises(RuntimeError, match="out of memory"):
+        backend.generate(GenRequest(prompt="p"))
+    assert modes == [False]
+
+
+@pytest.mark.parametrize("device, cuda_ok, mps_ok, expected", [
+    ("cuda", True, False, "cuda"),
+    ("cuda", False, True, "mps"),      # the shipped default, on a Mac
+    ("mps", False, True, "mps"),
+    ("mps", True, False, "cuda"),      # the same .env, back on an NVIDIA box
+    ("cuda", False, False, None),      # no GPU at all: the CPU
+    ("cpu", True, True, None),         # asked for the CPU on purpose
+])
+def test_the_device_setting_means_this_machines_gpu(device, cuda_ok, mps_ok, expected):
+    assert DiffusersBackend._accelerator(device, cuda_ok, mps_ok) == expected
 
 
 def test_prepare_env_sets_expandable_segments_but_respects_the_user(monkeypatch):

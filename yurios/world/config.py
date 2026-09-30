@@ -147,7 +147,7 @@ class Config(VoiceConfig):
     # 30 steps / CFG 5 / hires fix on. ~7 GB fp16 resident; cpu_offload trades
     # speed for headroom. Missing deps or checkpoint degrade to mock, loudly.
     selfie_local_model: str = ""                # path to the .safetensors checkpoint
-    selfie_local_device: str = "cuda"           # cuda | cpu (cpu is for emergencies)
+    selfie_local_device: str = "cuda"           # cuda | mps (either = this machine's GPU) | cpu
     selfie_local_steps: int = 30
     selfie_local_cfg: float = 5.0
     selfie_local_hires: bool = True             # the A1111 "Hires fix" second pass

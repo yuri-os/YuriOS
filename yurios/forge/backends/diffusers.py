@@ -19,7 +19,8 @@ adds none — what renders is between the user and the model's license
 
 VRAM: fp16 SDXL is ~7 GB resident; next to a ~6.7 GB LLM in LM Studio that fits
 a 16 GB card. ``cpu_offload=True`` trades ~2× slower renders for a much smaller
-resident footprint. Heavy deps (torch, diffusers) are lazy-imported on first
+resident footprint. ``device="mps"`` renders fp16 on an Apple-silicon GPU; there
+the memory is unified, so offload has nowhere smaller to go and is not used. Heavy deps (torch, diffusers) are lazy-imported on first
 render — importing this module is free, per the repo's seam rule.
 """
 
@@ -81,6 +82,26 @@ class DiffusersBackend(ImageBackend):
         self.cpu_offload = cpu_offload
         self._pipe = None                       # loaded on first render
         self._offloading: bool | None = None    # mode of the loaded pipe
+        self._accel: str | None = None          # where it runs: cuda, mps, None = CPU
+
+    @staticmethod
+    def _accelerator(device: str, cuda_ok: bool, mps_ok: bool) -> str | None:
+        """The GPU to render on, or None for the CPU.
+
+        ``cuda`` and ``mps`` both mean "this machine's GPU": the shipped
+        ``cuda`` default on a Mac is a request for a GPU, not for the CPU, and
+        the same ``.env`` then works on either. ``cpu`` is the one way to ask
+        for the CPU on purpose."""
+        if device not in ("cuda", "mps"):
+            return None
+        if cuda_ok:
+            return "cuda"
+        return "mps" if mps_ok else None
+
+    @staticmethod
+    def _has_mps(torch) -> bool:
+        mps = getattr(torch.backends, "mps", None)
+        return bool(mps is not None and mps.is_available())
 
     # ---- availability (cheap; imports nothing heavy) ----
 
@@ -124,8 +145,13 @@ class DiffusersBackend(ImageBackend):
         from diffusers import (DPMSolverMultistepScheduler,
                                StableDiffusionXLPipeline)
 
-        cuda = self.device == "cuda" and torch.cuda.is_available()
-        dtype = torch.float16 if cuda else torch.float32
+        accel = self._accelerator(self.device, torch.cuda.is_available(),
+                                  self._has_mps(torch))
+        cuda = accel == "cuda"
+        if self.device in ("cuda", "mps") and accel is None:
+            log.warning("diffusers: SELFIE_LOCAL_DEVICE=%s, but torch sees no "
+                        "GPU — rendering on the CPU (minutes).", self.device)
+        dtype = torch.float16 if accel else torch.float32
         offload = self.cpu_offload or force_offload
         if cuda and not offload:
             free = torch.cuda.mem_get_info()[0] / 1024**3
@@ -142,11 +168,15 @@ class DiffusersBackend(ImageBackend):
                     "(SELFIE_LOCAL_CPU_OFFLOAD=true makes it permanent).",
                     free, self.RESIDENT_FREE_GIB)
                 offload = True
+        # Offload is a CUDA idea: on mps the GPU's memory is the same RAM the
+        # CPU would hold the weights in, so moving them back and forth saves
+        # nothing and only costs time.
         offload = offload and cuda
         # Recorded before the weights move, so a load that OOMs partway still
         # tells `generate` which mode died — that is what decides whether
         # there is a smaller way to try again.
         self._offloading = offload
+        self._accel = accel
         pipe = StableDiffusionXLPipeline.from_single_file(
             self.model_path, torch_dtype=dtype)
         # DPM++ 2M is dpmsolver++'s default algorithm; Karras is the sigmas.
@@ -155,7 +185,7 @@ class DiffusersBackend(ImageBackend):
         if offload:
             pipe.enable_model_cpu_offload()
         else:
-            pipe = pipe.to(self.device if cuda else "cpu")
+            pipe = pipe.to(accel or "cpu")
         try:
             pipe.vae.enable_slicing()           # cheaper decode, free quality
         except Exception:
@@ -196,6 +226,8 @@ class DiffusersBackend(ImageBackend):
             import torch
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
+            if self._has_mps(torch):
+                torch.mps.empty_cache()
         except ImportError:
             pass
 
@@ -206,8 +238,9 @@ class DiffusersBackend(ImageBackend):
 
     def _make_generator(self, seed: int):
         import torch
-        device = self.device if (self.device == "cuda"
-                                 and torch.cuda.is_available()) else "cpu"
+        # On mps the generator stays on the CPU, as diffusers recommends: the
+        # latents it seeds are moved over, and a seed then reproduces.
+        device = "cuda" if self._accel == "cuda" else "cpu"
         return torch.Generator(device=device).manual_seed(seed)
 
     # ---- long prompts: the 77-token CLIP cap --------------------------------
@@ -275,7 +308,10 @@ class DiffusersBackend(ImageBackend):
             # Read the *pipeline's* mode, never the user's setting: they were
             # one flag once, and a session that had been forced to offload
             # therefore looked like a session with nothing left to try.
-            if self._offloading is not False or "out of memory" not in str(e).lower():
+            # And only on CUDA: offload is the smaller way, and there is no
+            # smaller way on mps or the CPU, whose memory it would offload to.
+            if (self._offloading is not False or self._accel != "cuda"
+                    or "out of memory" not in str(e).lower()):
                 raise
             oom = True
         if oom:

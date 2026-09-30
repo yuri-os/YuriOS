@@ -142,16 +142,14 @@ Supports Linux, macOS, and Windows through WSL.
 ```bash
 cd YuriOS
 ./install.sh
+yurios configure                      # choose her language model
+yurios restart                        # load it (starts the daemon if it is stopped)
 yurios status
 ```
 
-Open the address shown by `yurios status` (normally `http://localhost:8768`). On first
-launch, choose a model in the dashboard, or configure one from the terminal:
-
-```bash
-yurios configure
-yurios restart
-```
+A fresh install selects no model, so she can't talk until you choose one and restart.
+Then open the address shown by `yurios status` (normally `http://localhost:8768`).
+The dashboard offers the same model choice if you open it first; restart after it too.
 
 Everything else in `.env` is editable from either surface too: **House settings** on
 the switchboard (and the gear in every room) opens the same table `yurios settings`

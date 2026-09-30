@@ -1,8 +1,10 @@
 """First-run model selection, validation, and local GGUF recommendations."""
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -148,6 +150,29 @@ def _ollama_tagged(name: str) -> str:
     return name if ":" in name.rsplit("/", 1)[-1] else f"{name}:latest"
 
 
+#: The Windows port install.sh's WSL bridge forwards to LM Studio's 1234.
+_WSL_BRIDGE_PORT = 1235
+
+
+def _wsl_lmstudio_hint(url: str) -> str:
+    """What to do when WSL can't reach LM Studio on Windows.
+
+    WSL's NAT network can't reach a Windows server that listens on localhost
+    only. The installer builds the bridge only when asked for it, since most
+    WSL installs never use LM Studio. A fresh install has no model chosen yet,
+    so the installer doesn't know this one will. A bridge that used to work goes
+    stale when the gateway changes after Windows restarts. In both cases the
+    probe refuses the choice, and without this hint nothing says what to do next."""
+    if not os.environ.get("WSL_DISTRO_NAME"):
+        return ""
+    parts = urlsplit(url)
+    if parts.hostname not in ("localhost", "127.0.0.1", "::1") \
+            and parts.port != _WSL_BRIDGE_PORT:
+        return ""
+    return ("; on WSL, LM Studio on Windows needs the installer's bridge: "
+            "rerun ./install.sh --lmstudio-bridge, then choose the model again")
+
+
 def probe_model(cfg, model: str, *, timeout: float = 3.0) -> ModelProbe:
     """Check a model's configured HTTP endpoint without generating a billable turn.
 
@@ -206,9 +231,11 @@ def probe_model(cfg, model: str, *, timeout: float = 3.0) -> ModelProbe:
         return ModelProbe(True, "reachable; selected model is listed"
                           + ("; request with configured key succeeded" if key else ""))
     except httpx.TimeoutException:
-        return ModelProbe(False, f"timed out after {timeout:g}s")
+        hint = _wsl_lmstudio_hint(url) if model.startswith("lm_studio/") else ""
+        return ModelProbe(False, f"timed out after {timeout:g}s{hint}")
     except httpx.RequestError:
-        return ModelProbe(False, "could not connect to model endpoint")
+        hint = _wsl_lmstudio_hint(url) if model.startswith("lm_studio/") else ""
+        return ModelProbe(False, f"could not connect to model endpoint{hint}")
     except httpx.InvalidURL:
         return ModelProbe(False, "configured model endpoint URL is invalid")
     except (ValueError, KeyError, TypeError):

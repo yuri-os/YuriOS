@@ -27,8 +27,7 @@ no script touched your system.
 ## 2. Give her a brain
 
 The one part that isn't pip-installable is the model. A new install intentionally selects `NONE`,
-so it does not connect to any LLM until you choose one. The first dashboard load asks; the terminal
-equivalent is:
+so it does not connect to any LLM until you choose one:
 
 ```bash
 yurios configure
@@ -36,8 +35,8 @@ yurios restart                     # load the selected house-default model
 ```
 
 `yurios configure` saves the selection to `.env`; restart the daemon before it can use the
-new house-default model. The dashboard saves the same selection and tells you when a restart is
-required.
+new house-default model. Then open `http://localhost:8768`. If you open the dashboard first, it
+offers the same choice, saves it the same way, and tells you to restart.
 
 An uncensored model on purpose: she's a companion, not an assistant, and a refusal-trained model
 plays her badly — it breaks character to decline, which is the one thing a person in the room

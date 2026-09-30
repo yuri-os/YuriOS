@@ -15,9 +15,10 @@ yurios status                      # runtime health, characters, configuration, 
 
 With no options this installs her body, local memory, MCP tools and real voice (faster-whisper ears,
 the kokoro voice, silero turn-taking), then starts YuriOS as a background daemon. On a fresh install,
-its model setting is `NONE`: it makes no LLM connection until the first dashboard load or `yurios configure`
-chooses one. Reruns preserve the existing `.env` and its model choice. Selecting the current direct GGUF
-recommendation downloads its Q4_K_M model automatically.
+its model setting is `NONE`: it makes no LLM connection until you choose one — with `yurios configure`
+or on the first dashboard load — and run `yurios restart`. Reruns preserve the existing `.env` and
+its model choice. Selecting the current direct GGUF recommendation downloads its Q4_K_M model
+automatically.
 A detected working NVIDIA driver preselects CUDA; otherwise the CPU-only Torch wheel is used.
 Nothing needs a cloud key.
 
@@ -116,6 +117,8 @@ all other local data. Re-run `./install.sh` later to recreate the virtual enviro
 | `--cuda-torch` | PyPI's matched CUDA torch + torchaudio pair (~4.5 GB) |
 | `--web-search` | Gives her the web (`web_search`, `read_page`, `research`): pulls, configures and starts a SearXNG container, then points `.env` at it. Needs Docker |
 | `--no-web-search` | Leaves web search off — the default for unattended runs |
+| `--lmstudio-bridge` | WSL only: connects WSL to LM Studio running on Windows (see [WSL](#wsl)). Asked when a terminal is attached |
+| `--no-lmstudio-bridge` | Never offers it |
 | `--desktop` | Adds the native transparent desktop-window dependencies (pywebview + Qt) |
 | `--skip-system` | Don't install system packages (including the GNOME tray host) |
 | `--print-extras` | Print the extras the other flags resolve to and exit — a dry run that touches nothing |
@@ -263,6 +266,19 @@ Everything above works unchanged inside WSL, with one exception: the native desk
 be drawn by Windows rather than the VM. See [Bodies → desktop mode on WSL](bodies.md#wsl).
 
 Her ears are pinned to the CPU on WSL, where the GPU passthrough can't reliably load them.
+
+**LM Studio on Windows.** WSL can't always reach a server on the Windows side. An interactive install
+asks whether she'll use LM Studio there, since a fresh install has no model chosen yet to tell it.
+If she will, the installer finds the route and saves it as `LMSTUDIO_BASE_URL`:
+
+- **Localhost works** (mirrored networking): nothing to change.
+- **LM Studio serves on the network:** the installer uses its Windows-facing address.
+- **LM Studio listens on localhost only:** the installer adds a Windows port forward and firewall
+  rule scoped to the WSL subnet. This needs one UAC approval.
+
+Unattended installs skip the question. If `yurios configure` or the dashboard later can't reach
+LM Studio, it says to rerun `./install.sh --lmstudio-bridge`. Do the same if a working bridge stops
+answering after Windows restarts, because the address the bridge listens on can change.
 
 ## Upgrading
 

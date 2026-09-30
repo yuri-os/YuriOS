@@ -718,6 +718,38 @@ def test_model_probe_reports_missing_model_and_auth_rejection(cfg, monkeypatch):
     assert requests[-1].headers["Authorization"] == "Bearer secret-token"
 
 
+def test_unreachable_lm_studio_on_wsl_names_the_installer_bridge(cfg, monkeypatch):
+    """A fresh WSL install has no model chosen, so the installer builds no bridge.
+    `yurios configure` then refuses LM Studio at localhost. Without the hint,
+    nothing tells the user how to get out of that."""
+    from yurios.models import probe_model
+
+    def refuse(request):
+        raise httpx.ConnectError("refused", request=request)
+
+    client = httpx.Client
+    monkeypatch.setattr(httpx, "Client", lambda **kw: client(
+        transport=httpx.MockTransport(refuse), **kw))
+    default = cfg.model_copy(update={"lmstudio_base_url": "http://localhost:1234/v1"})
+    stale = cfg.model_copy(update={"lmstudio_base_url": "http://172.20.0.1:1235/v1"})
+    elsewhere = cfg.model_copy(update={"lmstudio_base_url": "http://gpu-box:1234/v1"})
+
+    monkeypatch.delenv("WSL_DISTRO_NAME", raising=False)
+    assert "install.sh" not in probe_model(default, "lm_studio/gemma-4").detail
+
+    monkeypatch.setenv("WSL_DISTRO_NAME", "Ubuntu")
+    hinted = probe_model(default, "lm_studio/gemma-4")
+    assert hinted.ok is False
+    assert "./install.sh --lmstudio-bridge" in hinted.detail
+    # A bridge whose gateway moved when Windows restarted is rebuilt the same way.
+    assert "--lmstudio-bridge" in probe_model(stale, "lm_studio/gemma-4").detail
+    # A server the user pointed at on purpose, or another route, gets no hint.
+    assert "install.sh" not in probe_model(elsewhere, "lm_studio/gemma-4").detail
+    assert "install.sh" not in probe_model(
+        cfg.model_copy(update={"ollama_base_url": "http://localhost:11434"}),
+        "ollama/qwen3").detail
+
+
 def test_model_probe_handles_timeout_and_unprobeable_models(cfg, monkeypatch):
     from yurios.models import probe_model
 

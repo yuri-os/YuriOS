@@ -174,8 +174,19 @@ async def work(loop, messages: list[dict], *, offer: Offer,
             done.answer = intent if intent.kind != "use" \
                 else Intent("think", text=intent.text, unrun=(intent.tool,))
             return done
-        reach = await dispatch(loop, intent.tool, intent.args, goal_id=goal_id,
-                               file_goal=file_goal)
+        if intent.fumbled:
+            # Not dispatched: nothing reached a server, so nothing is booked —
+            # not the ledger, not the day's count. It costs her one of the
+            # step's calls, which is what bounds a model that cannot stop.
+            why = (f"{intent.fumbled} — write the call again as `use "
+                   f"{intent.tool} {{…}}` with one complete JSON object, "
+                   "\\n for a line break inside text")
+            loop.hands.deny(intent.tool, intent.args, why)
+            reach = Reach(intent.tool, intent.args, "denied", f"denied ({why})",
+                          refused=why)
+        else:
+            reach = await dispatch(loop, intent.tool, intent.args,
+                                   goal_id=goal_id, file_goal=file_goal)
         reach.why = (intent.text or "").strip()
         done.reaches.append(reach)
         if on_reach is not None:

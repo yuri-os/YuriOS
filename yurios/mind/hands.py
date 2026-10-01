@@ -701,6 +701,11 @@ class Intent:
     #: thought, or dropped past the step's cap. A done-mark beside one is a
     #: finish she narrated rather than did (SPEC §22.3).
     unrun: tuple[str, ...] = ()
+    #: She wrote arguments and they did not parse — why, in a sentence she can
+    #: act on. A fumbled reach is not run: run with `{}` it failed at the
+    #: server, booked `{}` in the cooldown ledger, and every later fumble of
+    #: the same hand came back "she already did this" for six hours.
+    fumbled: str = ""
 
 
 #: A `use <hand> {` anywhere in a line — at its start, or run onto the end of
@@ -751,22 +756,30 @@ def parse_intent(reply: str, *, allowed: tuple[str, ...]) -> Intent:
                 continue
             raw = line[at:].strip()[4:].strip()
             start = raw.find("{")
+            # The object may run past this line: a note's text written with
+            # real line breaks, JSON pretty-printed, or the `{` on the line
+            # under a bare `use tool`. Read only this line and every one of
+            # those was `{}` — live, 28 Sep to 2 Oct, a night's write_note.
+            below = "\n".join(lines[index + 1:])
+            rest = f"{raw}\n{below}"
+            if start < 0 and below.lstrip().startswith("{"):
+                start = len(raw) + 1 + len(below) - len(below.lstrip())
             args: dict = {}
+            fumbled = ""
             if start >= 0:
                 try:
                     # The first object, not first `{` to last `}`: a second
                     # call run onto the same line (`use a {…}use b {…}`, live
                     # on GLM) spanned both and lost the first call's
                     # arguments. The second is dropped — she is asked again
-                    # once the first comes back.
-                    parsed, _ = json.JSONDecoder().raw_decode(raw, start)
+                    # once the first comes back. Not strict: a raw newline
+                    # inside a string is what a model writes for a paragraph.
+                    parsed, _ = json.JSONDecoder(strict=False).raw_decode(rest, start)
                     args = parsed if isinstance(parsed, dict) else {}
-                except ValueError:
-                    # She named the hand and fumbled the JSON. An empty
-                    # argument object is a call the *server* will refuse with a
-                    # sentence she can read next tick, which beats guessing
-                    # what she meant.
-                    args = {}
+                except json.JSONDecodeError as e:
+                    # She named the hand and fumbled the JSON. Guessing what
+                    # she meant is worse than saying where it broke.
+                    fumbled = f"the arguments are not valid JSON ({e.msg})"
             # Her reason is what she wrote above the call — and, when she ran
             # it onto a sentence, that sentence. What comes after it was
             # written before any result existed: live, GLM followed a `use`
@@ -774,7 +787,8 @@ def parse_intent(reply: str, *, allowed: tuple[str, ...]) -> Intent:
             # there" about a read that had not run — kept, that was her reason
             # for the call and a place a done-mark could be (SPEC §26.2).
             return Intent("use", tool=tool, args=args,
-                          text=_thought([*lines[:index], line[:at]]))
+                          text=_thought([*lines[:index], line[:at]]),
+                          fumbled=fumbled)
     # everything else — including a plain paragraph — is her thinking. A call
     # to a hand she was not offered is still named, so a done-mark written
     # beside it is not read as a finish (goalwork).

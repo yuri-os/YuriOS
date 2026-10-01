@@ -167,6 +167,38 @@ async def test_a_document_cleared_before_she_got_to_it(cfg, seeded_vault):
     assert [h["state"] for h in rig.mind.handed] == ["gone"]
 
 
+async def test_one_she_read_herself_in_conversation_is_read(cfg, seeded_vault):
+    """Live, 2 Oct: handed mid-conversation, read and rewritten in the replies
+    it came up in — and still "not read yet" while the budget held the sitting
+    off. Her own successful `read_note` of the path is the read."""
+    utility = ScriptedUtility(handed=("think noted",))
+    rig = make_mind(cfg, seeded_vault, utility=utility)
+    path = hand(rig)
+    rig.mind.turn_started()
+    await rig.mind.tick()                       # sensed; the room comes first
+
+    rig.mind.tool_called({"tool": "read_note", "verdict": "ok",
+                          "args": {"path": "inbox/other.md"}}, talking=True)
+    rig.mind.tool_called({"tool": "read_note", "verdict": "error",
+                          "args": {"path": path}}, talking=True)
+    rig.mind.tool_called({"tool": "count_note_lines", "verdict": "ok",
+                          "args": {"path": path}}, talking=True)
+    assert handed.waiting(rig.mind), "only her reading it, and it landing, counts"
+
+    rig.mind.tool_called({"tool": "read_note", "verdict": "ok",
+                          "args": {"path": path}}, talking=True)
+    record = rig.mind.handed[0]
+    assert record["state"] == handed.READ and record["read_at"]
+    assert "conversation" in record["outcome"]
+
+    rig.mind.turn_ended()
+    rig.clock.advance(rig.mind.cfg.idle_settle_s + 1)
+    assert (await rig.mind.tick())["decided"]["intention"] != "handed"
+    assert not sat_down(utility), "no second reading of what she already read"
+    restarted = make_mind(cfg, seeded_vault, clock=rig.clock)
+    assert restarted.mind.handed[0]["state"] == handed.READ, "persisted at once"
+
+
 async def test_waiting_documents_survive_a_restart(cfg, seeded_vault):
     quiet = cfg.model_copy(update={"mind_inbox_wake": False})
     rig = make_mind(quiet, seeded_vault)

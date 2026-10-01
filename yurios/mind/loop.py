@@ -360,6 +360,13 @@ class MindLoop:
         self._last_turn_end = self.clock.now()
         self.bus.wake.set()
 
+    def tool_called(self, line: dict, *, talking: bool) -> None:
+        """One audit line from either guard — a document she has now read
+        herself stops waiting for its sitting (§34.6). Persisted at once: the
+        next tick may be a budget-blocked hour away."""
+        if handed.opened(self, line, talking=talking):
+            self._persist()
+
     def _engaged_now(self) -> bool:
         return (self._turns_in_flight > 0
                 or (self.clock.now() - self._last_turn_end) < self.cfg.idle_settle_s)

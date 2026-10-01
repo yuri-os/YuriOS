@@ -3224,7 +3224,9 @@ the things she *is* and the wrong shape for the things she is *doing*.
   reaches her about it except that signal and her own reading. SENSE **MUST** note the arrival at
   once, with no model — one journal line, and a persisted record (the bus is not replayed,
   §16.4) that goes `waiting` → `read` (with when, and what came of it: the goal she filed or
-  her takeaway) or `gone` (taken off the desk first). The same path handed again holds one
+  her takeaway) or `gone` (taken off the desk first). She may read it before its sitting — in a
+  reply to you, or in a goal's step — and then it **MUST** go `read` on that call: a `read_note`
+  of its path that comes back `ok`, from either guard, and no sitting follows. The same path handed again holds one
   record, waiting again. The inner-life panel (§24.3) lists them, unread marked, each openable;
   only the oldest *read* records are let go to keep the list bounded. Then one *sitting* per document,
   an impulse scored above a goal's priority and below a timer: shown the head of the document,

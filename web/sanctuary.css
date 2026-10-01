@@ -607,6 +607,9 @@ svg{ width:1.1em; height:1.1em; fill:none; stroke:currentColor; stroke-width:1.7
 }
 .il-handed .h-waiting{ border-left:2px solid var(--amber); padding-left:9px; }
 .il-handed .h-gone .il-goal-line{ color:var(--dim); }
+/* the status under the title, not run onto it: a goal row has its buttons between
+   the two, and a handed row put them after */
+.il-handed .il-prov{ display:block; margin-top:3px; line-height:1.6; }
 .il-outcome{ display:block; margin-top:4px; color:var(--soft); font-size:12px; line-height:1.5; }
 /* the switch, on the list it governs — two states side by side, the live one
    marked, so "off" is never a checkbox you have to read twice */

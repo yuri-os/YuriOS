@@ -232,6 +232,7 @@ class Runtime:
             self.brain.set_hands_policy(self.hands_permit)
         # Every call, from every door, is a small line in the chat (§7.3).
         self.guard.observe(self.post_tool_notice)
+        self.guard.observe(self.tell_mind_of_call)
         self._tool_runner = tool_runner        # injected, or built at startup
         # Set once tool discovery has an answer — wired, failed, or never
         # started. The mind's first tick waits on it (bounded) so a restart's
@@ -480,6 +481,12 @@ class Runtime:
         her switchboard toggle, and `MIND_TOOL_ALLOWLIST`."""
         return bool(self.cfg.mind_tools_enabled and self._hands_granted
                     and permits(self.cfg, tool))
+
+    def tell_mind_of_call(self, line: dict) -> None:
+        """Every audit line, from both guards, to whichever mind is live now —
+        looked up per call, so a mind switched on later still hears replies'."""
+        if self.mind is not None:
+            self.mind.tool_called(line, talking=line.get("origin") in REPLY_ORIGINS)
 
     def post_tool_notice(self, line: dict) -> dict | None:
         """One audit line as a small notice in the chat (SPEC §7.3).
@@ -1056,6 +1063,7 @@ class Runtime:
         mind.set_hands_boot(self.tools_settled)
         if mind.hands.guard is not None:
             mind.hands.guard.observe(self.post_tool_notice)
+            mind.hands.guard.observe(self.tell_mind_of_call)
         return mind
 
     def set_hands_enabled(self, enabled: bool) -> None:

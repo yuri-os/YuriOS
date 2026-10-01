@@ -340,8 +340,11 @@ class Config(VoiceConfig):
     # work must not leave the morning's request denied, and the reverse must
     # hold too. Conservative on purpose — these are ticks, not a conversation.
     # Web matches the desk because a step chains (§26.2): at one a minute, a
-    # step got one search and one page and the rest were refused.
-    tool_rate_mind_desk: int = 4                # calls/minute
+    # step got one search and one page and the rest were refused. The desk is
+    # conversation's 20, for the reason it is there: local files, no outside
+    # party, and a step's own call cap already bounds a loop. At 4, a step
+    # that read a fifth note inside a minute was refused it.
+    tool_rate_mind_desk: int = 20               # calls/minute
     tool_rate_mind_web: int = 4
     tool_rate_mind_camera: int = 1
     tool_rate_mind_other: int = 1               # anything else on the allowlist

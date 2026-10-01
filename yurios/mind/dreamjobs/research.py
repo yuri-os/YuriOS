@@ -432,6 +432,11 @@ class ResearchJob(FileJob):
                 # mistake as counting the paywall, one step further down. What
                 # bounds a night of bad links is `max_steps`, not this.
                 quiet = 0
+                if intent.fumbled:
+                    gathered.add("note", f"({intent.tool} did not run: "
+                                         f"{intent.fumbled}. Write it again as "
+                                         "one complete JSON object.)")
+                    continue
                 if intent.tool in others and hands is not None:
                     reach = await hands.use(intent.tool, intent.args)
                     gathered.add("note", f"You used {intent.tool}: "

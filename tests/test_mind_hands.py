@@ -244,12 +244,30 @@ async def test_the_daily_cap_denies_exactly_once_per_attempt_and_audits_it(
                              user_present=False).reason.endswith("are spent")
 
 
+async def test_a_fumbled_call_is_handed_back_not_run_or_booked(cfg, seeded_vault):
+    """Run with `{}`, a fumble failed at the server and booked `{}` in the
+    ledger: six hours of "she already did this" for every later fumble."""
+    rig = rig_with_hands(
+        cfg, seeded_vault,
+        'use write_note {"path": "goals/shed.md", text: oops}',
+        'use write_note {"path": "goals/shed.md", "text": "measure it first"}',
+        "think written")
+    rig.mind.goals.add("plan the shed", kind="task", priority=0.95)
+
+    await work(rig)
+    assert [c[0] for c in rig.runner.calls] == ["write_note"], "only the good one ran"
+    fumble = audit_lines(rig)[0]
+    assert fumble["verdict"].startswith("denied: the arguments are not valid JSON")
+    assert not any(fp.endswith("\0{}") for fp in rig.mind.hands.ledger)
+    assert audit_lines(rig)[-1]["verdict"] == "ok"
+
+
 async def test_her_bucket_is_not_conversations_bucket(cfg, seeded_vault):
     """A night of autonomous work must not leave the morning's request denied."""
     rig = rig_with_hands(cfg, seeded_vault,
                          *[f'use write_note {{"path": "n{i}.md", "text": "x"}}'
                            for i in range(6)],
-                         mind_tool_calls_per_day=50)
+                         mind_tool_calls_per_day=50, tool_rate_mind_desk=4)
     # conversation's guard, with its own bucket for the same tool
     rig.mind.brain.guard.allow("write_note", 20)
     rig.mind.goals.add("keep notes", kind="task", priority=0.95,
@@ -671,6 +689,28 @@ def test_an_unparseable_line_is_a_thought_not_an_error():
     assert parse_intent("", allowed=("write_note",)).kind == "think"
     thought = parse_intent("think the grout needs doing", allowed=())
     assert thought.kind == "think" and thought.text == "the grout needs doing"
+
+
+def test_arguments_may_run_past_the_line_the_call_is_on():
+    """Live, 28 Sep – 2 Oct: a night's `write_note` with its text written in
+    paragraphs parsed as `{}`, failed at the server, and booked `{}` in the
+    cooldown ledger — so every later one was "she already did this"."""
+    allowed = ("write_note", "list_notes")
+    for reply in ('use write_note {"path": "a.md",\n  "text": "one"}',
+                  'use write_note {"path": "a.md", "text": "# A\nbody\nmore"}',
+                  'think saving it\nuse write_note\n\n{"path": "a.md", "text": "one"}'):
+        intent = parse_intent(reply, allowed=allowed)
+        assert intent.args["path"] == "a.md" and not intent.fumbled, reply
+    assert parse_intent('use write_note {"path": "a.md", "text": "a\nb"}',
+                        allowed=allowed).args["text"] == "a\nb"
+    bare = parse_intent("use list_notes\nand then I'll look {maybe}", allowed=allowed)
+    assert (bare.args, bare.fumbled) == ({}, ""), "prose below is not arguments"
+
+
+def test_a_fumbled_call_says_why_rather_than_running_empty():
+    intent = parse_intent("use write_note {oh no", allowed=("write_note",))
+    assert intent.kind == "use" and intent.args == {}
+    assert "not valid JSON" in intent.fumbled
 
 
 #: Verbatim from her prompt trace, 24 Sep: a compose call with no tools

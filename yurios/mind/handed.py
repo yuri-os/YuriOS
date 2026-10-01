@@ -99,6 +99,30 @@ def received(loop, sig: Signal) -> str:
     return f"you handed me {name}; it's on my desk at {path}{later}"
 
 
+def opened(loop, line: dict, *, talking: bool) -> bool:
+    """She read a waiting document herself, before its sitting: it is read.
+
+    Fed every audit line from both guards (world/main.py), because the sitting
+    is not the only way she reads. Handed one mid-conversation, she read it in
+    the reply it came up in, and a goal from that reply rewrote it — and the
+    panel said "not read yet" for as long as the budget kept the sitting off,
+    which would then have read it a second time. Any `read_note` of the path
+    that came back `ok` counts, from any door; the sitting does not follow.
+    `talking` is whether the call was made in a reply to them.
+    """
+    if line.get("tool") != "read_note" or line.get("verdict") != "ok":
+        return False
+    args = line.get("args") or {}
+    path = str(args.get("path") or "").strip().lstrip("/") if isinstance(args, dict) else ""
+    item = next((h for h in waiting(loop) if h.get("path") == path), None)
+    if item is None:
+        return False
+    item.update(state=READ, read_at=iso_of(loop.clock.now()),
+                outcome="read it with you, in conversation" if talking
+                else "read it on her own, before sitting down with it")
+    return True
+
+
 def appraise(loop) -> Appraisal | None:
     """The sitting, as an impulse — or None while it has to wait (§15.1)."""
     queue = waiting(loop)

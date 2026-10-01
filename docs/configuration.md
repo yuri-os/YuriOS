@@ -326,7 +326,7 @@ Cadences, gates, DREAM hours, and the rest of `MIND_*` — the full table is in
 | `MIND_TOOL_PRESSURE_CEILING` | `0.5` | over it, the expensive hands are not offered |
 | `MIND_TOOL_COOLDOWN_CHEAP_S` | `21600` | desk / `set_timer` fingerprint (six hours) |
 | `MIND_TOOL_COOLDOWN_EXPENSIVE_S` | `172800` | web / camera (two days) |
-| `TOOL_RATE_MIND_DESK` / `_WEB` / `_CAMERA` / `_OTHER` | `4` / `1` / `1` / `1` | the mind's own buckets, not conversation's |
+| `TOOL_RATE_MIND_DESK` / `_WEB` / `_CAMERA` / `_OTHER` | `20` / `4` / `1` / `1` | the mind's own buckets, not conversation's |
 | `MIND_ENGAGED_CADENCE_S` | `10` | tick while talking |
 | `MIND_DREAM_CADENCE_S` | `120` | DREAM works in capped chunks |
 | `MIND_INBOX_WAKE` | `true` | a document handed to her desk inbox wakes her to read it and decide (model calls, any hour); `false` = noticed at once, decided when she's next active |

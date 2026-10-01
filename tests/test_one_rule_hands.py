@@ -213,6 +213,25 @@ def test_a_notice_names_what_the_call_touched():
     assert len(long) < 80 and long.endswith("…")
 
 
+def test_a_read_notice_says_which_lines_it_read():
+    """Three reads of one long note drew as three identical chips, which
+    looked like her reading the same thing over and over."""
+    path = "inbox/ClawHeart_Obsession_Archive.md"
+    head = ('{\n  "path": "%s",\n  "start_line": 49,\n  "end_line": 142,\n'
+            '  "line_count": 206,\n  "next_start_line": 143,' % path)[:200]
+    assert tool_notice_text("read_note", {"path": path, "start_line": 49}, head) == (
+        f"read_note · {path} · lines 49–142 of 206")
+    # refused, so no answer: what she asked for
+    assert tool_notice_text("read_note", {"path": "a.md", "start_line": 1,
+                                          "end_line": 48}, "") == "read_note · a.md · lines 1–48"
+    assert tool_notice_text("read_note", {"path": "a.md", "start_line": 49}) == (
+        "read_note · a.md · from line 49")
+    assert tool_notice_text("read_note", {"path": "a.md"}) == "read_note · a.md"
+    # an empty note is not "lines 0–0"
+    empty = '{"path": "a.md", "start_line": 0, "end_line": 0, "line_count": 0'
+    assert tool_notice_text("read_note", {"path": "a.md"}, empty) == "read_note · a.md"
+
+
 # ---- her own work: a step chains ---------------------------------------------------
 
 def _hands(rig, **extra):

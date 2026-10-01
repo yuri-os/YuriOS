@@ -21,6 +21,7 @@ from __future__ import annotations
 import asyncio
 import datetime
 import logging
+import re
 import threading
 import uuid
 from contextlib import asynccontextmanager
@@ -77,9 +78,34 @@ _NOTICE_ARGS = ("path", "query", "url", "label", "topic", "name", "surface",
                 "text", "look", "subject", "folder", "action")
 
 
-def tool_notice_text(tool: str, args: object) -> str:
+#: A page's place in its note, from the head of a `read_note` answer — which
+#: is all an audit line keeps (200 characters), and why `read_note` puts its
+#: line numbers ahead of its text.
+_PAGE_FIELD = re.compile(r'"(start_line|end_line|line_count)":\s*(\d+)')
+
+
+def _lines_read(args: object, result: str) -> str:
+    """`lines 49–142 of 206` — what a `read_note` covered, so three reads of
+    one long note look like reading on rather than reading the same thing
+    three times. The answer says what was served; the request is the fallback,
+    for a refused read or a head too long to reach the numbers."""
+    got = {k: int(v) for k, v in _PAGE_FIELD.findall(result or "")}
+    if {"start_line", "end_line", "line_count"} <= set(got) and got["end_line"]:
+        return f"lines {got['start_line']}–{got['end_line']} of {got['line_count']}"
+    if not isinstance(args, dict):
+        return ""
+    try:
+        start, end = int(args.get("start_line") or 1), int(args.get("end_line") or 0)
+    except (TypeError, ValueError):
+        return ""
+    if end:
+        return f"lines {start}–{end}"
+    return f"from line {start}" if start > 1 else ""
+
+
+def tool_notice_text(tool: str, args: object, result: str = "") -> str:
     """`read_note · goals/g-1.md` — the tool and the one argument that says what
-    it touched, short enough for a chip."""
+    it touched, short enough for a chip. A read says which lines as well."""
     detail = ""
     if isinstance(args, dict):
         for key in _NOTICE_ARGS:
@@ -91,6 +117,8 @@ def tool_notice_text(tool: str, args: object) -> str:
             detail = f"{args['minutes']} min"
     if len(detail) > 60:
         detail = detail[:59].rstrip() + "…"
+    if tool == "read_note" and (lines := _lines_read(args, result)):
+        detail = f"{detail} · {lines}" if detail else lines
     return f"{tool} · {detail}" if detail else tool
 
 
@@ -505,7 +533,8 @@ class Runtime:
         verdict = str(line.get("verdict") or "")
         entry: dict = {
             "id": uuid.uuid4().hex[:8], "role": "tool",
-            "text": tool_notice_text(tool, line.get("args")),
+            "text": tool_notice_text(tool, line.get("args"),
+                                     str(line.get("result") or "")),
             "ts": datetime.datetime.fromtimestamp(
                 self.clock.now()).isoformat(timespec="seconds"),
             "tool": tool,

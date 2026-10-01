@@ -21,7 +21,7 @@ from .context import (PROMPT_OVERHEAD_CHARS, REPORT_REASONING_ALLOWANCE,
                       JobReport)
 from .builtins import fill
 from .filedsl import FileJob, JobFile, _as_effort, _as_int, _shorter_effort
-from ..hands import Hands, parse_intent
+from ..hands import Hands, bounded, parse_intent
 
 log = logging.getLogger("mind.dreamjobs")
 
@@ -440,7 +440,7 @@ class ResearchJob(FileJob):
                 if intent.tool in others and hands is not None:
                     reach = await hands.use(intent.tool, intent.args)
                     gathered.add("note", f"You used {intent.tool}: "
-                                         f"{reach.result[:500]}")
+                                         f"{bounded(intent.tool, reach.result, most=500)}")
                     continue
                 if intent.tool == "web_search":
                     query = str(intent.args.get("query") or "").strip()

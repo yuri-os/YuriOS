@@ -792,12 +792,18 @@ to every new subscriber before its first live event. Malformed JSON is logged an
   (exactly the discovered tools; anything else denied), **per-tool rate limits** (token bucket
   on the injected clock), a **per-turn call cap** (`TOOL_MAX_CALLS_PER_TURN`, **16**: how many
   calls one reply — or one step of her own work, §26.2 — may chain, each result back before the
-  next), a **per-call timeout**, and **result truncation**. Catalog tools (`list_notes`, `read_note`) **MUST**
-  keep a higher bound than the default 600-character fact cap: a listing is the result, not a
-  fact to speak to, and cutting `list_notes` mid-JSON is how a diary folder became a days-long
-  loop (she never saw `count`). `list_notes` **MUST** put `count` first, drop `mtime`/`dir`
+  next), a **per-call timeout**, and **result truncation**. Catalog tools (`list_notes`, `read_note`,
+  `read_skill`) **MUST** keep a higher bound than the default 600-character fact cap: a listing is
+  the result, not a fact to speak to, and cutting `list_notes` mid-JSON is how a diary folder became
+  a days-long loop (she never saw `count`). `list_notes` **MUST** put `count` first, drop `mtime`/`dir`
   from each row, and clip from the end of the file list so a truncated payload is still valid
-  JSON that names how many files there were. A folder that is not on the desk **MUST** say so
+  JSON that names how many files there were. A catalog tool **MUST** size its own answer to fit
+  its bound as the answer is sent — FastMCP's indented JSON, escapes included, not the compact
+  form — so the guard's cut never lands inside one; and every place that hands a result back to
+  her (a reply, a goal step, a night's job) **MUST NOT** cut a catalog tool's result below that
+  bound (`guard.RESULT_LIMITS`, read through `mind/hands.bounded` on the mind's side). Live, a
+  goal step's 4,000-character cut sat below a 4,000-character page's ~4,200 on the wire, and
+  every long note reached her without the `end_line` that said where it stopped. A folder that is not on the desk **MUST** say so
   rather than returning an empty listing that reads as "kept-memory is empty". Every call —
   allowed or denied — **MUST** append one JSONL audit line
   (`ts, tool, args, verdict, duration_ms, result`) to `TOOL_LOG_DIR`. A call that ran out of time
@@ -2646,7 +2652,11 @@ needs a sandbox.
   every precondition below, its
   result comes back as the next message, and she is asked again — until she ends on prose or
   `TOOL_MAX_CALLS_PER_TURN` calls are spent, past which a `use` line is dropped rather than run
-  (`mind/handwork.py`). A done-mark beside any call in the step that ran finishes the goal (one
+  (`mind/handwork.py`). A step is shown each hand as one example line (`HANDS[tool].args`) and
+  never the tool's description, so that example **MUST** name every argument she needs to use the
+  hand fully; one it leaves out is listed, with its reason, in
+  `tests/test_mcp_contract.py::UNSHOWN_TO_THE_MIND`, which fails on any other. `read_note` shown
+  with a path alone is how she paged a 206-line document by deleting each page she had read. A done-mark beside any call in the step that ran finishes the goal (one
   beside a call that did not is §22.3's narrated finish) — beside
   `tell_them`, which is offered on every goal step and is not a hand (§18.2b), it finishes the goal
   once the message is delivered, and `tell_them` ends the step as off-tick work does. What she wrote
@@ -3183,6 +3193,12 @@ the things she *is* and the wrong shape for the things she is *doing*.
   and is fixed at spawn time, so one character's hands can never reach another's desk. A refusal
   **MUST** say what a working path looks like: "denied" teaches nothing and the same path is tried
   again next turn.
+
+  `read_note` answers one page — whole lines, `NOTE_READ_MAX_CHARS` of them at most, within §7.3's
+  bound on the wire. Where she is **MUST** come before the text (`start_line`, `end_line`,
+  `line_count`, `next_start_line`, `truncated`), and `next_start_line` **MUST** name the line the
+  note goes on from, or be null at its end, so reading the rest is one more call and never an
+  edit. A single line longer than a page comes back as its start, with a `note` saying so.
 
   The tool server is a separate process writing straight to disk, so a desk write **MUST** be
   reported back to the host (`_realise` → `MindLoop._desk_written`), which marks the Vault dirty

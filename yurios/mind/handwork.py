@@ -27,14 +27,10 @@ from typing import Awaitable, Callable
 from yurios.kernel import correlate
 
 from . import acts
-from .hands import (FILE_GOAL, START_DONT_AWAIT, TELL, Hands, Intent, Offer, parse_intent,
-                    stamp_contract)
+from .hands import (FILE_GOAL, START_DONT_AWAIT, TELL, Hands, Intent, Offer, bounded,
+                    parse_intent, stamp_contract)
 
 log = logging.getLogger("mind.handwork")
-
-#: How much of one result goes back to her. The tool already bounds its payload
-#: (SPEC §34.2); this bounds a step that chains several of them.
-RESULT_CHARS = 4000
 
 #: Appended to a prompt that did not ask for hands — a DREAM job in her own
 #: voice. Additive on purpose: the job's own instructions still say what its
@@ -138,9 +134,7 @@ async def dispatch(loop, tool: str, args: dict, *, goal_id: str = "",
 
 
 def _returned(reach: Reach, *, spent: bool) -> str:
-    body = reach.result
-    if len(body) > RESULT_CHARS:
-        body = body[:RESULT_CHARS] + " …(cut)"
+    body = bounded(reach.tool, reach.result)
     tail = (" Your hands are spent for this step — answer now, without a "
             "`use` line." if spent else
             " Use another hand if you need one, or give your answer.")

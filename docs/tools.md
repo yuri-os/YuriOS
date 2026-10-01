@@ -110,10 +110,12 @@ preserves the first.
 with `count` first so a clipped listing still says how many files there were; a folder that
 is not on the desk says so rather than looking empty. It lists `workspace/` only — kept
 memory is `memory/semantic/facts.md`, written by the night, not a desk folder.
-`read_note` returns up to 4,000 characters of content. Notes are scratch space, so they are not
+`read_note` returns one page — whole lines, up to 4,000 characters of them — with where it is
+first: `start_line`, `end_line`, `line_count`, and `next_start_line`, the line to read on from
+(null at the end). Reading a long note is reading again from `next_start_line`. Notes are scratch space, so they are not
 versioned in the Vault.
 
-Skills live in `vault/skills/`. `read_skill` loads the instructions for one named skill;
+Skills live in `vault/skills/`. `read_skill` loads the instructions for one named skill, whole up to about 8,000 characters;
 `write_skill` stores a lowercase-hyphenated name, a short description that says when to use it,
 and its full instructions; `delete_skill` removes it. Skills are versioned. See [The mind](mind.md#her-desk-and-her-skills)
 for the storage layout and prompt behavior.

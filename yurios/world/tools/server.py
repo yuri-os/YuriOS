@@ -13,11 +13,11 @@ shape Build #5 keeps when these same tools move behind a broker (→ ch. 19).
 """
 from __future__ import annotations
 
-import json
 import time
 import uuid
-from typing import Literal, get_args
+from typing import Callable, Literal, get_args
 
+import pydantic_core
 from mcp.server.fastmcp import FastMCP
 
 from yurios.characters.soulfiles import shape_complaint
@@ -26,13 +26,17 @@ from yurios.mind.workspace import (DeskFull, OutsideTheDesk, SkillStore,
                                    Workspace)
 
 from .fetch import PageFetcher, build_fetcher, gist
+from .guard import RESULT_LIMITS
 from .search import SearchProvider, build_provider
 from .spawn_env import ToolServerEnv
 
+#: One page of a note, in characters of its text. The whole answer is held to
+#: the guard's bound for the tool as well (`_wire`), so a page dense with
+#: escapes comes back shorter rather than cut by the guard.
 NOTE_READ_MAX_CHARS = 4_000
-#: Compact listing budget. Guard allows 5k for `list_notes` so a pretty-printed
-#: MCP content block still has headroom; this is the structured payload cap.
-LIST_NOTES_MAX_CHARS = 4_000
+#: The whole `list_notes` answer, as FastMCP sends it — the guard's own bound,
+#: so the guard never has to cut a listing (SPEC §7.3).
+LIST_NOTES_MAX_CHARS = RESULT_LIMITS["list_notes"]
 
 # The catalog lives in the *type*, not in prose: an annotated Literal becomes an
 # `enum` in the tool's JSON schema, which is the only form of the list a model
@@ -55,6 +59,50 @@ PROPOSABLE = tuple(sorted(
     MindVault.EDITABLE_SOUL - {"USER.md", "MEMORY.md", "BOOTSTRAP.md"}))
 
 
+def _wire(payload: dict) -> str:
+    """A tool's dict answer exactly as FastMCP sends it — indented JSON with
+    the newlines and quotes escaped — which is what every bound downstream
+    (the guard, a goal step) counts. Measuring anything else is how a page
+    that fitted its own budget arrived cut."""
+    return pydantic_core.to_json(payload, fallback=str, indent=2).decode()
+
+
+def _largest(hi: int, ok: Callable[[int], bool]) -> int:
+    """The largest `k` in `[0, hi]` with `ok(k)`, for an `ok` that only turns
+    false as `k` grows; 0 when nothing above it does."""
+    lo = 0
+    while lo < hi:
+        mid = (lo + hi + 1) // 2
+        if ok(mid):
+            lo = mid
+        else:
+            hi = mid - 1
+    return lo
+
+
+def _fit(text: str, fits: Callable[[str, int, bool], bool], *,
+         most: int) -> tuple[str, int, bool]:
+    """The longest head of `text` that `fits`: whole lines, at most `most`
+    characters of them, while any line fits at all — else the start of the
+    first line. Returns the head, how many lines it holds, and whether its
+    last one is only partly there.
+
+    `fits(head, lines, partial)` is the caller's whole answer measured on the
+    wire, so the bound holds for a page of quotes and newlines too, whose
+    escapes can double its size."""
+    lines = text.splitlines(keepends=True)
+    n = size = 0
+    while n < len(lines) and size + len(lines[n]) <= most:
+        size += len(lines[n])
+        n += 1
+    n = _largest(n, lambda k: fits("".join(lines[:k]), k, False))
+    if n or not lines:
+        return "".join(lines[:n]), n, False
+    first = lines[0]
+    k = _largest(min(len(first), most), lambda k: fits(first[:k], 1, True))
+    return first[:k], 1, True
+
+
 def _notes_listing(files: list, desk_files: int, desk_bytes: int, *,
                    missing: bool = False) -> dict:
     """A `list_notes` payload that still names `count` if the Guard clips it.
@@ -62,7 +110,9 @@ def _notes_listing(files: list, desk_files: int, desk_bytes: int, *,
     `mtime`/`dir` on every row used to blow the 600-char fact budget two
     files in, and because `files` led the object she never saw how many
     there were. Count first, path+bytes only, clip from the end so a
-    truncated listing is still valid JSON (SPEC §7.3, §34.2).
+    truncated listing is still valid JSON (SPEC §7.3, §34.2) — measured as
+    FastMCP sends it, because the compact form it used to be measured in is a
+    third smaller, and the guard cut the rows `shown` said she had.
     """
     rows = [{"path": e.path, "bytes": e.bytes} for e in files]
     payload: dict = {
@@ -80,17 +130,58 @@ def _notes_listing(files: list, desk_files: int, desk_bytes: int, *,
         return payload
 
     def compact(shown: list) -> str:
-        body = {**payload, "shown": len(shown),
-                "truncated": len(shown) < len(rows), "files": shown}
-        return json.dumps(body, separators=(",", ":"), default=str)
+        return _wire({**payload, "shown": len(shown),
+                      "truncated": len(shown) < len(rows), "files": shown})
 
-    shown = list(rows)
-    while shown and len(compact(shown)) > LIST_NOTES_MAX_CHARS:
-        shown.pop()
+    n = _largest(len(rows), lambda k: len(compact(rows[:k])) <= LIST_NOTES_MAX_CHARS)
+    shown = rows[:n]
     payload["shown"] = len(shown)
     payload["truncated"] = len(shown) < len(rows)
     payload["files"] = shown
     return payload
+
+
+def _note_page(path: str, text: str, first: int, count: int) -> dict:
+    """One page of a note, sized so the whole of it reaches her.
+
+    Where she is comes before the text, and `next_start_line` says where the
+    note goes on. Live, the page arrived cut inside its text with `end_line`
+    after the cut, and with no line to read on from she deleted what she had
+    read so the next read would start further in: 150 of an inbox document's
+    206 lines, gone over two ticks (SPEC §34.2)."""
+    def page(shown: str, lines: int, partial: bool) -> dict:
+        end = first + lines - 1 if lines else 0
+        body: dict = {"path": path, "start_line": first, "end_line": end,
+                      "line_count": count,
+                      "next_start_line": end + 1 if lines and end < count else None,
+                      "truncated": len(shown) < len(text)}
+        if partial:
+            body["note"] = (f"line {first} is longer than one read; this is "
+                            "only its start")
+        return {**body, "text": shown}
+
+    limit = RESULT_LIMITS["read_note"]
+    shown, lines, partial = _fit(
+        text, lambda *head: len(_wire(page(*head))) <= limit,
+        most=NOTE_READ_MAX_CHARS)
+    return page(shown, lines, partial)
+
+
+def _skill_page(skill) -> dict:
+    """A skill's instructions, whole if they fit the guard's bound for
+    `read_skill`, else their head and `truncated` saying so. A skill is read
+    in full or not at all — that is what `read_skill` is for — so the bound is
+    generous, but it is held here rather than by the guard's cut, which used
+    to land inside the instructions and take the rest of the answer with it."""
+    def page(shown: str, _lines: int = 0, _partial: bool = False) -> dict:
+        return {"name": skill.name, "description": skill.description,
+                "files": skill.files, "truncated": len(shown) < len(skill.body),
+                "instructions": shown}
+
+    limit = RESULT_LIMITS["read_skill"]
+    shown, _, _ = _fit(skill.body, lambda *head: len(_wire(page(*head))) <= limit,
+                       most=limit)
+    return page(shown)
 
 
 def build_server(*, max_minutes: float | None = None,
@@ -445,24 +536,21 @@ def build_server(*, max_minutes: float | None = None,
             """Read one of your own notes back. `path` is what `list_notes`
             showed you, like "research/paddleboards.md". `start_line` is a
             1-based first line; `end_line` is an inclusive last line, or 0 for
-            the rest of the note. Use line ranges to inspect a long note before
-            editing it."""
+            the rest of the note. A long note comes back one page at a time:
+            when `next_start_line` is a number, read again with that as
+            `start_line` for the rest — never edit a note to get further
+            through it. Line ranges are also how to look at one part of a long
+            note before editing it."""
             try:
-                text, first, last, count = workspace.read_lines(
+                text, first, _last, count = workspace.read_lines(
                     path, start_line=start_line, end_line=end_line)
-                shown = text[:NOTE_READ_MAX_CHARS]
-                if len(text) > NOTE_READ_MAX_CHARS and "\n" in shown:
-                    shown = shown[:shown.rfind("\n") + 1]
-                shown_lines = len(shown.splitlines())
-                return {"path": path, "text": shown, "start_line": first,
-                        "end_line": first + shown_lines - 1 if shown_lines else 0,
-                        "line_count": count, "truncated": len(shown) < len(text)}
             except FileNotFoundError:
                 raise ValueError(
                     f"nothing on your desk at {path} — `list_notes` shows what "
                     "is there") from None
             except (OutsideTheDesk, ValueError) as e:
                 raise _refusal(e) from None
+            return _note_page(path, text, first, count)
 
         @mcp.tool()
         def write_note(path: str, text: str) -> dict:
@@ -559,8 +647,7 @@ def build_server(*, max_minutes: float | None = None,
             if skill is None:
                 have = ", ".join(skills.names()) or "none yet"
                 raise ValueError(f"you have no skill called {name!r} (you have: {have})")
-            return {"name": skill.name, "description": skill.description,
-                    "instructions": skill.body, "files": skill.files}
+            return _skill_page(skill)
 
         @mcp.tool()
         def write_skill(name: str, description: str, instructions: str) -> dict:

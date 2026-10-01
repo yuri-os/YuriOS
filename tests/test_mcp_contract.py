@@ -577,6 +577,159 @@ async def test_the_desk_hands_explain_their_arguments_too(tmp_path):
                     f"{tool.name}'s `{arg}` is never explained to her")
 
 
+# --- every answer reaches her whole (SPEC §7.3, §26.2, §34.2) ---------------
+# Live, a 206-line inbox document came back to a goal step cut inside its text,
+# `end_line` and `truncated` after the cut, and the step's example showed
+# `read_note` with a path alone. She read the rest by deleting what she had read.
+
+
+def _long_document() -> str:
+    """Quotes, emoji and short lines: the escapes that make a page longer on
+    the wire than it is on disk."""
+    return "".join(
+        f'{i}. "Tier {i % 7}" — a line about it 💕 with a \\backslash\n'
+        for i in range(1, 207))
+
+
+async def test_a_long_note_reads_through_by_next_start_line(tmp_path):
+    from yurios.mind.hands import bounded
+    from yurios.world.tools.guard import RESULT_LIMITS
+
+    doc = _long_document()
+    pages, start = [], 1
+    async with create_connected_server_and_client_session(
+            desk_server(tmp_path)._mcp_server) as s:
+        await s.call_tool("write_note", {"path": "inbox/archive.md", "text": doc})
+        while start is not None:
+            wire = result_text(await s.call_tool(
+                "read_note", {"path": "inbox/archive.md", "start_line": start}))
+            assert len(wire) <= RESULT_LIMITS["read_note"]
+            # what a goal step hands back to her is the whole answer
+            assert bounded("read_note", wire) == wire
+            page = json.loads(wire)
+            assert list(page)[-1] == "text"      # where she is comes first
+            assert page["start_line"] == start
+            pages.append(page)
+            start = page["next_start_line"]
+    assert len(pages) > 1
+    assert pages[0]["truncated"] is True
+    assert pages[-1]["truncated"] is False and pages[-1]["end_line"] == 206
+    assert "".join(p["text"] for p in pages) == doc
+    assert (tmp_path / "workspace" / "inbox" / "archive.md").read_text() == doc
+
+
+async def test_an_escape_dense_page_comes_back_shorter_not_cut(tmp_path):
+    from yurios.world.tools.guard import RESULT_LIMITS
+
+    doc = '"\\"\n' * 3000          # every character escaped on the wire
+    async with create_connected_server_and_client_session(
+            desk_server(tmp_path)._mcp_server) as s:
+        await s.call_tool("write_note", {"path": "notes/q.md", "text": doc})
+        wire = result_text(await s.call_tool("read_note", {"path": "notes/q.md"}))
+    page = json.loads(wire)
+    assert len(wire) <= RESULT_LIMITS["read_note"]
+    assert page["text"] == '"\\"\n' * page["end_line"]
+    assert page["next_start_line"] == page["end_line"] + 1
+
+
+async def test_a_line_longer_than_a_page_says_so(tmp_path):
+    from yurios.world.tools.server import NOTE_READ_MAX_CHARS
+
+    doc = "x" * (NOTE_READ_MAX_CHARS * 2) + "\nsecond\n"
+    async with create_connected_server_and_client_session(
+            desk_server(tmp_path)._mcp_server) as s:
+        await s.call_tool("write_note", {"path": "notes/wide.md", "text": doc})
+        page = json.loads(result_text(await s.call_tool(
+            "read_note", {"path": "notes/wide.md"})))
+    assert page["text"] and set(page["text"]) == {"x"}
+    assert (page["end_line"], page["next_start_line"]) == (1, 2)
+    assert "line 1" in page["note"]
+
+
+async def test_a_long_skill_is_read_whole(tmp_path):
+    """`read_skill` sat on the 600-character default: a 2,000-character
+    skill reached a conversation as its first few paragraphs."""
+    from yurios.world.tools.guard import Guard
+
+    body = "".join(f"{i}. Step {i}: do the \"thing\" carefully.\n" for i in range(80))
+    async with create_connected_server_and_client_session(
+            desk_server(tmp_path)._mcp_server) as s:
+        await s.call_tool("write_skill", {
+            "name": "long-one", "description": "when it is long",
+            "instructions": body})
+        wire = result_text(await s.call_tool("read_skill", {"name": "long-one"}))
+    assert len(body) > 2_000
+    assert Guard.truncate(wire, tool="read_skill") == wire
+    out = json.loads(wire)
+    assert out["instructions"].strip() == body.strip()
+    assert out["truncated"] is False
+
+
+def test_a_skill_too_long_for_one_read_says_it_was_cut():
+    from yurios.world.tools.guard import RESULT_LIMITS
+    from yurios.world.tools.server import _skill_page, _wire
+
+    class _S:
+        name, description, files = "huge", "when", []
+        body = "a line of the method\n" * 2_000
+
+    page = _skill_page(_S)
+    assert len(_wire(page)) <= RESULT_LIMITS["read_skill"]
+    assert page["truncated"] is True
+    assert _S.body.startswith(page["instructions"])
+
+
+def test_a_listing_fits_as_it_is_sent():
+    """Measured compact, a full listing was a third longer on the wire, and
+    the guard cut rows that `shown` said she had."""
+    from yurios.world.tools.guard import Guard
+    from yurios.world.tools.server import _notes_listing, _wire
+
+    class _E:
+        def __init__(self, path, n):
+            self.path, self.bytes = path, n
+
+    payload = _notes_listing([_E(f"diary/{i:04d}.md", 800 + i) for i in range(300)],
+                             desk_files=300, desk_bytes=250_000)
+    wire = _wire(payload)
+    assert Guard.truncate(wire, tool="list_notes") == wire
+    assert json.loads(wire)["shown"] == len(payload["files"]) < 300
+
+
+#: Arguments a tool takes that the mind's one-line example leaves out, each for
+#: a reason. A step sees `HANDS[tool].args` and never the tool's description, so
+#: an argument missing from both is one she cannot know exists — `start_line`
+#: was, and she paged a document by deleting it.
+UNSHOWN_TO_THE_MIND = {
+    "web_search": {"k"},                          # the default count is the right one
+    "take_selfie": {"scene", "mood", "wardrobe", "framing", "lighting", "avoid",
+                    "goal_id", "completes_goal"},  # `look` carries all of it
+    "show_picture": {"avoid"},
+    "set_timer": {"goal_id", "completes_goal"},
+    "read_note": {"end_line"},                    # `next_start_line` pages without it
+    "edit_note": {"start_line", "end_line"},      # a repeat is refused with what to add
+}
+
+
+async def test_the_minds_example_of_every_hand_matches_the_tool(tmp_path):
+    from yurios.mind.hands import HANDS
+    from yurios.mind.workspace import SkillStore, Workspace
+
+    srv = server(search=FakeSearch(), fetcher=FakeFetcher(), max_pages=5,
+                 workspace=Workspace(tmp_path / "workspace"),
+                 skills=SkillStore(tmp_path / "skills"), selfedit=True, goals=True)
+    async with create_connected_server_and_client_session(srv._mcp_server) as s:
+        schemas = {t.name: set((t.inputSchema.get("properties") or {}))
+                   for t in (await s.list_tools()).tools}
+    assert set(HANDS) <= set(schemas)
+    for name, hand in HANDS.items():
+        shown = set(json.loads(hand.args))
+        assert shown <= schemas[name], f"{name}'s example names {shown - schemas[name]}"
+        unshown = schemas[name] - shown
+        assert unshown == UNSHOWN_TO_THE_MIND.get(name, set()), (
+            f"{name} takes {unshown} that a goal step is never told about")
+
+
 # --- propose_edit: the contract answers honestly (SPEC §7.5, §23) -----------------
 
 async def test_propose_edit_refuses_a_rewrite_that_would_stop_her_booting(

@@ -22,13 +22,18 @@ log = logging.getLogger("world.guard")
 
 RESULT_MAX_CHARS = 600      # a tool result is a fact for her to speak to, not a payload
 
-#: Catalog tools: the listing or the note IS the result. Mid-JSON truncation
-#: of `list_notes` is how a diary folder became a days-long loop — she never
-#: saw `count`. `read_note` already had the higher bound in ToolBrain; this
-#: table is that exception in one place (SPEC §7.3).
+#: Catalog tools: the listing, the note or the skill IS the result. Mid-JSON
+#: truncation of `list_notes` is how a diary folder became a days-long loop —
+#: she never saw `count`. Each of these tools sizes its own answer to fit its
+#: number here (world/tools/server.py), so this cut never lands inside one; and
+#: every place that hands a result back to her reads this table, a goal step's
+#: included (`mind/hands.bounded`). `read_skill` was left on the default: 600
+#: characters of a 2,000-character skill, under a description telling her to
+#: read the skill BEFORE following it (SPEC §7.3).
 RESULT_LIMITS = {
     "read_note": 5_000,
     "list_notes": 5_000,
+    "read_skill": 8_000,
 }
 
 #: Hands that only look at her own desk. Reading a note twice changes nothing

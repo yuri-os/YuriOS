@@ -52,7 +52,8 @@ from typing import Callable
 from yurios.kernel import correlate
 from yurios.kernel.clock import Clock
 from yurios.models import model_is_local
-from yurios.world.tools.guard import READ_ONLY, Guard, _fingerprint, failure
+from yurios.world.tools.guard import (READ_ONLY, RESULT_LIMITS, Guard, _fingerprint,
+                                      failure)
 from yurios.world.tooltags import native_call, strip_native_calls
 
 from .policy import DORMANT, DREAM, ENGAGED
@@ -109,9 +110,12 @@ HANDS: dict[str, Hand] = {
     "delete_note": Hand(
         "cheap", "throw one of her own notes away",
         '{"path": "notes/x.md"}'),
+    # `start_line` is in the example because nothing else here can say it: a
+    # step sees this line, never the tool's description. Shown only `path`,
+    # she read a long inbox document by deleting each page she had read.
     "read_note": Hand(
         "cheap", "read one of her notes back",
-        '{"path": "notes/x.md"}'),
+        '{"path": "notes/x.md", "start_line": 1}'),
     "list_notes": Hand(
         "cheap", "see what is on her desk",
         '{"folder": ""}'),
@@ -155,6 +159,25 @@ HANDS: dict[str, Hand] = {
         "expensive", "make a picture of something she is thinking about",
         '{"subject": "..."}', needs="SELFIE_BACKEND"),
 }
+
+#: How much of one result goes back to her in a step of her own work. The tool
+#: already bounds its payload (SPEC §34.2); this bounds a step that chains
+#: several of them.
+RESULT_CHARS = 4000
+
+
+def bounded(tool: str, result: str, *, most: int = RESULT_CHARS) -> str:
+    """`result` as it goes back to her: cut at `most`, but never below the
+    guard's own bound for the tool (`RESULT_LIMITS`).
+
+    Those tools size their answers to fit that bound and put the text last.
+    A cut below it lands inside the text and takes what follows with it — a
+    4,000-character page of a note is about 4,200 on the wire, so a step's
+    4,000 cut every full page above `end_line`, and she never learned where
+    the page ended (SPEC §26.2)."""
+    limit = max(most, RESULT_LIMITS.get(tool, 0))
+    return result if len(result) <= limit else result[:limit] + " …(cut)"
+
 
 CHEAP = tuple(n for n, h in HANDS.items() if h.klass == "cheap")
 EXPENSIVE = tuple(n for n, h in HANDS.items() if h.klass == "expensive")

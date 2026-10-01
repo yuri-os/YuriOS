@@ -82,3 +82,57 @@ it('organizes live state, plans, and history into persistent subviews', async ()
   expect(document.querySelector('[data-il-view="history"]').classList).toContain('on');
   expect(document.querySelector('[data-il-page="history"]').hidden).toBe(false);
 });
+
+it('lists documents handed to her, newest first, read and not yet', async () => {
+  const state = {
+    state: 'DORMANT', cadence_s: 900, interrupts_today: 0, dream_backlog: [],
+    budget: { spent_tokens: 0, daily_tokens: 1000 }, pending_edits: [], goals: [],
+    goal_filing: { enabled: true, open: 0, max: 3 }, shelf: [], inbox_wake: false,
+    handed: [
+      { path: 'inbox/q2.md', name: 'Q2 numbers.pdf', at: '2026-09-20T09:00:00',
+        state: 'read', read_at: '2026-09-20T09:01:00', goal: 'g-1',
+        outcome: 'decided to “fold inbox/q2.md into my quarterly report”' },
+      { path: 'inbox/old.md', name: 'old.md', at: '2026-09-21T09:00:00', state: 'gone' },
+      { path: 'inbox/q3.md', name: 'Q3 numbers.pdf', at: '2026-09-22T09:00:00',
+        state: 'waiting' },
+    ],
+  };
+  const fetched = [];
+  vi.stubGlobal('fetch', vi.fn(async (url) => {
+    fetched.push(url);
+    if (url === '/api/mind') return { ok: true, json: async () => state };
+    if (url === '/api/mind/journal?days=3') return { ok: true, json: async () => ({ days: [] }) };
+    if (url === '/api/mind/reading') {
+      return { ok: true, json: async () => ({ reading: null, runs: [], held: [] }) };
+    }
+    if (url === '/api/timers') return { ok: true, json: async () => ({ timers: [] }) };
+    if (url === '/api/mind/workspace/file?path=inbox%2Fq3.md') {
+      return { ok: true, json: async () => ({ text: '# Q3\n\nRevenue rose.' }) };
+    }
+    throw new Error(`unexpected request: ${url}`);
+  }));
+
+  await import('../js/mind.js');
+  document.getElementById('tab-mind').click();
+  await vi.waitFor(() => expect(document.querySelector('.il-handed')).not.toBeNull());
+
+  // an unread document is something on her plate, and counts on the tab
+  expect(document.querySelector('[data-il-view="plans"]').textContent).toContain('1');
+  const rows = [...document.querySelectorAll('.il-handed li')];
+  expect(rows.map(r => r.className)).toEqual(['h-waiting', 'h-gone', 'h-read']);
+  expect(rows[0].querySelector('.il-unread')).not.toBeNull();
+  expect(rows[0].textContent).toContain("not read yet — she'll read it when you're back");
+  expect(rows[1].textContent).toContain('gone from her desk before she read it');
+  expect(rows[1].querySelector('.il-look')).toBeNull();
+  expect(rows[2].querySelector('.il-unread')).toBeNull();
+  expect(rows[2].textContent).toContain('read ');
+  expect(rows[2].querySelector('.il-outcome').textContent)
+    .toBe('decided to “fold inbox/q2.md into my quarterly report”');
+  expect(document.querySelector('.il-handed').previousElementSibling.textContent)
+    .toContain('1 not read yet');
+
+  rows[0].querySelector('.il-look').click();
+  await vi.waitFor(() => expect(document.querySelector('.il-handed .il-desk')?.textContent)
+    .toBe('# Q3\n\nRevenue rose.'));
+  expect(fetched).toContain('/api/mind/workspace/file?path=inbox%2Fq3.md');
+});

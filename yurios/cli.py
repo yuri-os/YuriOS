@@ -1387,7 +1387,8 @@ def main(argv: list[str] | None = None) -> int:
     # beside it, the relative settings it holds (`VAULT_DIR=./vault`,
     # `DATA_DIR=./data`) resolve against it, and `start --foreground` runs the
     # whole server in this process. So enter the installation before dispatch.
-    # Nothing the user typed changes meaning: no subcommand takes a path.
+    # Nothing the user typed changes meaning: a subcommand that takes a path
+    # resolves it while parsing, above (`yurios.ctl.util.here`).
     root = _root()
     try:
         os.chdir(root)

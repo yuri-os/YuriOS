@@ -28,7 +28,7 @@ import logging
 
 from yurios.kernel import correlate
 
-from . import handwork
+from . import acts, handwork
 from .goals import trim
 from .goalwork import takeaway
 from .hands import FILE_GOAL, Hands, Offer
@@ -247,8 +247,9 @@ async def muse(loop, offer: Offer | None) -> tuple[dict, dict, list[str]]:
     messages = [{"role": "system", "content": system(loop, tools)},
                 {"role": "user", "content": context(loop, now)}]
     with correlate.scope(kind=correlate.MUSE):
-        worked = await handwork.work(loop, messages, offer=Offer(tools=tools),
-                                     ask=ask, cap=MAX_CALLS, muse=True)
+        worked = await handwork.work(
+            loop, messages, offer=Offer(tools=tools), ask=ask, cap=MAX_CALLS,
+            file_goal=lambda args: acts.file_from_muse(loop, args))
 
     filed = None
     for reach in worked.reaches:

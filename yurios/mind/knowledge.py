@@ -58,6 +58,11 @@ def is_source(doc: str) -> bool:
     """Is this a raw web page, kept for verification rather than read?"""
     return doc.startswith(SOURCE_PREFIX)
 
+
+#: The doc-name prefix of a research run's compiled topic page
+#: (`world/research.py`), rewritten whole each time the job runs.
+TOPIC_PREFIX = "research-"
+
 #: Past this many characters a document is *read for notes* rather than
 #: transcribed (`_passages`). Roughly a long feature article: short enough that
 #: an ordinary page is still indexed word-for-word, long enough that the
@@ -550,6 +555,28 @@ class KnowledgeStore:
             safe += ".md"
         self.vault.write(f"knowledge/reference/{safe}", text)
         return safe
+
+    def shelve(self, doc: str, text: str) -> dict:
+        """Put a document a person handed over on the shelf (SPEC §20.1).
+
+        Not read here: it lands exactly as a dropped file does, and SENSE picks
+        it up on a tick, so it waits its turn behind whatever she is reading and
+        shows on the reading panel like any other. `doc` comes from
+        `documents.shelf_document`. A new version of a held doc lets go of the hold —
+        you handed over something to read — and the same bytes again resume
+        it, because that is the only thing handing them over again can mean.
+        """
+        path = self.reference / doc
+        existed = path.exists()
+        same = existed and path.read_text(encoding="utf-8", errors="replace") == text
+        self.vault.write(f"knowledge/reference/{doc}", text)
+        if same:
+            self.resume(doc)
+        else:
+            self._clear_hold(doc)
+        return {"name": doc, "bytes": path.stat().st_size,
+                "replaced": existed and not same, "unchanged": same,
+                **self.estimate(text, name=doc)}
 
     def _release(self, doc: str, previous: list | None) -> None:
         """Undo a claim, leaving `ingested.json` as the failed run found it. The

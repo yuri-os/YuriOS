@@ -79,7 +79,8 @@ class Worked:
 
 
 async def dispatch(loop, tool: str, args: dict, *, goal_id: str = "",
-                   muse: bool = False) -> Reach:
+                   file_goal: Callable[[dict], tuple[str, str]] | None = None
+                   ) -> Reach:
     """check → spend → execute → realise, for one call. Never raises.
 
     Every precondition is checked again here, not because the offer was wrong
@@ -94,10 +95,11 @@ async def dispatch(loop, tool: str, args: dict, *, goal_id: str = "",
         verdict, result, told = acts.queue_telling(loop, args, goal_id=goal_id)
         return Reach(tool, args, verdict, result, told=told,
                      refused=result if verdict == "denied" else "")
-    if tool == FILE_GOAL and muse:
-        # Free time's one decision (§22.7): filed by the mind, not the tool
-        # server, so it works whether or not her hands are on.
-        verdict, result = acts.file_from_muse(loop, args)
+    if tool == FILE_GOAL and file_goal is not None:
+        # A sitting's one decision — free time (§22.7), a handed document
+        # (§34.6): filed by the mind, not the tool server, so it works whether
+        # or not her hands are on. The caller says under what rules.
+        verdict, result = file_goal(args)
         return Reach(tool, args, verdict, result,
                      refused=result if verdict == "denied" else "")
     ok, why = loop.hands.check(
@@ -149,7 +151,9 @@ async def work(loop, messages: list[dict], *, offer: Offer,
                ask: Callable[[list[dict]], Awaitable[str]],
                goal_id: str = "", stop_on_dispatch: bool = False,
                on_reach: Callable[[Reach], None] | None = None,
-               cap: int | None = None, muse: bool = False) -> Worked:
+               cap: int | None = None,
+               file_goal: Callable[[dict], tuple[str, str]] | None = None
+               ) -> Worked:
     """Ask; while she answers with a `use` line, run it and ask again.
 
     `ask` is the model call — the caller's, so a goal step keeps its soul and a
@@ -171,7 +175,7 @@ async def work(loop, messages: list[dict], *, offer: Offer,
                 else Intent("think", text=intent.text, unrun=(intent.tool,))
             return done
         reach = await dispatch(loop, intent.tool, intent.args, goal_id=goal_id,
-                               muse=muse)
+                               file_goal=file_goal)
         reach.why = (intent.text or "").strip()
         done.reaches.append(reach)
         if on_reach is not None:

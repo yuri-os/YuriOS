@@ -1603,9 +1603,9 @@ what they mean — no producer may call into the mind.
   early from any cadence sleep, and **MUST** append one line per arrival to `signals.jsonl` (the
   arrival record — "what woke her at 3am" is a file you read).
 - §16.2 The type enum is open: `user_message`, `turn_committed`, `user_present`, `user_absent`,
-  `timer`, `task_completion`, `selfedit_decision`, `wakeup`, `fs_event`, `suspend_gap`. Producers
-  in this build: the world voice route (the tee), the `/api/events` route (presence), the timer
-  board, the self-edit API. Unknown types are legal and appraise low. `user_present`/`user_absent`
+  `timer`, `task_completion`, `selfedit_decision`, `wakeup`, `fs_event`, `suspend_gap`, `handed`.
+  Producers in this build: the world voice route (the tee), the `/api/events` route (presence), the
+  timer board, the self-edit API, the desk inbox route (§34.6). Unknown types are legal and appraise low. `user_present`/`user_absent`
   are bookkeeping — observed by the world model, never chosen as intentions (the greeting is the
   voice route's job). They track chat-room and live-CLI viewers only. A
   `user_message` (Telegram included) is reachable, not present, and **MUST NOT**
@@ -1915,6 +1915,23 @@ turn** — separate files, separate indexes, separate `inspect()`.
   model calls: §20.2 never retrieves it, so every call spent reading it would buy chunks
   nothing can find. If an earlier run indexed that source, archiving it again **MUST**
   remove its old rows. A DREAM job's compiled topic page is indexed instead.
+  A person **MAY** also hand her a document over HTTP — `POST /api/mind/research`, a
+  one-file multipart upload, which the files tab's shelf and `yurios shelf add` (§36.6) both
+  call. It **MUST** land on the shelf exactly as a dropped file does: pending for SENSE, never
+  read inside the request, which answers at once with what the read will cost. It **MUST**
+  refuse, with the reason, anything the drop folder would ignore in silence — a suffix other
+  than `.md`/`.txt`/`.pdf`, bytes that are not UTF-8 text, an empty file, one over
+  `MAX_SHELF_BYTES` — and a `web-` or `research-` name, which belong to her own reading (a
+  source is never retrieved; a topic page is overwritten by its job). A `.pdf` (up to
+  `MAX_PDF_BYTES`) **MUST** be converted once, at upload and off the event loop, into the
+  `.md` of its text — paragraphs rebuilt from the page's lines, one `[page N]` marker per
+  page — and the PDF itself **MUST NOT** be kept, so the shelf stays text and a span still
+  indexes into the file. A PDF with no text layer, a password, or a mangled body is refused
+  with that reason; so is any PDF where `pypdf` is not installed. The drop folder itself stays
+  `.md`/`.txt`. A new version of a held
+  document **MUST** clear its hold; the same bytes again resume it. The upload names something
+  a person did, so it commits at once (§2.1) and publishes a `shelf` event. With the mind off
+  there is no shelf, and the route answers 503.
 - §20.2 **Retrieval is grounded, and it reaches the prompt.** Every returned `Chunk` carries `doc`
   + `span` (character range) — a citation she can show. `search()` **MUST** run on every assembled
   turn and join conversation as the assembler's knowledge slot (§7.1 block 8), carrying its
@@ -3198,6 +3215,30 @@ the things she *is* and the wrong shape for the things she is *doing*.
   diary entry describing a conversation that never took place (§18.2b), and shown unlabelled she
   would have spoken as though it had. Building it never raises: a failure costs the block, not the
   turn.
+- §34.6 **A document you hand her is hers to decide about.** The shelf (§20) is what she looks
+  things up in; this is the other thing a person does with a document, which is give it to
+  somebody. `POST /api/mind/workspace/inbox` (the files tab's desk, `yurios desk add`, §36.6)
+  takes one file under the shelf's rules for what a document is — `.md`/`.txt`, or a `.pdf` as the
+  `.md` of its text — writes it to `workspace/inbox/<name>` through the desk's own sandbox and
+  limits, and posts a `handed` signal (§16.2). It **MUST NOT** be indexed or retrieved: nothing
+  reaches her about it except that signal and her own reading. SENSE **MUST** note the arrival at
+  once, with no model — one journal line, and a persisted record (the bus is not replayed,
+  §16.4) that goes `waiting` → `read` (with when, and what came of it: the goal she filed or
+  her takeaway) or `gone` (taken off the desk first). The same path handed again holds one
+  record, waiting again. The inner-life panel (§24.3) lists them, unread marked, each openable;
+  only the oldest *read* records are let go to keep the list bounded. Then one *sitting* per document,
+  an impulse scored above a goal's priority and below a timer: shown the head of the document,
+  her list and her desk, she decides in her own voice what it means for what she is doing. She may
+  open her notes (the free-time review hands, §22.7, when her hands are on) and file at most one
+  goal; the sitting itself changes nothing else. A goal filed from it carries `handed:<path>` as
+  provenance and the path in its meta, and every step of it **MUST** be shown the document again.
+  It is not a goal of her own judgement — it traces back to what you did — so neither
+  `MIND_GOAL_FILING_ENABLED` nor `MIND_SELF_GOALS_MAX` applies to it. `MIND_INBOX_WAKE` decides
+  *when*: on (the default), from any activity state; off, only in `ENGAGED` or `IDLE` — noticed
+  now, decided once you are back. Either way it **MUST NOT** run during a conversational turn or
+  once the day's budget is spent, and a document taken off the desk before the sitting costs no
+  model call. With the mind off the file still lands, unannounced, and the route says so
+  (`noticed: false`).
 
 ---
 
@@ -3277,3 +3318,10 @@ The terminal is a first-class client of the host, not a second implementation of
 - §36.5 **Owner camera routes.** `POST /api/selfie` and `POST /api/picture` start a render on the
   running character's lab (§7.6) without a hand. They stamp `_deliver: "vault"`. The CLI may wait
   on `selfie_status` events or exit with the id (`--no-wait`).
+- §36.6 **Handing her a document.** `yurios shelf add <id> FILE…` uploads each file to the
+  running character's shelf (§20.1), one request per file so one refusal does not cost the
+  rest, and prints what each read will cost; `yurios shelf list <id>` prints the shelf.
+  `yurios desk add <id> FILE…` hands each to her desk's inbox instead (§34.6) and prints when she
+  will read it; `yurios desk list <id>` prints the desk. A path
+  argument **MUST** be resolved against the directory it was typed in, before `yurios`
+  changes into the installation.

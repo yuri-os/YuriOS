@@ -303,6 +303,43 @@ import { detailMessage } from '../shared/http.js';
       '</li>';
   }
 
+  // ---- documents you handed her (SPEC §34.6) ---------------------------------
+  // Newest first. A waiting one says when she will get to it; a read one says
+  // what came of it. Each opens in place, in the viewer a goal's desk file uses.
+  function when(iso) {
+    const d = new Date(iso || '');
+    if (Number.isNaN(d.getTime())) return '';
+    const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    return d.toDateString() === new Date().toDateString() ? time
+      : `${d.toLocaleDateString([], { month: 'short', day: 'numeric' })}, ${time}`;
+  }
+
+  function handedRow(h, wakes) {
+    const id = `handed:${h.path}`;
+    deskPaths.set(id, h.path);
+    const looking = openDesks.has(id);
+    const read = h.state === 'read';
+    const gone = h.state === 'gone';
+    const status = read ? `read ${when(h.read_at)}`
+      : gone ? 'gone from her desk before she read it'
+      : wakes ? 'not read yet' : "not read yet — she'll read it when you're back";
+    const cached = deskCache.get(id);
+    const body = !cached ? 'opening…'
+      : cached.missing ? 'it is no longer on her desk.' : cached.text;
+    return `<li class="h-${esc(h.state || 'waiting')}">` +
+      `<span class="il-goal-line">` +
+      (read || gone ? '' : '<span class="il-unread">unread</span> ') +
+      `${esc(h.name || h.path)}</span>` +
+      `<span class="il-prov">${esc(status)} · handed ${esc(when(h.at))} · ` +
+      `${esc(h.path)}</span>` +
+      (read && h.outcome ? `<span class="il-outcome">${esc(h.outcome)}</span>` : '') +
+      (gone ? '' : `<span class="il-goal-actions"><button type="button" class="il-look" ` +
+        `data-desk="${esc(id)}" data-path="${esc(h.path)}">` +
+        `${looking ? 'fold it away' : 'view document'}</button></span>`) +
+      (looking ? `<pre class="il-content il-desk">${esc(body)}</pre>` : '') +
+      '</li>';
+  }
+
   // The switch sits here, on the list it governs, rather than in the settings
   // dialog — a permission you can only find by leaving the page that shows you
   // why you'd want it is a permission nobody revokes in time. Two buttons side
@@ -391,6 +428,16 @@ import { detailMessage } from '../shared/http.js';
         '</ul>');
     }
 
+    const handed = [...(state.handed || [])].reverse();
+    const unread = handed.filter(h => (h.state || 'waiting') === 'waiting').length;
+    if (handed.length) {
+      plansHtml += section('handed to her',
+        `<p class="il-off">${unread ? `${unread} not read yet` : 'all read'}` +
+        ' · documents you gave her desk to read and decide about</p>' +
+        '<ul class="il-goals il-handed">' +
+        handed.map(h => handedRow(h, state.inbox_wake !== false)).join('') + '</ul>');
+    }
+
     if ((state.shelf || []).length) {
       plansHtml += section('the shelf',
         '<ul class="il-shelf">' + state.shelf.map(d =>
@@ -411,7 +458,7 @@ import { detailMessage } from '../shared/http.js';
     const needsAttention = timers.count + reading.live + reading.held + edits.length;
     const html = navigation({
       now: needsAttention,
-      plans: openGoals,
+      plans: openGoals + unread,
       history: days.length,
     }) + page('now', nowHtml) + page('plans', plansHtml) + page('history', historyHtml);
     repaint(html);

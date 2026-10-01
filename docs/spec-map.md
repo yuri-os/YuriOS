@@ -12,7 +12,7 @@ a section are folded into it.
 | Section | Implemented in | Also cited by |
 |---|---|---|
 | **§1** — Goal and properties | `yurios/world/channels/telegram.py`<br>`yurios/desktop/config.py`<br>`yurios/world/main.py` | — |
-| **§2** — The brain, the voice, and the seam | `web/js/chat.js`<br>`yurios/world/main.py`<br>`yurios/app/providers/sentence_tf.py`<br>`yurios/app/providers/openrouter.py`<br>*+36 more* | `tests/test_situation.py`<br>`tests/test_embedder_fallback.py`<br>`tests/test_events.py`<br>*+13 more* |
+| **§2** — The brain, the voice, and the seam | `web/js/chat.js`<br>`yurios/world/main.py`<br>`yurios/app/providers/sentence_tf.py`<br>`yurios/app/providers/openrouter.py`<br>*+37 more* | `tests/test_situation.py`<br>`tests/test_embedder_fallback.py`<br>`tests/test_events.py`<br>*+13 more* |
 | **§3** — The body: the VRM stage | `yurios/desktop/voice/protocols.py`<br>`web/js/stage/EmoteController.js`<br>`yurios/desktop/config.py`<br>`web/js/stage/Blink.js`<br>*+22 more* | `tests/test_doctor.py`<br>`tests/test_lmstudio_preload.py`<br>`tests/test_model_setup.py`<br>*+3 more* |
 | **§4** — The control channel (`avatar` events on the bus) | `yurios/world/avatar/controller.py`<br>`web/js/bridge.js`<br>`yurios/desktop/routes/voice_ws.py`<br>`yurios/desktop/voice/turn.py`<br>*+12 more* | `tests/test_avatar_controller.py`<br>`tests/test_events.py` |
 | **§5** — Visemes: real lip-sync | `yurios/desktop/voice/fillers.py`<br>`web/js/stage/VrmStage.js`<br>`web/js/voice.js`<br>`scripts/seed_vault.py`<br>*+6 more* | `tests/test_bootstrap_greeting.py`<br>`tests/test_mind_goals.py`<br>`tests/test_studio_routes.py` |
@@ -30,7 +30,7 @@ a section are folded into it.
 | **§17** — Activity states and the budget governor | `yurios/mind/policy.py`<br>`yurios/mind/budget.py`<br>`web/mind/mind.js`<br>`yurios/mind/prompts.py` | `tests/test_mind_budget.py`<br>`tests/test_policy.py` |
 | **§18** — The salience and interrupt model | `yurios/mind/policy.py`<br>`scripts/live_check.py`<br>`web/js/chat.js`<br>`yurios/mind/acts.py`<br>*+17 more* | `tests/test_inbox.py`<br>`tests/test_tray.py`<br>`tests/test_host.py`<br>*+3 more* |
 | **§19** — The world model (the present tense) | `yurios/mind/world.py`<br>`yurios/world/brain.py`<br>`yurios/world/situation.py` | `tests/test_world_model.py` |
-| **§20** — The knowledge layer (drop-folder RAG) | `yurios/mind/knowledge.py` | `tests/test_knowledge.py`<br>`tests/test_mind_routes.py` |
+| **§20** — The knowledge layer (drop-folder RAG) | `yurios/mind/knowledge.py`<br>`yurios/mind/documents.py`<br>`web/js/files.js`<br>`yurios/ctl/documents.py`<br>*+2 more* | `tests/test_mind_routes.py`<br>`tests/test_cli_documents.py`<br>`tests/test_knowledge.py`<br>*+1 more* |
 | **§21** — DREAM consolidation | `yurios/mind/dreamjobs/research.py`<br>`yurios/mind/dream.py`<br>`yurios/mind/dreamjobs/builtins.py`<br>`yurios/mind/dreamjobs/context.py`<br>*+6 more* | `tests/test_dreamjobs.py`<br>`tests/test_mind_routes.py`<br>`tests/test_cli_dreams.py`<br>*+1 more* |
 | **§22** — Goals and intentions | `yurios/mind/goals.py`<br>`yurios/mind/loop.py`<br>`yurios/mind/prompts.py`<br>`scripts/live_check.py`<br>*+9 more* | `tests/test_mind_goals.py`<br>`tests/test_mind_routes.py`<br>`tests/conftest.py`<br>*+4 more* |
 | **§23** — The SOUL split and gated self-edits | `yurios/mind/selfedit.py`<br>`yurios/world/tools/server.py` | `tests/test_selfedit.py`<br>`tests/test_mind_goals.py` |
@@ -44,8 +44,8 @@ a section are folded into it.
 | **§31** — Connections and per-character bindings | `yurios/world/host/hosting.py`<br>`yurios/world/main.py`<br>`web/dashboard/dashboard.js`<br>`web/shared/settings.js`<br>*+5 more* | `tests/test_host.py`<br>`tests/test_character_overrides.py`<br>`tests/test_one_rule_hands.py`<br>*+2 more* |
 | **§32** — The switchboard | `yurios/world/host/hosting.py`<br>`yurios/world/host/pages.py`<br>`web/dashboard/dashboard.js`<br>`web/dashboard/model.js` | `tests/test_host.py` |
 | **§33** — The 0.1 → 0.2 migration | `yurios/migrate.py` | — |
-| **§34** — Her desk and her skills | `yurios/desktop/brain.py`<br>`yurios/mind/workspace.py`<br>`yurios/characters/importer.py`<br>`yurios/mind/goalwork.py`<br>*+3 more* | `tests/test_mcp_contract.py`<br>`tests/test_on_your_mind.py`<br>`tests/test_workspace.py` |
+| **§34** — Her desk and her skills | `yurios/desktop/brain.py`<br>`yurios/mind/workspace.py`<br>`web/js/mind.js`<br>`yurios/characters/importer.py`<br>*+8 more* | `tests/test_handed.py`<br>`tests/test_mcp_contract.py`<br>`tests/test_on_your_mind.py`<br>*+1 more* |
 | **§35** — Pictures you send her | `yurios/world/main.py`<br>`yurios/world/channels/telegram.py`<br>`yurios/world/routes/chat.py`<br>`web/js/chat.js`<br>*+11 more* | `tests/test_channels.py`<br>`tests/test_context_meter.py`<br>`tests/test_integration.py`<br>*+1 more* |
 | **§36** — Command-line control | `yurios/ctl/__init__.py`<br>`yurios/ctl/characters.py`<br>`yurios/ctl/client.py`<br>`yurios/world/host/switchboard.py`<br>*+1 more* | `tests/test_cli_camera.py`<br>`tests/test_cli_characters.py` |
 
-*923 citation sites over 123 sections.*
+*940 citation sites over 124 sections.*

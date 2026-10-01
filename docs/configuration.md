@@ -329,6 +329,7 @@ Cadences, gates, DREAM hours, and the rest of `MIND_*` — the full table is in
 | `TOOL_RATE_MIND_DESK` / `_WEB` / `_CAMERA` / `_OTHER` | `4` / `1` / `1` / `1` | the mind's own buckets, not conversation's |
 | `MIND_ENGAGED_CADENCE_S` | `10` | tick while talking |
 | `MIND_DREAM_CADENCE_S` | `120` | DREAM works in capped chunks |
+| `MIND_INBOX_WAKE` | `true` | a document handed to her desk inbox wakes her to read it and decide (model calls, any hour); `false` = noticed at once, decided when she's next active |
 
 See [the cost note](README.md#experimental--and-it-can-spend) before turning the house switch on
 against a metered API. Her tile's `hands` toggle is the per-character grant and takes effect live.

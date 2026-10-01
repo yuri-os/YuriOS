@@ -37,6 +37,7 @@ SIGNAL_TYPES = (
     "selfedit_decision",  # the user ruled on a queued self-edit (id, approve)
     "wakeup",           # a wake the loop scheduled for itself (a due goal)
     "fs_event",         # something changed on a watched surface (knowledge drop)
+    "handed",           # a document put in her desk's inbox (path, name) (§34.6)
     "suspend_gap",      # synthesized by SENSE: the machine slept (hours)
 )
 

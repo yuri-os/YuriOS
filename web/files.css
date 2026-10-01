@@ -31,7 +31,9 @@
 .fs-row.folder .fs-icon{ color:var(--amber); }
 .fs-row[data-up]{ color:var(--dim); }
 .fs-row[data-up] .fs-icon{ color:var(--dim); }
-.fs-name{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+/* Line height, not `normal`: overflow:hidden clips at the line box, and at
+   this size that cut every underscore off a name. */
+.fs-name{ overflow:hidden; line-height:1.5; text-overflow:ellipsis; white-space:nowrap; }
 .fs-row small{ color:var(--dim); font-size:8px; font-variant-numeric:tabular-nums; }
 .fs-empty{ margin:9px 6px; color:var(--dim); font:9px/1.5 var(--font-mono); }
 
@@ -45,6 +47,15 @@
 .fs-vol-meta{ display:flex; flex-direction:column; align-items:flex-end; gap:3px; color:var(--dim); font-size:8px; font-style:normal; font-variant-numeric:tabular-nums; }
 .fs-vol-meta em{ padding:1px 4px; border:1px solid var(--acid-dark); border-radius:2px; color:var(--acid); font-size:7px; font-style:normal; letter-spacing:.1em; }
 .fs-vol:last-child .fs-vol-meta em{ border-color:var(--rule); color:var(--dim); }
+
+/* ------------------------------------------------- adding to the shelf */
+.fs-shelf-bar{ flex:none; display:flex; align-items:flex-start; gap:10px; padding:8px 10px; border-top:1px solid var(--rule); background:var(--ground); }
+.fs-add{ flex:none; min-height:25px; padding:0 9px; border:1px solid var(--acid-dark); border-radius:2px; background:transparent; color:var(--acid); cursor:pointer; font:8px var(--font-mono); letter-spacing:.1em; text-transform:uppercase; transition:.16s ease; }
+.fs-add:not(:disabled):hover{ border-color:var(--acid); background:var(--acid); color:#10140a; }
+.fs-add:disabled{ border-color:var(--rule); color:var(--dim); cursor:progress; }
+.fs-shelf-note{ min-width:0; display:flex; flex-direction:column; gap:3px; padding-top:6px; color:var(--dim); font:8px/1.4 var(--font-mono); letter-spacing:.06em; overflow-wrap:anywhere; }
+.fs-os.fs-dropping{ box-shadow:inset 0 0 0 1px var(--acid); }
+.fs-os.fs-dropping .fs-list{ background:rgb(215 255 88 / .04); }
 
 /* ------------------------------------------------------------- status bar */
 .fs-status{ flex:none; padding:6px 10px; border-top:1px solid var(--rule); background:var(--panel); color:var(--dim); font:8px var(--font-mono); letter-spacing:.1em; text-transform:uppercase; font-variant-numeric:tabular-nums; }

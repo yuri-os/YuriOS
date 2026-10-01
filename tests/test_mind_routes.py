@@ -37,6 +37,7 @@ def test_api_mind_snapshot(client_with_mind):
     assert snap["state"] in ("ENGAGED", "IDLE", "DORMANT", "DREAM")
     assert "budget" in snap and snap["budget"]["daily_tokens"] > 0
     assert "pending_edits" in snap and "goals" in snap
+    assert snap["handed"] == [] and snap["inbox_wake"] is True     # §34.6
 
 
 def test_the_snapshot_names_each_goal_desk(client_with_mind):
@@ -89,6 +90,104 @@ def test_research_routes_list_and_read_sources_without_exposing_paths(client_wit
     assert c.get("/api/mind/research/file", params={"name": "web-rain.md"}).json()[
         "text"].startswith("# Rain")
     assert c.get("/api/mind/research/file", params={"name": "../USER.md"}).status_code == 400
+
+
+def test_a_document_you_upload_lands_on_the_shelf_for_the_tick(client_with_mind, monkeypatch):
+    """The drop folder from a browser (SPEC §20.1): onto the shelf, priced,
+    committed under its own name, and announced — but not read in the request."""
+    c, rig = client_with_mind
+    events = []
+    monkeypatch.setattr(c.app.state.rt.hub, "publish",
+                        lambda type_, payload: events.append((type_, payload)))
+    commits = []
+    monkeypatch.setattr(rig.mind.vault, "commit_if_dirty",
+                        lambda message, now=False: commits.append((message, now)))
+
+    r = c.post("/api/mind/research",
+               files={"file": ("tea notes.md", b"# Tea\n\nGyokuro is shaded.\n",
+                               "text/markdown")})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["name"] == "tea_notes.md" and body["calls"] >= 1
+    assert (rig.mind.knowledge.reference / "tea_notes.md").read_text().startswith("# Tea")
+    assert rig.mind.knowledge.pending_docs() == ["tea_notes.md"]
+    assert commits == [("user: put tea_notes.md on the shelf", True)]
+    assert events == [("shelf", {"action": "add", **body})]
+    assert c.get("/api/mind/research").json()["files"][0]["name"] == "tea_notes.md"
+
+
+def test_an_uploaded_pdf_lands_as_the_md_of_its_text(client_with_mind):
+    pytest.importorskip("pypdf")
+    from .pdfs import make_pdf
+    c, rig = client_with_mind
+    pdf = make_pdf([["Gyokuro is shaded for three weeks."]], title="Tea")
+    r = c.post("/api/mind/research",
+               files={"file": ("tea.pdf", pdf, "application/pdf")})
+    assert r.status_code == 200, r.text
+    assert r.json()["name"] == "tea.md"
+    text = (rig.mind.knowledge.reference / "tea.md").read_text()
+    assert text.startswith("# Tea\n\n[page 1]\n\nGyokuro")
+    assert rig.mind.knowledge.shelf() == ["tea.md"], "the PDF itself is not kept"
+
+
+@pytest.mark.parametrize("filename,data,status", [
+    ("paper.docx", b"PK\x03\x04", 415),
+    ("web-rain.md", b"text", 409),
+    ("blank.md", b"", 400),
+])
+def test_an_upload_the_shelf_will_not_take_says_why(client_with_mind, filename, data, status):
+    c, rig = client_with_mind
+    r = c.post("/api/mind/research", files={"file": (filename, data, "text/plain")})
+    assert r.status_code == status
+    assert r.json()["detail"]
+    assert rig.mind.knowledge.shelf() == []
+
+
+def test_a_document_handed_to_her_desk_lands_in_the_inbox_and_tells_her(
+        client_with_mind, monkeypatch):
+    """§34.6: not the shelf — on her desk, unindexed, with a `handed` signal."""
+    pytest.importorskip("pypdf")
+    from .pdfs import make_pdf
+    c, rig = client_with_mind
+    events = []
+    monkeypatch.setattr(c.app.state.rt.hub, "publish",
+                        lambda type_, payload: events.append((type_, payload)))
+    pdf = make_pdf([["Revenue rose 12% on the tea line."]], title="Q3")
+    r = c.post("/api/mind/workspace/inbox",
+               files={"file": ("Q3 numbers.pdf", pdf, "application/pdf")})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["path"] == "inbox/Q3_numbers.md"
+    assert body["noticed"] is True and body["wakes"] is True
+    assert body["replaced"] is False
+    assert rig.mind.workspace.read("inbox/Q3_numbers.md").startswith("# Q3")
+    assert rig.mind.knowledge.shelf() == [], "the desk is not the shelf"
+    sigs = [s for s in rig.mind.bus.next(0)[0] if s.type == "handed"]
+    assert [(s.payload["path"], s.payload["name"]) for s in sigs] == [
+        ("inbox/Q3_numbers.md", "Q3 numbers.pdf")]
+    assert [t for t, _ in events] == ["workspace"]
+
+
+def test_a_quiet_inbox_says_she_will_not_wake_for_it(client_with_mind):
+    c, rig = client_with_mind
+    rig.mind.cfg.mind_inbox_wake = False
+    c.app.state.rt.cfg.mind_inbox_wake = False
+    r = c.post("/api/mind/workspace/inbox",
+               files={"file": ("note.md", b"# hi\n", "text/markdown")})
+    assert r.json()["wakes"] is False and r.json()["noticed"] is True
+
+
+def test_the_desk_says_why_it_will_not_take_a_document(client_with_mind):
+    c, rig = client_with_mind
+    r = c.post("/api/mind/workspace/inbox",
+               files={"file": ("report.docx", b"PK", "application/octet-stream")})
+    assert r.status_code == 415
+    rig.mind.workspace.max_file_bytes = 10
+    r = c.post("/api/mind/workspace/inbox",
+               files={"file": ("long.md", b"x" * 100, "text/markdown")})
+    assert r.status_code == 413 and "shelf" in r.json()["detail"]
+    sigs = [s for s in rig.mind.bus.next(0)[0] if s.type == "handed"]
+    assert sigs == [], "nothing she was told about"
 
 
 async def test_api_journal_serves_her_day(client_with_mind):
@@ -365,6 +464,13 @@ def test_mindless_app_reports_503(cfg):
                      brain=FakeBrain())
     with TestClient(app) as c:
         assert c.get("/api/mind").status_code == 503
+        assert c.post("/api/mind/research", files={
+            "file": ("a.md", b"words", "text/markdown")}).status_code == 503
+        # The desk still takes it — her hands can reach it if you mention it —
+        # but there is no mind to tell, and the answer says so.
+        handed = c.post("/api/mind/workspace/inbox", files={
+            "file": ("a.md", b"words", "text/markdown")}).json()
+        assert handed["noticed"] is False and handed["wakes"] is False
         health = c.get("/api/health").json()
         assert health["mind"] == "disabled"            # the truth, not a guess
         assert health["tool_count"] == 0                # no hands were configured

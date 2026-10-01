@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import pytest
 
+from yurios.mind.documents import DocumentRefused, shelf_document
 from yurios.mind.knowledge import KnowledgeStore
 from yurios.mind.vaultio import MindVault
 from yurios.kernel.clock import VirtualClock
@@ -613,3 +614,62 @@ def test_an_unpriceable_page_can_still_be_parked(summarising_store):
     assert doc in store.shelf()
     assert store.pending_docs() == []
     assert store.holds()[0]["doc"] == doc
+
+
+# ----------------------------------------- a document a person hands over (§20.1)
+
+@pytest.mark.parametrize("filename,data,status", [
+    ("paper.docx", b"PK\x03\x04", 415),
+    ("no-suffix", b"text", 415),
+    ("web-notes.md", b"text", 409),
+    ("research-notes.md", b"text", 409),
+    (".md", b"text", 400),
+    ("blank.txt", b"  \n\n", 400),
+    ("latin1.txt", "caf\xe9".encode("latin-1"), 415),
+    ("binary.txt", b"abc\x00def", 415),
+])
+def test_the_shelf_says_why_it_will_not_take_a_file(filename, data, status):
+    """The drop folder ignores what it can't read in silence; a person who
+    handed something over is owed the sentence instead."""
+    with pytest.raises(DocumentRefused) as refused:
+        shelf_document(filename, data)
+    assert refused.value.status == status
+
+
+def test_a_handed_over_name_cannot_leave_the_shelf_or_lose_its_suffix():
+    doc, text = shelf_document("../../soul/My Notes (v2).MD", "﻿# hi\n".encode())
+    assert doc == "My_Notes_v2.md" and text == "# hi\n"
+    long_doc, _ = shelf_document("x" * 200 + ".txt", b"words")
+    assert long_doc.endswith(".txt") and len(long_doc) <= 80
+
+
+def test_an_oversized_document_is_refused_before_it_is_decoded(monkeypatch):
+    monkeypatch.setattr("yurios.mind.documents.MAX_TEXT_BYTES", 10)
+    with pytest.raises(DocumentRefused) as refused:
+        shelf_document("big.md", b"x" * 11)
+    assert refused.value.status == 413
+
+
+async def test_a_shelved_document_waits_for_the_tick_like_a_dropped_one(store):
+    shelved = store.shelve("tea.md", DOC)
+    assert shelved["name"] == "tea.md" and not shelved["replaced"]
+    assert shelved["calls"] >= 1 and shelved["bytes"] == len(DOC.encode())
+    assert store.pending_docs() == ["tea.md"]
+    assert store.inspect("tea") == [], "shelving is not reading"
+    await store.scan()
+    assert store.inspect("tea.md")
+
+
+async def test_a_new_version_of_a_held_doc_lets_go_of_the_hold(store):
+    store.park("tea.md", DOC)
+    assert store.pending_docs() == []
+    shelved = store.shelve("tea.md", DOC + "\nSencha is the middle ground.\n")
+    assert shelved["replaced"] and store.holds() == []
+    assert store.pending_docs() == ["tea.md"]
+
+
+def test_the_same_bytes_again_resume_a_held_doc(store):
+    store.park("tea.md", DOC)
+    shelved = store.shelve("tea.md", DOC)
+    assert shelved["unchanged"] and not shelved["replaced"]
+    assert store.pending_docs() == ["tea.md"]

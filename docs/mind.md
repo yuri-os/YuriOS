@@ -207,6 +207,14 @@ Drop a `.md` or `.txt` file into her Vault's `knowledge/reference/`:
 cp notes.md data/characters/yuri/vault/knowledge/reference/
 ```
 
+Or hand it over without finding the folder: **add a document** on the shelf volume in the files
+tab (or drop the file onto it), or `yurios shelf add yuri notes.md` from a terminal. Both land the
+file in the same place, and both say why when they won't take one — a non-UTF-8 file, a scanned
+PDF with no text layer, or a `web-`/`research-` name, which belong to her own research. Those two
+also take a **PDF**: it goes on the shelf as the `.md` of its text (paragraphs rebuilt, one
+`[page N]` marker per page), and the PDF itself isn't kept. A PDF copied straight into the folder
+is ignored, like any other file that isn't `.md`/`.txt` — hand it over instead.
+
 Within a heartbeat she notices it (a cheap size+mtime scan), ingests it — chunked by paragraph
 budget, each chunk situated with a short blurb, embedded, and hybrid-indexed (vector similarity
 blended with keyword idf) — and journals "read and shelved …". Re-ingesting a changed file
@@ -422,6 +430,24 @@ SENSE, `soul/` only through the gated self-edit flow. That's the right shape for
 reads and writes freely through `list_notes` / `read_note` / `count_note_lines` / `write_note` /
 `append_note` / `edit_note` / `delete_note`. Drafts, research scratch, the middle of a thought.
 You can drop files in too.
+
+**Handing her a document.** The shelf is for documents she looks things up in; the desk's
+**inbox** is for one you *give* her. Use **add a document** on the workspace volume in the files
+tab (or drop the file onto it), or `yurios desk add yuri paper.pdf`. It lands in
+`workspace/inbox/` — a PDF as the `.md` of its text — and is never indexed or searched. Her mind
+notices at once (a journal line, no model), then sits down with it: reads the start of it, looks at
+her list and her desk, and decides in her own voice what it means for what she's doing. That
+usually ends in one goal — "work the Q3 numbers in inbox/q3.md into my quarterly report" — which
+she then works on its own turns with all her hands, each step shown the document again. It can
+also end in a thought and nothing more. A goal filed this way is yours, not hers: it doesn't count
+against `MIND_SELF_GOALS_MAX`, and the goal-filing switch doesn't stop it.
+
+`MIND_INBOX_WAKE` decides *when* she sits down with it. `true` (the default) wakes her the moment
+it arrives, whatever the hour, and spends the model calls then. `false` notices it and waits until
+she's next active — once you're back. Never mid-reply, and never on a day whose budget is spent.
+The inner-life panel's **plans** page lists what you've handed her under **handed to her**: unread
+ones marked, read ones with when she read them and what came of it, each openable in place.
+The per-file desk limit is 256 KB of text; the shelf takes bigger documents.
 
 **`vault/skills/`** is the same primitive pointed at instructions. One folder per skill, each with
 a `SKILL.md`:

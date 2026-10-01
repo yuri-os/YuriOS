@@ -92,6 +92,28 @@ def desk_write(loop, goal: Goal, line: str) -> None:
     loop.hub.publish("workspace", {"action": "append", "path": desk_path(loop, goal)})
 
 
+def handed_document(loop, goal: Goal, *, limit: int = 6000) -> str:
+    """For a goal filed from a handed document (§34.6): the document.
+
+    The goal names the path, but a step with no hands could not open it — and
+    one with hands would spend its first call doing so every time. Shown here,
+    bounded, and labelled as the source it is."""
+    path = str(goal.meta.get("handed") or "")
+    if not path or loop.workspace is None:
+        return ""
+    try:
+        text = loop.workspace.read(path, default="") or ""
+    except Exception:  # noqa: BLE001
+        log.debug("goal work: handed document unreadable", exc_info=True)
+        return ""
+    if not text.strip():
+        return ""
+    head = text[:limit].rstrip()
+    more = (f"\n\n(…{len(text) - len(head)} more characters — `read_note` "
+            "reads on.)" if len(text) > len(head) else "")
+    return f"THE DOCUMENT THEY HANDED YOU — {path}\n\n{head}{more}"
+
+
 async def memories(loop, goal: Goal, facts: str) -> list:
     """The episodic half of §22.4 — what she can remember about this goal.
 
@@ -233,6 +255,9 @@ async def context(loop, goal: Goal) -> str:
     plan = plan_of(goal)
     if plan:
         parts.append("YOUR PLAN FOR THIS\n\n" + plan)
+    handed = handed_document(loop, goal)
+    if handed:
+        parts.append(handed)
     # …and whatever has been said since. `about` is frozen at filing time, so
     # without this a goal that waits on an answer can never be told it came.
     since = said_since(loop, goal)

@@ -3,11 +3,10 @@ from __future__ import annotations
 
 import argparse
 import sys
-from pathlib import Path
 from typing import Any
 
 from .client import HostClient, HostDown, HostError, character_path, connect, fail
-from .util import add_json, confirm, emit
+from .util import add_json, confirm, emit, here
 
 
 def register(sub: argparse._SubParsersAction) -> None:
@@ -42,7 +41,7 @@ def register(sub: argparse._SubParsersAction) -> None:
     write = dsub.add_parser("write", help="create or replace a job file")
     write.add_argument("id", help="character id")
     write.add_argument("job", help="job name")
-    write.add_argument("--file", required=True, help="markdown with YAML frontmatter")
+    write.add_argument("--file", required=True, type=here, help="markdown with YAML frontmatter")
     add_json(write)
     write.set_defaults(func=command_write)
 
@@ -160,7 +159,7 @@ def command_run(host: HostClient, args: argparse.Namespace) -> int:
 
 @_run
 def command_write(host: HostClient, args: argparse.Namespace) -> int:
-    text = Path(args.file).read_text(encoding="utf-8")
+    text = args.file.read_text(encoding="utf-8")
     result = host.json("PUT", character_path(args.id, f"mind/dream/jobs/{args.job}"),
                        json={"text": text})
     emit(result, as_json=args.as_json, text=f"wrote job {args.job}")

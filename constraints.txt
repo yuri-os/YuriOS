@@ -350,6 +350,8 @@ pyjwt==2.13.0
     # via mcp
 pyparsing==3.3.2
     # via rdflib
+pypdf==6.19.0
+    # via yurios (pyproject.toml)
 pytest==9.1.1
     # via
     #   yurios (pyproject.toml)

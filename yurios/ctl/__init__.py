@@ -1,14 +1,14 @@
 """Host-client commands for `yurios` (SPEC §36).
 
 The house commands (start/stop/settings/…) stay in `yurios.cli`. Everything
-that talks to a running host — characters, chat, camera, dreams — lives here
+that talks to a running host — characters, chat, camera, dreams, handing her documents — lives here
 so it cannot grow a second registry path.
 """
 from __future__ import annotations
 
 import argparse
 
-from . import camera, characters, chat, dreams
+from . import camera, characters, chat, documents, dreams
 
 
 def register(sub: argparse._SubParsersAction) -> None:
@@ -17,3 +17,4 @@ def register(sub: argparse._SubParsersAction) -> None:
     chat.register(sub)
     camera.register(sub)
     dreams.register(sub)
+    documents.register(sub)

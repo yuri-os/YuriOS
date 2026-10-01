@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import sys
+from pathlib import Path
 from typing import Any
 
 
@@ -31,3 +32,13 @@ def confirm(prompt: str, *, yes: bool) -> bool:
 def prompt(label: str, default: str = "") -> str:
     suffix = f" [{default}]" if default else ""
     return input(f"{label}{suffix}: ").strip() or default
+
+
+def here(value: str) -> Path:
+    """An argparse `type` for a path argument: resolved against the directory
+    it was typed in.
+
+    argparse runs this before `yurios.cli.main` changes into the installation,
+    which is the only moment a relative path still means what the user meant.
+    """
+    return Path(value).expanduser().resolve()

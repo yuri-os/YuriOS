@@ -600,6 +600,14 @@ svg{ width:1.1em; height:1.1em; fill:none; stroke:currentColor; stroke-width:1.7
   color:var(--acid); font:9px var(--font-mono); letter-spacing:.08em;
   text-transform:uppercase;
 }
+/* a document you handed her (§34.6): unread until she has sat down with it */
+.il-unread{
+  color:var(--amber); font:9px var(--font-mono); letter-spacing:.08em;
+  text-transform:uppercase;
+}
+.il-handed .h-waiting{ border-left:2px solid var(--amber); padding-left:9px; }
+.il-handed .h-gone .il-goal-line{ color:var(--dim); }
+.il-outcome{ display:block; margin-top:4px; color:var(--soft); font-size:12px; line-height:1.5; }
 /* the switch, on the list it governs — two states side by side, the live one
    marked, so "off" is never a checkbox you have to read twice */
 .il-filing{ margin:0 0 12px; color:var(--soft); font-size:12px; }

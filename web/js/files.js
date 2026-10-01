@@ -1,6 +1,10 @@
 /* The files tab is a small local terminal dressed as an OS volume browser, not
  * a second Vault debugger. It can write only workspace scratch; research
- * sources stay intact and can be copied to the desk before changing them. */
+ * sources stay intact and can be copied to the desk before changing them. The
+ * one way onto the shelf is adding a document of your own for her to look
+ * things up in (SPEC §20.1) — a new source, never an edit to one already there.
+ * The desk takes one too, into inbox/: not searched, but read on purpose and
+ * hers to decide about (§34.6). */
 (() => {
   const runtimeReady = window.YuriOSRuntime
     ? Promise.resolve()
@@ -20,6 +24,9 @@
     workspace: [], research: [],
     active: null, dirty: false, loading: false,
     cwd: [], // fs path segments, e.g. ['workspace', 'research']; [] is the mount table
+    adding: false,
+    // [{text, error}] per volume — what the last documents you added came to
+    addNotes: { research: [], workspace: [] },
   };
   let serial = 0;
 
@@ -48,6 +55,12 @@
     const response = await fetch(apiPath(path), init);
     if (!response.ok) throw new Error(await response.text());
     return response.json();
+  }
+
+  // A FastAPI refusal arrives as {"detail": "…"}; show the sentence, not the JSON.
+  function reason(error) {
+    const text = error?.message || '';
+    try { return JSON.parse(text).detail || text; } catch { return text; }
   }
 
   // ------------------------------------------------------------------ icons
@@ -171,7 +184,54 @@
       : '<p class="fs-empty">empty directory</p>';
     const total = docs.reduce((sum, doc) => sum + (doc.bytes || 0), 0);
     return `<div class="fs-list">${body}</div>` +
+      addBar(vol.kind) +
       `<div class="fs-status">${dirs.length + docs.length} objects · ${bytes(total)} · ${vol.mode}</div>`;
+  }
+
+  // Where a document you add goes, by volume — two different gifts. The shelf
+  // indexes it for conversation to search (§20.1); the desk puts it in inbox/
+  // for her to read and decide what to do with (§34.6).
+  const ADD = {
+    research: {
+      url: '/api/mind/research',
+      hint: '.md, .txt or .pdf · she reads it on her next tick',
+      said: (file, r) => `${r.name === file.name ? file.name : `${file.name} → ${r.name}`} · ${cost(r)}`,
+    },
+    workspace: {
+      url: '/api/mind/workspace/inbox',
+      hint: ".md, .txt or .pdf · lands in inbox/ · she reads it and decides what to do with it",
+      said: (file, r) => `${file.name} → ${r.path} · ${handed(r)}`,
+    },
+  };
+
+  // Adding lives on the volume it adds to: a button beside its listing, and
+  // the listing itself takes a drop.
+  function addBar(kind) {
+    if (!ADD[kind]) return '';
+    return '<div class="fs-shelf-bar">' +
+      `<button class="fs-add"${state.adding ? ' disabled' : ''}>add a document</button>` +
+      '<input class="fs-pick" type="file" accept=".md,.txt,.pdf,text/markdown,text/plain,application/pdf" multiple hidden>' +
+      `<div class="fs-shelf-note">${addNote(kind)}</div></div>`;
+  }
+
+  function addNote(kind) {
+    const notes = state.addNotes[kind] || [];
+    if (!notes.length) return `<span>${esc(ADD[kind].hint)}</span>`;
+    return notes.map(note =>
+      `<span${note.error ? ' class="fs-error"' : ''}>${esc(note.text)}</span>`).join('');
+  }
+
+  function handed(r) {
+    const when = !r.noticed ? 'her mind is off — mention it to her'
+      : r.wakes ? "she'll read it now" : "she'll read it when you're back";
+    return r.replaced ? `replaced · ${when}` : when;
+  }
+
+  function cost(shelved) {
+    if (shelved.unchanged) return 'already on the shelf, unchanged';
+    const calls = shelved.calls || 0;
+    return `${shelved.replaced ? 'replaced' : 'shelved'} · about ${calls} model ` +
+      `call${calls === 1 ? '' : 's'}${shelved.digested ? ' · read for notes' : ''}`;
   }
 
   function browser() {
@@ -281,6 +341,39 @@
     }
   }
 
+  // One request per file, so one refusal doesn't cost the rest. The note is
+  // written in place as well as kept in state: a refresh is skipped while a
+  // desk file has unsaved changes, and this must not be what loses them.
+  async function add(files, kind) {
+    const target = ADD[kind];
+    if (!target || !files.length || state.adding) return;
+    state.adding = true;
+    state.addNotes[kind] = [];
+    const paint = () => {
+      if (volume()?.kind !== kind) return;
+      const note = panel.querySelector('.fs-shelf-note');
+      if (note) note.innerHTML = addNote(kind);
+      const button = panel.querySelector('.fs-add');
+      if (button) button.disabled = state.adding;
+    };
+    paint();
+    for (const file of files) {
+      const body = new FormData();
+      body.append('file', file, file.name);
+      try {
+        // A PDF goes on as the .md of its text, and a name may be tidied.
+        const answer = await request(target.url, { method: 'POST', body });
+        state.addNotes[kind].push({ text: target.said(file, answer) });
+      } catch (error) {
+        state.addNotes[kind].push({ text: `${file.name}: ${reason(error)}`, error: true });
+      }
+      paint();
+    }
+    state.adding = false;
+    paint();
+    await refresh();
+  }
+
   async function forkResearch() {
     if (!state.active || state.active.kind !== 'research') return;
     const path = `research/${state.active.path}`;
@@ -334,6 +427,33 @@
     }
     if (event.target.closest('.fs-save')) save();
     if (event.target.closest('.fs-fork')) forkResearch();
+    if (event.target.closest('.fs-add')) panel.querySelector('.fs-pick')?.click();
+  });
+
+  panel.addEventListener('change', (event) => {
+    if (!event.target.matches('.fs-pick')) return;
+    add([...event.target.files], volume()?.kind);
+  });
+
+  // Dropping files anywhere on a volume that takes them adds them; on the mount
+  // table, or anywhere else, a drop is left to the browser.
+  const takesDrop = (event) => Boolean(ADD[volume()?.kind]) &&
+    event.target.closest?.('.fs-os') && [...(event.dataTransfer?.types || [])].includes('Files');
+  panel.addEventListener('dragover', (event) => {
+    if (!takesDrop(event)) return;
+    event.preventDefault();
+    panel.querySelector('.fs-os')?.classList.add('fs-dropping');
+  });
+  panel.addEventListener('dragleave', (event) => {
+    if (!event.relatedTarget || !panel.querySelector('.fs-os')?.contains(event.relatedTarget)) {
+      panel.querySelector('.fs-os')?.classList.remove('fs-dropping');
+    }
+  });
+  panel.addEventListener('drop', (event) => {
+    panel.querySelector('.fs-os')?.classList.remove('fs-dropping');
+    if (!takesDrop(event)) return;
+    event.preventDefault();
+    add([...event.dataTransfer.files], volume()?.kind);
   });
 
   panel.addEventListener('input', (event) => {
@@ -348,6 +468,7 @@
   window.addEventListener('files-open', () => refresh({ reload: true }));
   window.addEventListener('files-refresh', () => refresh({ reload: true }));
   window.addEventListener('world-ev', (event) => {
-    if (!panel.hidden && event.detail?.type === 'research_status') refresh();
+    const type = event.detail?.type;
+    if (!panel.hidden && (type === 'research_status' || type === 'shelf')) refresh();
   });
 })();

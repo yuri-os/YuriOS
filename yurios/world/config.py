@@ -221,6 +221,12 @@ class Config(VoiceConfig):
     # to, how often she looks back over her days and decides what to do next.
     # 0 = never, which is a mind that stops the day its list runs dry.
     mind_muse_cooldown_s: float = 7200.0
+    # A document you hand to her desk (§34.6). On: it wakes her, from any state,
+    # to read it and decide what to do with it — model calls, at 4am if that is
+    # when it arrived. Off: she notices it at once (a journal line, no model)
+    # and decides when she is next active — ENGAGED or IDLE, i.e. once you are
+    # back. Either way the decision is hers, and nothing about the file changes.
+    mind_inbox_wake: bool = True
     # How long a goal sits in `waiting` on work it dispatched before the loop
     # wakes it anyway. `task_completion` is the ordinary way back; this is the
     # safety net for the run that died without posting one, because a goal

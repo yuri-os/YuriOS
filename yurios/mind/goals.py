@@ -174,6 +174,12 @@ STEP_GOAL = "goal:"
 #: list was ready, she looked back over her days, and this is what she chose.
 MUSE_GOAL = "muse:"
 
+#: Provenance of a goal she filed after reading a document you handed her
+#: (SPEC §34.6): `handed:<desk path>`. Not one of her own-judgement goals — it
+#: traces back to something you did, so neither the filing switch nor the cap
+#: on goals of her own applies to it.
+HANDED_GOAL = "handed:"
+
 #: Goals she filed on her own judgement rather than for a parent goal — the
 #: night's stock-take (`strategy:<day>`, §22.1b) and her free time. These are
 #: what `MIND_SELF_GOALS_MAX` counts and what the inner-life panel marks hers.

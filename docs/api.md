@@ -194,6 +194,7 @@ claiming a body on a screen.
 | `context` | current `{used, limit, limit_source, reserve, exact, pct}` context-meter snapshot; sticky |
 | `selfie_status` | `{id, state, client_id?}` for asynchronous camera work: `started`, `done`, `cancelled`, or `error` |
 | `workspace` | a desk file was written (`{action: "write", path, …}`) |
+| `shelf` | a document was added to her shelf (`{action: "add", name, bytes, replaced, unchanged, passages, calls, digested, chars}`) |
 
 Publishes are non-blocking (a stalled client loses events, never blocks the publisher) and
 thread-safe.
@@ -239,7 +240,7 @@ set a timer?" gets answered without reading logs.
 
 | Route | |
 |---|---|
-| `GET /api/mind` | activity state, cadence, budget, goals (each with its `desk` path), shelf, pending self-edits, and `goal_filing` (the switch, plus how many of her own goals are open against the cap) |
+| `GET /api/mind` | activity state, cadence, budget, goals (each with its `desk` path), shelf, pending self-edits, `goal_filing` (the switch, plus how many of her own goals are open against the cap), `handed` (documents handed to her desk: `path`, `name`, `at`, `state` `waiting`/`read`/`gone`, and once read `read_at`, `outcome`, `goal`) and `inbox_wake` |
 | `GET /api/timers` | due-ordered `{timers: [{id, label, due}]}` pending countdowns; runtime state available even when the mind is off |
 | `GET /api/mind/journal?days=` | her `[she]` lines by day (max 30) |
 | `GET /api/mind/trace?n=` | the tick-trace tail (max 200) |
@@ -252,7 +253,9 @@ set a timer?" gets answered without reading logs.
 | `GET /api/mind/workspace` | `{files: […]}` — her desk listing |
 | `GET /api/mind/workspace/file?path=` | `{path, text}` — one desk file; the same GET a chat-line control and a report card make |
 | `PUT /api/mind/workspace/file` | `{"path", "text"}` — write a desk file; publishes `workspace` |
+| `POST /api/mind/workspace/inbox` | multipart `file` — hand her a `.md`/`.txt`/`.pdf` document: written to `inbox/` on her desk (never indexed), publishes `workspace`, and posts a `handed` signal so she reads it and decides what to do with it. Answers `{path, name, bytes, replaced, noticed, wakes}`; `413` past the desk's per-file limit |
 | `GET /api/mind/research` · `…/research/file?name=` | the research corpus, and one document |
+| `POST /api/mind/research` | multipart `file` — put a `.md`/`.txt`/`.pdf` document on her shelf for SENSE to read (a PDF goes on as the `.md` of its text); answers with its shelf name and the model calls the read will cost, commits, publishes `shelf`. `415` unreadable, `409` a `web-`/`research-` name, `413` too big (5 MB text, 50 MB PDF), `503` no mind |
 | `GET /api/mind/dream` | tonight's roster, builtins and files folded together |
 | `POST /api/mind/dream/run` | manually run DREAM; `day` must be canonical `YYYY-MM-DD`, and `budget` is typed then clamped to `1..MIND_DREAM_TICK_TOKENS` |
 | `GET /api/mind/dream/jobs` | every job file on disk, parsed, plus the kinds and builtin names this build knows |

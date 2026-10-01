@@ -27,7 +27,7 @@ yurios download                       # the recommended GGUF, or pass an id
 ```
 
 Every `.env` knob this build has is on `yurios settings` — the same table the
-House settings panel renders (201 keys; four runtime-only names are hidden). A
+House settings panel renders (207 keys; four runtime-only names are hidden). A
 save writes `.env` and asks for a restart; it does not hot-apply.
 
 ```bash
@@ -190,6 +190,40 @@ yurios dream delete cliprobe briefing --yes
 
 She must be running, with `DREAM_ENABLED`. A builtin you delete reverts to the
 shipped prompt; anything else stays gone.
+
+## The shelf
+
+Hand her documents to read. Each file is uploaded to her shelf and read on her
+next tick, exactly as if you had copied it into `knowledge/reference/`.
+
+```bash
+yurios shelf add yuri notes.md ~/papers/attention.pdf
+# notes.md  shelved · about 6 model calls
+# attention.pdf → attention.md  shelved · about 140 model calls, read for notes
+# She reads it on her next tick while her mind is running.
+yurios shelf list yuri
+```
+
+`.md`, `.txt` and `.pdf` are taken. A PDF goes on the shelf as the `.md` of its
+text, with a `[page N]` marker per page so she can cite by page; the PDF itself
+isn't kept. A scanned PDF has no text to take and is refused — run it through
+OCR first. A name starting `web-` or `research-` is refused, since those belong
+to her own research. Re-adding a changed file replaces it, and she reads the
+new version.
+
+## The desk inbox
+
+Hand her a document to read and act on — not searched in conversation, but
+read on purpose and hers to decide about: a goal to work it into a report, a
+follow-up for you, or just a thought.
+
+```bash
+yurios desk add yuri "Q3 numbers.pdf"
+# Q3 numbers.pdf → inbox/Q3_numbers.md  she'll read it now
+yurios desk list yuri
+```
+
+With `MIND_INBOX_WAKE=false` it says `she'll read it when you're back` instead.
 
 ## Optimize (proposes only)
 

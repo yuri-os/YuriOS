@@ -25,7 +25,7 @@ from yurios.app.core.assemble import OWN_VOICE
 from yurios.kernel import correlate
 
 
-from .goals import (MUSE_GOAL, OWN_JUDGEMENT, STEP_GOAL, Goal, echoes,
+from .goals import (HANDED_GOAL, MUSE_GOAL, OWN_JUDGEMENT, STEP_GOAL, Goal, echoes,
                     night_owned, trim,
                     PROMISE_REVIEW_RESPONSE_FORMAT, PromiseCandidate,
                     PromiseReviewError, parse_promise_review,
@@ -658,6 +658,30 @@ def file_from_muse(loop, args: dict) -> tuple[str, str]:
     decide on her own". One per sitting: free time that files three goals has
     decided nothing. Returns `(verdict, what she reads)`.
     """
+    return _file_decided(loop, args, provenance=MUSE_GOAL + day_of(loop.clock.now()),
+                         own=True)
+
+
+def file_from_handed(loop, args: dict, *, path: str) -> tuple[str, str]:
+    """File the one goal reading a handed document decided on (SPEC §34.6).
+
+    The rules free time files under, less two: the filing switch and the cap
+    on goals of her own. Both exist so that what she pursues still traces back
+    to you — and this one does, to the document you put on her desk. The goal
+    carries the path, so every step it gets is shown the document again.
+    """
+    return _file_decided(loop, args, provenance=HANDED_GOAL + path, own=False,
+                         meta={"handed": path})
+
+
+def _file_decided(loop, args: dict, *, provenance: str, own: bool,
+                  meta: dict | None = None) -> tuple[str, str]:
+    """A sitting's one goal, filed by the mind rather than the tool server.
+
+    `own` is whether it counts as a goal of her own judgement: the switch and
+    the cap apply only then. `loop._muse_filed` is the one-per-sitting latch,
+    reset by whichever sitting is running.
+    """
     def said(verdict: str, result: str) -> tuple[str, str]:
         guard = getattr(loop.hands, "guard", None)
         if guard is not None:
@@ -668,7 +692,7 @@ def file_from_muse(loop, args: dict) -> tuple[str, str]:
 
     text = " ".join(str((args or {}).get("text") or "").split())
     kind = str((args or {}).get("kind") or "task")
-    if not getattr(loop.cfg, "mind_goal_filing_enabled", True):
+    if own and not getattr(loop.cfg, "mind_goal_filing_enabled", True):
         return said("denied", "filing goals of your own is switched off")
     if getattr(loop, "_muse_filed", ""):
         return said("denied", "one new goal per sitting — you already chose "
@@ -688,17 +712,18 @@ def file_from_muse(loop, args: dict) -> tuple[str, str]:
              "kind": echo.kind, "state": echo.state,
              "note": "Not filed — you are already carrying this."},
             ensure_ascii=False))
-    cap = int(getattr(loop.cfg, "mind_self_goals_max", 3) or 0)
-    mine = [g for g in open_goals
-            if str(g.provenance or "").startswith(OWN_JUDGEMENT)]
-    if len(mine) >= cap:
-        return said("denied", f"you already carry {len(mine)} goals of your "
-                              "own — finish or let go of one first")
+    if own:
+        cap = int(getattr(loop.cfg, "mind_self_goals_max", 3) or 0)
+        mine = [g for g in open_goals
+                if str(g.provenance or "").startswith(OWN_JUDGEMENT)]
+        if len(mine) >= cap:
+            return said("denied", f"you already carry {len(mine)} goals of your "
+                                  "own — finish or let go of one first")
     now = loop.clock.now()
     goal = loop.goals.add(
         text, kind=kind, priority=STEP_GOAL_PRIORITY,
         due=iso_of(now + STEP_GOAL_TTL_DAYS * 86400), commitment="open-minded",
-        provenance=f"{MUSE_GOAL}{day_of(now)}")
+        provenance=provenance, meta=meta)
     loop._muse_filed = goal.id
     written = getattr(loop, "_goal_written", None)
     if callable(written):

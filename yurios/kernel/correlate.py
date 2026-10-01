@@ -37,6 +37,7 @@ UTILITY = "utility"         # the small model, unattributed
 DREAM = "dream"             # DREAM-state consolidation
 GOAL_WORK = "goal_work"     # deliberate work on an open goal
 MUSE = "muse"               # free time: nothing was ready, so she looked for something
+HANDED = "handed"           # reading a document you handed her, and deciding about it
 MIND_TOOL = "mind_tool"     # a tool the mind reached for on its own (§26, amended)
 KNOWLEDGE = "knowledge"     # ingesting something you dropped on her shelf
 HOST = "host"               # no scope was in view

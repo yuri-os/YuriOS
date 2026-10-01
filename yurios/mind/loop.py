@@ -53,7 +53,7 @@ from .hands import (Hands, build_guard, strip_native_calls)
 from .journal import Journal
 from .knowledge import KnowledgeStore
 from .promptlog import PromptLog
-from . import acts, goalwork, handwork, housekeeping, muse, prompts
+from . import acts, goalwork, handed, handwork, housekeeping, muse, prompts
 from .policy import (DREAM, ENGAGED, IDLE, ActivityController, Appraisal,
                      appraise_goal, appraise_signal)
 from .selfedit import SelfEdit
@@ -233,6 +233,14 @@ class MindLoop:
         # not hand her a fresh sitting the moment it comes back up.
         self.last_mused: float = float(st.get("mused_at", 0) or 0)
         self._muse_filed = ""                  # the one goal this sitting filed
+        # Documents handed to her desk (§34.6): the ones she has yet to sit down
+        # with, and the last few she has, with what came of them. Persisted:
+        # the bus is not replayed, and a document you gave her the minute
+        # before a restart is still a document you gave her.
+        waiting = st.get("handed", [])
+        self.handed: list[dict] = [
+            h for h in waiting if isinstance(h, dict) and h.get("path")
+        ] if isinstance(waiting, list) else []
         reviews = st.get("promise_reviews", [])
         self.promise_reviews: list[dict] = [
             review for review in reviews
@@ -498,6 +506,12 @@ class MindLoop:
                     "I caught up on what expired and what still matters")
             elif sig.type == "timer":
                 self._pending_announce.append(sig.payload)
+            elif sig.type == "handed":
+                # Noticed now, whatever the hour — a journal line, no model.
+                # Whether she sits down with it now is APPRAISE's (§34.6).
+                note = handed.received(self, sig)
+                if note:
+                    reflect_notes.append(note)
             elif sig.type == "wakeup":
                 # The wake IS the effect: clearing the consider cooldown is what
                 # lets APPRAISE look at that goal again on this very tick. It is
@@ -582,6 +596,9 @@ class MindLoop:
         if self.knowledge.pending_docs() and not self.knowledge.busy:
             appraisals.append(Appraisal("ingest", "impulse", 0.55,
                                         "new document on the shelf"))
+        sitting = handed.appraise(self)        # a document you handed her (§34.6)
+        if sitting is not None:
+            appraisals.append(sitting)
         if (self.cfg.dream_enabled and self.cfg.utility_enabled
                 and self.activity.state == DREAM and self.dreams.backlog()):
             appraisals.append(Appraisal("dream", "dream", 0.6, "DREAM backlog"))
@@ -696,6 +713,8 @@ class MindLoop:
             return await acts.self_talk(self)
         if chosen.subject == "ingest":
             return await acts.ingest(self)
+        if chosen.subject == "handed":
+            return await handed.consider(self, offer)
         if chosen.subject == "dream":
             acted, interrupt, notes = await acts.dream(self)
             # The impulse outranks the standing goal for the same leftover
@@ -860,6 +879,7 @@ class MindLoop:
             "bootstrapped_on": self.bootstrapped_on,
             "mused_at": self.last_mused,
             "promise_reviews": self.promise_reviews,
+            "handed": self.handed,
             "delivered_timers": self.delivered_timers[-100:],
             # the fingerprint ledger and the daily call count, beside
             # `interrupts` and rolling at the same local midnight (§26, amended)
@@ -1017,6 +1037,10 @@ class MindLoop:
                             if str(g.provenance or "").startswith(OWN_JUDGEMENT)),
                 "max": int(getattr(self.cfg, "mind_self_goals_max", 3) or 0)},
             "shelf": self.knowledge.shelf(),
+            # documents handed to her desk, read and not yet (§34.6, §24.3),
+            # and whether a waiting one wakes her or waits for you
+            "handed": [dict(h) for h in self.handed],
+            "inbox_wake": bool(self.cfg.mind_inbox_wake),
             "interrupts_today": self.interrupts.get("count", 0),
             "dream_backlog": self.dreams.backlog(),
             "dream_jobs": self.dreams.status(),

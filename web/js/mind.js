@@ -89,6 +89,15 @@ import { detailMessage } from '../shared/http.js';
     return `in ${plural(hours, 'hour', 'hours')}${rest ? ` ${rest}m` : ''}`;
   }
 
+  function nextBeat(at) {
+    const d = new Date(Number(at) * 1000);
+    if (at == null || Number.isNaN(d.getTime())) return '';
+    if (d.getTime() <= Date.now()) return ', next due now';
+    const clock = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit',
+                                             second: '2-digit' });
+    return `, next by <time datetime="${d.toISOString()}">${esc(clock)}</time>`;
+  }
+
   function timerSection(timerState) {
     const timers = [...(timerState?.timers || [])]
       .filter(timer => Number.isFinite(Number(timer.due)))
@@ -382,10 +391,16 @@ import { detailMessage } from '../shared/http.js';
     }
 
     const stateLabel = STATE_META[canonicalState(state.state)].label;
+    // "by": a signal wakes her early, nothing wakes her late. Two different
+    // counts on purpose — every line the chat tags "she spoke first" (a
+    // greeting among them), and the Gate 2 reach-outs spent against the cap.
     let nowHtml = section('right now',
       `<p class="il-state"><b>${esc(stateLabel)}</b> · a heartbeat every ` +
-      `${Math.round(state.cadence_s)}s · spoke first ` +
-      `${state.interrupts_today}× today` +
+      `${Math.round(state.cadence_s)}s` + nextBeat(state.next_tick_at) +
+      (state.spoke_first_today != null
+        ? ` · spoke first ${state.spoke_first_today}× today` : '') +
+      ` · ${state.interrupts_today} of ${state.interrupts_per_day ?? '?'} ` +
+      'reach-outs today' +
       (state.dream_backlog.length
         ? ` · ${state.dream_backlog.length} day(s) to dream on` : '') +
       `</p><p class="il-budget">budget: ${state.budget.spent_tokens} / ` +

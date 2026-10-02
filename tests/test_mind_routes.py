@@ -5,12 +5,15 @@ self-edit decision) is only a signal the loop consumes on its next tick.
 """
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
 pytest.importorskip("fastapi")
 from starlette.testclient import TestClient            # noqa: E402
 
 from yurios.desktop.voice.backends.fakes import FakeBrain     # noqa: E402
+from yurios.mind.util import day_of                           # noqa: E402
 from yurios.world.main import create_app                      # noqa: E402
 
 from .conftest import make_mind                        # noqa: E402
@@ -38,6 +41,50 @@ def test_api_mind_snapshot(client_with_mind):
     assert "budget" in snap and snap["budget"]["daily_tokens"] > 0
     assert "pending_edits" in snap and "goals" in snap
     assert snap["handed"] == [] and snap["inbox_wake"] is True     # §34.6
+
+
+def test_spoke_first_counts_every_line_she_opened_today(client_with_mind):
+    """The panel's "spoke first" is the chat column's own tag, counted: an
+    arrival greeting opens the conversation without spending Gate 2, so the
+    reach-out tally alone read 0 beside a line marked "she spoke first"."""
+    c, rig = client_with_mind
+    rt = c.app.state.rt
+    rt.post_message("assistant", "You're up early again.", proactive=True)
+    rt.post_message("user", "couldn't sleep")
+    rt.post_message("assistant", "Tea?")
+    rt.transcript.append({"id": "yesterday", "role": "assistant", "text": "night",
+                          "ts": "1999-12-31T23:59:00", "proactive": True})
+    snap = c.get("/api/mind").json()
+    assert snap["spoke_first_today"] == 1
+    assert snap["interrupts_today"] == 0
+    assert snap["interrupts_per_day"] == rig.mind.cfg.mind_max_interrupts_per_day
+
+
+def test_yesterdays_reach_outs_are_not_todays(client_with_mind):
+    """Only a reach-out rolls Gate 2's count over, so a quiet morning still
+    holds yesterday's — the snapshot must read that as zero."""
+    c, rig = client_with_mind
+    rig.mind.interrupts = {"date": "1999-12-31", "count": 2}
+    assert c.get("/api/mind").json()["interrupts_today"] == 0
+    rig.mind.interrupts = {"date": day_of(rig.clock.now()), "count": 2}
+    assert c.get("/api/mind").json()["interrupts_today"] == 2
+
+
+async def test_the_snapshot_says_when_the_next_heartbeat_is_due(
+        client_with_mind, monkeypatch):
+    c, rig = client_with_mind
+    assert c.get("/api/mind").json()["next_tick_at"] is None   # never slept yet
+    slept: list[float] = []
+
+    async def stop(seconds, *, wake=None):
+        slept.append(seconds)
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(rig.clock, "sleep", stop)
+    with pytest.raises(asyncio.CancelledError):
+        await rig.mind.run()
+    assert slept and rig.mind.next_tick_at == rig.clock.now() + slept[-1]
+    assert rig.mind.snapshot()["next_tick_at"] == rig.mind.next_tick_at
 
 
 def test_the_snapshot_names_each_goal_desk(client_with_mind):

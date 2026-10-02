@@ -2527,7 +2527,12 @@ The product half of autonomy: what converts an always-on process from creepy to 
   live refreshes. The surface is refreshed live off the same one bus (`journal`/`mind`/`timers`
   events). Everything reads *through* the mind's
   own stores; the dashboard can never disagree with the files. The snapshot **MUST** name each
-  goal's `desk` path so the panel does not invent it.
+  goal's `desk` path so the panel does not invent it. It carries `next_tick_at`, the epoch second
+  the loop's current sleep ends (a signal may wake her sooner, never later; null before the first
+  sleep), and two counts the **Now** view keeps apart: `spoke_first_today`, every line of today's
+  conversation tagged `proactive` — the chat's own "she spoke first", a greeting included — and
+  `interrupts_today` of `interrupts_per_day`, the §18 reach-outs Gate 2 spent, which **MUST** read
+  zero once her local day has rolled even if no reach-out has run since.
   Cached goal previews **MUST** be invalidated by workspace events, including
   missing-file results; reopening a missing file retries it. An invalidated fetch
   **MUST NOT** overwrite a newer preview when its response arrives late.

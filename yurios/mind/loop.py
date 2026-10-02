@@ -59,7 +59,7 @@ from .policy import (DREAM, ENGAGED, IDLE, ActivityController, Appraisal,
 from .selfedit import SelfEdit
 from .signals import Signal, SignalBus, failure_of
 from .trace import TickTrace
-from .util import new_id, read_json, ts_of_iso, write_json
+from .util import day_of, new_id, read_json, ts_of_iso, write_json
 from .vaultio import MindVault
 from .workspace import SkillStore, Workspace
 from .world import WorldModelStore
@@ -216,6 +216,10 @@ class MindLoop:
         self.interrupts: dict = st.get("interrupts", {"date": "", "count": 0})
         self.considered: dict = st.get("considered", {})
         self.last_tick_ts: float | None = st.get("last_tick_ts")
+        # When `run` expects the next heartbeat — the end of the sleep it is in.
+        # A signal can wake her sooner; nothing makes her later. None until the
+        # loop has slept once (a test ticking by hand never does).
+        self.next_tick_at: float | None = None
         # goal id -> when to consider it next (SPEC §16, the `wakeup` signal).
         # A goal that decided "look at this again after lunch" said something the
         # hourly consider cooldown cannot express, and a restart that forgot it
@@ -1018,7 +1022,9 @@ class MindLoop:
             except Exception:  # noqa: BLE001 — the heartbeat must never stop
                 log.exception("tick failed")
             self.bus.wake.clear()
-            await self.clock.sleep(self.cadence(), wake=self.bus.wake)
+            delay = self.cadence()
+            self.next_tick_at = self.clock.now() + delay
+            await self.clock.sleep(delay, wake=self.bus.wake)
 
     # ---- the inner-life snapshot the /api/mind route serves (SPEC §24.3) ------
 
@@ -1026,6 +1032,7 @@ class MindLoop:
         return {
             "state": self.activity.state,
             "cadence_s": self.activity.cadence(),
+            "next_tick_at": self.next_tick_at,
             "budget": self.budget.snapshot(),
             "goals": [{"id": g.id, "text": g.text, "kind": g.kind,
                        "state": g.state, "due": g.due,
@@ -1048,7 +1055,12 @@ class MindLoop:
             # and whether a waiting one wakes her or waits for you
             "handed": [dict(h) for h in self.handed],
             "inbox_wake": bool(self.cfg.mind_inbox_wake),
-            "interrupts_today": self.interrupts.get("count", 0),
+            # Gate 2's spend, which only `reach_out` rolls over — so a count
+            # stamped yesterday is today's zero, not today's number.
+            "interrupts_today": (self.interrupts.get("count", 0)
+                                 if self.interrupts.get("date")
+                                 == day_of(self.clock.now()) else 0),
+            "interrupts_per_day": self.cfg.mind_max_interrupts_per_day,
             "dream_backlog": self.dreams.backlog(),
             "dream_jobs": self.dreams.status(),
             "workspace": (self.workspace.digest(limit=10)

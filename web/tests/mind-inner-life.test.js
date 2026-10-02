@@ -136,3 +136,33 @@ it('lists documents handed to her, newest first, read and not yet', async () => 
     .toBe('# Q3\n\nRevenue rose.'));
   expect(fetched).toContain('/api/mind/workspace/file?path=inbox%2Fq3.md');
 });
+
+it('says when the next heartbeat is due and counts both kinds of speaking first', async () => {
+  const state = {
+    state: 'DORMANT', cadence_s: 900, next_tick_at: 1_000_000 + 600,
+    spoke_first_today: 1, interrupts_today: 0, interrupts_per_day: 3,
+    dream_backlog: [], budget: { spent_tokens: 0, daily_tokens: 1000 },
+    pending_edits: [], goals: [], goal_filing: { enabled: true, open: 0, max: 3 },
+    shelf: [],
+  };
+  vi.stubGlobal('fetch', vi.fn(async (url) => {
+    if (url === '/api/mind') return { ok: true, json: async () => state };
+    if (url === '/api/mind/journal?days=3') return { ok: true, json: async () => ({ days: [] }) };
+    if (url === '/api/mind/reading') {
+      return { ok: true, json: async () => ({ reading: null, runs: [], held: [] }) };
+    }
+    if (url === '/api/timers') return { ok: true, json: async () => ({ timers: [] }) };
+    throw new Error(`unexpected request: ${url}`);
+  }));
+
+  await import('../js/mind.js');
+  document.getElementById('tab-mind').click();
+  await vi.waitFor(() => expect(document.querySelector('.il-state')).not.toBeNull());
+
+  const line = document.querySelector('.il-state');
+  expect(line.textContent).toContain('a heartbeat every 900s, next by ');
+  expect(line.querySelector('time').getAttribute('datetime'))
+    .toBe(new Date((1_000_000 + 600) * 1000).toISOString());
+  expect(line.textContent).toContain('spoke first 1× today');
+  expect(line.textContent).toContain('0 of 3 reach-outs today');
+});

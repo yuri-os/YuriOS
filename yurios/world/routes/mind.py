@@ -73,7 +73,10 @@ def _research_file(request: Request, name: str) -> Path:
 @router.get("/api/mind")
 async def mind_state(request: Request) -> dict:
     """Activity state, cadence, budget, goals, the shelf, pending self-edits."""
-    return _mind(request).snapshot()
+    snap = _mind(request).snapshot()
+    snap["spoke_first_today"] = await asyncio.to_thread(
+        request.app.state.rt.spoke_first_today)
+    return snap
 
 
 @router.get("/api/timers")

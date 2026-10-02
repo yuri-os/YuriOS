@@ -596,6 +596,17 @@ class Runtime:
         # does not is newer than all of it — the log only ever fails forward.
         return entries + [e for e in self.transcript if e.get("id") not in known]
 
+    def spoke_first_today(self) -> int:
+        """How many lines she opened on her own today — every row the chat
+        column tags "she spoke first": a greeting, a reach-out, a timer, a
+        night's report. Counted off the conversation itself, because Gate 2's
+        tally (`interrupts_today`) is only the reach-outs it let through, and
+        a panel quoting that under this name disagreed with the column beside
+        it. Reads the log whole: call it off the event loop."""
+        today = datetime.datetime.fromtimestamp(self.clock.now()).date().isoformat()
+        return sum(1 for e in self._visible()
+                   if e.get("proactive") and str(e.get("ts", "")).startswith(today))
+
     def spoken_line(self, message_id: str) -> str | None:
         """The words of one line **she** said, by transcript id (SPEC §9.11).
 

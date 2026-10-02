@@ -354,6 +354,8 @@ class TextTurns:
             async with rt.park_gate.hold():
                 tool_outcomes = await rt.brain.persist(
                     session_id, text, "".join(raw))
+            if entry:
+                rt.turn_filed(entry["id"])     # now it can be rated (§37.1)
             rt.signals.post("turn_committed",
                             {"text": text, "reply": reply,
                              "tool_outcomes": tool_outcomes}, source=channel)

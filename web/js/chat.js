@@ -23,6 +23,10 @@
  *      message id to js/voice.js, which owns the socket her voice comes back
  *      on, and the same file says through `markSpeaking` how far along it is.
  *
+ *   4. draw 👍/👎 on her replies (SPEC §37) — on the lines the host says have a
+ *      corpus record behind them, never on a guess — and keep every open room
+ *      showing the same one through the `rating` event.
+ *
  * Sending is not here: typed input rides the voice socket exactly as before
  * (voice.js owns #text), so a typed turn keeps TurnController semantics —
  * TTS, barge-in, the works. The user bubble arrives back over the bus.
@@ -148,7 +152,96 @@
     }
   }
 
+  /* 👍/👎 (SPEC §37) — what you thought of one of her replies, for the corpus
+   * export; she never hears it. Drawn only where the host said a line can be
+   * rated: `rateable` on the line itself (history, or a voice reply filed
+   * before it was drawn) or a `rating` event naming it (a text reply, filed a
+   * moment after). A greeting, a reach-out or a selfie has no record to join
+   * a rating to, and guessing from `proactive` here would offer a button the
+   * host then refuses. */
+  const ratings = new Map();            // id -> thumbs, the bus's latest word
+
+  const THUMB_UP = '<path d="M7 11v10H4a1 1 0 0 1-1-1v-8a1 1 0 0 1 1-1h3z' +
+    'M7 11l4-8a2.5 2.5 0 0 1 2.5 2.5V9h5.2a2 2 0 0 1 2 2.3l-1.2 8a2 2 0 0 1-2 1.7H7"/>';
+  const THUMB_DOWN = '<path d="M17 13V3h3a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1h-3z' +
+    'M17 13l-4 8a2.5 2.5 0 0 1-2.5-2.5V15H5.3a2 2 0 0 1-2-2.3l1.2-8a2 2 0 0 1 2-1.7H17"/>';
+
+  function rateControl(id, thumbs) {
+    const button = (value, label, path) =>
+      `<button type="button" data-thumbs="${value}" title="${label}"` +
+      ` aria-label="${label}" aria-pressed="${thumbs === value}">` +
+      `<svg aria-hidden="true" viewBox="0 0 24 24">${path}</svg></button>`;
+    return `<span class="msg-rate${thumbs ? ' rated' : ''}" data-message-id="${esc(id)}"` +
+           ` data-thumbs="${thumbs}">` +
+           button(1, 'a good reply', THUMB_UP) +
+           button(-1, 'not a good reply', THUMB_DOWN) + '</span>';
+  }
+
+  function rateButtons(m, her) {
+    if (!her || !m.id) return '';
+    if (ratings.has(m.id)) return rateControl(m.id, ratings.get(m.id));
+    return m.rateable ? rateControl(m.id, m.thumbs || 0) : '';
+  }
+
+  /** Show `thumbs` on one line of hers, drawing the control if the line did not
+   *  have one yet — the text turn's order, where the line lands first and the
+   *  word that it can be rated arrives once the turn is filed. */
+  function applyRating(id, thumbs) {
+    ratings.set(id, thumbs);
+    if (!messages) return;
+    const div = [...messages.querySelectorAll('.msg.her')]
+      .find((el) => el.dataset.messageId === id);
+    if (!div) return;                   // not drawn yet: painted from the map
+    const group = div.querySelector('.msg-rate');
+    if (!group) {
+      div.querySelector('.who')?.insertAdjacentHTML('beforeend', rateControl(id, thumbs));
+      return;
+    }
+    group.dataset.thumbs = String(thumbs);
+    group.classList.toggle('rated', thumbs !== 0);
+    for (const b of group.querySelectorAll('button')) {
+      b.setAttribute('aria-pressed', String(Number(b.dataset.thumbs) === thumbs));
+    }
+  }
+
+  function receiveRating(m) {
+    const thumbs = Number(m.thumbs);
+    if (!m.id || ![1, -1, 0].includes(thumbs)) return;
+    applyRating(m.id, thumbs);
+  }
+
+  /** Press a thumb: the same one again takes it back. Shown at once and put
+   *  back if the host refuses — a rating you pressed and then silently lost is
+   *  worse than one that visibly did not take. */
+  async function rate(button) {
+    const group = button.closest('.msg-rate');
+    const id = group?.dataset.messageId;
+    if (!id || group.dataset.busy) return;
+    const was = Number(group.dataset.thumbs || 0);
+    const want = Number(button.dataset.thumbs);
+    const next = was === want ? 0 : want;
+    group.dataset.busy = '1';
+    group.classList.remove('failed');
+    applyRating(id, next);
+    try {
+      const r = await fetch(apiPath('/api/rate'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, thumbs: next }),
+      });
+      if (!r.ok) throw new Error(String(r.status));
+    } catch {
+      applyRating(id, was);
+      group.classList.add('failed');
+      group.title = "couldn't save that rating — try again";
+    } finally {
+      delete group.dataset.busy;
+    }
+  }
+
   messages?.addEventListener('click', (ev) => {
+    const thumb = ev.target.closest?.('.msg-rate button');
+    if (thumb) { rate(thumb); return; }
     const button = ev.target.closest?.('.msg-speak');
     if (button) window.WorldVoice?.speak?.(button.dataset.messageId);
   });
@@ -206,7 +299,7 @@
     let html = `<span class="who">${her ? herName() : 'you'}` +
                (m.proactive ? '<em>· she spoke first</em>' : '') +
                (receipt ? `<em class="receipt">${esc(receipt)}</em>` : '') +
-               stamp(m.ts) + speakButton(m, her) + '</span>';
+               stamp(m.ts) + speakButton(m, her) + rateButtons(m, her) + '</span>';
     if (m.image_url) {
       // Hers is a selfie (SPEC §7.6); yours is a picture you sent her (§35) —
       // same element, same lane, and only the alt text knows the difference.
@@ -768,7 +861,8 @@
         // it now, or a line you watched arrive keeps a badge on the switchboard.
         if (m.unheard) markInboxRead();
         receiveMessage(m);
-      } else if (m.type === 'draft') addDraft(m.text);
+      } else if (m.type === 'rating') receiveRating(m);
+      else if (m.type === 'draft') addDraft(m.text);
       else if (m.type === 'draft_cancel') dropDraft();
     };
   }
@@ -818,5 +912,6 @@
     failPending,
     stopPending,
     markSpeaking,
+    receiveRating,
   };
 })();

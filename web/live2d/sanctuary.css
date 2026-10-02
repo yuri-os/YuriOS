@@ -235,6 +235,30 @@ svg{ width:1.1em; height:1.1em; fill:none; stroke:currentColor; stroke-width:1.7
 @media (hover:none){ .msg-speak{ opacity:1; } }
 @media (prefers-reduced-motion:reduce){ .msg-speak.waiting{ animation:none; } }
 
+/* 👍/👎 (SPEC §37) — beside "read it out", and ghosted the same way until the
+   bubble is hovered. Once rated, the thumb you pressed stays lit on its own, so
+   a column you have rated shows it at a glance; hovering brings the other one
+   back to change your mind (the same thumb again takes it back). */
+.msg-rate{
+  flex:none; align-self:center; display:inline-flex; gap:3px; margin-left:2px;
+  opacity:0; transition:opacity .18s ease;
+}
+.msg-rate button{
+  display:inline-flex; padding:0; border:0; background:transparent;
+  color:var(--dim); cursor:pointer; transition:color .18s ease, opacity .18s ease;
+}
+.msg-rate svg{ width:13px; height:13px; }
+.msg:hover .msg-rate, .msg-rate:focus-within,
+.msg-rate.rated, .msg-rate.failed{ opacity:1; }
+.msg-rate.rated button[aria-pressed="false"]{ opacity:0; }
+.msg:hover .msg-rate.rated button, .msg-rate.rated:focus-within button{ opacity:1; }
+.msg-rate button:hover{ color:var(--ink); }
+.msg-rate button[aria-pressed="true"] svg{ fill:currentColor; fill-opacity:.3; }
+.msg-rate button[aria-pressed="true"][data-thumbs="1"]{ color:var(--mint); }
+.msg-rate button[aria-pressed="true"][data-thumbs="-1"]{ color:var(--amber); }
+.msg-rate.failed button{ color:var(--red); }
+@media (hover:none){ .msg-rate, .msg-rate.rated button[aria-pressed="false"]{ opacity:1; } }
+
 .msg-img{
   display:block; max-width:100%; border-radius:2px; margin:2px 0 6px;
   border:1px solid var(--rule);

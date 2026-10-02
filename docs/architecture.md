@@ -96,6 +96,8 @@ The four files are written by four different objects, so **one `corr_id` per uni
 phrased it, the call that ran it, and the photo that came back minutes later all carry the same
 key. Chat turns are the one deliberate split — `prompts.jsonl` holds an index row pointing at
 `corpus/turns.jsonl`, because that is the training asset and `ratings.jsonl` joins to its id.
+The 👍/👎 on her replies in every room writes that sidecar (SPEC §37), and
+`python scripts/export_corpus.py <character> [--format kto]` reads the two back as one dataset.
 
 ## Where things live in the code
 

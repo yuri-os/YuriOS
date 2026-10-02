@@ -245,6 +245,17 @@ class ConversationLog:
         record = {k: v for k, v in entry.items() if k in _DRAWN_ONLY}
         self._append({"drawn_for": message_id, **record})
 
+    def line(self, message_id: str) -> dict | None:
+        """One line by transcript id, folded — both halves, so a reply's
+        `turn_id` (the corpus join, SPEC §37.1) comes with it."""
+        if not message_id:
+            return None
+        with self._lock:
+            for row in reversed(self._fold()):
+                if row.get("id") == message_id:
+                    return dict(row)
+        return None
+
     def last_admitted(self, session_id: str, role: str) -> str | None:
         """The newest line of this session's window, if `role` said it — what a
         rollback unwinds (§4.4). Mirrors the old `drop_last`'s guard: it undoes

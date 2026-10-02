@@ -297,7 +297,7 @@ data is kept, the seed of a future distillation corpus. `corpus/` is **personal 
 code**: gitignored, outside `vault/`, never committed, no phone-home. Each record carries
 the full prompt as sent, the completion, the model, and a `collection_scope` that **MUST**
 be one of `self` or `consented_hosted` (asserted in code) — a shipped card never logs a
-stranger's conversation home. Ratings arrive later in a sidecar and merge at export.
+stranger's conversation home. Ratings arrive later in a sidecar and merge at export (§37).
 
 ### §2.2 — The world voice route
 
@@ -1283,8 +1283,8 @@ keeps a socket of its own is sound.
 - **`EventHub`** (`yurios/kernel/hub.py`) — the single outbound fan-out. Every host→frontend
   event is one typed JSON dict: `hello` (her name), `message` (chat entries, including
   `image_url` selfies, and the originating `channel`), `draft` / `draft_cancel`, `avatar` (§4,
-  scene channels included), `timers` (the sticky pending-countdown snapshot, §7.5), and — with
-  the mind — `journal` and `mind` (§24). Publishes are
+  scene channels included), `timers` (the sticky pending-countdown snapshot, §7.5), `rating`
+  (§37), and — with the mind — `journal` and `mind` (§24). Publishes are
   non-blocking (a stalled client loses events, never blocks the publisher) and thread-safe (the
   TTS thread publishes). Sticky state is recorded before any subscriber and replayed
   last-write-wins; it includes both appearance and current runtime snapshots such as timers.
@@ -3365,3 +3365,45 @@ The terminal is a first-class client of the host, not a second implementation of
   will read it; `yurios desk list <id>` prints the desk. A path
   argument **MUST** be resolved against the directory it was typed in, before `yurios`
   changes into the installation.
+
+---
+
+## §37 — Rating her replies
+
+The corpus (§2.1) records every reply she makes; a 👍/👎 is the one judgement it cannot record on
+its own — whether that reply was any good. It is training data *about* her, for the export, and
+nothing else.
+
+- §37.1 **Only a reply with a record behind it can be rated, and the host says which.** A line
+  is rateable when it is hers and carries a corpus `turn_id` — a reply she made in a turn, by
+  voice or text. A greeting, a murmur, a reach-out, a selfie, a tool chip and your own words have
+  no record, and a frontend **MUST NOT** offer the control on them. It **MUST NOT** infer
+  rateability from `role` or `proactive` either: the host marks it. A history row (§2.6) carries
+  `rateable: true`, plus `thumbs` when a rating stands. A voice reply is filed before the socket
+  draws it, so its `message` event carries `rateable` itself. A text reply is drawn before the
+  turn persists, so the host publishes `rating` (`thumbs: 0`) for it once the record exists.
+  That gives one rule for the page and two orders on the host, the same split §2.6 already lives
+  with.
+
+- §37.2 **Rated by transcript id; resolved by the host.** `POST /api/rate {id, thumbs}` names
+  the line the page drew. `thumbs` is `1`, `-1`, or `0` to take a rating back, and the same
+  thumb pressed again sends `0`. The host resolves the id to the record. The page never holds a
+  corpus id, so it cannot file a rating against anything that is not a reply of hers. An unknown
+  line is a 404 and a line with no record is a 409. Every accepted rating is published as a
+  `rating` event `{id, thumbs}` (§10), so every open room shows the same thumb.
+
+- §37.3 **An append-only sidecar, keyed by turn id.** Ratings land in `corpus/ratings.jsonl`
+  (`yurios/app/corpus.py`) as `{id, thumbs, by, timestamp}`. They are never patched into
+  `turns.jsonl`, the last line about a turn wins, and `0` removes it. The file lives in
+  `corpus/`, which is personal data and a private surface. A rating **MUST NOT** reach a prompt,
+  the journal, her memory or the Vault: she is not told what you thought of her, and a rating is
+  not a turn.
+
+- §37.4 **The export joins them.** `scripts/export_corpus.py` reads one character's
+  `turns.jsonl` and `ratings.jsonl` and writes JSONL. `raw` is every turn record verbatim, plus
+  a `rating` object on the rated ones (`--rated-only` narrows it). `kto` is the rated turns as
+  `prompt` / `completion` / `label` — the conversational shape a KTO trainer reads. The export
+  only reads: it **MUST NOT** write under `corpus/` or the character registry (§36.1), and a
+  rating whose turn the log no longer holds is counted, not joined. This is the one deliberate
+  way the corpus leaves the machine, and it is the owner's to run; a card export still never
+  carries it (§30).

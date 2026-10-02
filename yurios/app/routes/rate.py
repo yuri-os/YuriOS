@@ -1,8 +1,11 @@
-"""POST /api/rate — the 👍/👎 sidecar (SPEC §8.1, §10).
+"""POST /api/rate — the 👍/👎 sidecar (B1 §8.1, B1 §10).
 
 Ratings arrive after a reply, so they are never patched into `turns.jsonl`;
 they land in `ratings.jsonl` keyed by turn id and merge at export. This is
 the KTO/DPO asset (→ ch. 20).
+
+Build #1's own app, keyed by corpus id because its page held one. The world
+server's rooms rate by transcript id instead (`world/routes/rate.py`, SPEC §37).
 """
 from __future__ import annotations
 

@@ -48,6 +48,7 @@ from .boot import BootBoard
 from .brain_protocol import AutonomousBrain
 from .channels.manager import ChannelManager
 from yurios.app.conversation import ConversationLog
+from yurios.app.corpus import CorpusLogger, UnratableLine
 from ..kernel.clock import Clock
 from .config import Config
 from . import runtime
@@ -165,6 +166,10 @@ class Runtime:
         # line, and keeping two files in step was a bug waiting to happen.
         self.chatlog = ConversationLog(cfg.vault_dir)
         self.transcript: list[dict] = self.chatlog.tail(RING_SIZE)
+        # …and the corpus her replies are filed in, for the one thing a room
+        # writes there: what you thought of a reply (SPEC §37). The brain keeps
+        # its own handle for the turns; both only ever append.
+        self.corpus = CorpusLogger(cfg.corpus_dir)
         # how full her context window is (SPEC §11): the masthead readout, fed by
         # the chat provider on every model pass and published as a sticky
         # `context` event. CONTEXT_LENGTH names the initial ceiling; a direct GGUF
@@ -484,6 +489,11 @@ class Runtime:
             entry["unheard"] = True
         if session_id:
             entry["session_id"] = session_id
+        if (drawn or {}).get("turn_id"):
+            # Filed before it was drawn — a voice reply persists before the
+            # socket posts it — so it can be rated from the moment it lands
+            # (SPEC §37.1). A text reply is the other order: `turn_filed`.
+            entry["rateable"] = True
         self.transcript.append(entry)
         del self.transcript[:-RING_SIZE]
         # …and the same entry to disk, so the column survives the next restart
@@ -575,8 +585,59 @@ class Runtime:
                 return {"messages": [], "has_more": False}
             entries = entries[:cut]
         limit = max(1, min(int(limit), HISTORY_MAX))
-        window = entries[-limit:]
+        window = self._with_ratings(entries[-limit:])
         return {"messages": window, "has_more": len(window) < len(entries)}
+
+    def _with_ratings(self, entries: list[dict]) -> list[dict]:
+        """Say which lines can be rated, and how (SPEC §37.1): a line of hers
+        with a corpus record behind it is `rateable`, and carries `thumbs` when
+        a rating stands on it. Copies — the ring's entries are the live ones."""
+        if not any(e.get("turn_id") for e in entries):
+            return entries
+        standing = self.corpus.standing()
+        out = []
+        for e in entries:
+            if e.get("turn_id") and e.get("role") == "assistant":
+                e = {**e, "rateable": True}
+                if (rating := standing.get(e["turn_id"])):
+                    e["thumbs"] = rating["thumbs"]
+            out.append(e)
+        return out
+
+    def turn_filed(self, message_id: str) -> bool:
+        """A reply already on the page now has its corpus record — the text
+        turn's order, where the stream ends and is drawn before the turn
+        persists. Says so on the bus, so every open room can offer the 👍/👎
+        on a line it drew a moment ago without a reload (SPEC §37.1)."""
+        row = self.chatlog.line(message_id)
+        if not row or not row.get("turn_id") or row.get("role") != "assistant":
+            return False
+        for e in self.transcript:
+            if e.get("id") == message_id:
+                e["rateable"] = True
+        self.hub.publish("rating", {"id": message_id, "thumbs": 0})
+        return True
+
+    def rate(self, message_id: str, thumbs: int) -> dict:
+        """What you thought of one of her replies (SPEC §37.2). By transcript
+        id, never by corpus id: the page names the line it drew and this
+        resolves the record, so nothing that is not a reply of hers can be
+        filed as one. `0` takes a rating back.
+
+        Raises `KeyError` for a line this conversation does not hold and
+        `UnratableLine` for one with nothing behind it to rate — a greeting, a
+        reach-out, a selfie, your own words. Reads the log whole: call it off
+        the event loop."""
+        row = self.chatlog.line(message_id)
+        if row is None:
+            raise KeyError(message_id)
+        turn_id = row.get("turn_id")
+        if row.get("role") != "assistant" or not turn_id:
+            raise UnratableLine(message_id)
+        self.corpus.log_rating(turn_id, thumbs)
+        rating = {"id": message_id, "thumbs": thumbs}
+        self.hub.publish("rating", rating)
+        return rating
 
     def _visible(self) -> list[dict]:
         """The whole conversation a page may draw, oldest first: the archive,
@@ -1249,7 +1310,7 @@ def create_app(cfg: Config | None = None, *, brain=None, chat_model=None,
     from yurios.desktop.routes import settings as b2_settings
 
     from .routes import channels, chat, events, health, live2d, mind, voice_ws
-    from .routes import camera, gallery, inbox, onboarding, uploads
+    from .routes import camera, gallery, inbox, onboarding, rate, uploads
     app.include_router(health.router)
     app.include_router(onboarding.router)
     app.include_router(events.router)
@@ -1266,6 +1327,9 @@ def create_app(cfg: Config | None = None, *, brain=None, chat_model=None,
     # …and the picture that can come with one (SPEC §35): the composer puts the
     # file here first, then names it in the turn.
     app.include_router(uploads.router)
+    # …and what you thought of her answer (SPEC §37): 👍/👎 on a reply, filed
+    # beside the corpus record it is about, for the export to join.
+    app.include_router(rate.router)
     # the inner-life surface (SPEC §24.3): journal, goals, pending self-edits,
     # the tick trace — what converts autonomy from creepy to an inner life.
     app.include_router(mind.router)

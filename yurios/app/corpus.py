@@ -1,4 +1,4 @@
-"""The corpus logger (SPEC §8) — capture the corpus from day one.
+"""The corpus logger (B1 §8, SPEC §2.1, §37) — capture the corpus from day one.
 
 Every generated reply appends one faithful record to an append-only JSONL log —
 the ONLY place raw, trainable conversation data is kept (the index is derived
@@ -20,12 +20,56 @@ README = """\
 
 Written by: Build #1 (minimum-viable-waifu), from {date}.
 `turns.jsonl` — one line per assistant reply (append-only).
-`ratings.jsonl` — 👍/👎 sidecar, keyed by turn id; merged at export.
+`ratings.jsonl` — 👍/👎 sidecar, keyed by turn id; last line wins, 0 takes
+    a rating back; merged at export.
 `utility.jsonl` — debug sidecar: one line per utility-model call (what it
     proposed for USER.md / the summary, and how triage handled it). Not training
     data; not read by export. Peek it: `cat utility.jsonl`.
-Personal data — never commit, never share. Export: `python scripts/export_corpus.py`.
+Personal data — never commit, never share. Export: `python scripts/export_corpus.py <character>`.
 """
+
+
+#: What a rating may say: up, down, or "I take that back" (SPEC §37.3).
+THUMBS = (1, -1, 0)
+
+
+class UnratableLine(Exception):
+    """A line with no corpus record behind it (SPEC §37.1) — said, but not a
+    reply she made in a turn, so there is nothing a rating could be joined to."""
+
+
+def read_jsonl(path: pathlib.Path) -> list[dict]:
+    """Every whole record in one of these logs, oldest first. A torn tail line
+    — a crash mid-append — is skipped, the same as every other log here."""
+    if not path.exists():
+        return []
+    rows = []
+    with path.open(encoding="utf-8") as f:
+        for line in f:
+            try:
+                row = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(row, dict):
+                rows.append(row)
+    return rows
+
+
+def standing_ratings(path: pathlib.Path) -> dict[str, dict]:
+    """turn id -> the rating that stands on it (SPEC §37.3): last line wins and
+    a `0` removes it. The whole file, read in one pass — these lines are tiny,
+    and a page of history wants ratings for turns from anywhere in it."""
+    out: dict[str, dict] = {}
+    for row in read_jsonl(path):
+        turn_id, thumbs = row.get("id"), row.get("thumbs")
+        if not isinstance(turn_id, str) or isinstance(thumbs, bool) \
+                or thumbs not in THUMBS:
+            continue
+        if thumbs == 0:
+            out.pop(turn_id, None)
+        else:
+            out[turn_id] = row
+    return out
 
 
 class CorpusLogger:
@@ -65,13 +109,68 @@ class CorpusLogger:
         return rec["id"]
 
     def log_rating(self, turn_id: str, thumbs: int, by: str = "user") -> None:
-        """Append-only sidecar (§8.1); merged at export. These ratings are the
-        KTO/DPO asset (→ ch. 20)."""
+        """Append-only sidecar (B1 §8.1, SPEC §37.3); merged at export. These
+        ratings are the KTO/DPO asset (→ ch. 20). `0` takes a rating back — a
+        line of its own rather than an edit, so the file stays append-only and
+        the last line about a turn is the one that stands."""
+        if isinstance(thumbs, bool) or thumbs not in THUMBS:
+            raise ValueError(f"thumbs is one of {THUMBS}, not {thumbs!r}")
         self._ensure_dir()
         with self.ratings.open("a", encoding="utf-8") as f:
             f.write(json.dumps({"id": turn_id, "thumbs": thumbs, "by": by,
                                 "timestamp": datetime.datetime.now(
                                     datetime.UTC).isoformat()}) + "\n")
+
+    def standing(self) -> dict[str, dict]:
+        """Every rating that currently stands, by turn id."""
+        return standing_ratings(self.ratings)
+
+
+#: What the export can write (SPEC §37.4).
+EXPORT_FORMATS = ("raw", "kto")
+
+
+def export(corpus_dir: pathlib.Path, *, fmt: str = "raw",
+           rated_only: bool = False) -> tuple[list[dict], dict]:
+    """The corpus with its ratings joined in (SPEC §37.4) — rows, and a count of
+    what went into them.
+
+    `raw` is every turn record verbatim, plus a `rating` object on the ones a
+    rating stands on. `kto` is the rated turns only, as preference data:
+    `prompt` (the messages as sent), `completion` (her reply as one assistant
+    message) and `label` (true for 👍) — the conversational shape TRL's KTO
+    trainer reads. `rated_only` narrows `raw` the same way.
+
+    Reads only. A rating whose turn the log no longer holds is counted, not
+    guessed at: there is nothing to join it to.
+    """
+    if fmt not in EXPORT_FORMATS:
+        raise ValueError(f"format is one of {EXPORT_FORMATS}, not {fmt!r}")
+    corpus_dir = pathlib.Path(corpus_dir)
+    turns = read_jsonl(corpus_dir / "turns.jsonl")
+    standing = standing_ratings(corpus_dir / "ratings.jsonl")
+    seen = {t.get("id") for t in turns}
+    stats = {"turns": len(turns), "up": 0, "down": 0,
+             "orphaned": sum(1 for turn_id in standing if turn_id not in seen)}
+    rows: list[dict] = []
+    for turn in turns:
+        rating = standing.get(str(turn.get("id")))
+        if rating:
+            stats["up" if rating["thumbs"] > 0 else "down"] += 1
+        if rating is None and (rated_only or fmt == "kto"):
+            continue
+        if fmt == "kto":
+            assert rating is not None
+            rows.append({"id": turn["id"], "prompt": turn.get("messages") or [],
+                         "completion": [{"role": "assistant",
+                                         "content": turn.get("completion") or ""}],
+                         "label": rating["thumbs"] > 0})
+        else:
+            rows.append({**turn, **({"rating": {k: rating[k] for k in
+                                                ("thumbs", "by", "timestamp")
+                                                if k in rating}}
+                                    if rating else {})})
+    return rows, stats
 
 
 class UtilityLogger:

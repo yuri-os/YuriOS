@@ -16,7 +16,7 @@
  *    first page — a page you are reading must not jump under you.
  */
 import { element, errorMessage, showToast } from "../shared/dom.js";
-import { debugApi, dreamApi } from "./api.js";
+import { budgetApi, debugApi, dreamApi } from "./api.js";
 import { tickSections } from "./graph/inspector.js";
 import {
   GRAPH_SECTIONS, graphAttached, invalidateGraph, markStale, mountGraph, unmountGraph,
@@ -159,6 +159,51 @@ function tile(label, value, sub) {
     sub ? element("div", { className: "tile-sub", text: sub }) : null);
 }
 
+/** "of 200,000 (408%)" — the governor's cap beside what was spent (§17.3).
+ *  Null when the host sent no cap, so the tile says nothing it doesn't know. */
+function ofCap(budget) {
+  if (!budget.daily_tokens) return null;
+  const pct = Math.round(100 * (budget.spent_tokens ?? 0) / budget.daily_tokens);
+  return `of ${number(budget.daily_tokens)} (${pct}%)`;
+}
+
+/** The overview's spend tile, with the one control that acts on it: zeroing
+ *  today's ledger (§17.3). It needs the running governor, so with her stopped
+ *  the button is there but off, and says why. */
+function spentTile(budget, running) {
+  const node = tile("Spent today", number(budget.spent_tokens ?? 0),
+    [ofCap(budget), budget.date ? `on ${budget.date}` : null,
+     `${number(budget.calls ?? 0)} calls`].filter(Boolean).join(" · "));
+  if (budget.reset_at) {
+    node.append(element("div", { className: "tile-sub", text:
+      `reset at ${budget.reset_at.slice(11, 16)} from ${number(budget.reset_from)}` }));
+  }
+  const reset = element("button", {
+    className: "button button-quiet tile-action", text: "Reset",
+    attrs: { type: "button",
+             title: running
+               ? "Zero today's spend. She resumes goal work the next time she "
+                 + "drifts down to IDLE — a reset does not move her up the ladder."
+               : "She is not running; the ledger can only be reset through her governor.",
+             ...(running ? {} : { disabled: "disabled" }) },
+  });
+  reset.addEventListener("click", async () => {
+    const spent = number(budget.spent_tokens ?? 0);
+    if (!window.confirm(`Reset today's budget? ${spent} tokens spent goes back to 0.`)) return;
+    reset.disabled = true;
+    try {
+      await budgetApi.reset();
+      toast("budget reset for today", "ok");
+      render();
+    } catch (error) {
+      reset.disabled = false;
+      toast(errorMessage(error));
+    }
+  });
+  node.append(reset);
+  return node;
+}
+
 function verdictTone(verdict = "") {
   if (verdict === "ok") return "ok";
   if (verdict.startsWith("denied")) return "warn";
@@ -249,9 +294,7 @@ async function renderOverview() {
     tile("Last heard from you", activity.last_user_msg ? relative(activity.last_user_msg) : "—"),
     tile("Context now", used != null ? number(used) : "—",
       data.live ? `of ${number(data.live.context.limit)} tokens` : "she is not running"),
-    tile("Spent today", number(budget.spent_tokens ?? 0),
-      [budget.date ? `on ${budget.date}` : null,
-       `${number(budget.calls ?? 0)} calls`].filter(Boolean).join(" · ")),
+    spentTile(budget, Boolean(data.live)),
     tile("Vault commits", number(data.vault?.commits ?? 0),
       data.vault?.head ? data.vault.head.slice(0, 8) : "not a repo yet")));
 
@@ -1308,7 +1351,8 @@ async function renderEconomics() {
 
   wrap.append(element("div", { className: "tiles" },
     tile("Spent today", number(budget.spent_tokens ?? 0),
-      budget.date ? `on ${budget.date}` : ""),
+      [ofCap(budget), budget.date ? `on ${budget.date}` : null]
+        .filter(Boolean).join(" · ")),
     tile("Calls today", number(budget.calls ?? 0)),
     tile("Last context", history.length ? number(history.at(-1).used) : "—",
       limit ? `of ${number(limit)}` : ""),

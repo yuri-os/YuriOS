@@ -1653,7 +1653,10 @@ as a design driver: an always-on mind is affordable only because it is almost al
   pressure ≥ 1.0 REGULATE **MUST** shed IDLE to DORMANT (goal work stops). It **MUST NOT** gate
   conversation — a governor that silences her when the user speaks has failed at its one job. The
   ledger (`state/budget.json`) rolls at local midnight on the injected clock and is rendered by the
-  dashboard.
+  dashboard. The user **MAY** zero the current day's ledger by hand (`POST /api/mind/budget/reset`,
+  the reset on the debug page's spend tile); the ledger **MUST** record when it was reset and what
+  it read (`reset_at`, `reset_from`) until it next rolls. A reset **MUST NOT** move the activity
+  ladder (§17.2): a day shed to DORMANT resumes IDLE on its next drift down from ENGAGED.
 - REGULATE **MAY** shorten the next heartbeat below the state cadence when a goal comes due sooner
   or when more than one appraisal crossed gate 1 this tick (the backlog drains one intention at a
   time, never piles into one tick).

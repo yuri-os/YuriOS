@@ -458,6 +458,14 @@ def test_start_async_builds_the_mind_over_the_real_brain(cfg, seeded_vault):
         assert rt.brain.world is rt.mind.world
 
 
+def test_the_budget_resets_through_the_running_governor(client_with_mind):
+    c, rig = client_with_mind
+    rig.mind.budget.debit("a" * 4000)
+    body = c.post("/api/mind/budget/reset").json()
+    assert body["spent_tokens"] == 0 and body["reset_from"] == 1000
+    assert c.get("/api/mind").json()["budget"]["spent_tokens"] == 0
+
+
 def test_mindless_app_reports_503(cfg):
     app = create_app(cfg.model_copy(update={"tools_backend": "off",
                                             "mind_enabled": False}),

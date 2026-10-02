@@ -110,13 +110,24 @@ def counts(record) -> dict:
     return {name: jsonl_count(source(record, name)) for name in SOURCES}
 
 
-def overview(record, runtime=None) -> dict:
+def budget(record, daily_tokens: int | None = None) -> dict:
+    """The governor's ledger off disk, with the cap it is spent against.
+
+    `state/budget.json` holds only what was spent; the cap is configuration
+    (`MIND_DAILY_TOKENS`, SPEC §17.3), so the host hands it in. Without it a
+    "spent today" figure has nothing to be read against.
+    """
+    ledger = read_json(Path(record.paths.vault) / "state" / "budget.json", {}) or {}
+    return {**ledger, "daily_tokens": daily_tokens} if daily_tokens else ledger
+
+
+def overview(record, runtime=None, *, daily_tokens: int | None = None) -> dict:
     vault = Path(record.paths.vault)
     state = vault / "state"
     return {
         "character": record.id,
         "activity": read_json(state / "activity.json", {}) or {},
-        "budget": read_json(state / "budget.json", {}) or {},
+        "budget": budget(record, daily_tokens),
         "engine": read_json(state / "engine.json", {}) or {},
         "vault": {"head": vaultgit.head(vault),
                   "commits": vaultgit.count_commits(vault)},
@@ -496,7 +507,8 @@ def chunk(record, chunk_id: str) -> dict | None:
 
 # --- what it all costs --------------------------------------------------------
 
-def economics(record, *, points: int = 500) -> dict:
+def economics(record, *, points: int = 500,
+              daily_tokens: int | None = None) -> dict:
     history, _, _ = jsonl_page(source(record, "context"), limit=points)
     history.reverse()                               # a chart reads left to right
     utility_rows, _, _ = jsonl_page(source(record, "utility"), limit=MAX_LIMIT)
@@ -522,7 +534,7 @@ def economics(record, *, points: int = 500) -> dict:
         bucket["tokens_out"] += row.get("tokens_out") or 0
     return {
         "context": history,
-        "budget": read_json(Path(record.paths.vault) / "state" / "budget.json", {}) or {},
+        "budget": budget(record, daily_tokens),
         "utility": {"applied": applied, "quarantined": quarantined,
                     "total": len(utility_rows), "by_kind": by_kind},
         "by_kind": spend,

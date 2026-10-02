@@ -16,7 +16,7 @@ from pathlib import Path
 
 from yurios.kernel.clock import Clock
 
-from .util import day_of, estimate_tokens, read_json, write_json
+from .util import day_of, estimate_tokens, iso_of, read_json, write_json
 
 
 class BudgetGovernor:
@@ -41,6 +41,20 @@ class BudgetGovernor:
         st["spent_tokens"] += estimate_tokens(prompt_text) + estimate_tokens(reply_text)
         st["calls"] += 1
         write_json(self.path, st)
+
+    def reset(self) -> dict:
+        """Zero today's spend by hand (SPEC §17.3).
+
+        The cap is a guard against a runaway loop, and once the runaway is dealt
+        with the rest of the day should not stay shed for it. The ledger keeps
+        when it was reset and what it read, so a day that went through a reset
+        says so; midnight rolls both away with the rest.
+        """
+        st = self._state()
+        st.update(reset_at=iso_of(self.clock.now()), reset_from=st["spent_tokens"],
+                  spent_tokens=0, calls=0)
+        write_json(self.path, st)
+        return self.snapshot()
 
     def pressure(self) -> float:
         """0.0 = fresh day, ≥1.0 = the cap is spent (REGULATE sheds IDLE)."""

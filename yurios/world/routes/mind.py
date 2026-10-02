@@ -504,6 +504,23 @@ async def decide_edit(edit_id: str, request: Request) -> dict:
     return {"queued": True, "id": edit_id, "revised": "content" in decision}
 
 
+@router.post("/api/mind/budget/reset")
+async def reset_budget(request: Request) -> dict:
+    """Zero today's token ledger (SPEC §17.3).
+
+    Applied straight to the running governor, like the goal-filing switch: it
+    is a ruling on her allowance, not a decision for her to weigh. It does not
+    move the ladder — nothing but a user turn moves her up it (§17.2) — so a
+    day held DORMANT by pressure resumes IDLE the next time she comes down
+    from ENGAGED, not this second.
+    """
+    mind = _mind(request)
+    snapshot = mind.budget.reset()
+    mind.hub.publish("mind", {"state": mind.activity.state,
+                              "intention": "budget_reset"})
+    return snapshot
+
+
 @router.post("/api/mind/goals/filing")
 async def set_goal_filing(request: Request) -> dict:
     """Turn goals-of-her-own on or off. Body: {"enabled": true|false}.

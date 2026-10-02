@@ -459,6 +459,20 @@ def test_the_live_context_meter_is_reported_separately_when_she_is_up(live_clien
     assert body["counts"]["ticks"] == 3, "history still comes off disk"
 
 
+def test_spent_today_carries_the_cap_it_is_spent_against(client):
+    """The ledger on disk holds only the spend; the cap is configuration, and a
+    figure with nothing to read it against is half a tile (SPEC §17.3)."""
+    state = client.record.paths.vault / "state"
+    state.mkdir(parents=True, exist_ok=True)
+    (state / "budget.json").write_text(json.dumps(
+        {"date": "2026-08-01", "spent_tokens": 815798, "calls": 150}), encoding="utf-8")
+    cap = Config().mind_daily_tokens
+    for route in ("/overview", "/economics"):
+        assert get(client, route)["budget"] == {
+            "date": "2026-08-01", "spent_tokens": 815798, "calls": 150,
+            "daily_tokens": cap}, route
+
+
 def test_economics_separates_what_was_applied_from_what_was_quarantined(client):
     seed(client.record)
     body = get(client, "/economics")

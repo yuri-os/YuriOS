@@ -82,3 +82,10 @@ export const dreamApi = Object.freeze({
   deleteJob: (name, { signal } = {}) =>
     mind(`/dream/jobs/${encodeURIComponent(name)}`, { method: "DELETE", signal }),
 });
+
+/* A third exception: zeroing today's ledger is a write to the running
+ * governor, so it rides the runtime's surface too — and, like DREAM, needs her
+ * awake (§17.3). */
+export const budgetApi = Object.freeze({
+  reset: ({ signal } = {}) => mind("/budget/reset", { method: "POST", signal }),
+});

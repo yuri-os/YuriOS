@@ -85,12 +85,23 @@ def register(app: FastAPI, host: CharacterHost, require) -> None:
         # …and the five below: these read the Vault's git history, which is a
         # subprocess per call. A debug page is not worth stalling every
         # character on the node for, so they answer from a worker thread.
+        record = require(character_id)
         return await asyncio.to_thread(
-            debug.overview, require(character_id), host.runtime(character_id))
+            debug.overview, record, host.runtime(character_id),
+            daily_tokens=daily_cap(record))
 
     @app.get("/api/characters/{character_id}/debug/activity")
     async def debug_activity(character_id: str, page: int = 0, limit: int = 100):
         return debug.activity(require(character_id), page=page, limit=limit)
+
+    def daily_cap(record) -> int:
+        """The budget governor's cap (SPEC §17.3), from her effective config —
+        the ledger on disk records only what she spent against it."""
+        try:
+            cfg = host.effective_config(record)
+        except ValueError:
+            cfg = host.base
+        return int(cfg.mind_daily_tokens)
 
     def graph_settings(record) -> dict:
         """Her name, yours, and her gate-1 threshold — from her effective
@@ -246,7 +257,8 @@ def register(app: FastAPI, host: CharacterHost, require) -> None:
 
     @app.get("/api/characters/{character_id}/debug/economics")
     async def debug_economics(character_id: str):
-        return debug.economics(require(character_id))
+        record = require(character_id)
+        return debug.economics(record, daily_tokens=daily_cap(record))
 
     @app.get("/api/characters/{character_id}/debug/utility")
     async def debug_utility(character_id: str, page: int = 0, limit: int = 25,

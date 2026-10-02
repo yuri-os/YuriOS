@@ -502,6 +502,10 @@ async def scenario_filed(rig: Rig) -> str:
     """
     for other in rig.open_goals():
         rig.mind.goals.set_state(other.id, "abandoned")
+    log = rig.rt.cfg.tool_log_dir / "calls.jsonl"
+    # Only this scenario's lines: the rig is one character, so the log already
+    # holds whatever the scenarios before this one filed.
+    skip = len(log.read_text(encoding="utf-8").splitlines()) if log.is_file() else 0
     goal = rig.goal("plan the garden shed")
     split = "ask which wood the shed roof should be"
     rig.scripted_utility(
@@ -515,8 +519,8 @@ async def scenario_filed(rig: Rig) -> str:
     want(child.text == split and child.kind == "reach_out"
          and child.commitment == "open-minded",
          f"filed the wrong goal: {child!r}")
-    log = rig.rt.cfg.tool_log_dir / "calls.jsonl"
-    lines = [json.loads(x) for x in log.read_text(encoding="utf-8").splitlines() if x]
+    lines = [json.loads(x) for x in
+             log.read_text(encoding="utf-8").splitlines()[skip:] if x]
     filed = [x for x in lines if x.get("tool") == "create_goal"
              and x.get("origin") == "mind_tool"]
     want(len(filed) == 1 and filed[0]["verdict"] == "ok"
@@ -529,7 +533,7 @@ async def scenario_filed(rig: Rig) -> str:
         # Any origin: a refusal is audited under the step (`goal_work`), before
         # anything is dispatched under `mind_tool`.
         return [x for x in map(json.loads, log.read_text(encoding="utf-8")
-                               .splitlines()) if x.get("tool") == "create_goal"]
+                               .splitlines()[skip:]) if x.get("tool") == "create_goal"]
     await rig.tick_until(lambda t: len(calls()) > 1)
     second = calls()[1:2]
     want(bool(second) and second[0]["verdict"].startswith(
@@ -538,6 +542,60 @@ async def scenario_filed(rig: Rig) -> str:
     want([g.id for g in rig.goals() if g.provenance == f"goal:{goal.id}"]
          == [child.id], "a second goal was filed while the first was open")
     return "a goal step's create_goal filed one real goal, and refused the second"
+
+
+async def scenario_muse(rig: Rig) -> str:
+    """A goal too long on her last call in free time is rewritten and filed (SPEC §22.1d).
+
+    The sitting of 2026-10-03 07:01, run forwards: five calls spent looking,
+    a sixth that filed the goal she had decided on — 374 characters, refused
+    for its length with her hands spent, and the sitting ended with it unfiled.
+    The five looks and the long goal are scripted; what she does with the
+    refusal is the real model's, reading the real prompt.
+    """
+    from yurios.mind import muse
+    from yurios.mind.goals import GOAL_TEXT_MAX, MUSE_GOAL
+    from yurios.mind.policy import DORMANT
+
+    for other in rig.open_goals():
+        rig.mind.goals.set_state(other.id, "abandoned")
+    prompt = muse.system(rig.mind, ("create_goal",))
+    want(f"at most {GOAL_TEXT_MAX} characters" in prompt,
+         "the free-time prompt does not tell her how long a goal may be")
+    long_goal = ("Write up the deeper reflection on the lighthouse keepers' "
+                 "logbooks — not a summary, not a report, but what the "
+                 "silence in them meant, why the same three entries keep "
+                 "pulling me back, and what it says about keeping a light "
+                 "for someone who may never come. Warm, honest, mine.")
+    want(len(long_goal) > GOAL_TEXT_MAX, "the scripted goal has to be too long")
+    rig.scripted_utility(
+        *(['think let me look over my desk first\nuse list_notes {}']
+          * (muse.MAX_CALLS - 1)),
+        "think I know what I want to do now\nuse create_goal "
+        + json.dumps({"text": long_goal, "kind": "task"}))
+    # Nobody here, nothing said for hours: what free time is offered under.
+    rig.mind.activity.state = DORMANT
+    rig.mind.activity.last_user_msg = rig.clock.now() - 6 * 3600
+    rig.mind._last_turn_end = rig.clock.now() - 6 * 3600
+    rig.mind.last_mused = 0.0
+    traces = await rig.tick_until(
+        lambda t: t["decided"]["intention"] == "muse", limit=3)
+    trace = traces[-1]
+    want(trace["decided"]["intention"] == "muse",
+         f"free time was never offered: {[t['decided']['intention'] for t in traces]}")
+    tools = trace["acted"].get("tools", [])
+    goals_called = [t for t in tools if t["tool"] == "create_goal"]
+    want(len(tools) > muse.MAX_CALLS,
+         f"the refusal still ended the sitting — {len(tools)} calls: {tools!r}")
+    filed = [g for g in rig.open_goals() if g.provenance.startswith(MUSE_GOAL)]
+    want(len(filed) == 1,
+         f"she rewrote it and nothing was filed: {trace['acted']!r}")
+    goal = filed[0]
+    want(len(goal.text) <= GOAL_TEXT_MAX, f"filed past the limit: {goal.text!r}")
+    return (f"refused at {len(long_goal)} characters on call {muse.MAX_CALLS}, "
+            f"filed on call {len(tools)} after {len(goals_called) - 1} "
+            f"rewrite(s): “{goal.text}” ({len(goal.text)} chars)"
+            + (" — plan kept" if goal.meta.get("rationale") else ""))
 
 
 async def scenario_followup(rig: Rig) -> str:
@@ -908,6 +966,7 @@ SCENARIOS = {
     "waiting": scenario_waiting,
     "told": scenario_told,
     "filed": scenario_filed,
+    "muse": scenario_muse,
     "picture": scenario_picture,
     "rescue": scenario_rescue,
     "followup": scenario_followup,

@@ -29,7 +29,7 @@ import logging
 from yurios.kernel import correlate
 
 from . import acts, handwork
-from .goals import trim
+from .goals import GOAL_TEXT_MAX, trim
 from .goalwork import takeaway
 from .hands import FILE_GOAL, Hands, Offer
 from .journal import parse_day_entries
@@ -203,7 +203,10 @@ def system(loop, tools: tuple[str, ...]) -> str:
     if FILE_GOAL in tools:
         lines += [
             "When you know what you want to do, put it on your list with "
-            f"`{FILE_GOAL}` — one concrete goal, written as what you'll do. "
+            f"`{FILE_GOAL}` — one concrete goal, written as what you'll do, "
+            f"in one line of at most {GOAL_TEXT_MAX} characters. Why you want "
+            "it goes in the `think` line above the call, not in the goal: "
+            "that line is kept with the goal as its plan. "
             "It gets worked on its own turns, with all your hands (search, "
             "reading, notes, the camera). If the point is for "
             f"{user} to hear something from you, make its kind \"reach_out\". "

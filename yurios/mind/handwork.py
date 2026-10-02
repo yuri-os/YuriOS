@@ -27,10 +27,19 @@ from typing import Awaitable, Callable
 from yurios.kernel import correlate
 
 from . import acts
+from .goals import goal_shape_refused
 from .hands import (FILE_GOAL, START_DONT_AWAIT, TELL, Hands, Intent, Offer, bounded,
                     parse_intent, stamp_contract)
 
 log = logging.getLogger("mind.handwork")
+
+#: How many times a step may write a refused goal again without it costing one
+#: of the step's calls (SPEC §22.1d). Free, because a goal that was only too
+#: long is the one refusal she fixes by rewriting the same call — and free time
+#: once ended on exactly that, with the goal she had decided on unfiled because
+#: the refusal was her sixth call. Bounded, because a model that cannot shorten
+#: a line must not be asked again forever; past this a refusal costs a call.
+GOAL_REWORDS = 3
 
 #: Appended to a prompt that did not ask for hands — a DREAM job in her own
 #: voice. Additive on purpose: the job's own instructions still say what its
@@ -61,6 +70,9 @@ class Reach:
     refused: str = ""
     #: The message goal a `tell_them` filed (§18.2b), or "".
     told: str = ""
+    #: A `create_goal` refused for its shape alone (§22.1d): she can write it
+    #: again, and up to `GOAL_REWORDS` times that costs the step nothing.
+    reword: bool = False
 
 
 @dataclass
@@ -96,8 +108,10 @@ async def dispatch(loop, tool: str, args: dict, *, goal_id: str = "",
         # (§34.6): filed by the mind, not the tool server, so it works whether
         # or not her hands are on. The caller says under what rules.
         verdict, result = file_goal(args)
+        shape = goal_shape_refused(args) if verdict == "denied" else ""
         return Reach(tool, args, verdict, result,
-                     refused=result if verdict == "denied" else "")
+                     refused=result if verdict == "denied" else "",
+                     reword=bool(shape) and result == f"denied ({shape})")
     ok, why = loop.hands.check(
         tool, args, state=loop.activity.state,
         pressure=loop.budget.pressure(),
@@ -107,7 +121,8 @@ async def dispatch(loop, tool: str, args: dict, *, goal_id: str = "",
         ok = not why
     if not ok:
         loop.hands.deny(tool, args, why)
-        return Reach(tool, args, "denied", f"denied ({why})", refused=why)
+        return Reach(tool, args, "denied", f"denied ({why})", refused=why,
+                     reword=tool == FILE_GOAL and why == goal_shape_refused(args))
     # Principle 7: every autonomous call names the goal that wanted it, when a
     # goal wanted it — so `goals.md` stays the readable list of what her hands
     # might do. A night job's call names none, and lands in the Vault the same.
@@ -159,10 +174,11 @@ async def work(loop, messages: list[dict], *, offer: Offer,
                        else getattr(loop.cfg, "tool_max_calls_per_turn", 1)))
     messages = list(messages)
     done = Worked(Intent("think"))
+    rewords = 0     # refused goals she wrote again for free (§22.1d)
     while True:
         reply = await ask(messages)
         intent = parse_intent(reply, allowed=offer.tools)
-        if intent.kind != "use" or len(done.reaches) >= limit:
+        if intent.kind != "use" or len(done.reaches) - rewords >= limit:
             # Past the cap a `use` line is dropped, not run — her reasoning
             # beside it is still the step's answer.
             done.answer = intent if intent.kind != "use" \
@@ -183,6 +199,8 @@ async def work(loop, messages: list[dict], *, offer: Offer,
                                    goal_id=goal_id, file_goal=file_goal)
         reach.why = (intent.text or "").strip()
         done.reaches.append(reach)
+        if reach.reword and rewords < GOAL_REWORDS:
+            rewords += 1
         if on_reach is not None:
             on_reach(reach)
         if (reach.dispatched or reach.told) and stop_on_dispatch:
@@ -193,8 +211,8 @@ async def work(loop, messages: list[dict], *, offer: Offer,
             return done
         messages += [{"role": "assistant", "content": reply},
                      {"role": "user",
-                      "content": _returned(reach,
-                                           spent=len(done.reaches) >= limit)}]
+                      "content": _returned(
+                          reach, spent=len(done.reaches) - rewords >= limit)}]
 
 
 class LoopHands:

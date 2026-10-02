@@ -11,7 +11,8 @@ from __future__ import annotations
 import json
 
 from yurios.mind import muse
-from yurios.mind.goals import MUSE_GOAL
+from yurios.mind.goals import GOAL_TEXT_MAX, MUSE_GOAL
+from yurios.mind.handwork import GOAL_REWORDS
 from yurios.mind.policy import DORMANT, ENGAGED
 
 from .conftest import ScriptedUtility, make_mind, run_mind
@@ -184,3 +185,51 @@ async def test_the_cooldown_paces_it_and_survives_a_restart(cfg, seeded_vault):
     again = make_mind(cfg, seeded_vault, clock=rig.clock,
                       utility=ScriptedUtility(muse=("think hm",)))
     assert again.mind.last_mused == rig.mind.last_mused
+
+
+# --- a goal too long to file (SPEC §22.1d) -----------------------------------------
+
+LONG = ('use create_goal {"text": "' + "send the deeper lighthouse reflection, "
+        "not a summary and not a report, but what the keepers' logbooks meant "
+        "to me and why I keep going back to them " * 3 + '", "kind": "reach_out"}')
+SHORT = ('use create_goal {"text": "send the deeper lighthouse reflection", '
+         '"kind": "reach_out"}')
+FUMBLE = 'use create_goal {"text": "half a thought'
+
+
+async def test_she_is_told_the_limit_before_she_writes_one(cfg, seeded_vault):
+    rig = make_mind(cfg, seeded_vault, utility=ScriptedUtility(muse=("think",)))
+    prompt = muse.system(rig.mind, ("create_goal",))
+    assert f"at most {GOAL_TEXT_MAX} characters" in prompt
+    assert "`think` line above the call" in prompt
+
+
+async def test_a_goal_too_long_on_her_last_call_can_still_be_rewritten(
+        cfg, seeded_vault):
+    """The live failure, 3 Oct: five calls spent, the goal she had decided on
+    was her sixth, it was refused for its length — and the sitting ended with
+    it unfiled, though she knew exactly how to fix it."""
+    rig = make_mind(cfg, seeded_vault, utility=ScriptedUtility(
+        muse=(FUMBLE,) * (muse.MAX_CALLS - 1) + (LONG, SHORT, "think sent")))
+    quiet(rig)
+    trace = await rig.mind.tick()
+    verdicts = [t["verdict"] for t in trace["acted"]["tools"]]
+    assert verdicts == ["denied"] * muse.MAX_CALLS + ["ok"]
+    goal = rig.mind.goals.get(trace["acted"]["goal"])
+    assert goal.text == "send the deeper lighthouse reflection"
+    # what she read back said why, and how to fix it
+    said = rig.mind.brain.state.utility.calls[-2][-1]["content"]
+    assert f"at most {GOAL_TEXT_MAX} characters" in said
+    assert "hands are spent" not in said
+
+
+async def test_rewriting_a_refused_goal_is_free_only_three_times(cfg, seeded_vault):
+    rig = make_mind(cfg, seeded_vault, utility=ScriptedUtility(
+        muse=(LONG,) * 20 + ("think I'll come back to it",)))
+    quiet(rig)
+    trace = await rig.mind.tick()
+    tools = trace["acted"]["tools"]
+    assert len(tools) == muse.MAX_CALLS + GOAL_REWORDS
+    assert {t["verdict"] for t in tools} == {"denied"}
+    assert not any(g.provenance.startswith(MUSE_GOAL)
+                   for g in rig.mind.goals.open_goals())

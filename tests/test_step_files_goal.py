@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 
-from yurios.mind.goals import STEP_GOAL
+from yurios.mind.goals import GOAL_TEXT_MAX, STEP_GOAL
 from yurios.mind.handwork import LoopHands
 
 from .conftest import ScriptedUtility
@@ -150,3 +150,23 @@ def test_the_store_holds_one_open_child_per_parent(cfg, seeded_vault):
     a = rig.mind.goals.add("measure the floor", provenance=f"{STEP_GOAL}g-1")
     assert rig.mind.goals.add("buy paint", provenance=f"{STEP_GOAL}g-1").id == a.id
     assert rig.mind.goals.add("buy paint", provenance=f"{STEP_GOAL}g-2").id != a.id
+
+
+async def test_a_goal_too_long_is_refused_unspent_and_rewritten_free(
+        cfg, seeded_vault):
+    """§22.1d: the shape is checked before dispatch, and fixing it is not a call
+    — so a step with one call left still files the goal it meant to."""
+    rig = _rig(cfg, seeded_vault, _use("measure the shed floor " * 12),
+               _use("measure the shed floor"), "Split off; back to the plans.",
+               tool_max_calls_per_turn=1)
+    parent = rig.mind.goals.add("plan the shed", kind="task", priority=0.95)
+    calls = len(rig.runner.calls)
+
+    await work(rig)
+    [child] = _children(rig, parent)
+    assert child.text == "measure the shed floor"
+    assert len(rig.runner.calls) == calls + 1, "the long one never reached a server"
+    refused, filed = audit_lines(rig)[-2:]
+    assert refused["verdict"].startswith(
+        f"denied: a goal is one line of at most {GOAL_TEXT_MAX} characters")
+    assert filed["verdict"] == "ok"

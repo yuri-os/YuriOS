@@ -56,6 +56,7 @@ from yurios.world.tools.guard import (READ_ONLY, RESULT_LIMITS, Guard, _fingerpr
                                       failure)
 from yurios.world.tooltags import native_call, strip_native_calls
 
+from .goals import GOAL_TEXT_MAX
 from .policy import DORMANT, DREAM, ENGAGED
 from .util import day_of
 
@@ -139,7 +140,10 @@ HANDS: dict[str, Hand] = {
         '{"action": "play", "track": "warm_pad", "volume": 0.4}'),
     "create_goal": Hand(
         "cheap", "put a separate goal on her list, worked on its own turn",
-        '{"text": "...", "kind": "task"}'),
+        # The limit is in the example because this row is the one place every
+        # surface that offers the hand shows her (§22.1d).
+        f'{{"text": "what you\'ll do, one line of at most {GOAL_TEXT_MAX} '
+        f'characters", "kind": "task"}}'),
     "propose_edit": Hand(
         "cheap", "propose a change to one of her own soul files, for review",
         '{"surface": "NOTES.md", "content": "...", "reason": "..."}'),

@@ -166,6 +166,33 @@ def echoes(text: str, existing: Iterable[Goal]) -> Goal | None:
     return None
 
 
+#: How long a goal she files with `create_goal` may be (SPEC §22.1d). It is a
+#: title on her list, one line of `goals.md`; the reasons behind it are the
+#: `think` line she writes above the call, which is kept beside it.
+GOAL_TEXT_MAX = 200
+
+
+def goal_shape_refused(args: dict | None) -> str:
+    """Why `create_goal`'s arguments are not a goal's shape, or "" (§22.1d).
+
+    The one refusal she can fix by writing the same call again, which is why
+    `handwork` lets her do that without spending one of the step's calls.
+    """
+    text = " ".join(str((args or {}).get("text") or "").split())
+    kind = str((args or {}).get("kind") or "task")
+    if not text:
+        return "a goal needs text saying what you'll do"
+    if len(text) > GOAL_TEXT_MAX:
+        return (f"a goal is one line of at most {GOAL_TEXT_MAX} characters and "
+                f"this one is {len(text)} — write just what you'll do, and put "
+                "why in the `think` line above it")
+    if "|" in text:
+        return "a goal's text cannot contain '|'"
+    if kind not in ("task", "reach_out"):
+        return 'kind is "task" or "reach_out"'
+    return ""
+
+
 #: Provenance of a goal a goal step filed with `create_goal` (SPEC §22.1c): the
 #: step's own goal is the parent, and it has at most one such goal open.
 STEP_GOAL = "goal:"

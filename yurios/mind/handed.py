@@ -33,7 +33,7 @@ import logging
 from yurios.kernel import correlate
 
 from . import acts, handwork
-from .goals import trim
+from .goals import GOAL_TEXT_MAX, trim
 from .goalwork import takeaway
 from .hands import FILE_GOAL, Hands, Offer
 from .muse import REVIEW
@@ -159,7 +159,9 @@ def system(loop, tools: tuple[str, ...], path: str) -> str:
         f"Anything that means doing work — writing it into a report, pulling "
         f"facts from it, telling {user} something — goes on your list with "
         f"`{FILE_GOAL}`: one concrete goal, written as what you'll do, naming "
-        f"{path} so the work knows what to read. It gets its own turns with "
+        f"{path} so the work knows what to read, in one line of at most "
+        f"{GOAL_TEXT_MAX} characters — why goes in the `think` line above it, "
+        "which is kept with the goal as its plan. It gets its own turns with "
         f"all your hands. If the point is for {user} to hear something from "
         "you, make its kind \"reach_out\". One goal at most.",
         "",

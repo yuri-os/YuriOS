@@ -2357,6 +2357,20 @@ optional due time, **provenance**, and a **commitment strategy**; lifecycle
   record the goal as filed, not the contract. A night job is not offered `create_goal`: the
   stock-take is how a night files a goal, and a hand every call of which is refused is not one to
   describe (§26.1).
+- §22.1d **A goal she files is a title, she is told so before she writes one, and fixing it is
+  free.** The text of a goal filed with `create_goal` — from a goal step (§22.1c), free time
+  (§22.7) or a handed document (§34.6) — **MUST** be one line of at most `GOAL_TEXT_MAX` (**200**)
+  characters with no `|`, and its kind `task` or `reach_out`; one check (`goal_shape_refused`)
+  says so on every path. Her reasons are not the goal: they are the `think` line above the call,
+  which free time and a handed document keep as the goal's `rationale`. The limit **MUST** be
+  stated where she reads the hand — its example row — and in the free-time and handed-document
+  instructions, because live, 3 Oct, she filed a 374-character goal with the rule written nowhere
+  she could see it. A shape refusal is checked before anything is dispatched or spent, and is the
+  one refusal she can fix by writing the same call again; so it **MUST NOT** cost one of the
+  step's or sitting's calls, up to `GOAL_REWORDS` (**3**) per step — the same sitting had made
+  that refusal its sixth and last call, and ended with the goal she had decided on unfiled. Past
+  three, a shape refusal costs a call like any other, so a model that cannot shorten a line is
+  not asked again forever.
 - §22.2 **Commitment governs staleness:** `blind` is defended past due (a birthday is a birthday),
   `single-minded` drops only when moot, `open-minded` is abandoned the moment it stops being timely.
   The suspend-gap catch-up (§15.4) applies these in one pass, and so **MUST** the local-day

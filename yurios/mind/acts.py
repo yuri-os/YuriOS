@@ -26,7 +26,7 @@ from yurios.kernel import correlate
 
 
 from .goals import (HANDED_GOAL, MUSE_GOAL, OWN_JUDGEMENT, STEP_GOAL, Goal, echoes,
-                    night_owned, trim,
+                    goal_shape_refused, night_owned, trim,
                     PROMISE_REVIEW_RESPONSE_FORMAT, PromiseCandidate,
                     PromiseReviewError, parse_promise_review,
                     promise_decision_grounded, promise_kind,
@@ -593,7 +593,10 @@ def filing_refused(loop, args: dict, *, goal_id: str) -> str:
     if child is not None:
         return (f"this goal already has one open goal it filed — "
                 f"“{child.text}” ({child.id}); finish or let go of that first")
-    text = str(args.get("text") or "") if isinstance(args, dict) else ""
+    shape = goal_shape_refused(args if isinstance(args, dict) else None)
+    if shape:
+        return shape
+    text = str(args.get("text") or "")
     if night_owned(text):
         return "the night already does that; it isn't a goal"
     return ""
@@ -613,12 +616,11 @@ def file_from_step(loop, contract: str, *, goal_id: str) -> str:
     data = json.loads(contract)
     if data.get("status") != "ready":
         raise RuntimeError("create_goal did not return a goal to file")
+    shape = goal_shape_refused(data)
+    if shape:
+        raise ValueError(shape)
     text = " ".join(str(data.get("text") or "").split())
     kind = str(data.get("kind") or "task")
-    if not text or len(text) > 200 or "|" in text:
-        raise ValueError("invalid standing goal text")
-    if kind not in ("task", "reach_out"):
-        raise ValueError("invalid standing goal kind")
     parent = loop.goals.get(goal_id) if goal_id else None
     if parent is None:
         raise RuntimeError("the goal this was filed from is gone")
@@ -697,11 +699,9 @@ def _file_decided(loop, args: dict, *, provenance: str, own: bool,
     if getattr(loop, "_muse_filed", ""):
         return said("denied", "one new goal per sitting — you already chose "
                               f"{loop._muse_filed}")
-    if not text or len(text) > 200 or "|" in text:
-        return said("denied", "a goal is one line of under 200 characters, "
-                              "with no '|'")
-    if kind not in ("task", "reach_out"):
-        return said("denied", 'kind is "task" or "reach_out"')
+    shape = goal_shape_refused(args)
+    if shape:
+        return said("denied", shape)
     if night_owned(text):
         return said("denied", "the night already does that; it isn't a goal")
     open_goals = list(loop.goals.open_goals())

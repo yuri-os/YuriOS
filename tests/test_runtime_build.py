@@ -80,6 +80,14 @@ def test_conversational_goal_creation_needs_the_host_goal_store():
     assert "create_goal" not in without
 
 
+def test_showing_a_held_picture_needs_the_goal_store_not_the_camera():
+    """The picture is already in the gallery; the camera being off now does
+    not unshow it (§18.2a)."""
+    assert "show_held_picture" in runtime.tool_rates(
+        conf(mind_enabled=True, selfie_backend="off"))
+    assert "show_held_picture" not in runtime.tool_rates(conf(mind_enabled=False))
+
+
 # ---- the camera and the reading desk ----
 
 def _half_built(cfg, clock):
@@ -186,6 +194,7 @@ def test_building_the_brain_does_not_wait_for_the_embedder(monkeypatch):
                  character_id="adia"),
         boot=BootBoard(),
         guard=None, timers=None, controller=None, selfies=None, research=None,
+        post_message=None,
         model_configured=True,
     )
     assert runtime.build_brain(rt, chat_model=None, utility_model=None,
@@ -238,6 +247,7 @@ def test_the_embedder_load_starts_after_the_brain_is_built(monkeypatch):
                  character_id="adia"),
         boot=BootBoard(),
         guard=None, timers=None, controller=None, selfies=None, research=None,
+        post_message=None,
         model_configured=True,
     )
     assert runtime.build_brain(rt, chat_model=None, utility_model=None,

@@ -28,7 +28,7 @@ a section are folded into it.
 | **§15** — The cognitive tick loop | `yurios/mind/loop.py`<br>`yurios/world/routes/voice_ws.py`<br>`yurios/world/main.py`<br>`yurios/mind/acts.py`<br>*+7 more* | `tests/test_config.py`<br>`tests/test_mind_loop.py`<br>`tests/test_mind_routes.py`<br>*+1 more* |
 | **§16** — The signal bus (inbound) | `yurios/mind/signals.py`<br>`yurios/mind/loop.py`<br>`yurios/world/main.py`<br>`scripts/live_check.py`<br>*+4 more* | `tests/test_mind_goals.py`<br>`tests/test_mind_loop.py`<br>`tests/test_signal_bus.py` |
 | **§17** — Activity states and the budget governor | `yurios/mind/policy.py`<br>`yurios/mind/budget.py`<br>`web/mind/mind.js`<br>`yurios/mind/prompts.py`<br>*+3 more* | `tests/test_host_debug.py`<br>`tests/test_mind_budget.py`<br>`tests/test_policy.py` |
-| **§18** — The salience and interrupt model | `yurios/mind/policy.py`<br>`scripts/live_check.py`<br>`web/js/chat.js`<br>`yurios/mind/acts.py`<br>*+17 more* | `tests/test_inbox.py`<br>`tests/test_tray.py`<br>`tests/test_host.py`<br>*+4 more* |
+| **§18** — The salience and interrupt model | `yurios/mind/policy.py`<br>`yurios/mind/goals.py`<br>`scripts/live_check.py`<br>`web/js/chat.js`<br>*+18 more* | `tests/test_inbox.py`<br>`tests/test_tray.py`<br>`tests/test_host.py`<br>*+5 more* |
 | **§19** — The world model (the present tense) | `yurios/mind/world.py`<br>`yurios/world/brain.py`<br>`yurios/world/situation.py` | `tests/test_world_model.py` |
 | **§20** — The knowledge layer (drop-folder RAG) | `yurios/mind/knowledge.py`<br>`yurios/mind/documents.py`<br>`web/js/files.js`<br>`yurios/ctl/documents.py`<br>*+2 more* | `tests/test_mind_routes.py`<br>`tests/test_cli_documents.py`<br>`tests/test_knowledge.py`<br>*+1 more* |
 | **§21** — DREAM consolidation | `yurios/mind/dreamjobs/research.py`<br>`yurios/mind/dream.py`<br>`yurios/mind/dreamjobs/builtins.py`<br>`yurios/mind/dreamjobs/context.py`<br>*+6 more* | `tests/test_dreamjobs.py`<br>`tests/test_mind_routes.py`<br>`tests/test_cli_dreams.py`<br>*+1 more* |
@@ -49,4 +49,4 @@ a section are folded into it.
 | **§36** — Command-line control | `scripts/export_corpus.py`<br>`yurios/ctl/__init__.py`<br>`yurios/ctl/characters.py`<br>`yurios/ctl/client.py`<br>*+2 more* | `tests/test_cli_camera.py`<br>`tests/test_cli_characters.py` |
 | **§37** — Rating her replies | `yurios/app/corpus.py`<br>`yurios/world/main.py`<br>`web/js/chat.js`<br>`scripts/export_corpus.py`<br>*+4 more* | `tests/test_ratings.py` |
 
-*976 citation sites over 130 sections.*
+*979 citation sites over 130 sections.*

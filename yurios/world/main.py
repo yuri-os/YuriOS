@@ -937,7 +937,8 @@ class Runtime:
             # everything), do not tell the model it has a hand with no GoalStore
             # behind it.
             if getattr(self.brain, "goals", None) is None:
-                specs = [spec for spec in specs if spec.name != "create_goal"]
+                specs = [spec for spec in specs
+                         if spec.name not in ("create_goal", "show_held_picture")]
             # Discovery is the allowlist for tools nobody here could name in
             # advance (§7.3) — that is, a third-party server's. Hers are
             # deliberately NOT admitted this way: the rates in __init__ are

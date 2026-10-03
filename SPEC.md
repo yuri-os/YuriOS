@@ -1752,6 +1752,20 @@ them is precisely the always-interrupting-assistant failure.
   mind ever took could be talked about and none of it could be shown, and "show me" was answered
   with `goals/g-….md`. Only a **picture** travels this way, for this section's own reason — a
   research digest is not a gift.
+
+  Gate 2 is not the only door, though, because its question is not the only one. When the user is
+  *in the conversation*, nobody is being interrupted, and a finished picture held behind the
+  threshold is simply one she has not shown them yet. So the conversation **MUST** be able to show
+  it: a goal line in WHAT YOU'RE WORKING ON (§22.6) whose goal holds an undelivered picture **MUST**
+  say the picture is already taken and unseen, and the conversational hand `show_held_picture
+  {goal_id}` posts it — the same one entry a Gate 2 delivery posts, on the channel the turn came
+  through — closes the goal as kept, and re-marks the product `deliver: chat`, so no later exit
+  files a follow-up that sends it twice. The host does this, as it files `create_goal` (§7.5),
+  and anything that is not an open goal holding an unseen picture is an error she reads, never a
+  `shown` she can talk over. It is not a mind hand: a tick has no conversation to show it in, and
+  Gate 2 still owns her reaching out. Live, 3 Oct: two finished photos sat on two goals at 0.57
+  and 0.59 against a 0.6 threshold, the list said only "(active)", and asked how her goals were
+  going she said she had not taken either shot.
 - §18.2b **A message she decided to send is hers to word, and still Gate 2's to time.** Every goal
   step is offered `tell_them {"text": …}`, hands or none. It is not a hand — nothing runs, no tool
   server is asked, and §26's switches and call cap do not apply — it files a `reach_out` goal under
@@ -2486,7 +2500,8 @@ optional due time, **provenance**, and a **commitment strategy**; lifecycle
   talking-self and the intending-self are two people who have never met, and she re-promises what
   she is already working on. The block is droppable on overflow — last, after the lorebook — and
   `USER.md` never is. Every shown goal is still open: `waiting` means blocked, not done, and
-  `workspace/goals/*.md` are working notes rather than the standing list. A surviving block
+  `workspace/goals/*.md` are working notes rather than the standing list. A goal holding a
+  picture nobody has seen says so on its line (§18.2a). A surviving block
   **MUST** mark itself `COMPLETE` only when every open goal is present; if `GOALS_IN_PROMPT` or
   overflow omitted any, it **MUST** mark itself `PARTIAL` and forbid presenting the snapshot as a
   complete review. A goal-status request **MUST** repeat that same snapshot on the post-history

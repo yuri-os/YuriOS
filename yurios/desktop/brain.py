@@ -123,8 +123,34 @@ class BrainAdapter:
             # thing she has not started and a thing she is blocked on, and only
             # one of those is worth asking them about.
             mark = "" if goal.state == "pending" else f" ({goal.state})"
-            lines.append(f"[{goal.id}] {goal.text}{mark}")
+            lines.append(f"[{goal.id}] {goal.text}{mark}{self._held_mark(goal)}")
         return lines, len(selected) == len(open_goals)
+
+    #: The hand that puts a goal's held picture into the conversation (§18.2a).
+    SHOW_HELD = "show_held_picture"
+
+    def _held_mark(self, goal) -> str:
+        """What the goal line says about a picture it is holding (§22.6).
+
+        Live, 3 Oct: two finished photos sat on two goals waiting for Gate 2,
+        the list said only "(active)", and asked how her goals were going she
+        said she had not taken either shot yet. The line is the one place the
+        talking-self learns the picture exists.
+        """
+        held = getattr(goal, "held_picture", "")
+        if not held:
+            return ""
+        user = self.cfg.user_name
+        mark = f" — the picture is already taken; {user} hasn't seen it yet"
+        if self.held_picture_showable:
+            mark += f" (`{self.SHOW_HELD}` with this goal_id shows it to them now)"
+        return mark
+
+    @property
+    def held_picture_showable(self) -> bool:
+        """Whether this brain has the hand that shows a held picture. A
+        mindless desktop brain has no hands at all."""
+        return False
 
     def set_workspace(self, workspace, skills, on_write=None) -> None:
         """Wire her desk and her skills into the prompt (SPEC §34.3).

@@ -176,13 +176,17 @@ class ToolBrain(BrainAdapter):
 
     def __init__(self, state, cfg: Config, *, guard: Guard,
                  timers: TimerBoard, controller: VrmController,
-                 selfies=None, research=None):
+                 selfies=None, research=None,
+                 post: Optional[Callable[..., dict]] = None):
         super().__init__(state, cfg)
         self.guard = guard
         self.timers = timers
         self.controller = controller
         self.selfies = selfies                 # SelfieLab | None (§7.6)
         self.research = research               # Researcher | None (§7.7)
+        # Runtime.post_message — how a picture a goal is holding reaches the
+        # chat when she shows it mid-reply (§18.2a). None: no hand to show it.
+        self.post = post
         # Whether a page with her body on it is open right now (§2.5). The
         # runtime wires the hub's count in; unset means "assume so", which is
         # Build #4's behaviour and what the desktop app gets.
@@ -211,11 +215,13 @@ class ToolBrain(BrainAdapter):
     @classmethod
     def build(cls, cfg, *, guard: Guard, timers: TimerBoard,
               controller: VrmController, selfies=None, research=None,
-              chat_model=None, utility_model=None, embedder=None) -> "ToolBrain":
+              post=None, chat_model=None, utility_model=None,
+              embedder=None) -> "ToolBrain":
         base = BrainAdapter.build(cfg, chat_model=chat_model,
                                   utility_model=utility_model, embedder=embedder)
         return cls(base.state, base.cfg, guard=guard, timers=timers,
-                   controller=controller, selfies=selfies, research=research)
+                   controller=controller, selfies=selfies, research=research,
+                   post=post)
 
     def set_body_probe(self, probe: Callable[[], bool]) -> None:
         """Wire "is her body on a screen right now?" (SPEC §2.5) — the hub's
@@ -271,6 +277,13 @@ class ToolBrain(BrainAdapter):
     @goal_creation_available.setter
     def goal_creation_available(self, value: bool) -> None:
         self._goal_tool = bool(value)
+
+    @property
+    def held_picture_showable(self) -> bool:
+        """Whether `show_held_picture` is offered right now (§18.2a) — which is
+        what decides if a goal line names it."""
+        return (self.post is not None and self.goals is not None
+                and any(s.name == self.SHOW_HELD for s in self.offered()))
 
     def set_selfedit(self, selfedit) -> None:
         """Wire the §23 self-edit door, so `propose_edit` has somewhere to land.
@@ -612,9 +625,12 @@ class ToolBrain(BrainAdapter):
                                  "verdict": "error", "result": result})
             return result
         goal_created = False
-        if call.tool == "create_goal":
+        if call.tool in ("create_goal", self.SHOW_HELD):
             try:
-                text, goal_created = self._create_goal(text, about=goal_about)
+                if call.tool == "create_goal":
+                    text, goal_created = self._create_goal(text, about=goal_about)
+                else:
+                    text = self._show_held_picture(text)
             except Exception as e:                     # malformed contract/store failure
                 dt = (self.guard.clock.now() - t0) * 1000
                 why = failure(e, self.cfg.tool_timeout_s)
@@ -682,6 +698,51 @@ class ToolBrain(BrainAdapter):
                               "id": goal.id, "text": goal.text, "kind": goal.kind,
                               "state": goal.state}, ensure_ascii=False)
         return payload, created
+
+    def _show_held_picture(self, result: str) -> str:
+        """Put the picture a goal is holding into the chat, and close the goal.
+
+        The mind's renders land on the goal and wait for Gate 2 (§18.2a), and
+        Gate 2 asks whether *she* should interrupt. Mid-reply, nobody is being
+        interrupted: they are here, and showing them the picture is the answer.
+        So the conversation hands it over itself, as the same one entry a
+        Gate 2 delivery posts, and the goal ends kept. The product is re-marked
+        `deliver: chat`, which is what stops every later exit of this goal
+        from filing a follow-up that sends it a second time.
+
+        Raises on anything that is not a held picture; `_execute` turns that
+        into an error she reads, so she cannot say she showed a picture that
+        never posted.
+        """
+        data = json.loads(result)
+        if data.get("status") != "ready" or self.goals is None or self.post is None:
+            raise RuntimeError("the standing goal store is unavailable")
+        goal_id = str(data.get("goal_id") or "").strip()
+        goal = self.goals.get(goal_id) if goal_id else None
+        if goal is None or goal.state not in ("pending", "active", "waiting"):
+            raise ValueError(f"no open goal {goal_id or '(none)'}")
+        shot = goal.held_picture
+        if not shot:
+            raise ValueError(f"goal {goal.id} isn't holding a picture they "
+                             "haven't seen")
+        origin = correlate.current()
+        post_kw: dict = {"image_url": shot,
+                         "selfie_id": str(goal.product.get("selfie_id") or "")}
+        if origin is not None and origin.channel:
+            post_kw["channel"] = origin.channel
+        if origin is not None and origin.client_id:
+            post_kw["client_id"] = origin.client_id
+        self.post("assistant", "", **post_kw)
+        self.goals.update(
+            goal.id, state="done",
+            meta={"product": {**goal.product, "deliver": "chat"},
+                  "completed_by": self.SHOW_HELD})
+        if self._on_goal_write is not None:
+            self._on_goal_write(goal)
+        return json.dumps({"status": "shown", "goal_id": goal.id,
+                           "note": "the picture is in the chat now, above "
+                                   "what you are saying; the goal is done"},
+                          ensure_ascii=False)
 
     def realise(self, tool: str, result: str, *, extra: dict | None = None) -> None:
         """`_realise` for a caller that has a tool name and a result string

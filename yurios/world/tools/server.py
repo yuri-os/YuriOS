@@ -310,6 +310,20 @@ def build_server(*, max_minutes: float | None = None,
                 raise ValueError("text cannot contain the goal field separator |")
             return {"status": "ready", "text": text, "kind": kind}
 
+        # A picture she already took for a goal, put into the conversation
+        # (SPEC §18.2a). Nothing is rendered: the goal holds the photo, and the
+        # host — which owns the GoalStore — posts it and closes the goal.
+        @mcp.tool(description=(
+            "Show the user a picture you already took that they haven't seen — "
+            "one WHAT YOU'RE WORKING ON marks as already taken. Pass that "
+            "goal's exact `goal_id`. It appears in the chat as you answer and "
+            "the goal is done; never use `take_selfie` to make it again."))
+        def show_held_picture(goal_id: str) -> dict:
+            goal_id = goal_id.strip()
+            if not goal_id:
+                raise ValueError("goal_id must name the goal holding the picture")
+            return {"status": "ready", "goal_id": goal_id}
+
     if search is not None and fetcher is not None:
         # The web (SPEC §7.7). Three hands that go together: find it, read it,
         # or go away and find out about it properly.

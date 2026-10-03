@@ -92,7 +92,10 @@ this standing list."""
 _GOAL_SUBJECT = re.compile(
     r"\b(?:your|my)\s+(?:(?:current|open|standing)\s+)?goals?\b", re.I)
 _GOAL_STATUS = re.compile(
-    r"\b(?:review|status|state|stand|progress|working\s+on|what|which|list)\b",
+    r"\b(?:review|status|state|stand|progress|working\s+on|what|which|list|"
+    # "how are your goals going?" — live, 3 Oct, missed by every word above,
+    # and answered from her working notes instead of the list.
+    r"going|coming\s+along|getting\s+on|how\s+(?:are|is))\b",
     re.I)
 _GOAL_COMPLETION_STATUS = re.compile(
     r"(?:"

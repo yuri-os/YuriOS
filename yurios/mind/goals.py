@@ -117,6 +117,19 @@ class Goal:
         p = self.meta.get("product")
         return p if isinstance(p, dict) else {}
 
+    @property
+    def held_picture(self) -> str:
+        """The `image_url` of a picture this goal holds and nobody has seen, or "".
+
+        A product marked `deliver: chat` is already in the conversation; every
+        other one — a vault product, or a legacy one with no marker — is still
+        waiting to be shown (SPEC §18.2a).
+        """
+        p = self.product
+        if p.get("deliver") == "chat":
+            return ""
+        return str(p.get("image_url") or "")
+
 
 def _echo_words(text: str) -> set[str]:
     return {word for word in re.findall(r"[a-z]+", (text or "").lower())

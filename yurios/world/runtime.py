@@ -56,6 +56,9 @@ def tool_rates(cfg: Config) -> dict[str, int]:
              "play_music": cfg.tool_rate_music}
     if cfg.mind_enabled:
         rates["create_goal"] = cfg.tool_rate_goal
+        # Not behind the camera: a picture a goal already holds is in the
+        # gallery whether or not the camera is on now (§18.2a).
+        rates["show_held_picture"] = cfg.tool_rate_goal
     if cfg.selfie_backend != "off":
         rates["take_selfie"] = cfg.tool_rate_selfie
         rates["show_picture"] = cfg.tool_rate_picture
@@ -184,7 +187,7 @@ def build_brain(rt, *, chat_model, utility_model, embedder) -> ToolBrain:
     brain = ToolBrain.build(
         cfg, guard=rt.guard, timers=rt.timers,
         controller=rt.controller, selfies=rt.selfies,
-        research=rt.research, chat_model=chat_model,
+        research=rt.research, post=rt.post_message, chat_model=chat_model,
         utility_model=utility_model, embedder=embedder)
     if ours:
         if getattr(embedder, "ready", True):

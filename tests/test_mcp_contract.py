@@ -279,7 +279,18 @@ async def test_create_goal_validates_a_host_realisation_contract():
 async def test_create_goal_is_absent_without_a_mind():
     srv = build_server(goals=False)
     async with create_connected_server_and_client_session(srv._mcp_server) as s:
-        assert "create_goal" not in {tool.name for tool in (await s.list_tools()).tools}
+        names = {tool.name for tool in (await s.list_tools()).tools}
+        assert "create_goal" not in names and "show_held_picture" not in names
+
+
+async def test_show_held_picture_validates_a_host_realisation_contract():
+    srv = build_server(goals=True)
+    async with create_connected_server_and_client_session(srv._mcp_server) as s:
+        tools = {tool.name: tool for tool in (await s.list_tools()).tools}
+        assert set(tools["show_held_picture"].inputSchema["properties"]) == {"goal_id"}
+        result = await s.call_tool("show_held_picture", {"goal_id": " g-123 "})
+        assert json.loads(result_text(result)) == {"status": "ready", "goal_id": "g-123"}
+        assert (await s.call_tool("show_held_picture", {"goal_id": "  "})).isError
 
 
 async def test_set_timer_default_label_and_bounds():

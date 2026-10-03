@@ -29,9 +29,10 @@ from . import acts
 from .goals import Goal, night_owned, trim
 from . import handwork
 from .handwork import Reach
-from .hands import FILE_GOAL, TELL, Offer, klass
+from .hands import FILE_GOAL, NEEDS_CAMERA, TELL, Offer, klass
+from .policy import next_open
 from .prompts import goal_history
-from .util import closing, iso_of
+from .util import closing, iso_of, ts_of_iso
 
 log = logging.getLogger("mind.goalwork")
 
@@ -534,6 +535,201 @@ def work_system(loop, goal: Goal, offer, last: bool) -> str:
             "This is the last step you get on this goal for now, so make it "
             "the one that leaves the clearest trail for next time.")
     return "\n".join(line for line in lines if line is not None)
+
+
+#: What a reach-out's preparing step writes on its `think` line once what the
+#: message should carry is in hand (§18.2c). A phrase she has to choose, for
+#: the reason `DONE_MARK` is one.
+READY_MARK = "ready to send"
+
+#: …and what it writes when the moment has not come: a reach-out with a real
+#: date, about something that has not happened yet (§18.2c). Her call, not the
+#: score's — the score cannot read "ask how the interview went".
+NOT_YET_MARK = "not yet"
+
+#: How far ahead of its date a reach-out she set aside comes back to her: the
+#: same window in which Gate 2 counts a date as time-sensitive.
+NOT_YET_LEAD_H = 6.0
+
+
+def needs_preparing(loop, goal: Goal) -> bool:
+    """Whether a reach-out still gets a step with her hands before Gate 2 (§18.2c).
+
+    A `reach_out` used to go straight to the gate, and the gate can only
+    compose a sentence — so "send them a selfie" could be ruled on all day and
+    never take one. Not for a message that already carries what it is about:
+    her own decided words (`told:`), a follow-up reporting on finished work, a
+    picture already in hand. And not past the step horizon, where it goes to
+    the gate with whatever it has rather than preparing forever.
+    """
+    if goal.kind != "reach_out" or goal.meta.get("prepared"):
+        return False
+    if goal.meta.get("decided") or goal.product.get("image_url"):
+        return False
+    if goal.provenance.startswith(("followup:", "told:")):
+        return False
+    return goal.steps < max(1, int(loop.cfg.mind_goal_max_steps))
+
+
+def prepare_system(loop, goal: Goal, offer: Offer, last: bool) -> str:
+    """The instruction half of a reach-out's preparing step (§18.2c)."""
+    user = loop.cfg.user_name
+    lines = [
+        "This is you, alone, between conversations. You have decided to reach "
+        f"out to {user} first about the goal below, and this is the moment "
+        "before: get ready what the message should carry.",
+        "",
+    ]
+    if offer:
+        lines += [
+            "If it should carry a picture, take it now with your hands — it "
+            "goes with your message, and describing a picture you never took is "
+            "not sending one. If it needs something looked up or read first, do "
+            "that. Do not write the message itself here: it is written when it "
+            "is sent.",
+            "",
+            loop.hands.catalog(tuple(offer.tools)),
+        ]
+        if offer.waiting():
+            lines += ["", offer.waiting()]
+    else:
+        lines.append("Your hands are off right now, so this is only a moment to "
+                     "think it over. Do not write the message itself here: it is "
+                     "written when it is sent.")
+    if goal.dated and ts_of_iso(str(goal.due)) > loop.clock.now():
+        lines += [
+            "",
+            f"It is dated {goal.due}, and it is now "
+            f"{iso_of(loop.clock.now())}. Early is fine when early is right. "
+            "But if it is about something that has not happened yet — asking "
+            f'how a thing went before it has — write "{NOT_YET_MARK}" on your '
+            "`think` line, and it comes back to you nearer the time.",
+        ]
+    lines += [
+        "",
+        f'When it has what it needs — or needs nothing — write "{READY_MARK}" '
+        "on your `think` line. If what it needs is held back, say what is "
+        "missing and leave it: you will come back to it.",
+    ]
+    if last:
+        lines.append(
+            "This is the last step you get on this before it goes as it is, "
+            "so make it count.")
+    return "\n".join(lines)
+
+
+async def prepare(loop, goal: Goal, offer) -> tuple[dict, dict, list[str]]:
+    """One step with her hands before a reach-out goes to Gate 2 (§18.2c).
+
+    The same machinery a task's step uses — the context, the chained hands,
+    the desk, start-don't-await — less two hands: `tell_them`, because this
+    goal *is* the message and Gate 2 still rules on it, and `create_goal`,
+    because preparing a message is not taking on new work. A render she
+    dispatches comes back onto this goal as its product (`land_dispatched`),
+    and Gate 2 then delivers it with the picture. Ready, or out of steps, it
+    goes to the gate on this same tick: preparing is this intention's first
+    half, not a separate one.
+
+    A dated reach-out gets this step with her hands off too, as a moment to
+    think: a score that clears the threshold a day early cannot tell "remind
+    him before Thursday" from "ask how Tuesday's interview went", and she can.
+    """
+    offer = offer or Offer()
+    hands = Offer(tools=tuple(t for t in offer.tools if t != FILE_GOAL),
+                  held=offer.held, held_why=offer.held_why)
+    if not hands and not goal.dated:
+        # Nothing to fetch with and no moment to judge: the gate, as before.
+        return await acts.reach_out(loop, goal)
+    notes: list[str] = []
+    if goal.state == "pending":
+        loop.goals.update(goal.id, state="active")
+        goal.state = "active"
+    step = goal.steps + 1
+    last = step >= max(1, int(loop.cfg.mind_goal_max_steps))
+
+    async def ask(messages: list[dict]) -> str:
+        return await loop._utility(messages, soul=True)
+
+    messages = [{"role": "system", "content": prepare_system(loop, goal, hands, last)},
+                {"role": "user", "content": await context(loop, goal)}]
+    with correlate.scope(kind=correlate.GOAL_WORK):
+        worked = await handwork.work(
+            loop, messages, offer=hands, ask=ask, goal_id=goal.id,
+            stop_on_dispatch=True,
+            on_reach=lambda reach: notes.append(journal_reach(loop, goal, reach)))
+
+    intent = worked.answer
+    note = (intent.text or "").strip()
+    if note or not worked.reaches:
+        note = note or f"(nothing to get ready yet for: {goal.text})"
+        desk_write(loop, goal, note)
+        notes.append(f"got ready to reach {loop.cfg.user_name}: {goal.text} "
+                     f"— {takeaway(note)}")
+    reaches = worked.reaches
+    did = (", ".join(f"{r.tool} ({r.verdict})" for r in reaches) if reaches
+           else "thought about it")
+    meta: dict = {"steps": step, "last_step": iso_of(loop.clock.now())}
+    started = worked.dispatched
+    if started is not None:
+        # Start-don't-await (§7.6): the render comes back as `task_completion`
+        # onto this goal, and with a picture in hand it needs no more steps.
+        meta["dispatched"] = {"tool": started.tool, "at": iso_of(loop.clock.now())}
+        loop.goals.update(goal.id, state="waiting", meta=meta)
+        loop.wakeups[goal.id] = (loop.clock.now()
+                                 + float(loop.cfg.mind_dispatch_timeout_s))
+        notes.append("…and I'm waiting on it before I send anything")
+        return ({"what": "tool_step", "result": f"preparing, step {step}: {did}",
+                 "goal": goal.id, "state": "waiting",
+                 "tool": started.tool, "verdict": started.verdict,
+                 "class": klass(started.tool)}, {}, notes)
+    said = " ".join([note, *(r.why for r in reaches)]).lower()
+    ready = not intent.unrun and READY_MARK in said
+    now = loop.clock.now()
+    if (not ready and NOT_YET_MARK in said and goal.dated
+            and ts_of_iso(str(goal.due)) > now):
+        # Her judgement that the moment has not come. It does not spend one of
+        # the goal's steps — waiting for the right day is not failing to get
+        # ready — and it parks the goal until nearer its date rather than
+        # asking her again every hour in between.
+        meta.pop("steps")
+        back = ts_of_iso(str(goal.due)) - NOT_YET_LEAD_H * 3600
+        state = "waiting" if back > now else "active"
+        loop.goals.update(goal.id, state=state, meta=meta)
+        if state == "waiting":
+            loop.wakeups[goal.id] = back
+        notes.append(f"not yet: {goal.text} — I'll come back to it nearer the time")
+        return ({"what": "goal_work", "result": f"not yet ({did})", "goal": goal.id,
+                 "state": state}, {}, notes)
+    if not ready and hands.held:
+        # Not ready while a hand she has is held back — the camera while you
+        # are in the room, a web hand behind the budget line. Spending her
+        # steps here would send the message at the horizon without the very
+        # thing it was about, which is the failure this step exists to end. A
+        # budget hold lifts with the day, so it waits for the morning (both of
+        # Gate 2's hard gates open then too) instead of asking every hour.
+        meta.pop("steps")
+        budget = (loop.budget.pressure()
+                  >= float(getattr(loop.cfg, "mind_tool_pressure_ceiling", 0.5))
+                  and any(t not in NEEDS_CAMERA for t in hands.held))
+        state = "waiting" if budget else "active"
+        loop.goals.update(goal.id, state=state, meta=meta)
+        if budget:
+            loop.wakeups[goal.id] = next_open(now)
+        notes.append(f"can't get {goal.text} ready yet — "
+                     f"{', '.join(hands.held)} {hands.held_why or 'held back'}")
+        return ({"what": "tool_step" if reaches else "goal_work",
+                 "result": f"preparing, held: {did}", "goal": goal.id,
+                 "state": state}, {}, notes)
+    if not (ready or last):
+        loop.goals.update(goal.id, state="active", meta=meta)
+        return ({"what": "tool_step" if reaches else "goal_work",
+                 "result": f"preparing, step {step}: {did}", "goal": goal.id,
+                 "state": "active"}, {}, notes)
+    meta["prepared"] = iso_of(loop.clock.now())
+    loop.goals.update(goal.id, state="active", meta=meta)
+    acted, interrupt, sent = await acts.reach_out(loop, loop.goals.get(goal.id) or goal)
+    acted = {**acted, "result": f"prepared ({did}); {acted.get('result', '')}"}
+    return acted, interrupt, notes + sent
 
 
 def journal_reach(loop, goal: Goal, reach: Reach) -> str:

@@ -591,10 +591,13 @@ class MindLoop:
             if last and (now - last) < self.cfg.mind_consider_cooldown_s:
                 continue                       # don't re-chew one goal every tick
             a = appraise_goal(g, self.clock)
-            if offer and g.kind != "reach_out":
+            if offer and (g.kind != "reach_out"
+                          or goalwork.needs_preparing(self, g)):
                 # Same goal, same score — the difference is only whether the
                 # step she takes may be a reach as well as a thought (principle
                 # 7: a tool call is a step of an open goal, never free-floating).
+                # A reach-out gets one too while it is still being got ready
+                # (§18.2c): the picture it is about is taken before the gate.
                 a = Appraisal(g, "tool_step", a.score,
                               f"{a.why}; hands: {', '.join(offer.tools)}")
             appraisals.append(a)
@@ -757,6 +760,12 @@ class MindLoop:
             goal: Goal = chosen.subject
             self.considered[goal.id] = self.clock.now()
             if goal.kind == "reach_out":
+                # Got ready first (§18.2c): with her hands, or — for a dated
+                # one — with none, because whether its moment has come is a
+                # judgement the score cannot make.
+                if chosen.kind == "tool_step" or (
+                        goal.dated and goalwork.needs_preparing(self, goal)):
+                    return await goalwork.prepare(self, goal, offer)
                 return await acts.reach_out(self, goal)
             # `tool_step` is reachable ONLY from here (§26, as amended): a hand
             # she reaches for is a step of an open goal or it does not happen.

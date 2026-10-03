@@ -110,8 +110,10 @@ REACH_OUT_FOUND = (
 
 
 def _what_came_of(loop, goal: Goal) -> str:
-    """The last entry on the desk of the goal a `followup:` reports on, or ""."""
-    parent = goal.provenance.partition("followup:")[2]
+    """The last entry on the desk of the goal a `followup:` reports on — or, for
+    a reach-out she got ready with her hands (§18.2c), on its own desk — or ""."""
+    parent = (goal.provenance.partition("followup:")[2]
+              or (goal.id if goal.meta.get("prepared") else ""))
     if not parent or loop.workspace is None:
         return ""
     try:
@@ -746,9 +748,10 @@ async def reach_out(loop, goal: Goal) -> tuple[dict, dict, list[str]]:
     # chosen, and the score no longer asked.
     say = str(goal.meta.get("say") or "").strip() if goal.meta.get("decided") else ""
     # Dated goals keep their real timing; waiting must not bring an appointment
-    # forward. Missing legacy timestamps earn no invented age (SPEC §18.2).
+    # forward. A shelf life is not an appointment, so a goal she filed scores
+    # as undated. Missing legacy timestamps earn no invented age (SPEC §18.2).
     waiting_hours = 0.0
-    if not goal.due and goal.created:
+    if not goal.dated and goal.created:
         try:
             waiting_hours = (loop.clock.now() - ts_of_iso(goal.created)) / 3600
         except (ValueError, TypeError, OverflowError):
@@ -756,7 +759,7 @@ async def reach_out(loop, goal: Goal) -> tuple[dict, dict, list[str]]:
     decision = score_interrupt(
         clock=loop.clock,
         relevance=goal.priority,
-        time_sensitivity=1.0 if goal.is_due(loop.clock, 6) else 0.2,
+        time_sensitivity=1.0 if goal.dated and goal.is_due(loop.clock, 6) else 0.2,
         last_contact_out=ts_of_iso(last_out) if last_out else None,
         interrupts_today=loop.interrupts["count"],
         max_interrupts_per_day=loop.cfg.mind_max_interrupts_per_day,

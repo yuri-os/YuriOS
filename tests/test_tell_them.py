@@ -292,7 +292,8 @@ def test_tell_them_is_only_for_a_goal_and_only_a_message(cfg, seeded_vault):
 
 async def test_a_held_reach_out_says_what_held_it_not_that_she_chose(
         cfg, seeded_vault):
-    rig = make_mind(_cfg(cfg), seeded_vault)
+    cfg = _cfg(cfg).model_copy(update={"mind_interrupt_threshold": 0.75})
+    rig = make_mind(cfg, seeded_vault)
     rig.mind.goals.add("share an unspoken wish", kind="reach_out", priority=0.7)
     await rig.mind.tick()
     journal = _journal(seeded_vault)

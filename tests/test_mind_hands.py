@@ -1122,7 +1122,9 @@ async def test_a_held_picture_is_never_let_go_of_quietly(cfg, seeded_vault):
     badly. A promised photo is not news — dropping it is the disappearance."""
     import datetime
 
-    rig = make_mind(cfg, seeded_vault)
+    # a threshold that holds it: SILENT is the branch under test
+    rig = make_mind(cfg.model_copy(update={"mind_interrupt_threshold": 0.75}),
+                    seeded_vault)
     rig.mind.bus.post("user_absent", {}, source="frontend")
     # due in the past and open to being let go: the exact shape SILENT drops
     due = datetime.datetime(2026, 7, 5, 18, 0)
@@ -1216,3 +1218,213 @@ async def test_the_picture_is_handed_on_once_however_many_exits_it_takes(
     assert len(heirs) == 1, \
         f"the same photograph was filed to be sent {len(heirs)} times: " \
         f"{[(g.id, g.state) for g in heirs]}"
+
+
+# --- a reach-out gets ready with her hands before the gate (SPEC §18.2c) ------
+
+def reach_rig(cfg, vault, *lines, allow="take_selfie,write_note"):
+    """Hands on, the camera answering `started`, the room empty, and Gate 2
+    opened: what is under test is the step before the gate, not its tuning."""
+    rig = rig_with_hands(cfg, vault, *lines, allow=allow,
+                         tools=FakeToolRunner(results={"take_selfie": {
+                             "status": "started", "id": "e3110ba4"}}),
+                         mind_interrupt_threshold=0.0)
+    rig.mind.bus.post("user_absent", {}, source="frontend")
+    return rig
+
+
+async def test_a_reach_out_takes_the_picture_and_gate_2_sends_it(cfg, seeded_vault):
+    """"Send him a selfie" was a `reach_out`, and a reach-out could only ever
+    compose a sentence — so Gate 2 ruled on it all day and no picture existed.
+    Now the goal reaches for the camera first, holds what comes back, and the
+    delivery is the photograph."""
+    rig = reach_rig(cfg, seeded_vault,
+                    'think he asked for more like the last one — take it first\n'
+                    'use take_selfie {"look": "by the window, warm lamp"}')
+    goal = rig.mind.goals.add("send him a new selfie, like the one he liked",
+                              kind="reach_out", priority=0.9,
+                              provenance="user:chat")
+
+    trace = (await work(rig))[0]
+    assert trace["decided"]["intention"].startswith("tool_step:")
+    assert rig.runner.calls[0][0] == "take_selfie"
+    assert rig.mind.goals.get(goal.id).state == "waiting"
+    assert trace["interrupt"] == {}, "nothing goes to the gate before the picture"
+    assert rig.post.proactive() == []
+
+    rig.mind.bus.post("task_completion", _completion(goal.id), source="selfies")
+    await work(rig, ticks=2)
+
+    carried = [m for m in rig.post.proactive() if m.get("image_url") == SHOT]
+    assert carried, f"the picture never went: {rig.post.proactive()}"
+    assert rig.mind.goals.get(goal.id).state == "done"
+    assert len(rig.runner.calls) == 1, "one picture, taken once"
+
+
+async def test_a_reach_out_with_nothing_to_fetch_goes_to_the_gate_the_same_tick(
+        cfg, seeded_vault):
+    rig = reach_rig(cfg, seeded_vault, "think nothing to fetch for this — ready to send")
+    goal = rig.mind.goals.add("ask him how the interview went", kind="reach_out",
+                              priority=0.9, provenance="user:chat")
+
+    trace = (await work(rig))[0]
+    assert trace["interrupt"], "ready, it is ruled on in the same intention"
+    assert rig.mind.goals.get(goal.id).meta.get("prepared")
+    assert rig.mind.goals.get(goal.id).state == "done"
+    assert rig.runner.calls == []
+
+
+async def test_a_reach_out_not_yet_ready_waits_for_its_next_step(cfg, seeded_vault):
+    """Held back from the camera, she says so — and it is not sent without the
+    picture it is about. Out of steps, it goes as it is."""
+    rig = reach_rig(cfg, seeded_vault,
+                    *["think the camera is held back; I'll come back to it"] * 3)
+    goal = rig.mind.goals.add("send him a new selfie", kind="reach_out",
+                              priority=0.9, provenance="user:chat")
+
+    first = (await work(rig))[0]
+    assert first["interrupt"] == {}
+    assert rig.mind.goals.get(goal.id).state == "active"
+    assert rig.post.proactive() == []
+
+    await work(rig, ticks=3)
+    assert rig.mind.goals.get(goal.id).meta.get("prepared"), \
+        "past the horizon it goes to the gate rather than preparing forever"
+
+
+async def test_a_reach_out_does_not_tell_or_file_while_getting_ready(
+        cfg, seeded_vault):
+    """`tell_them` would file a second message whose words skip the threshold;
+    this goal *is* the message, and Gate 2 still rules on it."""
+    rig = reach_rig(cfg, seeded_vault, 'use tell_them {"text": "hi you"}',
+                    allow="write_note,create_goal")
+    rig.mind.cfg = rig.mind.cfg.model_copy(update={"mind_interrupt_threshold": 0.99})
+    goal = rig.mind.goals.add("ask him how the interview went", kind="reach_out",
+                              priority=0.9, provenance="user:chat")
+    await work(rig)
+    assert not [g for g in rig.mind.goals.all()
+                if g.provenance == f"told:{goal.id}"]
+    from yurios.mind.goalwork import prepare_system
+    from yurios.mind.hands import Offer
+    system = prepare_system(rig.mind, goal, Offer(tools=("write_note",)), False)
+    assert "tell_them" not in system
+
+
+async def test_what_already_carries_its_content_skips_getting_ready(
+        cfg, seeded_vault):
+    from yurios.mind.goalwork import needs_preparing
+    rig = reach_rig(cfg, seeded_vault)
+    add = rig.mind.goals.add
+    assert needs_preparing(rig.mind, add("send a selfie", kind="reach_out",
+                                         provenance="user:chat"))
+    assert not needs_preparing(rig.mind, add("x", kind="reach_out",
+                                             provenance="followup:g-1"))
+    assert not needs_preparing(rig.mind, add("y", kind="reach_out",
+                                             provenance="told:g-1",
+                                             meta={"say": "hi", "decided": True}))
+    assert not needs_preparing(rig.mind, add("z", kind="reach_out",
+                                             meta={"product": {"image_url": SHOT}}))
+    assert not needs_preparing(rig.mind, add("w", kind="task"))
+
+
+async def test_without_hands_a_reach_out_goes_straight_to_the_gate(
+        cfg, seeded_vault):
+    rig = make_mind(cfg.model_copy(update={"mind_interrupt_threshold": 0.0}),
+                    seeded_vault)
+    rig.mind.goals.add("ask him how the interview went", kind="reach_out",
+                       priority=0.9, provenance="user:chat")
+    trace = await rig.mind.tick()
+    assert trace["decided"]["intention"].startswith("goal:")
+    assert trace["interrupt"]
+
+
+async def test_not_yet_parks_a_dated_reach_out_until_nearer_its_date(
+        cfg, seeded_vault):
+    """Her call that the moment has not come, honoured: parked until six
+    hours before its date, without spending one of its steps — and with her
+    hands off too, because that judgement needs no hands."""
+    from yurios.mind.goalwork import NOT_YET_LEAD_H
+    from yurios.mind.util import iso_of, ts_of_iso
+
+    rig = make_mind(cfg.model_copy(update={"mind_interrupt_threshold": 0.0}),
+                    seeded_vault,
+                    utility=ScriptedUtility("think he hasn't had it yet — not yet"))
+    goal = rig.mind.goals.add("ask how the interview went", kind="reach_out",
+                              priority=0.9, provenance="promise:her-own-words",
+                              due=iso_of(rig.clock.now() + 30 * 3600))
+    trace = await rig.mind.tick()
+
+    held = rig.mind.goals.get(goal.id)
+    assert trace["interrupt"] == {}
+    assert held.state == "waiting"
+    assert held.steps == 0
+    assert rig.mind.wakeups[goal.id] == \
+        ts_of_iso(str(goal.due)) - NOT_YET_LEAD_H * 3600
+    assert rig.post.proactive() == []
+
+
+async def test_a_day_of_thinking_does_not_lock_the_camera(cfg, seeded_vault):
+    """Yuri's afternoon of 3 Oct: 0.91 of the day's tokens spent on goal work,
+    and the selfie she had been asked for held behind the token ceiling. The
+    render is not tokens; the web hands, whose results are, still wait."""
+    rig = reach_rig(cfg, seeded_vault,
+                    'think he asked for another — take it\n'
+                    'use take_selfie {"look": "by the window"}',
+                    allow="take_selfie,research,write_note")
+    rig.mind.cfg = rig.mind.cfg.model_copy(update={"search_backend": "fake"})
+    rig.mind.hands.cfg = rig.mind.cfg
+    rig.mind.budget.pressure = lambda: 0.91
+    offer = rig.mind.hands.offer(state="DORMANT", pressure=0.91, user_present=False)
+    assert "take_selfie" in offer.tools
+    assert offer.held == ("research",) and "budget" in offer.held_why
+
+    goal = rig.mind.goals.add("send him a new selfie", kind="reach_out",
+                              priority=0.9, provenance="user:chat")
+    await work(rig)
+    assert rig.runner.calls[0][0] == "take_selfie"
+    assert rig.mind.goals.get(goal.id).state == "waiting"
+
+
+async def test_a_reach_out_whose_camera_waits_for_the_room_spends_no_step(
+        cfg, seeded_vault):
+    """Not ready with the camera held: no step spent, so the horizon cannot
+    send "a new selfie" with none in it — and no morning park, because the
+    room empties on its own schedule, not the budget's."""
+    rig = reach_rig(cfg, seeded_vault,
+                    "think the camera waits until he's gone; I'll come back to it")
+    rig.mind.bus.post("user_present", {}, source="frontend")
+    goal = rig.mind.goals.add("send him a new selfie", kind="reach_out",
+                              priority=0.9, provenance="user:chat")
+    trace = (await work(rig))[0]
+
+    held = rig.mind.goals.get(goal.id)
+    assert trace["decided"]["intention"].startswith("tool_step:")
+    assert "take_selfie" not in trace["decided"]["hands"]["available"], \
+        "the room holds the camera — the case under test"
+    assert trace["interrupt"] == {}
+    assert held.state == "active" and held.steps == 0
+    assert goal.id not in rig.mind.wakeups
+    assert rig.post.proactive() == [] and rig.runner.calls == []
+
+
+async def test_a_reach_out_whose_web_hand_is_budget_held_waits_for_the_morning(
+        cfg, seeded_vault):
+    from yurios.mind.policy import next_open
+
+    rig = reach_rig(cfg, seeded_vault,
+                    "think I need to look it up first and the search is held",
+                    allow="research,write_note")
+    rig.mind.cfg = rig.mind.cfg.model_copy(update={"search_backend": "fake"})
+    rig.mind.hands.cfg = rig.mind.cfg
+    rig.mind.budget.pressure = lambda: 0.91
+    goal = rig.mind.goals.add("tell him what the reviews say about that film",
+                              kind="reach_out", priority=0.9,
+                              provenance="user:chat")
+    then = rig.clock.now()
+    trace = (await work(rig))[0]
+
+    held = rig.mind.goals.get(goal.id)
+    assert trace["interrupt"] == {}
+    assert held.state == "waiting" and held.steps == 0
+    assert rig.mind.wakeups[goal.id] == next_open(then)
+    assert rig.post.proactive() == []

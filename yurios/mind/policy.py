@@ -136,7 +136,7 @@ def appraise_signal(sig, *, surprise: float = 0.0) -> Appraisal:
 def appraise_goal(goal, clock: Clock) -> Appraisal:
     score = goal.priority * 0.6
     why = f"priority {goal.priority}"
-    if goal.is_due(clock):
+    if goal.dated and goal.is_due(clock):     # a shelf life is not due-ness (§18.2)
         score += 0.35
         why += ", due soon"
     if goal.is_stale(clock) and goal.commitment == "blind":

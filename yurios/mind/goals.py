@@ -70,6 +70,11 @@ class Goal:
             return False
         return (ts_of_iso(self.due) - clock.now()) / 3600 <= horizon_hours
 
+    @property
+    def dated(self) -> bool:
+        """Whether `due` is a real time, not a filer's shelf life (SPEC §18.2)."""
+        return self.due is not None and not self.provenance.startswith(SHELF_LIFE)
+
     def is_stale(self, clock: Clock) -> bool:
         """Past due — whether it is defended or dropped is the commitment's call."""
         return self.due is not None and ts_of_iso(self.due) < clock.now()
@@ -211,6 +216,13 @@ HANDED_GOAL = "handed:"
 #: night's stock-take (`strategy:<day>`, §22.1b) and her free time. These are
 #: what `MIND_SELF_GOALS_MAX` counts and what the inner-life panel marks hers.
 OWN_JUDGEMENT = ("strategy:", MUSE_GOAL)
+
+#: Goals whose `due` is a shelf life, not an appointment (SPEC §18.2). Nothing
+#: she files names a date — `create_goal` takes none — so the one these carry
+#: is only when an untouched goal lets go of itself. Gate 2 scores them as
+#: undated: a three-day expiry read as a deadline denied her the waiting
+#: credit and held the reach-out under the threshold until its last six hours.
+SHELF_LIFE = (STEP_GOAL, HANDED_GOAL, *OWN_JUDGEMENT)
 
 #: Provenance prefixes that name a parent goal, deduplicated on the parent.
 PARENTED = ("followup:", "told:", STEP_GOAL)

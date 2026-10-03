@@ -1684,9 +1684,21 @@ them is precisely the always-interrupting-assistant failure.
   Retry count **MUST NOT** earn credit. Dated goals retain their actual time-sensitivity
   without this credit; absent or invalid creation times earn none. Quiet hours, the daily
   cap and the user's threshold still apply. The trace **MUST** show the waiting credit
-  and whether silence came from quiet hours, the daily cap or the score. This makes an
-  undated priority-0.7 reach-out eligible after about 29 hours in otherwise favourable
-  daytime conditions; previously its lifetime ceiling was 0.63 against the default 0.75.
+  and whether silence came from quiet hours, the daily cap or the score. The default
+  threshold is 0.6. Against it an undated priority-0.7 reach-out in daytime, with none of
+  today's interrupts spent, is eligible at once when she has not reached out for a day and
+  about 17 hours after her last reach-out otherwise. At the earlier default of 0.75 it
+  needed about 29 hours even with a day's silence behind it — hourly SILENT lines in the
+  Decisions panel for a day and more, on every reach-out she had — and before the waiting
+  credit its lifetime ceiling was 0.63.
+  A **shelf life is not a date**. A goal she filed herself — a goal step's `create_goal`
+  (`goal:`), free time (`muse:`), a handed document (`handed:`), the night's stock-take
+  (`strategy:`) — carries a `due` only so that an untouched one lets go of itself; nothing
+  she files names a time. Gate 2 **MUST** score such a reach-out as undated: it earns the
+  waiting credit, and its expiry **MUST NOT** raise its time-sensitivity. Read as a
+  deadline, a three-day expiry held a self-filed reach-out at a 0.62 ceiling — no waiting
+  credit, 0.2 time-sensitivity — until its last six hours, and the Decisions panel filled
+  with hourly holds that could not end any other way.
 - §18.2a **A tool product is not a delivery** (normative, the landing rule). Work the *mind* started
   stamps its contract `_deliver: "vault"`, and `Researcher` / `SelfieLab` **MUST** honour it by
   writing the product to the shelf or the gallery and **posting nothing**; they post a
@@ -1767,6 +1779,34 @@ them is precisely the always-interrupting-assistant failure.
   was "tell him, directly, in conversation, not in a note" wrote a scene of saying it on her desk,
   read its own desk back on the next step as the event, recorded the conversation in her diary,
   and closed the goal on an `append_note` (28 Sep).
+- §18.2c **A reach-out gets ready with her hands before Gate 2 rules on it.** Gate 2 can only
+  compose a sentence, so a `reach_out` that went straight to it could never carry anything it had
+  to *make*: "send him a new selfie" was ruled on every hour and no picture ever existed. While her
+  hands are offered (§26), a reach-out that still **needs preparing** **MUST** be appraised as a
+  `tool_step` and given a preparing step before the gate — the same context, chained hands, desk
+  and start-don't-await as a task's step (§22, §26.2), less `tell_them` (this goal *is* the message,
+  and the threshold still rules on it) and `create_goal` (getting a message ready is not taking on
+  new work). A reach-out needs preparing unless it is her decided words (`told:`, §18.2b), a
+  `followup:` reporting on finished work, already holding a picture, already marked `prepared`, or
+  past `MIND_GOAL_MAX_STEPS` steps. A render it dispatches lands on it as its product (§18.2a) and
+  Gate 2 then delivers the picture; it **MUST NOT** go to the gate while that render is out. A step
+  that writes `ready to send` on its `think` line, or the last step it gets, marks it `prepared` and
+  **MUST** go to Gate 2 on the same tick — preparing is the intention's first half, not another
+  intention. A step that is not ready leaves it `active` for its next turn, unsent. A step that is
+  not ready while a hand she has is **held** (§26.3 — the camera while the room is occupied, a web
+  hand behind the budget line) **MUST NOT** spend one of its steps, and a budget hold **MUST** park it `waiting`
+  until `policy.next_open`, when the day's budget has rolled and both of Gate 2's hard gates are
+  open: spent at the horizon, those steps would send "a new selfie" with no selfie in it. A prepared
+  reach-out's compose cue carries the last entry on its own desk, as a follow-up's carries its
+  parent's.
+  A reach-out with a real date (§18.2 — not a shelf life) **MUST** get the preparing step with her
+  hands off too, as a moment to think, and the step **MUST** tell her its date and the time now.
+  Early is hers to choose, but the score cannot tell "remind him before Thursday" from "ask how
+  Tuesday's interview went", and at the default threshold it clears the gate for the second a day
+  before the interview. Writing `not yet` on the `think` line, while the date is still ahead,
+  **MUST** park the goal `waiting` until six hours before its date (or leave it `active` for its
+  next turn if that is already past), **MUST NOT** spend one of its steps, and **MUST NOT** take it
+  to Gate 2. An undated reach-out with her hands off goes straight to Gate 2 as it always did.
 - §18.3 **Outcomes, ascending imposition:** **SILENT** — the default: do it quietly and journal it
   (a stale non-blind goal is let go with a journal line; the journal, not notifications, carries the
   value); **SUGGEST** — one composed line posted to the chat, waiting for the user's next glance,
@@ -2700,9 +2740,14 @@ needs a sandbox.
   the machine her reply is using, and it cannot do both; a hosted one can, so her hands keep
   working through the conversation. An unrecognised value **MUST** be read as `auto`. **expensive**
   (`research`, `read_page`, `web_search`, the two cameras) is one whole tick's intention and
-  additionally requires its backend to be configured, budget pressure under the ceiling, and
-  DORMANT/DREAM **or** the user absent — including while she is talking, when the cheap hands are
-  not standing down. An expensive hand held back on those grounds while cheap ones are offered
+  additionally requires its backend to be configured and DORMANT/DREAM **or** the user absent —
+  including while she is talking, when the cheap hands are not standing down. The web hands
+  additionally require budget pressure under `MIND_TOOL_PRESSURE_CEILING`; the cameras **MUST NOT**.
+  The ceiling measures model tokens, and a web hand's result is read back into her prompts, so it
+  spends them; a render's cost is the image, which the token budget never counts, and the cameras
+  have their own rate bucket, the daily call cap and the fingerprint cooldown. Gated on tokens, a
+  selfie she had been asked for sat held all afternoon behind a ceiling her goal work had spent
+  (3 Oct). An expensive hand held back on those grounds while cheap ones are offered
   **MUST** still be named in the step's prompt, as hers but waiting, with the reason (the room, or
   the budget); a hand simply missing from the list reads as one she does not have, and live she
   wrote on her desk that she had no web tool about a search that was only waiting for the room to

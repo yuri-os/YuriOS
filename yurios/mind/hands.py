@@ -545,21 +545,30 @@ class Hands:
         if self._count() >= cap:
             return Offer(reason=f"today's {cap} autonomous calls are spent")
         ceiling = float(getattr(self.cfg, "mind_tool_pressure_ceiling", 0.5))
-        expensive_ok = (pressure < ceiling
-                        and (state in (DORMANT, DREAM) or not user_present))
+        over = pressure >= ceiling
+        room = state in (DORMANT, DREAM) or not user_present
+        # The token ceiling gates the hands that spend tokens: a web result is
+        # read back into her prompts. A camera's cost is the render, which the
+        # token budget never counts — and it has its own rate bucket, the daily
+        # call cap and the fingerprint cooldown — so a day of thinking must not
+        # lock it (§26.3). Live, a selfie she had been asked for sat held all
+        # afternoon behind a ceiling her goal work had spent.
         tools = tuple(t for t in self.allowlist
-                      if klass(t) == "cheap" or expensive_ok)
+                      if klass(t) == "cheap"
+                      or (room and (t in NEEDS_CAMERA or not over)))
         held = tuple(t for t in self.allowlist if t not in tools)
-        held_why = ""
-        if held:
-            held_why = (f"today's budget is past the {ceiling:g} line they "
-                        "wait behind" if pressure >= ceiling else
-                        "they wait until the room is empty")
+        why = []
+        if held and not room:
+            why.append("they wait until the room is empty")
+        if over and any(t not in NEEDS_CAMERA for t in held):
+            why.append(f"today's budget is past the {ceiling:g} line the web "
+                       "ones wait behind")
+        held_why = "; ".join(why)
         if not tools:
-            if pressure >= ceiling:
-                return Offer(reason=f"budget pressure {pressure:.2f} is over "
-                                    f"the {ceiling:g} ceiling for expensive hands")
-            return Offer(reason="expensive hands wait for the room to be empty")
+            if not room:
+                return Offer(reason="expensive hands wait for the room to be empty")
+            return Offer(reason=f"budget pressure {pressure:.2f} is over the "
+                                f"{ceiling:g} ceiling for the web hands")
         return Offer(tools=tools, held=held, held_why=held_why)
 
     def check(self, tool: str, args: dict | None, *, state: str,

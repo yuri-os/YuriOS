@@ -230,6 +230,10 @@ class FakeUtility:
             return "Two of these are the same thing. Do the sailing one first."
         if "want a picture of" in low:
             return "Sat by the window with the lamp low, chin on my hand."
+        if "get ready what the message should carry" in low:
+            # A reach-out's preparing step (§18.2c): nothing to fetch, so it
+            # goes to the gate — the behaviour every scenario was written to.
+            return "think nothing to get ready for this — ready to send"
         return '{"ops": []}'
 
 
@@ -401,7 +405,10 @@ class ScriptedUtility:
     async def complete(self, messages, **params):
         self.calls.append([dict(m) for m in messages])
         system = (messages[0].get("content", "") if messages else "").lower()
-        if "advancing one of your own goals" in system and self.lines:
+        # A task's working step, or a reach-out's preparing one (§18.2c): the
+        # same kind of call, the same script.
+        if self.lines and ("advancing one of your own goals" in system
+                           or "get ready what the message should carry" in system):
             return self.lines.pop(0)
         if "this is your free time" in system and self.muse:
             return self.muse.pop(0)

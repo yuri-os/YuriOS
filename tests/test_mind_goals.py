@@ -22,7 +22,9 @@ from .conftest import ScriptedChat, ScriptedUtility, collect, make_mind, run_min
 
 
 async def test_undated_reach_out_progresses_with_persistent_decision_history(cfg, seeded_vault):
-    cfg = cfg.model_copy(update={"dream_enabled": False})
+    # a threshold that holds it: the subject is the history of holds
+    cfg = cfg.model_copy(update={"dream_enabled": False,
+                                 "mind_interrupt_threshold": 0.75})
     rig = make_mind(cfg, seeded_vault)
     goal = rig.mind.goals.add("share an unspoken wish", kind="reach_out",
                               priority=0.7)
@@ -55,13 +57,36 @@ async def test_dated_reach_out_does_not_earn_waiting_credit(cfg, seeded_vault):
     from yurios.mind import acts
     from yurios.mind.util import iso_of
 
-    rig = make_mind(cfg, seeded_vault)
+    rig = make_mind(cfg.model_copy(update={"mind_interrupt_threshold": 0.75}),
+                    seeded_vault)
     goal = rig.mind.goals.add("ask about the interview afterwards", kind="reach_out",
                               priority=0.7, due=iso_of(rig.clock.now() + 120 * 3600))
     rig.clock.advance(48 * 3600)
     _, interrupt, _ = await acts.reach_out(rig.mind, goal)
     assert interrupt["outcome"] == "SILENT"
     assert interrupt["factors"]["waiting_credit"] == 0
+
+
+async def test_a_shelf_life_is_not_an_appointment(cfg, seeded_vault):
+    # A reach-out she filed carries a three-day expiry, not a date anyone set.
+    # Read as a deadline it earned no waiting credit and sat at 0.2 time
+    # sensitivity, under the threshold for all but its last six hours (§18.2).
+    from yurios.mind import acts
+    from yurios.mind.goals import MUSE_GOAL
+    from yurios.mind.util import iso_of
+
+    rig = make_mind(cfg, seeded_vault)
+    goal = rig.mind.goals.add("send him the picture by the window", kind="reach_out",
+                              priority=0.68, due=iso_of(rig.clock.now() + 72 * 3600),
+                              commitment="open-minded",
+                              provenance=MUSE_GOAL + "2026-10-03")
+    assert not goal.dated
+    rig.clock.advance(24 * 3600)
+    _, interrupt, _ = await acts.reach_out(rig.mind, goal)
+    assert interrupt["factors"]["waiting_credit"] == 0.1
+    rig.clock.advance(44 * 3600)          # inside its last six hours
+    _, interrupt, _ = await acts.reach_out(rig.mind, goal)
+    assert interrupt["factors"]["time_sensitivity"] == 0.2
 
 
 # --- the conversational prompt knows what she is already working on ------------
@@ -995,3 +1020,20 @@ async def test_a_promise_she_keeps_is_a_promise_they_hear_about(cfg, seeded_vaul
             if g.provenance == f"followup:{parent.id}"]
     assert news, "she kept the promise and filed nothing to tell them about it"
     assert news[0].kind == "reach_out"
+
+
+def test_gate_1_does_not_read_a_shelf_life_as_due_soon(cfg, seeded_vault):
+    # The same three-day expiry, on the act gate's side: a self-filed goal in
+    # its last twelve hours must not jump the list as "due soon" (§18.2).
+    from yurios.mind.goals import STEP_GOAL
+    from yurios.mind.policy import appraise_goal
+    from yurios.mind.util import iso_of
+
+    rig = make_mind(cfg, seeded_vault)
+    due = iso_of(rig.clock.now() + 6 * 3600)
+    shelf = rig.mind.goals.add("tidy the shed notes", priority=0.68, due=due,
+                               provenance=STEP_GOAL + "g-1")
+    real = rig.mind.goals.add("ask about the interview", priority=0.68, due=due,
+                              provenance="user:chat")
+    assert "due soon" not in appraise_goal(shelf, rig.clock).why
+    assert "due soon" in appraise_goal(real, rig.clock).why

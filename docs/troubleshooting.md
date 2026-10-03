@@ -250,7 +250,7 @@ curl localhost:8768/api/mind/journal
 tail -f data/characters/yuri/traces/ticks.jsonl
 ```
 
-If you genuinely want more initiative, lower `MIND_INTERRUPT_THRESHOLD` (0.75) or raise
+If you genuinely want more initiative, lower `MIND_INTERRUPT_THRESHOLD` (0.6) or raise
 `MIND_MAX_INTERRUPTS_PER_DAY` (3). Remember quiet hours (~22:00–09:00) are a **hard gate**, not a
 weight — no score gets through them.
 

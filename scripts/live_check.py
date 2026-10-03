@@ -405,7 +405,7 @@ async def scenario_rescue(rig: Rig) -> str:
 
 
 async def scenario_waiting(rig: Rig) -> str:
-    """An undated reach-out waits, then reaches the durable chat at default Gate 2."""
+    """An undated reach-out waits, then reaches the durable chat at a 0.75 Gate 2."""
     from yurios.mind.util import day_of
 
     old_threshold = rig.mind.cfg.mind_interrupt_threshold

@@ -9,7 +9,7 @@ from __future__ import annotations
 import datetime
 import json
 
-from .conftest import SIM_START, make_mind, run_mind
+from .conftest import SIM_START, ScriptedUtility, make_mind, run_mind
 
 
 def _hours(rig) -> float:
@@ -19,7 +19,14 @@ def _hours(rig) -> float:
 # --- the interview was Tuesday ------------------------------------------------
 
 async def test_interview_tuesday_one_welljudged_reach_out(cfg, seeded_vault):
-    rig = make_mind(cfg, seeded_vault)
+    # The score clears the threshold on Monday morning, a day early; what holds
+    # it is her own judgement on the preparing step (§18.2c). Scripted, because
+    # the plumbing around that judgement is what this battery can check.
+    rig = make_mind(cfg, seeded_vault, utility=ScriptedUtility(
+        "think the interview is tomorrow evening — asking now would be asking "
+        "before it happened. not yet.",
+        "think it's this evening; by the time this reaches him it will be "
+        "over. ready to send"))
     # Monday 09:00 — a short exchange, then the user is gone
     rig.say("the big interview is tomorrow evening. wish me luck",
             reply="You'll be great. Go get it.")
@@ -39,13 +46,15 @@ async def test_interview_tuesday_one_welljudged_reach_out(cfg, seeded_vault):
     lo = datetime.datetime(2026, 7, 7, 9, 0)
     hi = datetime.datetime(2026, 7, 7, 18, 30)
     assert lo <= when <= hi, f"reached out at {when}, not near the interview"
-    # she considered it and chose quiet many times before speaking
-    silents = [t for t in traces if t["interrupt"].get("outcome") == "SILENT"]
-    assert len(silents) >= 3, "restraint should be visible in the trace"
+    # the restraint is visible in the trace: her "not yet", a day ahead
+    held = [i for i, t in enumerate(traces)
+            if "not yet" in str(t["acted"].get("result", ""))]
     speaks = [t for t in traces if t["interrupt"].get("outcome") == "SPEAK"]
     assert len(speaks) == 1
-    # …and the restraint is a *scored* decision, factors shown
-    assert "availability" in silents[0]["interrupt"]["factors"]
+    assert held and held[0] < traces.index(speaks[0]), \
+        "restraint should be visible in the trace"
+    # …and the sending is still a *scored* decision, factors shown
+    assert "availability" in speaks[0]["interrupt"]["factors"]
     g = next(g for g in rig.mind.goals.all() if "interview" in g.text)
     assert g.state == "done"
     # nothing was ever spoken into the empty room

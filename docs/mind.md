@@ -121,8 +121,13 @@ bonus from violated expectations. Below `MIND_ACT_THRESHOLD` (0.4) the tick rest
 since she last reached out, inferred availability by hour, and a welcome term that decays with
 each interruption today. An undated reach-out also earns up to 0.20 for waiting,
 linearly over 48 hours from creation. Without that term, even maximum priority
-could never clear the default threshold without a due date. Dated goals keep their
+could never clear the threshold without a due date. Dated goals keep their
 actual timing; retries earn no extra credit. The trace names the reason for silence.
+
+A goal she filed herself (from a goal step, her free time, a document you handed her, or the
+night's stock-take) carries a three-day expiry so an untouched one lets go of itself. That expiry
+is not a deadline. Both gates score such a goal as undated: it earns the waiting credit, and it
+does not jump the list as "due soon" in its last hours.
 
 Each goal keeps its last six attempt outcomes across restarts. Working prompts and
 reach-out composition see that brief history, including gate refusals, so an attempt
@@ -150,6 +155,24 @@ the judgement it stands in for. Your two hard gates still do. Inside quiet hours
 cap it waits, parked, until 09:00, and then it arrives as a chat line in her words, never re-composed
 and never spoken aloud. The goal she was working waits for the message to land, and closes only once
 it has.
+
+**Getting ready first.** A reach-out about something she has to *make* — "send him a new
+selfie" — used to be ruled on with nothing in hand, because Gate 2 can only write a sentence. Now,
+while her hands are on, a reach-out gets a preparing step before the gate: the same hands a task
+step gets, less `tell_them` and `create_goal`. She takes the picture, or looks the thing up, and
+writes `ready to send`. A render she starts comes back onto the goal, and Gate 2 then sends the
+picture with her line. Ready, it goes to the gate on the same tick; not ready, it waits for its
+next turn rather than going without what it was about; out of steps, it goes as it is. If the
+tool it needs is held back (the camera while you're in the room, a web tool once today's budget is
+past `MIND_TOOL_PRESSURE_CEILING`), a step that isn't ready uses none of its steps, and a budget
+hold waits for the morning. A follow-up,
+a decided `tell_them` message, and a goal already holding a picture skip the step.
+
+A reach-out with a real date gets the step even with her hands off, as a moment to think. Early is
+fine when she decides it is, but the score can't tell "remind him before Thursday" from "ask how
+Tuesday's interview went". If it's about something that hasn't happened yet, she writes `not yet`
+and it comes back to her six hours before its date. With her hands off, an undated reach-out goes
+straight to the gate as before.
 
 The journal line for each outcome says what actually happened: the words she sent, or what held
 the message back (quiet hours, today's cap, "not pressing enough to interrupt yet"). It never says
@@ -690,7 +713,7 @@ to the prompt that phrased it to the audit line that ran it.
 MIND_ENABLED=true                 # off = the reactive body, minus ambient life
 MIND_SEED=0                       # 0 = unseeded; tests pin a seed
 MIND_ACT_THRESHOLD=0.4            # gate 1
-MIND_INTERRUPT_THRESHOLD=0.75     # gate 2 — YOUR dial
+MIND_INTERRUPT_THRESHOLD=0.6      # gate 2 — YOUR dial
 MIND_MAX_INTERRUPTS_PER_DAY=3     # the hard daily cap
 MIND_CONSIDER_COOLDOWN_S=3600     # minimum gap between re-chewing one goal
 MIND_GOAL_FILING_ENABLED=true     # may the night file a goal of her own?
@@ -766,8 +789,9 @@ they stand down only when `MIND_TOOLS_DURING_CHAT` says so: `off` always, `on` n
 utility model is the machine her reply is using, and it cannot do both; a hosted one can, so the
 desk keeps working through the conversation.
 Expensive ones (`research`, `read_page`, `web_search`, the cameras) take the whole tick, need
-their backend, budget pressure under `MIND_TOOL_PRESSURE_CEILING`, and DORMANT/DREAM **or** you
-absent — including while she is talking. `MIND_TOOL_CALLS_PER_DAY` is a cap, not a governor: it is checked before the call and
+their backend, and DORMANT/DREAM **or** you absent — including while she is talking. The web ones
+also need budget pressure under `MIND_TOOL_PRESSURE_CEILING`. The cameras don't: the budget counts
+model tokens, a render costs none, and the camera has its own rate and daily cap. `MIND_TOOL_CALLS_PER_DAY` is a cap, not a governor: it is checked before the call and
 it refuses. The default daily cap is **64 calls**, checked before dispatch. The same call is
 refused for hours by a fingerprint ledger that survives restarts.
 Nothing she makes this way is sent to you. It goes on her shelf, in her gallery, or on her

@@ -16,7 +16,7 @@ def test_defaults():
     # the mind's dials (SPEC §15–§18)
     assert cfg.mind_enabled
     assert cfg.mind_act_threshold == 0.4
-    assert cfg.mind_interrupt_threshold == 0.75
+    assert cfg.mind_interrupt_threshold == 0.6
     assert cfg.mind_max_interrupts_per_day == 3
     assert cfg.mind_dormant_cadence_s == 900.0
     assert cfg.idle_settle_s == 20.0              # the reflex windows survive

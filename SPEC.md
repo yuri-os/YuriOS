@@ -1680,17 +1680,22 @@ them is precisely the always-interrupting-assistant failure.
   score outright. Both dials are the **user's** (§25) — you cannot tune the dial against someone who
   holds it.
   An undated reach-out **MUST** earn a bounded waiting credit from its creation time:
-  +0.20 linearly over 48 hours, clamped to [0, 0.20], with the total score capped at 1.
+  +0.20 linearly over 24 hours, clamped to [0, 0.20], with the total score capped at 1.
   Retry count **MUST NOT** earn credit. Dated goals retain their actual time-sensitivity
   without this credit; absent or invalid creation times earn none. Quiet hours, the daily
   cap and the user's threshold still apply. The trace **MUST** show the waiting credit
   and whether silence came from quiet hours, the daily cap or the score. The default
   threshold is 0.6. Against it an undated priority-0.7 reach-out in daytime, with none of
-  today's interrupts spent, is eligible at once when she has not reached out for a day and
-  about 17 hours after her last reach-out otherwise. At the earlier default of 0.75 it
-  needed about 29 hours even with a day's silence behind it — hourly SILENT lines in the
-  Decisions panel for a day and more, on every reach-out she had — and before the waiting
-  credit its lifetime ceiling was 0.63.
+  today's interrupts spent, is eligible at once when she has not reached out for a day;
+  filed the moment she last reached out, about 6 hours after it. At the earlier default of
+  0.75 it needed about 29 hours even with a day's silence behind it — hourly SILENT lines in
+  the Decisions panel for a day and more, on every reach-out she had — and before the
+  waiting credit its lifetime ceiling was 0.63. The credit's window was 48 hours until
+  2026-10-05, and that was a day too slow for the commonest reach-out there is — one she
+  files mid-morning to pick up a conversation the user just left. A priority-0.68 goal filed
+  at 10:28, an hour after a reach-out of hers had spent one of the day's interrupts, climbed
+  to 0.591 by 21:50 and was then held by quiet hours: thirteen hourly holds and not one
+  model call on it all day. Over 24 hours the same goal clears 0.6 at 18:50.
   A **shelf life is not a date**. A goal she filed herself — a goal step's `create_goal`
   (`goal:`), free time (`muse:`), a handed document (`handed:`), the night's stock-take
   (`strategy:`) — carries a `due` only so that an untouched one lets go of itself; nothing

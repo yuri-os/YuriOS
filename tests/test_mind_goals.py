@@ -81,10 +81,10 @@ async def test_a_shelf_life_is_not_an_appointment(cfg, seeded_vault):
                               commitment="open-minded",
                               provenance=MUSE_GOAL + "2026-10-03")
     assert not goal.dated
-    rig.clock.advance(24 * 3600)
+    rig.clock.advance(12 * 3600)
     _, interrupt, _ = await acts.reach_out(rig.mind, goal)
     assert interrupt["factors"]["waiting_credit"] == 0.1
-    rig.clock.advance(44 * 3600)          # inside its last six hours
+    rig.clock.advance(56 * 3600)          # inside its last six hours
     _, interrupt, _ = await acts.reach_out(rig.mind, goal)
     assert interrupt["factors"]["time_sensitivity"] == 0.2
 

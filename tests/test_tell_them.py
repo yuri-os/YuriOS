@@ -357,7 +357,7 @@ async def test_a_picture_held_by_quiet_hours_is_parked_and_never_let_go(
 
 async def test_below_threshold_keeps_its_hourly_look_and_one_line_a_reason(
         cfg, seeded_vault):
-    cfg = _cfg(cfg).model_copy(update={"mind_interrupt_threshold": 0.75})
+    cfg = _cfg(cfg).model_copy(update={"mind_interrupt_threshold": 0.85})
     rig = make_mind(cfg, seeded_vault)                         # Monday 09:00
     goal = rig.mind.goals.add("share an unspoken wish", kind="reach_out",
                               priority=0.7)

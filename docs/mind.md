@@ -120,7 +120,7 @@ bonus from violated expectations. Below `MIND_ACT_THRESHOLD` (0.4) the tick rest
 1. It's built from named factors the trace records verbatim: relevance, time-sensitivity, hours
 since she last reached out, inferred availability by hour, and a welcome term that decays with
 each interruption today. An undated reach-out also earns up to 0.20 for waiting,
-linearly over 48 hours from creation. Without that term, even maximum priority
+linearly over 24 hours from creation. Without that term, even maximum priority
 could never clear the threshold without a due date. Dated goals keep their
 actual timing; retries earn no extra credit. The trace names the reason for silence.
 

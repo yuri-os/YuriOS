@@ -220,10 +220,10 @@ def test_the_factors_are_shown(clock):
 def test_undated_reach_out_can_earn_an_opportunity(clock):
     args = dict(relevance=0.7, time_sensitivity=0.2)
     assert _score(clock, **args).score == 0.63
-    ready = _score(clock, waiting_hours=30, **args)
+    ready = _score(clock, waiting_hours=15, **args)
     assert ready.outcome == "SUGGEST"
     assert ready.factors["waiting_credit"] == 0.125
-    assert _score(clock, waiting_hours=48, **args).score == \
+    assert _score(clock, waiting_hours=24, **args).score == \
         _score(clock, waiting_hours=10000, **args).score == 0.83
     assert _score(clock, waiting_hours=-10, **args).score == 0.63
 

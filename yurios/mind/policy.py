@@ -204,7 +204,7 @@ def score_interrupt(*, clock: Clock,
     # An undated intention otherwise tops out at 0.72, below the default
     # threshold even at maximum relevance. Waiting earns a bounded opportunity,
     # independent of how often the heartbeat retries it (SPEC §18.2).
-    waiting_credit = 0.20 * min(1.0, max(0.0, waiting_hours) / 48.0)
+    waiting_credit = 0.20 * min(1.0, max(0.0, waiting_hours) / 24.0)
     score = min(1.0, 0.30 * relevance + 0.35 * time_sensitivity
                 + 0.10 * contact_license + 0.15 * availability + 0.10 * welcome
                 + waiting_credit)

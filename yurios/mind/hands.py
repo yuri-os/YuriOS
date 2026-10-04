@@ -742,6 +742,13 @@ class Intent:
     #: server, booked `{}` in the cooldown ledger, and every later fumble of
     #: the same hand came back "she already did this" for six hours.
     fumbled: str = ""
+    #: On a `use`: her answer up to the end of the call that runs — what the
+    #: step's transcript keeps as her turn (SPEC §26.2). Empty means the whole
+    #: answer. Kept whole, a second call below the first went back to her with
+    #: one result under both, and she wrote the missing one herself: live,
+    #: 4 Oct, 2,066 tokens of a `read_note` result for a note she never read,
+    #: carried through every later call of the step and planned from.
+    said: str = ""
 
 
 #: A `use <hand> {` anywhere in a line — at its start, or run onto the end of
@@ -790,7 +797,9 @@ def parse_intent(reply: str, *, allowed: tuple[str, ...]) -> Intent:
                 if tool in HANDS or tool == TELL:
                     named.append(tool)
                 continue
-            raw = line[at:].strip()[4:].strip()
+            head = line[at:].strip()
+            raw = head[4:].strip()
+            reach = head[:len(head) - len(raw)]     # "use <hand> ", as written
             start = raw.find("{")
             # The object may run past this line: a note's text written with
             # real line breaks, JSON pretty-printed, or the `{` on the line
@@ -802,6 +811,7 @@ def parse_intent(reply: str, *, allowed: tuple[str, ...]) -> Intent:
                 start = len(raw) + 1 + len(below) - len(below.lstrip())
             args: dict = {}
             fumbled = ""
+            said = "\n".join([*lines[:index], line]).strip()
             if start >= 0:
                 try:
                     # The first object, not first `{` to last `}`: a second
@@ -810,8 +820,10 @@ def parse_intent(reply: str, *, allowed: tuple[str, ...]) -> Intent:
                     # arguments. The second is dropped — she is asked again
                     # once the first comes back. Not strict: a raw newline
                     # inside a string is what a model writes for a paragraph.
-                    parsed, _ = json.JSONDecoder(strict=False).raw_decode(rest, start)
+                    parsed, end = json.JSONDecoder(strict=False).raw_decode(rest, start)
                     args = parsed if isinstance(parsed, dict) else {}
+                    said = "\n".join([*lines[:index],
+                                      line[:at] + reach + rest[:end]]).strip()
                 except json.JSONDecodeError as e:
                     # She named the hand and fumbled the JSON. Guessing what
                     # she meant is worse than saying where it broke.
@@ -824,7 +836,7 @@ def parse_intent(reply: str, *, allowed: tuple[str, ...]) -> Intent:
             # for the call and a place a done-mark could be (SPEC §26.2).
             return Intent("use", tool=tool, args=args,
                           text=_thought([*lines[:index], line[:at]]),
-                          fumbled=fumbled)
+                          fumbled=fumbled, said="" if fumbled else said)
     # everything else — including a plain paragraph — is her thinking. A call
     # to a hand she was not offered is still named, so a done-mark written
     # beside it is not read as a finish (goalwork).

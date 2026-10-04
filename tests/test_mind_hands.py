@@ -101,9 +101,11 @@ async def test_a_character_switched_off_cannot_use_the_house_capability(
 
 # --- a hand that does work --------------------------------------------------------
 
-def rig_with_hands(cfg, vault, *lines, allow="write_note", tools=None, **extra):
+def rig_with_hands(cfg, vault, *lines, allow="write_note", tools=None,
+                   utility=None, **extra):
     runner = tools if tools is not None else FakeToolRunner()
-    rig = make_mind(cfg, vault, utility=ScriptedUtility(*lines), tools=runner)
+    rig = make_mind(cfg, vault, utility=utility or ScriptedUtility(*lines),
+                    tools=runner)
     rig.mind.cfg = hands_cfg(cfg, allow=allow, **extra)
     rig.mind.hands.cfg = rig.mind.cfg
     from yurios.mind.hands import build_guard
@@ -725,6 +727,26 @@ def test_a_second_call_run_onto_the_line_does_not_eat_the_first_ones_args():
              'use read_note {"path": "reports/a.md"}')
     intent = parse_intent(reply, allowed=("list_notes", "read_note"))
     assert (intent.tool, intent.args) == ("list_notes", {"folder": "notes"})
+    assert intent.said == 'use list_notes {"folder": "notes"}'
+
+
+def test_what_she_said_ends_at_the_call_that_runs():
+    """SPEC §26.2: her reason and the call stay; a second call and anything
+    below the first go, whether on its line, under it, or spread over lines."""
+    allowed = ("read_note", "write_note")
+    two = parse_intent('think I need both\nuse read_note {"path": "a.md"}\n'
+                       'use read_note {"path": "b.md"}', allowed=allowed)
+    assert two.said == 'think I need both\nuse read_note {"path": "a.md"}'
+    made_up = parse_intent('use read_note {"path": "a.md"}\nResult: it says hi',
+                           allowed=allowed)
+    assert made_up.said == 'use read_note {"path": "a.md"}'
+    pretty = parse_intent('saving\nuse write_note {\n  "path": "a.md",\n'
+                          '  "text": "one"\n}\nuse read_note {"path": "a.md"}',
+                          allowed=allowed)
+    assert pretty.said == ('saving\nuse write_note {\n  "path": "a.md",\n'
+                           '  "text": "one"\n}')
+    # a fumbled call keeps the whole answer: the mistake is the point
+    assert parse_intent("use write_note {oh no", allowed=allowed).said == ""
 
 
 #: Verbatim shape from her prompt trace, 29 Sep (`t-d576030bfd7c`): a whole
@@ -789,6 +811,25 @@ async def test_a_glued_chain_runs_its_calls_instead_of_closing_on_them(
                                                 "write_skill"]
     assert trace["acted"]["tools"][-1]["tool"] == "write_skill"
     assert rig.mind.goals.get(goal.id).state == "done"
+
+
+async def test_a_second_call_she_was_not_answered_never_goes_back_to_her(
+        cfg, seeded_vault):
+    """Live, 4 Oct: two `read_note`s in one answer, the first run, and the
+    whole answer sent back with one result under it — so she wrote the second
+    result herself, 2,066 tokens of a note she never read."""
+    utility = ScriptedUtility(
+        'think check both\nuse read_note {"path": "diary/a.md"}\n'
+        'use read_note {"path": "free-time/b.md"}',
+        "think that's enough")
+    rig = rig_with_hands(cfg, seeded_vault, allow="read_note", utility=utility)
+    rig.mind.goals.add("look back at yesterday", kind="task", priority=0.95)
+    await work(rig)
+    assert [c[1]["path"] for c in rig.runner.calls] == ["diary/a.md"]
+    asked = utility.calls[-1]
+    hers = [m["content"] for m in asked if m["role"] == "assistant"]
+    assert hers[-1].endswith('use read_note {"path": "diary/a.md"}')
+    assert not any("free-time/b.md" in m["content"] for m in asked)
 
 
 async def test_a_finish_beside_a_call_that_never_ran_leaves_the_goal_open(

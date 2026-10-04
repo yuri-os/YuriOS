@@ -209,7 +209,10 @@ async def work(loop, messages: list[dict], *, offer: Offer,
             # be written about a message nobody has read yet.
             done.answer = Intent("think", text=reach.why)
             return done
-        messages += [{"role": "assistant", "content": reply},
+        # Her turn as far as the call that ran (SPEC §26.2): a second call, or
+        # a "result" she wrote under the first, never goes back to her as
+        # something she said and is still owed an answer to.
+        messages += [{"role": "assistant", "content": intent.said or reply},
                      {"role": "user",
                       "content": _returned(
                           reach, spent=len(done.reaches) - rewords >= limit)}]

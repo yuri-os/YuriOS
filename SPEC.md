@@ -2749,7 +2749,11 @@ needs a sandbox.
   `tell_them`, which is offered on every goal step and is not a hand (§18.2b), it finishes the goal
   once the message is delivered, and `tell_them` ends the step as off-tick work does. What she wrote
   *above* a `use` line is her reason for it; lines *below* it **MUST** be discarded, because they
-  were written before the result existed — live, they were results she had invented. Work that
+  were written before the result existed — live, they were results she had invented. Discarded
+  means from the step's transcript too: her turn goes back to her only as far as the end of the
+  call that ran, so a second call written under the first is asked for again rather than left in
+  the transcript with one result under both — live, she then wrote the missing result herself.
+  Work that
   finishes off-tick (§7.6) ends a goal step early, and the goal waits for it. A research night
   (§21.2a) offers her other hands in its rounds beside the web moves, each costing a move, and
   never `research` itself. The trace names every call with its verdict — `ok`, `denied` or

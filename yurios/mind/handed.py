@@ -196,7 +196,8 @@ def context(loop, path: str, text: str) -> str:
     parts.append("ON YOUR LIST\n\n" + ("\n".join(
         f"- [{g.state}] {g.text}" for g in open_goals[-8:]) or "Nothing."))
     if loop.workspace is not None:
-        digest = loop.workspace.digest(limit=20)
+        digest = loop.workspace.digest(limit=20,
+                                       labels=loop.goals.desk_labels(loop.GOAL_DESK))
         if digest:
             parts.append("YOUR DESK (paths only — `read_note` opens one)\n\n"
                          + digest)

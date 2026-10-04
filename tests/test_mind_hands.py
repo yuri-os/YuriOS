@@ -1509,3 +1509,32 @@ def test_her_last_words_on_a_desk_leave_the_call_list_out():
     desk = ("\n## 2026-10-04T10:29:18 — step 3\n\nThe plan is filed.\n\n"
             "done in this step:\n- read diary/a.md\n- wrote notes/plan.md\n")
     assert last_entry(desk, 240) == "The plan is filed."
+
+
+async def test_a_step_is_told_which_desk_file_is_its_own(cfg, seeded_vault):
+    """Live, 4 Oct: nothing named the skill goal's desk file, and the desk
+    listed five goals/<id>.md files by id alone — so its first step took the
+    newest, the finished diary goal's, for its own and logged its progress
+    there twice (SPEC §22.3)."""
+    utility = ScriptedUtility("think the skill is updated.", "think step two.")
+    rig = rig_with_hands(cfg, seeded_vault, allow="read_note", utility=utility)
+    diary = rig.mind.goals.add("write today's diary entry", kind="task",
+                               priority=0.1)
+    rig.mind.goals.update(diary.id, state="done")
+    rig.mind.workspace.append(f"goals/{diary.id}.md", "\n## 2026-10-03\n\nwrote it\n")
+    skill = rig.mind.goals.add("update the intimate-presence skill", kind="task",
+                               priority=0.95)
+    await work(rig)
+    first = utility.calls[0][1]["content"]
+    # its own file, by name, even before it exists — and that it is kept for her
+    assert f"its desk file: goals/{skill.id}.md" in first
+    assert "never need to log your progress yourself" in first
+    # every other goal file says whose it is
+    assert (f"goals/{diary.id}.md (" in first
+            and "— “write today's diary entry” (done)" in first)
+    # …and on the next step, what she worked out arrives under its own path
+    rig.clock.advance(rig.mind.cfg.mind_consider_cooldown_s + 1)
+    await rig.mind.tick()
+    second = utility.calls[-1][1]["content"]
+    assert f"WHAT YOU HAVE ALREADY WORKED OUT ON THIS (goals/{skill.id}.md)" in second
+    assert f"goals/{skill.id}.md (" in second and "— this goal" in second

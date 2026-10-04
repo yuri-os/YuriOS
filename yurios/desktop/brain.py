@@ -192,8 +192,12 @@ class BrainAdapter:
                 "get the actual instructions before you follow one.\n\n"
                 + catalog)
         try:
+            # Which goal each goals/<id>.md is — by id alone they name nothing
+            # (§22.3). Before the mind wires its store in, there are none.
+            labels = self.goals.desk_labels() if self.goals is not None else None
             desk = (self.workspace.digest(
-                limit=getattr(self.cfg, "workspace_digest_files", 20))
+                limit=getattr(self.cfg, "workspace_digest_files", 20),
+                labels=labels)
                 if self.workspace is not None else "")
         except Exception:       # noqa: BLE001 — same rule as the shelf
             log.warning("workspace digest failed; assembling without it",

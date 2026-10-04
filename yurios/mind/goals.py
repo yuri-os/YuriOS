@@ -323,6 +323,18 @@ class GoalStore:
     def open_goals(self) -> list[Goal]:
         return [g for g in self.all() if g.state in ("pending", "active", "waiting")]
 
+    def desk_labels(self, desk: str = "goals/{id}.md", *,
+                    this: str = "") -> dict[str, str]:
+        """Which goal each desk file belongs to, for the desk digest (§22.3).
+
+        By id alone, `goals/g-8c6059baa064.md` and four others like it named
+        nothing — live, 4 Oct, a skill goal's step took the newest of them,
+        the finished diary goal's, for its own. `this` marks the goal asking.
+        """
+        return {desk.format(id=g.id):
+                ("this goal" if g.id == this else f"“{trim(g.text, 60)}” ({g.state})")
+                for g in self.all()}
+
     def get(self, goal_id: str) -> Goal | None:
         return next((g for g in self.all() if g.id == goal_id), None)
 

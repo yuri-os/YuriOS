@@ -180,7 +180,8 @@ def context(loop, now: float) -> str:
     else:
         parts.append("STILL ON YOUR LIST\n\nNothing. Your list is empty.")
     if loop.workspace is not None:
-        digest = loop.workspace.digest(limit=20)
+        digest = loop.workspace.digest(limit=20,
+                                       labels=loop.goals.desk_labels(loop.GOAL_DESK))
         if digest:
             parts.append("YOUR DESK (paths only — `read_note` opens one)\n\n" + digest)
     if loop.skills is not None:

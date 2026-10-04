@@ -2463,7 +2463,13 @@ optional due time, **provenance**, and a **commitment strategy**; lifecycle
   entries in twenty seconds, each carrying the goal's whole text and a clip of raw JSON, and since
   the next step reads the desk back from its tail it saw only the last step's calls and redid the
   work the entries before them recorded. Readers that want her words (§34.5's block, a follow-up's
-  cue, §18) **MUST** stop at that line. The horizon is bounded by `MIND_GOAL_MAX_STEPS`
+  cue, §18) **MUST** stop at that line. A step **MUST** be told its own desk file by path — in what
+  it is told about the goal, from its first step, before the file exists — and that the file is
+  written for it, and the section that reads the file back **MUST** name the path too; wherever the
+  desk is listed with the goal store in reach (a step, free time, a handed document, a reply), each
+  `goals/<id>.md` **MUST** say whose goal it is and in what state. Unnamed, and with five goal
+  files listed by id alone, a skill goal's first step took the newest — the finished diary goal's —
+  for its own and logged its progress there twice. The horizon is bounded by `MIND_GOAL_MAX_STEPS`
   (`meta.steps`), after which the goal waits or the commitment strategy lets it go.
 - §22.4 **A working step gets the same context as a conversational turn.** The desk digest, the
   skills catalog, the situation, the durable facts, her other open goals — **and who she is**: the

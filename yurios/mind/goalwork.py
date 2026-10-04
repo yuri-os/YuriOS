@@ -244,6 +244,13 @@ async def context(loop, goal: Goal) -> str:
             f"why you have it: {goal.provenance}"]
     if goal.due:
         meta.append(f"due: {goal.due}")
+    # Its own desk file, by name (§22.3). Unnamed, the newest goals/… path in
+    # the desk digest looked like it: live, 4 Oct, a skill goal's first step
+    # read the finished diary goal's file as its own and appended to it twice.
+    meta.append(f"its desk file: {desk_path(loop, goal)} — what each step "
+                "works out is written there for you when the step ends, so you "
+                "never need to log your progress yourself; every other goals/… "
+                "file on your desk belongs to a different goal")
     parts.append("ABOUT IT\n\n" + "\n".join(f"- {m}" for m in meta))
     # The exchange that made it, when it was made by one. A promise is
     # scanned as the *predicate* after "I'll", so "which of the two kettles
@@ -271,13 +278,15 @@ async def context(loop, goal: Goal) -> str:
               "answered \u2014 act on it rather than waiting to be told again.")
     desk = desk_read(loop, goal)
     if desk.strip():
-        parts.append("WHAT YOU HAVE ALREADY WORKED OUT ON THIS\n\n" + desk.strip())
+        parts.append(f"WHAT YOU HAVE ALREADY WORKED OUT ON THIS ({desk_path(loop, goal)})"
+                     "\n\n" + desk.strip())
     try:
         parts.append("THE SITUATION RIGHT NOW\n\n" + loop.world.situation())
     except Exception:  # noqa: BLE001
         log.debug("goal work: no situation", exc_info=True)
     if loop.workspace is not None:
-        digest = loop.workspace.digest(limit=12)
+        digest = loop.workspace.digest(limit=12, labels=loop.goals.desk_labels(
+            loop.GOAL_DESK, this=goal.id))
         if digest:
             parts.append("YOUR DESK (paths only — `read_note` opens one)"
                          "\n\n" + digest)

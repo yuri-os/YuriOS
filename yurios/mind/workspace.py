@@ -51,6 +51,7 @@ import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Mapping
 
 import yaml
 
@@ -430,18 +431,24 @@ class Workspace:
 
     # --------------------------------------------------------------- for DREAM
 
-    def digest(self, *, limit: int = 40) -> str:
+    def digest(self, *, limit: int = 40,
+               labels: Mapping[str, str] | None = None) -> str:
         """A compact index of the desk for a prompt: path, size, last touched.
 
         Dream jobs and the prompt's workspace slot both want "what is on the
         desk" without any of the contents; this is that, cheap enough to build
-        every time it's asked for.
+        every time it's asked for. `labels` says what a path is when its name
+        cannot — a goal's desk file is `goals/<id>.md`, and five of those
+        unlabelled were five files nobody could tell apart (`GoalStore.desk_labels`).
         """
         entries = [e for e in self.list() if not e.is_dir]
         if not entries:
             return ""
         entries.sort(key=lambda e: e.mtime, reverse=True)
-        lines = [f"- {e.path} ({e.bytes}b)" for e in entries[:limit]]
+        labels = labels or {}
+        lines = [f"- {e.path} ({e.bytes}b)"
+                 + (f" — {labels[e.path]}" if e.path in labels else "")
+                 for e in entries[:limit]]
         if len(entries) > limit:
             lines.append(f"- …and {len(entries) - limit} more")
         return "\n".join(lines)

@@ -29,7 +29,7 @@ import logging
 from yurios.kernel import correlate
 
 from . import acts, handwork
-from .goals import GOAL_TEXT_MAX, trim
+from .goals import GOAL_TEXT_MAX, MUSE_GOAL, trim
 from .goalwork import takeaway
 from .hands import FILE_GOAL, Hands, Offer
 from .journal import parse_day_entries
@@ -53,6 +53,12 @@ PRESSURE_CEILING = 0.75
 #: Where each sitting's conclusion is kept, one file a day, and read back by the
 #: next sitting so she does not have the same idea every hour.
 DESK = "free-time/{day}.md"
+
+#: Journal lines a sitting is not shown (§22.7): a goal step's log of each
+#: call and its desk echo. They are what her hands returned, not what happened
+#: in her day — live, 4 Oct, they were most of the 24 lines she looked back
+#: over, a thousand tokens on every call of every sitting.
+TOOL_LOG = ("reached for ", "wrote up where I got to")
 
 
 def cooling(loop, goal, now: float) -> bool:
@@ -85,6 +91,12 @@ def appraise(loop, appraisals: list[Appraisal], *, busy: bool,
         return None
     if loop.budget.pressure() >= PRESSURE_CEILING:
         return None
+    if any(g.provenance.startswith(MUSE_GOAL) for g in loop.goals.open_goals()):
+        # What her last free time decided is still on her list, so her list is
+        # not empty — it is hers (§22.7). Live, 3 Oct: Gate 2 held the selfie
+        # goal a sitting filed, and three more sittings, two hours apart, found
+        # it waiting and filed it again in new words, ~37k tokens each.
+        return None
     threshold = loop.cfg.mind_act_threshold
     if any(a.score >= threshold for a in appraisals):
         return None
@@ -103,13 +115,23 @@ def _desk(loop, day: str) -> str:
 
 
 def _journal(loop, now: float, limit: int = 24) -> str:
-    """Her own recent journal lines, yesterday's and today's, newest last."""
-    rows: list[str] = []
+    """Her own recent journal lines, yesterday's and today's, newest last —
+    without the tool log, and a line written again kept only the last time."""
+    rows: list[tuple[str, str]] = []
     for day in (day_of(now - 86400), day_of(now)):
         text = loop.vault.read(f"memory/episodic/{day}.md")
-        rows += [f"{day[5:]} {e['time']} {trim(e['text'], 220)}"
-                 for e in parse_day_entries(text) if e["hers"]]
-    return "\n".join(rows[-limit:])
+        rows += [(f"{day[5:]} {e['time']}", trim(e["text"], 220))
+                 for e in parse_day_entries(text)
+                 if e["hers"] and not e["text"].startswith(TOOL_LOG)]
+    # A hold looked at every hour said the same goal every hour (before Gate 2
+    # journalled it once): one line per thing, at the last time it was said.
+    seen: set[str] = set()
+    kept: list[str] = []
+    for when, line in reversed(rows):
+        if line[:120] not in seen:
+            seen.add(line[:120])
+            kept.append(f"{when} {line}")
+    return "\n".join(reversed(kept[:limit]))
 
 
 def _said(loop, limit: int = 16) -> str:

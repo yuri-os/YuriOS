@@ -2535,12 +2535,17 @@ optional due time, **provenance**, and a **commitment strategy**; lifecycle
   appraisal crosses gate 1, no open goal is merely cooling down between steps (a working goal that
   would clear gate 1 once its consider cooldown is up — that is work in progress; one that never
   would is stuck, and free time is for exactly that case; a `reach_out` is neither, since Gate 2 may
-  hold one all night), the state is IDLE or DORMANT with no turn in
-  flight, `UTILITY_ENABLED` is on, budget pressure is under 0.75, and `MIND_MUSE_COOLDOWN_S`
+  hold one all night), no goal an earlier sitting filed (provenance `muse:`) is still open — her
+  list then holds something of her own, and live, three sittings two hours apart found the
+  selfie goal Gate 2 was holding and filed it again in new words —, the state is IDLE or DORMANT
+  with no turn in flight, `UTILITY_ENABLED` is on, budget pressure is under 0.75, and `MIND_MUSE_COOLDOWN_S`
   (**7200**; 0 = never) has passed since the last sitting, APPRAISE **MUST** offer the `muse`
   impulse, scored exactly at `MIND_ACT_THRESHOLD` so it can never outrank anything that crossed it.
   The act (`mind/muse.py`, correlate kind `muse`) is one soul-carrying call (§22.4) handed her
-  recent days — the situation, the last lines said, her journal for yesterday and today, the goals
+  recent days — the situation, the last lines said, her journal for yesterday and today (without
+  a goal step's per-call `reached for` lines or their `wrote up where I got to` echo, and with a
+  line written more than once kept only at its last time: live, those were most of the lines she
+  was shown), the goals
   she finished or let go of, what is still on her list, her desk, skills, shelf, durable facts, and
   what she concluded in her last free time — and asked, in her own voice, what is worth doing next.
   Its one consequential answer is a goal: `create_goal` is always offered while

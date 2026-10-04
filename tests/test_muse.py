@@ -233,3 +233,39 @@ async def test_rewriting_a_refused_goal_is_free_only_three_times(cfg, seeded_vau
     assert {t["verdict"] for t in tools} == {"denied"}
     assert not any(g.provenance.startswith(MUSE_GOAL)
                    for g in rig.mind.goals.open_goals())
+
+
+async def test_not_while_her_last_free_time_goal_is_still_open(cfg, seeded_vault):
+    """Live, 3 Oct: Gate 2 held the selfie goal a sitting filed, and three more
+    sittings found it waiting and filed it again in new words."""
+    rig = make_mind(cfg, seeded_vault,
+                    utility=ScriptedUtility(muse=(FILE, "think fine")))
+    mine = rig.mind.goals.add("send him the evolved selfie", kind="reach_out",
+                              priority=0.9, provenance=f"{MUSE_GOAL}2026-10-03")
+    rig.mind.goals.update(mine.id, state="waiting")
+    quiet(rig)
+    assert muse.appraise(rig.mind, [], busy=False, now=rig.clock.now()) is None
+    # …and once it is done, her list is empty again and free time comes back
+    rig.mind.goals.update(mine.id, state="done")
+    assert muse.appraise(rig.mind, [], busy=False, now=rig.clock.now()) is not None
+
+
+def test_she_looks_back_over_her_day_not_her_tool_log(cfg, seeded_vault):
+    from yurios.mind.util import day_of
+    rig = make_mind(cfg, seeded_vault)
+    day = day_of(rig.clock.now())
+    goal = "Send the evolved selfie this afternoon — floor, both hands up"
+    rig.mind.vault.append(f"memory/episodic/{day}.md", "".join([
+        f"# Journal — {day}\n\n",
+        f"### 06:00  [she] still holding the picture for: {goal} — it's quiet hours\n",
+        "### 06:37  [she] reached for read_note on “x” → { \"path\": \"a.md\" }\n",
+        "### 06:37  [she] wrote up where I got to: goals/g-1.md\n",
+        "### 06:38  [she] worked on: the skill — it's ready\n",
+        f"### 07:00  [she] still holding the picture for: {goal} — it's quiet hours\n",
+    ]))
+    journal = muse._journal(rig.mind, rig.clock.now())
+    assert "reached for" not in journal and "wrote up where" not in journal
+    assert "worked on: the skill" in journal
+    assert journal.count("still holding the picture") == 1
+    assert journal.endswith("07:00 still holding the picture for: "
+                            f"{goal} — it's quiet hours")

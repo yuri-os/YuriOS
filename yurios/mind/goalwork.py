@@ -29,10 +29,11 @@ from . import acts
 from .goals import Goal, night_owned, trim
 from . import handwork
 from .handwork import Reach
-from .hands import FILE_GOAL, NEEDS_CAMERA, TELL, Offer, klass
+from .hands import FILE_GOAL, NEEDS_CAMERA, READ_ONLY, TELL, Offer, klass
 from .policy import next_open
 from .prompts import goal_history
 from .util import closing, iso_of, ts_of_iso
+from .workspace import DESK_DONE
 
 log = logging.getLogger("mind.goalwork")
 
@@ -68,7 +69,7 @@ def desk_read(loop, goal: Goal, *, limit: int = 3000) -> str:
     return text[-limit:]
 
 
-def desk_write(loop, goal: Goal, line: str) -> None:
+def desk_write(loop, goal: Goal, line: str, *, step: int | None = None) -> None:
     """Append one step's conclusion to the goal's desk file.
 
     Append rather than replace: the value of the file is the trail. The
@@ -78,7 +79,7 @@ def desk_write(loop, goal: Goal, line: str) -> None:
     """
     if loop.workspace is None or not line.strip():
         return
-    stamp = iso_of(loop.clock.now())
+    stamp = iso_of(loop.clock.now()) + (f" — step {step}" if step else "")
     try:
         loop.workspace.append(desk_path(loop, goal),
                               f"\n## {stamp}\n\n{line.strip()}\n")
@@ -662,9 +663,9 @@ async def prepare(loop, goal: Goal, offer) -> tuple[dict, dict, list[str]]:
     note = (intent.text or "").strip()
     if note or not worked.reaches:
         note = note or f"(nothing to get ready yet for: {goal.text})"
-        desk_write(loop, goal, note)
         notes.append(f"got ready to reach {loop.cfg.user_name}: {goal.text} "
                      f"— {takeaway(note)}")
+    desk_step(loop, goal, note, worked.reaches, step=step)
     reaches = worked.reaches
     did = (", ".join(f"{r.tool} ({r.verdict})" for r in reaches) if reaches
            else "thought about it")
@@ -733,52 +734,96 @@ async def prepare(loop, goal: Goal, offer) -> tuple[dict, dict, list[str]]:
 
 
 def journal_reach(loop, goal: Goal, reach: Reach) -> str:
-    """One call a step made, onto the goal's desk. Returns the journal note.
+    """One call a step made, as the journal line the inner-life page shows.
 
-    Her reason first, the result under it. A desk that records only what a
-    hand returned reads, three ticks later, as a list of things that happened
-    to her rather than steps she took — and she re-does them.
+    The desk gets the whole step at its end instead (`desk_step`): one entry a
+    call was seven entries in twenty seconds, and a desk read back from its
+    last 3,000 characters then showed the next step only the previous step's
+    calls — live, 4 Oct, she re-read and re-checked a skill she had finished an
+    hour before, because the entry saying so had scrolled out.
     """
     if reach.told and reach.verdict == "ok":
-        # Queued is not sent, and the desk must not let a later step read it
-        # as sent: the next step reads this file back as what she has done.
         said = trim(str(reach.args.get("text") or ""), 300)
-        note = (f"decided to tell {loop.cfg.user_name}: “{said}” — queued, "
+        return (f"decided to tell {loop.cfg.user_name}: “{said}” — queued, "
                 "not sent yet; it goes when the gate allows")
-        desk_write(loop, goal, f"{reach.why}\n\n{note}" if reach.why else note)
-        return note
     if reach.tool == FILE_GOAL and reach.verdict == "ok":
-        # Said in words, because this is the line recall and the night read:
-        # "reached for create_goal → {…}" is a tool log, and the step that
-        # reads it back should know whether there is now a goal or not.
-        try:
-            filed = json.loads(reach.result)
-        except ValueError:
-            filed = {}
-        what = trim(str(filed.get("text") or ""), 200)
-        if filed.get("status") == "created":
-            note = (f"filed a goal of its own: “{what}” ({filed.get('id')}) — "
-                    "it gets worked on its own turn")
-        else:
-            note = f"wanted to file a goal, but I'm already carrying it: “{what}”"
-        desk_write(loop, goal, f"{reach.why}\n\n{note}" if reach.why else note)
-        return note
+        return _filed(reach)
     if reach.verdict == "denied" and reach.refused:
         # A refused reach is still a reach, and the desk should say so: "she
         # thought about it" and "she tried to look it up and the cap was spent"
         # are different steps, and only one of them is a reason to change a knob.
-        note = f"wanted to {reach.tool} for “{goal.text}” but didn't: {reach.refused}"
-        desk_write(loop, goal, note)
-        return note
-    # list_notes is a catalog: the listing IS the step. Clipping it to 160
-    # characters of pretty JSON is how she spent days retrying the same
-    # folder — the next tick only saw one file. The tool already bounds the
-    # payload (SPEC §34.2).
-    keep = len(reach.result) if reach.tool == "list_notes" else 160
-    short = reach.result[:keep].replace("\n", " ")
-    note = f"reached for {reach.tool} on “{goal.text}” → {short}"
-    desk_write(loop, goal, f"{reach.why}\n\n{note}" if reach.why else note)
-    return note
+        return f"wanted to {reach.tool} for “{goal.text}” but didn't: {reach.refused}"
+    short = reach.result[:160].replace("\n", " ")
+    return f"reached for {reach.tool} on “{goal.text}” → {short}"
+
+
+def _filed(reach: Reach) -> str:
+    """A `create_goal`, said in words: "reached for create_goal → {…}" is a
+    tool log, and the step that reads it back should know whether there is now
+    a goal or not."""
+    try:
+        filed = json.loads(reach.result)
+    except ValueError:
+        filed = {}
+    what = trim(str(filed.get("text") or ""), 200)
+    if filed.get("status") == "created":
+        return (f"filed a goal of its own: “{what}” ({filed.get('id')}) — "
+                "it gets worked on its own turn")
+    return f"wanted to file a goal, but I'm already carrying it: “{what}”"
+
+
+#: How a call that worked is listed on the desk: what she did, to what.
+DESK_VERBS = {"read_note": "read", "read_skill": "read skill",
+              "count_note_lines": "counted the lines of", "write_note": "wrote",
+              "append_note": "appended to", "edit_note": "edited",
+              "delete_note": "deleted", "write_skill": "wrote skill",
+              "delete_skill": "deleted skill", "web_search": "searched for",
+              "read_page": "read the page", "take_selfie": "started a selfie",
+              "show_picture": "showed a picture", "research": "started research on"}
+
+
+def desk_line(loop, reach: Reach) -> str:
+    """One call, as a line of the step's desk entry (SPEC §22.3).
+
+    What she did and to what — a path, not the first 160 characters of the JSON
+    that came back, which was most of every old entry and none of its meaning.
+    A change keeps the last sentence of why she made it; a read does not, the
+    step's conclusion above the list being the reason it was worth reading.
+    """
+    args = reach.args or {}
+    target = str(args.get("path") or args.get("name") or args.get("query")
+                 or args.get("folder") or args.get("url") or "")
+    if reach.told and reach.verdict == "ok":
+        said = trim(str(args.get("text") or ""), 300)
+        return (f"told {loop.cfg.user_name}: “{said}” — queued, not sent yet; "
+                "it goes when the gate allows")
+    if reach.tool == FILE_GOAL and reach.verdict == "ok":
+        return _filed(reach)
+    called = f"{reach.tool} {target}".strip()
+    if reach.verdict == "denied" and reach.refused:
+        return f"{called}: refused — {trim(reach.refused, 200)}"
+    if reach.verdict != "ok":
+        return f"{called}: {trim(reach.result, 200)}"
+    if reach.tool == "list_notes":
+        # The catalog is the step (SPEC §22.3): clipped to a sentence, she spent
+        # days retrying the same folder because the next tick saw one file.
+        return f"listed {target or 'my notes'}: {reach.result}"
+    verb = DESK_VERBS.get(reach.tool, reach.tool)
+    line = f"{verb} {target}".strip()
+    why = closing(reach.why, 120) if reach.why else ""
+    if why and reach.tool not in READ_ONLY:
+        line += f" ({why})"
+    return line
+
+
+def desk_step(loop, goal: Goal, words: str, reaches: list[Reach], *,
+              step: int) -> None:
+    """The whole step as one desk entry: her words, then the calls she made."""
+    body = words.strip()
+    if reaches:
+        listed = "\n".join(f"- {desk_line(loop, r)}" for r in reaches)
+        body = f"{body}\n\n{DESK_DONE}\n{listed}" if body else f"{DESK_DONE}\n{listed}"
+    desk_write(loop, goal, body, step=step)
 
 
 async def goal_work(loop, goal: Goal,
@@ -839,7 +884,6 @@ async def goal_work(loop, goal: Goal,
     note = (intent.text or "").strip()
     if note or not worked.reaches:
         note = note or f"(sat with it; nothing new yet on: {goal.text})"
-        desk_write(loop, goal, note)
         notes.append(f"worked on: {goal.text} — {takeaway(note)}")
 
     meta: dict = {"steps": step, "last_step": iso_of(loop.clock.now())}
@@ -851,10 +895,12 @@ async def goal_work(loop, goal: Goal,
     narrated = bool(intent.unrun) and finished(loop, intent.text)
     if narrated:
         hands = ", ".join(dict.fromkeys(intent.unrun))
-        desk_write(loop, goal, f"(not finished: the {hands} I wrote out never "
-                               "ran — nothing it would have done is done)")
+        note = (f"{note}\n\n" if note else "") + (
+            f"(not finished: the {hands} I wrote out never ran — nothing it "
+            "would have done is done)")
         notes.append(f"not done yet: {goal.text} — the {hands} I wrote out "
                      "never ran")
+    desk_step(loop, goal, note, worked.reaches, step=step)
     started = worked.dispatched
     told = next((r for r in worked.reaches if r.told and r.verdict == "ok"), None)
     if told is not None:

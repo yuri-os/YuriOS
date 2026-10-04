@@ -2456,7 +2456,14 @@ optional due time, **provenance**, and a **commitment strategy**; lifecycle
   and the next step **MUST** read it back — a private step that starts from the goal's one-line text
   every time is a goal that never advances. A `list_notes` result **MUST** be kept whole on that
   desk file: clipping the catalog to a sentence is the same failure as truncating the tool, one
-  tick later. The horizon is bounded by `MIND_GOAL_MAX_STEPS`
+  tick later. A step **MUST** write its desk file **once**, at its end, however many calls it
+  chained: her words for the step, then — under the line `done in this step:` — one line per call
+  naming the hand, what it touched (a path, a skill, a query) and whether it worked, with the last
+  sentence of her reason beside a change and none beside a read. An entry per call was seven
+  entries in twenty seconds, each carrying the goal's whole text and a clip of raw JSON, and since
+  the next step reads the desk back from its tail it saw only the last step's calls and redid the
+  work the entries before them recorded. Readers that want her words (§34.5's block, a follow-up's
+  cue, §18) **MUST** stop at that line. The horizon is bounded by `MIND_GOAL_MAX_STEPS`
   (`meta.steps`), after which the goal waits or the commitment strategy lets it go.
 - §22.4 **A working step gets the same context as a conversational turn.** The desk digest, the
   skills catalog, the situation, the durable facts, her other open goals — **and who she is**: the

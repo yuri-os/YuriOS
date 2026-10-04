@@ -956,6 +956,35 @@ async def test_news_of_a_kept_promise_carries_what_came_of_it(cfg, seeded_vault)
     assert "DSML" not in cue and "15:27" not in cue, cue
 
 
+async def test_news_of_a_kept_promise_says_her_words_not_her_call_list(
+        cfg, seeded_vault):
+    """A step's desk entry lists its calls under her words (§22.3); the
+    message about it carries the words — "read notes/a.md" is not news."""
+    from yurios.mind import acts
+    from yurios.mind.util import iso_of
+
+    rig = make_mind(cfg, seeded_vault)
+    parent = _goals(rig).add("pick the frame for the window-seat picture",
+                             kind="task", provenance="promise:her-own-words")
+    rig.mind.workspace.append(
+        f"goals/{parent.id}.md",
+        "\n## 2026-10-04T10:29:18 — step 2\n\nthe lamplight one, rain behind "
+        "me, knees up.\n\ndone in this step:\n- read notes/frames.md\n"
+        "- wrote notes/frame.md (settle it)\n")
+    news = _goals(rig).add(
+        f"tell them what came of “{parent.text}” — it's in "
+        f"goals/{parent.id}.md", kind="reach_out", priority=1.0,
+        due=iso_of(rig.clock.now() + 60), provenance=f"followup:{parent.id}")
+    rig.speak.connected = True
+
+    trace, interrupt, _ = await acts.reach_out(rig.mind, news)
+
+    assert interrupt["outcome"] == "SPEAK", interrupt
+    cue = rig.speak.calls[-1]["cue"]
+    assert "the lamplight one, rain behind me, knees up." in cue
+    assert "done in this step" not in cue and "notes/frames.md" not in cue, cue
+
+
 async def test_two_promises_kept_at_once_are_both_told(cfg, seeded_vault):
     """Unrelated follow-ups share only "tell", "came" and "goals" — three
     content words, 0.38 overlap, enough to merge on boilerplate alone."""

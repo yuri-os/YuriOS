@@ -36,6 +36,7 @@ from .policy import DREAM, next_open, quiet_hour, score_interrupt
 from .prompts import goal_history
 from .signals import Signal, failure_of
 from .util import day_of, dt_of, iso_of, ts_of_iso
+from .workspace import desk_words
 
 log = logging.getLogger("mind.acts")
 
@@ -124,6 +125,9 @@ def _what_came_of(loop, goal: Goal) -> str:
     last = strip_native_calls(desk or "").rsplit("\n## ", 1)[-1]
     # the entry's own timestamp heading is the first line; the words are after
     last = last.partition("\n")[2].strip() if last.startswith("20") else last.strip()
+    # Her words, not the list of calls under them (§22.3): the cue is what
+    # she says about it, and "read notes/a.md" is not something to say.
+    last = desk_words(last).strip() or last
     return trim(last, 600) if last else ""
 
 

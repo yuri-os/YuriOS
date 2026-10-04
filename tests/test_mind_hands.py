@@ -1469,3 +1469,43 @@ async def test_a_reach_out_whose_web_hand_is_budget_held_waits_for_the_morning(
     assert held.state == "waiting" and held.steps == 0
     assert rig.mind.wakeups[goal.id] == next_open(then)
     assert rig.post.proactive() == []
+
+
+async def test_a_step_is_one_desk_entry_however_many_calls_it_made(
+        cfg, seeded_vault):
+    """Live, 4 Oct: one step, seven entries in twenty seconds, and the desk
+    read back from its last 3,000 characters showed the next step only that
+    step's calls — so it re-checked work it had already done (SPEC §22.3)."""
+    rig = rig_with_hands(
+        cfg, seeded_vault,
+        'think where did I leave it\nuse read_note {"path": "diary/a.md"}',
+        'think so the plan goes in a note.\nuse write_note '
+        '{"path": "notes/plan.md", "text": "the plan"}',
+        'use edit_note {"path": "free-time/b.md", "old_text": "x", "new_text": "y"}',
+        "think the plan is filed; the picture waits for him.",
+        allow="read_note,write_note,edit_note",
+        tools=FakeToolRunner(errors={"edit_note": "old_text does not appear"}))
+    goal = rig.mind.goals.add("get the raincheck ready", kind="task",
+                              priority=0.95)
+    await work(rig)
+    desk = rig.mind.vault.read(f"workspace/goals/{goal.id}.md")
+    assert desk.count("\n## ") == 1, desk
+    assert "— step 1" in desk
+    words, _, listed = desk.partition("done in this step:")
+    assert "the plan is filed; the picture waits for him." in words
+    calls = [line for line in listed.splitlines() if line.startswith("- ")]
+    assert calls[0] == "- read diary/a.md"                  # a read keeps no reason
+    assert calls[1] == "- wrote notes/plan.md (so the plan goes in a note.)"
+    assert calls[2].startswith("- edit_note free-time/b.md: ")
+    assert "old_text does not appear" in calls[2]
+    assert "reached for" not in desk and "get the raincheck ready" not in desk
+    from yurios.mind.util import day_of
+    journal = rig.mind.vault.read(f"memory/episodic/{day_of(rig.clock.now())}.md")
+    assert journal.count("wrote up where I got to") == 1
+
+
+def test_her_last_words_on_a_desk_leave_the_call_list_out():
+    from yurios.mind.workspace import last_entry
+    desk = ("\n## 2026-10-04T10:29:18 — step 3\n\nThe plan is filed.\n\n"
+            "done in this step:\n- read diary/a.md\n- wrote notes/plan.md\n")
+    assert last_entry(desk, 240) == "The plan is filed."

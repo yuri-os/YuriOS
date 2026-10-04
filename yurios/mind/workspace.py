@@ -138,7 +138,20 @@ ON_MIND_GOALS = 4
 
 #: A goal desk entry that only records a hand's result. The step's own words
 #: sit beside it (goalwork.journal_reach); the result line is not thinking.
+#: Entries written before one-entry-a-step still read this way.
 _TOOL_LOG = ("reached for ", "wanted to ", "goal complete")
+
+#: The line a step's desk entry lists its calls under (SPEC §22.3), below her
+#: own words. Readers that want the words stop at it (`desk_words`).
+DESK_DONE = "done in this step:"
+
+
+def desk_words(entry: str) -> str:
+    """A desk entry's words, without the list of calls under them."""
+    head, found, _ = (entry or "").partition(f"\n{DESK_DONE}\n")
+    if not found and (entry or "").startswith(f"{DESK_DONE}\n"):
+        return ""
+    return head
 
 
 def _body(text: str) -> str:
@@ -151,7 +164,7 @@ def last_entry(desk: str, limit: int) -> str:
     """The last words she left on a goal's desk file, minus the tool log."""
     for body in reversed(re.split(r"^## .*$", desk or "", flags=re.MULTILINE)):
         kept = []
-        for line in body.strip().splitlines():
+        for line in desk_words(body.strip()).splitlines():
             line = line.strip()
             if line.lower().startswith("think "):
                 line = line[6:].strip()

@@ -19,6 +19,7 @@ from yurios.kernel.clock import VirtualClock
 from yurios.mind import acts
 from yurios.mind.goalwork import takeaway
 from yurios.mind.policy import next_open, quiet_hour, score_interrupt
+from yurios.mind.util import iso_of
 
 from .conftest import SIM_START, ScriptedUtility, make_mind
 
@@ -166,6 +167,7 @@ async def test_quiet_hours_park_it_until_morning_rather_than_retrying(
     assert await _tick_until(rig, lambda: rig.post.proactive())
     assert rig.post.proactive()[0]["text"] == SAID
     assert rig.mind.goals.get(goal.id).state == "done"
+    assert "came back to" not in _journal(seeded_vault)       # a gate opening
 
 
 async def test_a_message_let_go_before_it_went_frees_the_goal(cfg, seeded_vault):
@@ -300,6 +302,98 @@ async def test_a_held_reach_out_says_what_held_it_not_that_she_chose(
     assert ("wanted to reach Sam about share an unspoken wish; not sent — "
             "not pressing enough to interrupt yet") in journal
     assert "chose not to interrupt" not in journal
+
+
+# --- a hold is journaled once (§18.3) ------------------------------------------
+
+async def test_a_spent_cap_parks_a_reach_out_until_morning_and_says_so_once(
+        cfg, seeded_vault):
+    """The hourly "not sent" lines filled the two dozen free time reads back."""
+    cfg = _cfg(cfg).model_copy(update={"mind_interrupt_threshold": 0.65})
+    clock = VirtualClock(start=datetime.datetime(2026, 7, 6, 12, 0).timestamp())
+    rig = make_mind(cfg, seeded_vault, clock=clock)
+    rig.mind.interrupts = {"date": "2026-07-06",
+                           "count": cfg.mind_max_interrupts_per_day}
+    goal = rig.mind.goals.add("share an unspoken wish", kind="reach_out",
+                              priority=0.7)
+
+    async def compose(cue):
+        return "Can I tell you something?"
+    rig.mind._compose = compose
+    morning = datetime.datetime(2026, 7, 7, 9, 0).timestamp()
+    for _ in range(36):                                        # 12:00 → 06:00
+        await rig.mind.tick()
+        rig.clock.advance(1800)
+    assert rig.mind.goals.get(goal.id).state == "waiting"
+    assert rig.mind.wakeups[goal.id] == morning
+    journal = _journal(seeded_vault)
+    assert journal.count("today's reach-outs are used up") == 1
+    assert "used up; I'll look again at 09:00" in journal
+
+    rig.clock.advance(morning - rig.clock.now() + 1)
+    assert await _tick_until(rig, lambda: rig.post.proactive())
+    assert rig.mind.goals.get(goal.id).state == "done"
+    assert "came back to" not in _journal(seeded_vault)
+
+
+async def test_a_picture_held_by_quiet_hours_is_parked_and_never_let_go(
+        cfg, seeded_vault):
+    clock = VirtualClock(start=datetime.datetime(2026, 7, 6, 23, 0).timestamp())
+    rig = make_mind(_cfg(cfg), seeded_vault, clock=clock)
+    goal = rig.mind.goals.add(
+        "show Sam the window", kind="reach_out", priority=0.9,
+        commitment="open-minded", due=iso_of(clock.now() - 3600),
+        meta={"product": {"image_url": "/selfies/1-a.png", "selfie_id": "a"}})
+
+    _, _, notes = await acts.reach_out(rig.mind, goal)
+    assert notes == ["still holding the picture for: show Sam the window — "
+                     "it's quiet hours; I'll look again at 09:00"]
+    assert rig.mind.goals.get(goal.id).state == "waiting"
+    rig.clock.advance(1800)
+    _, _, notes = await acts.reach_out(rig.mind, rig.mind.goals.get(goal.id))
+    assert notes == []
+    assert rig.mind.goals.get(goal.id).state == "waiting"     # not abandoned
+
+
+async def test_below_threshold_keeps_its_hourly_look_and_one_line_a_reason(
+        cfg, seeded_vault):
+    cfg = _cfg(cfg).model_copy(update={"mind_interrupt_threshold": 0.75})
+    rig = make_mind(cfg, seeded_vault)                         # Monday 09:00
+    goal = rig.mind.goals.add("share an unspoken wish", kind="reach_out",
+                              priority=0.7)
+
+    async def look():
+        _, interrupt, notes = await acts.reach_out(
+            rig.mind, rig.mind.goals.get(goal.id))
+        rig.clock.advance(3600)
+        return interrupt["reason"], notes
+
+    assert (await look())[1]                                   # said once…
+    assert (await look()) == ("below threshold", [])           # …not again
+    assert (await look()) == ("below threshold", [])
+    assert rig.mind.goals.get(goal.id).state == "pending"      # never parked
+    rig.mind.interrupts["count"] = cfg.mind_max_interrupts_per_day
+    reason, notes = await look()
+    assert reason == "daily cap" and "used up" in notes[0]     # a new reason
+
+    rig.clock.advance(datetime.datetime(2026, 7, 7, 10, 0).timestamp()
+                      - rig.clock.now())
+    rig.mind.goals.update(goal.id, state="pending")
+    reason, notes = await look()
+    assert reason == "below threshold" and notes               # a new day
+
+
+async def test_a_stale_reach_out_is_let_go_rather_than_parked(
+        cfg, seeded_vault):
+    clock = VirtualClock(start=datetime.datetime(2026, 7, 6, 23, 0).timestamp())
+    rig = make_mind(_cfg(cfg), seeded_vault, clock=clock)
+    goal = rig.mind.goals.add("mention the weather", kind="reach_out",
+                              commitment="open-minded",
+                              due=iso_of(clock.now() - 3600))
+    _, _, notes = await acts.reach_out(rig.mind, goal)
+    assert notes == ["let it go quietly: mention the weather (the moment passed)"]
+    assert rig.mind.goals.get(goal.id).state == "abandoned"
+    assert goal.id not in rig.mind.wakeups
 
 
 async def test_a_delivered_reach_out_journals_the_words(cfg, seeded_vault):

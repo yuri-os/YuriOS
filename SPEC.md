@@ -1834,7 +1834,18 @@ them is precisely the always-interrupting-assistant failure.
   chose silence. The journal is what the diary, the stock-take and recall read back: "left a quiet
   note" about a message that had in fact been sent read to them as one more note written instead
   of speaking, and a week of "chose not to interrupt" about a threshold she could not clear read
-  as avoidance — until a night filed a goal to say what she had already said (§18.2b). A compose
+  as avoidance — until a night filed a goal to say what she had already said (§18.2b).
+  **A hold is journaled once, not once per look.** A held reach-out's line **MUST** be written
+  once per reason per day; a later look that finds it held for the same reason that day writes
+  nothing. Free time reads back only her newest two dozen lines, and an hourly "not sent" on two
+  goals filled every one of them: a day of the gate holding read back as a day of her hesitating,
+  and the night kept it as a fact. A hold by a hard gate — quiet hours or the daily cap — **MUST**
+  park the goal `waiting` until the next morning's open (§18.2b's moment), say on its line when
+  she will look again, and its wake **MUST NOT** journal "came back to". A below-threshold hold
+  keeps its hourly look, because what it waits on — contact license, waiting credit, a due date
+  coming near, a priority or threshold edit — can clear the gate at any time. A stale open-minded
+  reach-out is still let go on the look that finds it stale, and a picture is still never let go
+  for being old (§18.2a). A compose
   that comes back empty with no picture to carry is not a delivery: no interrupt is spent, the goal
   stays open, and the line says the words did not come.
   The composed line has no hands, so its cue **MUST** carry what it is about rather than point at

@@ -790,32 +790,48 @@ async def reach_out(loop, goal: Goal) -> tuple[dict, dict, list[str]]:
         cue = cue[:-2] + "\n\n" + history + "))"
 
     if decision.outcome == "SILENT":
-        # THE DEFAULT: do it silently and journal it
+        # THE DEFAULT: do it silently and journal it — once per reason a day
+        # (§18.3). Free time reads back only her newest two dozen lines, and
+        # an hourly "not sent" on two goals filled every one of them: a day of
+        # the gate holding read back as a day of her hesitating.
         why = HELD_BECAUSE.get(reason, reason)
-        if say:
-            # Only a hard gate can hold what she decided, and each opens at a
-            # known moment. Parked until then rather than retried hourly: every
-            # retry is a journal line, and a night of "still waiting" lines is
-            # what her diary would read back as hesitation.
-            at = next_open(loop.clock.now())
-            loop.goals.update(goal.id, state="waiting")
+        if (not say and not shot and goal.is_stale(loop.clock)
+                and goal.commitment != "blind"):
+            # A stale reach-out is let go: news keeps badly, and opening with
+            # something three days old is worse company than saying nothing.
+            # A photo she promised is not news — it is the promise, already
+            # made, and "let it go quietly" is precisely how it disappears
+            # (§18.2a) — so it keeps its turn at Gate 2 for as long as it takes.
+            loop.goals.set_state(goal.id, "abandoned")
+            return ({"what": None, "result": "stayed quiet"}, interrupt,
+                    [f"let it go quietly: {goal.text} (the moment passed)"])
+        now = loop.clock.now()
+        held = {"reason": reason, "day": day_of(now)}
+        repeat = goal.meta.get("held") == held
+        again = ""
+        if say or reason in ("quiet hours", "daily cap"):
+            # A hard gate opens at a known moment, and nothing before it can
+            # change the answer. Parked until then rather than retried hourly.
+            at = next_open(now)
+            loop.goals.update(goal.id, state="waiting",
+                              meta={"held": held, "parked": iso_of(at)})
             loop.wakeups[goal.id] = at
+            again = f"; I'll look again at {_clock_word(at)}"
+        else:
+            # Below threshold the score keeps climbing — contact license,
+            # waiting credit, a due date coming near — so the hourly look
+            # stays; only its line goes after the first.
+            loop.goals.update(goal.id, meta={"held": held})
+        if say:
             note = (f"what I decided to tell {user} waits until "
                     f"{_clock_word(at)} — {why}: {_quoted(say)}")
         elif shot:
-            # …but not by dropping it. A stale reach-out is normally let go
-            # because news keeps badly and opening with something three days
-            # old is worse company than saying nothing. A photo she promised
-            # is not news: it is the promise, it is already made, and "let it
-            # go quietly" is precisely how it disappears (§18.2a). So it keeps
-            # its turn at Gate 2 for as long as it takes.
-            note = f"still holding the picture for: {goal.text} — {why}"
-        elif goal.is_stale(loop.clock) and goal.commitment != "blind":
-            loop.goals.set_state(goal.id, "abandoned")
-            note = f"let it go quietly: {goal.text} (the moment passed)"
+            note = f"still holding the picture for: {goal.text} — {why}{again}"
         else:
-            note = f"wanted to reach {user} about {goal.text}; not sent — {why}"
-        return ({"what": None, "result": "stayed quiet"}, interrupt, [note])
+            note = (f"wanted to reach {user} about {goal.text}; not sent — "
+                    f"{why}{again}")
+        return ({"what": None, "result": "stayed quiet"}, interrupt,
+                [] if repeat else [note])
 
     if decision.outcome == "SUGGEST":
         # a soft line in the chat — waiting when they next look, never spoken
@@ -824,7 +840,8 @@ async def reach_out(loop, goal: Goal) -> tuple[dict, dict, list[str]]:
             # Nothing to post is nothing delivered: no interrupt spent, the
             # goal still open, and the journal saying so. This used to close
             # the goal and write "left a quiet note" about a message that was
-            # never posted.
+            # never posted. Not a hold either: the next one is journaled.
+            loop.goals.update(goal.id, meta={"held": {}})
             return ({"what": None, "result": "no words came"}, interrupt,
                     [f"went to reach {user} about {goal.text} and the words "
                      "didn't come; not sent"])
@@ -910,10 +927,16 @@ def wake_goal(loop, goal_id: str) -> str:
         # work on it before they have read it. Its delivery wakes it.
         return ""
     dispatched = goal.dispatched
-    loop.goals.update(goal.id, state="active", meta={"dispatched": {}})
+    loop.goals.update(goal.id, state="active",
+                      meta={"dispatched": {}, "parked": ""})
     if dispatched:
         return (f"the {dispatched.get('tool', 'work')} I started for "
                 f"“{goal.text}” never came back; picking it up myself")
+    if goal.meta.get("parked"):
+        # A reach-out a hard gate parked (§18.3): the gate opening is not her
+        # coming back to anything, and the line it held on already said when
+        # she would look again.
+        return ""
     return f"came back to: {goal.text}"
 
 

@@ -2639,7 +2639,10 @@ The product half of autonomy: what converts an always-on process from creepy to 
   is her effective `MIND_ACT_THRESHOLD`, never a default. A row without an id gets one derived from
   its content, not its position, so rotation cannot move a bookmark onto a different record; and the
   single-record lookups (`…/debug/ticks/{id}`, `…/debug/prompts/{id}`) fall back to the `.1`
-  generation, because the graph links into it. A tick's detail **MUST** describe the tick in the
+  generation, because the graph links into it. The Context section's day index and per-day lists
+  (`…/debug/prompts/days`, `…/debug/prompts`) **MUST** read both generations as one newest-first
+  log: the prompt log rolls whole, and its live file is recreated only by her next model call, so an
+  index that read the live file alone would go blank on every quiet day after a roll. A tick's detail **MUST** describe the tick in the
   same shape and sentence the graph does. The six views share one loaded window, one range, one set
   of kind filters, one search and one selection, all carried in the hash; a bus event that means new
   records marks them stale and says so, and **MUST NOT** redraw them under the reader. A successful

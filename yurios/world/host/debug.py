@@ -178,20 +178,22 @@ def register(app: FastAPI, host: CharacterHost, require) -> None:
 
     @app.get("/api/characters/{character_id}/debug/prompts/days")
     async def debug_prompt_days(character_id: str, page: int = 0, limit: int = 20):
-        return debug.prompt_days(require(character_id), page=page, limit=limit)
+        # Both generations, walked whole: off the loop, so the other rooms keep time.
+        return await asyncio.to_thread(debug.prompt_days, require(character_id),
+                                       page=page, limit=limit)
 
     @app.get("/api/characters/{character_id}/debug/prompts")
     async def debug_prompts(character_id: str, day: str | None = None,
                             kind: str | None = None, page: int = 0,
                             limit: int = 25):
-        return debug.prompts(require(character_id), day=day, kind=kind,
-                             page=page, limit=limit)
+        return await asyncio.to_thread(debug.prompts, require(character_id), day=day,
+                                       kind=kind, page=page, limit=limit)
 
     @app.get("/api/characters/{character_id}/debug/prompts/{prompt_id}")
     async def debug_prompt(character_id: str, prompt_id: str):
         found = debug.prompt_detail(require(character_id), prompt_id)
         if found is None:
-            raise HTTPException(404, "no such prompt in the live log")
+            raise HTTPException(404, "no such prompt in either generation of the log")
         return found
 
     @app.get("/api/characters/{character_id}/debug/vault/commits")

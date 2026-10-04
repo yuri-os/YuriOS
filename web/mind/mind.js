@@ -313,8 +313,8 @@ async function renderOverview() {
 
   if ((data.files || []).some((f) => f.rotated)) {
     out.push(element("div", { className: "notice", text:
-      "Some logs have rolled over. The paged sections (Ticks, Context, Tools, Signals) "
-      + "read only the live file; the joined views — Timeline, Stories, Ledger and the "
+      "Some logs have rolled over. The paged sections (Ticks, Tools, Signals) read only "
+      + "the live file; Context and the joined views — Timeline, Stories, Ledger and the "
       + "rest — read the rolled .1 generation too." }));
   }
   return element("div", { className: "stage-body" }, ...out);

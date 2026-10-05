@@ -737,6 +737,9 @@ class ToolBrain(BrainAdapter):
             goal.id, state="done",
             meta={"product": {**goal.product, "deliver": "chat"},
                   "completed_by": self.SHOW_HELD})
+        # A follow-up already filed to send this same picture would otherwise
+        # send it a second time through Gate 2.
+        self.goals.picture_shown(shot)
         if self._on_goal_write is not None:
             self._on_goal_write(goal)
         return json.dumps({"status": "shown", "goal_id": goal.id,

@@ -408,6 +408,37 @@ class GoalStore:
             self._save(goals)
         return found
 
+    def picture_shown(self, image_url: str) -> list[Goal]:
+        """A picture reached the chat: no goal holding it may send it again.
+
+        One photo rides on two goals once it is handed on — the goal that made
+        it and the follow-up `offer_the_picture` files to send it (§18.2a) —
+        and whichever delivered it only marked itself. Live, 5 Oct: the
+        follow-up sent the picture at 09:01, the parent went on telling chat
+        "the picture is already taken; Grant hasn't seen it yet", and at 09:04
+        she showed it again. Every holder is re-marked `deliver: chat`; an
+        open follow-up holding it is done, its whole errand having happened.
+        Returns the goals changed.
+        """
+        if not image_url:
+            return []
+        goals = self.all()
+        changed = []
+        for g in goals:
+            if str(g.product.get("image_url") or "") != image_url:
+                continue
+            if g.product.get("deliver") != "chat":
+                g.meta = {**g.meta, "product": {**g.product, "deliver": "chat"}}
+                changed.append(g)
+            if (g.state in ("pending", "active", "waiting")
+                    and g.provenance.startswith("followup:")):
+                g.state = "done"
+                if g not in changed:
+                    changed.append(g)
+        if changed:
+            self._save(goals)
+        return changed
+
     def reconsider(self) -> list[Goal]:
         """Apply commitment strategies to stale goals (SPEC §22.2): blind is
         defended, open-minded drops the moment it stops being timely.

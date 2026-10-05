@@ -861,6 +861,10 @@ async def reach_out(loop, goal: Goal) -> tuple[dict, dict, list[str]]:
         loop.world.note_contact_out()
         loop.interrupts["count"] += 1
         loop.goals.set_state(goal.id, "done")
+        if shot:
+            # …and on every other goal holding it, or one of them offers it
+            # again (§18.2a).
+            loop.goals.picture_shown(shot["image_url"])
         if say:
             notes = [f"told {user}: {_quoted(text)}"]
             notes += settle_telling(loop, goal, delivered=True)
@@ -897,6 +901,8 @@ async def reach_out(loop, goal: Goal) -> tuple[dict, dict, list[str]]:
     loop.world.note_contact_out()
     loop.interrupts["count"] += 1
     loop.goals.set_state(goal.id, "done")
+    if shot:
+        loop.goals.picture_shown(shot["image_url"])
     picture = " with the picture" if shot else ""
     if spoken:
         # The words went through the turn pipeline and are in the
@@ -977,6 +983,8 @@ def land_dispatched(loop, sig: Signal) -> str:
     meta: dict = {"dispatched": {}}
     if product:
         meta["product"] = product
+    earlier = str(goal.product.get("image_url") or "")
+    replaced = bool(product and earlier and earlier != product["image_url"])
     loop.goals.update(goal.id, state="active", meta=meta)
     loop.considered.pop(goal.id, None)     # workable again on this very tick
     loop.wakeups.pop(goal.id, None)        # the safety net is not needed now
@@ -991,6 +999,10 @@ def land_dispatched(loop, sig: Signal) -> str:
         # The third thing this line can say, and the one it could not before:
         # not in the chat, but no longer out of reach either.
         where = "it's mine to send now, not sent yet"
+        if replaced:
+            # Only one picture rides on a goal, so the one it displaced is
+            # now nobody's to send. Say so, or it vanishes without a line.
+            where += f"; it replaces {earlier}, which stays in the gallery unsent"
     else:
         where = ("it's in the vault, not in the chat"
                  if sig.payload.get("deliver") == "vault" else "it's in the chat")

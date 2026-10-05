@@ -1773,6 +1773,13 @@ them is precisely the always-interrupting-assistant failure.
   Gate 2 still owns her reaching out. Live, 3 Oct: two finished photos sat on two goals at 0.57
   and 0.59 against a 0.6 threshold, the list said only "(active)", and asked how her goals were
   going she said she had not taken either shot.
+
+  One photograph handed on has two holders — the goal that made it and its follow-up — and a
+  delivery through **either door** **MUST** reach both (`GoalStore.picture_shown`): every goal
+  holding that `image_url` is re-marked `deliver: chat`, and an open `followup:` goal holding it
+  is done, its errand having happened. Marking only the goal that delivered it sent the same
+  picture twice on 5 Oct: the follow-up delivered it at 09:01, the parent's goal line still said
+  it was taken and unseen, and at 09:04 she showed it again.
 - §18.2b **A message she decided to send is hers to word, and still Gate 2's to time.** Every goal
   step is offered `tell_them {"text": …}`, hands or none. It is not a hand — nothing runs, no tool
   server is asked, and §26's switches and call cap do not apply — it files a `reach_out` goal under

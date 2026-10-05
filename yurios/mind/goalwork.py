@@ -225,6 +225,29 @@ def plan_of(goal: Goal) -> str:
     return "\n".join(lines)
 
 
+def held_picture(goal: Goal) -> str:
+    """The picture that came back for this goal, told to the step working it.
+
+    `land_dispatched` puts a finished render on the goal (§18.2a), and the
+    step after it was never told: its desk said "started a selfie", its
+    decisions said `take_selfie (ok)`, and nothing said the photo existed. So
+    she took it again — live, 5 Oct, the second render replaced the first on
+    the goal, the first (the one they rated 10) was never sent, and the one
+    that went out was the retake.
+    """
+    if not goal.product.get("image_url"):
+        return ""
+    detail = str(goal.product.get("detail") or "").strip()
+    what = f"“{trim(detail, 400)}”" if detail else "(no description came with it)"
+    if goal.product.get("deliver") == "chat":
+        where = "It is already in the chat with them."
+    else:
+        where = ("It is held on this goal, not sent yet: when this goal is "
+                 "finished, it goes to them. Taking another replaces this one, "
+                 "and this one then stays in the gallery unsent.")
+    return f"WHAT CAME BACK FOR THIS\n\nThe picture you took for this: {what}\n\n{where}"
+
+
 async def context(loop, goal: Goal) -> str:
     """Everything the *conversational* prompt would have given her, minus
     the conversation (SPEC §7.1, §34.3, §19.2).
@@ -264,6 +287,9 @@ async def context(loop, goal: Goal) -> str:
     plan = plan_of(goal)
     if plan:
         parts.append("YOUR PLAN FOR THIS\n\n" + plan)
+    held = held_picture(goal)
+    if held:
+        parts.append(held)
     handed = handed_document(loop, goal)
     if handed:
         parts.append(handed)

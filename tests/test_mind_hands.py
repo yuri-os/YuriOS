@@ -988,6 +988,49 @@ async def test_a_finished_photo_is_kept_by_the_goal_that_asked_for_it(
         "the journal line must not say 'not in the chat' about a photo she can send"
 
 
+async def test_the_step_after_a_photo_lands_is_told_it_has_it(cfg, seeded_vault):
+    """Live, 5 Oct: the step after the render landed saw "started a selfie"
+    and `take_selfie (ok)` and nothing else, so she took it again — and the
+    retake displaced the first, which was never sent."""
+    from yurios.mind import goalwork
+
+    rig = rig_with_hands(cfg, seeded_vault,
+                         *["think still looking at it."] * 4, allow="")
+    goal = rig.mind.goals.add("take the raincheck selfie", kind="task")
+    rig.mind.goals.update(goal.id, state="waiting",
+                          meta={"dispatched": {"tool": "take_selfie"}})
+    assert "WHAT CAME BACK" not in await goalwork.context(rig.mind, goal)
+
+    rig.mind.bus.post("task_completion", _completion(goal.id), source="selfies")
+    await rig.mind.tick()
+
+    shown = await goalwork.context(rig.mind, rig.mind.goals.get(goal.id))
+    assert "WHAT CAME BACK FOR THIS" in shown
+    assert "the window seat, the lamp on the left" in shown
+    assert "not sent yet" in shown
+
+
+async def test_a_retake_says_which_picture_it_displaced(cfg, seeded_vault):
+    """One picture rides on a goal; the one a retake pushes off it must leave
+    a line behind rather than vanish into the gallery."""
+    rig = rig_with_hands(cfg, seeded_vault,
+                         *["think still looking at it."] * 4, allow="")
+    goal = rig.mind.goals.add("take the raincheck selfie", kind="task")
+    rig.mind.goals.update(goal.id, state="waiting", meta={
+        "dispatched": {"tool": "take_selfie"},
+        "product": {"image_url": "/selfies/first.png", "selfie_id": "first"}})
+
+    rig.mind.bus.post("task_completion", _completion(goal.id), source="selfies")
+    await rig.mind.tick()
+
+    assert rig.mind.goals.get(goal.id).product["image_url"] == SHOT
+    day_files = list((seeded_vault / "memory" / "episodic").glob("*.md"))
+    assert any("replaces /selfies/first.png" in p.read_text() for p in day_files)
+    assert any("finished something I'd started: a selfie she took — the window "
+               "seat, the lamp on the left" in p.read_text() for p in day_files), \
+        "the journal line says which photo, not just that there was one"
+
+
 async def test_a_failed_render_leaves_the_goal_holding_nothing(cfg, seeded_vault):
     """`task_completion` means the work is over, never that it worked (§16.3).
     A goal that thinks it is holding a picture would reach out with a dead url."""

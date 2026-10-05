@@ -102,6 +102,62 @@ async def test_nothing_to_show_is_an_error_she_reads(cfg, seeded_vault):
     assert rig.mind.goals.get(empty.id).state == "pending"
 
 
+def _handed_on(rig):
+    """The two holders one photo has once it is handed on: the goal that made
+    it, still open, and the follow-up filed to send it (§18.2a)."""
+    from yurios.mind import goalwork
+    from yurios.mind.util import iso_of
+
+    parent = rig.mind.goals.add("take the raincheck selfie", kind="task")
+    rig.mind.goals.update(parent.id, state="active", meta={"product": dict(SHOT)})
+    goalwork.offer_the_picture(rig.mind, rig.mind.goals.get(parent.id))
+    heir = next(g for g in rig.mind.goals.all()
+                if g.provenance == f"followup:{parent.id}")
+    rig.mind.goals.update(heir.id, priority=1.0,
+                          due=iso_of(rig.clock.now() + 60))
+    return rig.mind.goals.get(parent.id), rig.mind.goals.get(heir.id)
+
+
+async def test_a_follow_up_that_sends_it_tells_the_goal_that_made_it(
+        cfg, seeded_vault):
+    """Live, 5 Oct: the follow-up sent the picture at 09:01; the parent went on
+    telling chat it was "already taken; Grant hasn't seen it yet", and at 09:04
+    she showed it a second time."""
+    from yurios.mind import acts
+    from yurios.world.tooltags import ToolCall
+
+    rig, posted = _rig(cfg, seeded_vault)
+    parent, heir = _handed_on(rig)
+    rig.speak.connected = True
+
+    _, interrupt, _ = await acts.reach_out(rig.mind, heir)
+    assert interrupt["outcome"] in ("SPEAK", "SUGGEST"), interrupt
+
+    assert rig.mind.goals.get(parent.id).held_picture == ""
+    line = next(x for x in rig.mind.brain._open_goals()[0] if parent.id in x)
+    assert "already taken" not in line
+    result = await rig.mind.brain._execute(
+        ToolCall("show_held_picture", {"goal_id": parent.id}))
+    assert result.startswith("error") and posted == []
+
+
+async def test_showing_it_in_chat_closes_the_follow_up_filed_to_send_it(
+        cfg, seeded_vault):
+    """The other order: shown mid-conversation, the follow-up must not send
+    it again through Gate 2."""
+    from yurios.world.tooltags import ToolCall
+
+    rig, posted = _rig(cfg, seeded_vault)
+    parent, heir = _handed_on(rig)
+
+    await rig.mind.brain._execute(
+        ToolCall("show_held_picture", {"goal_id": parent.id}))
+
+    assert len(posted) == 1
+    after = rig.mind.goals.get(heir.id)
+    assert after.state == "done" and after.held_picture == ""
+
+
 def test_how_are_your_goals_going_is_a_status_question():
     assert is_goal_status_request("how are your goals going?")
     assert is_goal_status_request("How are your goals coming along")

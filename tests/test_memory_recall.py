@@ -143,3 +143,16 @@ def test_the_answer_to_a_question_is_not_buried_as_a_duplicate_of_it(tmp_path):
         "do you want the private one or the one that hangs", 2)]
     assert any("I want the private one" in t for t in got), \
         f"the reply to the question never came back: {got}"
+
+
+def test_a_line_written_many_times_is_recalled_once(tmp_path):
+    """MMR only discounts a verbatim repeat, so six copies of one journal line
+    once took all six slots and crowded out everything else (§2.1)."""
+    store = _store(tmp_path)
+    for n in range(6):
+        _put(store, f"dup{n}", "finished something I'd started: a selfie she took",
+             days_ago=n)
+    _put(store, "other", "took a selfie by the window for the raincheck")
+    got = [m.text for m in store.recall("a selfie she took", 6)]
+    assert got.count("finished something I'd started: a selfie she took") == 1
+    assert "took a selfie by the window for the raincheck" in got

@@ -753,8 +753,13 @@ class MindLoop:
                     return ({"what": "noted",
                              "result": f"task failed: {task} ({err})"}, {},
                             [f"it didn't come out: {task} ({err})"])
+                # With what it *was*, when the producer said: "a selfie she
+                # took" alone is the same sentence for every photo, and recall
+                # handed her six of them in a row as six memories of nothing.
+                detail = trim(str(sig.payload.get("detail") or ""), 240)
+                what = f"{task} — {detail}" if detail else task
                 return ({"what": "noted", "result": f"task done: {task}"}, {},
-                        [f"finished something I'd started: {task}"])
+                        [f"finished something I'd started: {what}"])
             return ({"what": "noted", "result": f"noted {sig.type}"}, {}, [])
         if chosen.kind in ("goal", "tool_step"):
             goal: Goal = chosen.subject

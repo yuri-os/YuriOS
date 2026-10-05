@@ -265,7 +265,9 @@ file-backed:
   and recency decides nothing. It did, and a line fifteen days old took a slot from an
   answer an hour old — while `Memory.score` went on reporting a decay that had not been
   allowed to matter. Scores are normalised to the pool's best so the relevance and
-  redundancy terms stay comparable.
+  redundancy terms stay comparable. A sentence the index holds more than once **MUST** be
+  returned at most once — the best-ranked copy — because MMR only discounts a verbatim
+  repeat, and against a thin pool six copies of one journal line took all six slots.
   On the event loop the query is embedded on a worker (`arecall`, §2.4); `recall` is the
   same lookup for a caller that is already off it.
 - `forget(selector)` is **supersede-not-delete**: remove the line from the working

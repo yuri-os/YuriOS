@@ -396,8 +396,8 @@ seven.
 what a night costs. Each use resends everything so far, so fourteen of them — which is what the
 stock-take once did, rereading her desk page by page — cost thirty times the answer. `0` gives a
 job none; leaving it out means the house's `TOOL_MAX_CALLS_PER_TURN`, which is also the most a file
-may ask for. `strategy` ships with `0`, because her goals are already in its prompt, and `diary`
-with `4`.
+may ask for. `diary` and `strategy` ship with `4`. She is told her limit before she starts and how
+many she has left after each result, so she can plan them.
 
 ```yaml
 ---

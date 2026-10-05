@@ -486,11 +486,11 @@ class StrategyJob(DreamJob):
                    "what matters, what's gone stale, and what to do next.")
     priority = 0.4
     per_day = False
-    #: None (§21.2). The open goals are already in the prompt, and offered her
-    #: hands on 6 Oct the stock-take became goal work — fourteen rounds of
-    #: rereading her desk, a selfie and a goal step — instead of the hundred and
-    #: fifty words it asks for.
-    max_hands = 0
+    #: Four (§21.2). The prompt carries each goal's one-line summary and not its
+    #: progress, so judging what has gone stale needs a look at a goal's file or
+    #: two. Uncapped, on 6 Oct, it reread her desk fourteen times, took a selfie
+    #: and stepped a goal — 158k tokens for a hundred and fifty words.
+    max_hands = 4
 
     def cost(self, ctx: DreamContext, day: str) -> int:
         open_goals = list(ctx.goals.open_goals()) if ctx.goals is not None else []

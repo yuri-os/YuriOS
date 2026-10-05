@@ -360,7 +360,8 @@ a job may use before it answers; `0` gives it none. This is the dial for what a
 night costs: every use resends everything so far, so fourteen of them can cost
 thirty times what the answer does. Leave it out for the house limit
 (`TOOL_MAX_CALLS_PER_TURN`), which is also the most a file may ask for.
-`strategy` ships with none — its goals are already in its prompt.
+`diary` and `strategy` ship with 4. She is told her limit up front and how many
+she has left after each one, so she can plan them.
 
 `enabled: false` switches a job off. It cannot switch one *on* that the house has
 no backend for — `selfie` still needs a camera, `research` still needs search.

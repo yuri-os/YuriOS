@@ -2166,10 +2166,12 @@ that set and a poor place to stop.
   it past that (§26.1's two-switch rule, one layer down); the clamp is applied where the call is
   made, so an `.env` change reaches a file nobody touched. A mangled value **MUST** leave the
   job's default. This is the dial for what a night costs, because each round resends the whole
-  transcript and a chain's cost grows with the square of its length. `strategy` ships with `0`:
-  its open goals are already in its prompt, and offered her hands on 6 Oct it reread her desk
-  fourteen times, took a selfie and stepped a goal — 158k tokens of a 200k day for a stock-take
-  of a hundred and fifty words. `diary` ships with `4`.
+  transcript and a chain's cost grows with the square of its length. `diary` and `strategy` ship
+  with `4`. Uncapped, on 6 Oct, the stock-take reread her desk fourteen times, took a selfie and
+  stepped a goal — 158k tokens of a 200k day for a hundred and fifty words — but it does need a
+  look or two, since its prompt carries each goal's summary and not its progress. Every result in
+  a chain — a night job's or a goal step's — **MUST** tell her how many hands she has left, so she
+  can plan the rest rather than spend the allowance reading and reach the answer with none.
 - **What a night wrote reaches the journal as its conclusion.** The desk is not indexed and the
   journal is, so a job's journal line is the only part of its writing that recall, consolidation
   and the conversation ever see — and "wrote a diary entry for <day>" told them only that one

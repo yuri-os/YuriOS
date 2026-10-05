@@ -375,11 +375,10 @@ class _CapHands:
         return await ask(messages)
 
 
-async def test_strategy_is_not_offered_her_hands_by_default(rig):
-    """§21.2: the stock-take already holds her goals. Offered her hands on 6 Oct
-    it reread her desk fourteen times, took a selfie and worked a goal — 158k
-    tokens for a hundred and fifty words — and a vault file that never names
-    `max_hands` must still get the builtin's none."""
+async def test_strategy_gets_four_hands_by_default(rig):
+    """§21.2: uncapped on 6 Oct, the stock-take reread her desk fourteen times,
+    took a selfie and worked a goal — 158k tokens for a hundred and fifty words.
+    A vault file that never names `max_hands` still gets the builtin's four."""
     runner, _clock, vault = rig
     _day_file(vault, "2026-07-04", ["you: hey  ⇄  her: [happy] hi"])
     _job_file(vault, "strategy", front="priority: 0.4\n")
@@ -387,8 +386,6 @@ async def test_strategy_is_not_offered_her_hands_by_default(rig):
     hands = _CapHands()
     runner.hands = hands
     await runner.run(only="strategy", token_budget=40000)
-    assert hands.caps == []
-    await runner.run(only="diary", token_budget=40000)
     assert hands.caps == [4]
 
 
@@ -425,7 +422,7 @@ def test_seeded_job_files_name_their_hands():
     """A fresh vault shows the dial, so the first person to wonder what a night
     costs finds it in the file they would edit."""
     seeded = seed_job_files()
-    assert "max_hands: 0" in seeded["strategy.md"]
+    assert "max_hands: 4" in seeded["strategy.md"]
     assert "max_hands: 4" in seeded["diary.md"]
     assert "max_hands" not in seeded["selfie.md"]
 

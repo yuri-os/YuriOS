@@ -46,7 +46,7 @@ GOAL_REWORDS = 3
 #: answer looks like, and this only says how to reach for something first.
 HANDS_BEFORE_ANSWER = """## YOUR HANDS
 
-Before you answer, you may use your hands — as many times as you need, up to {cap}. To use one, reply with ONLY a line like this and nothing else:
+Before you answer, you may use your hands. Your limit for this answer is {cap}, so plan them: reach for what you need to see, not for everything you could. Each result tells you how many you have left. To use one, reply with ONLY a line like this and nothing else:
 
   use <hand> {{"arg": "value"}}
 
@@ -148,11 +148,18 @@ async def dispatch(loop, tool: str, args: dict, *, goal_id: str = "",
     return Reach(tool, args, verdict, result, dispatched=dispatched)
 
 
-def _returned(reach: Reach, *, spent: bool) -> str:
+def _returned(reach: Reach, *, left: int) -> str:
+    """A result, and how many hands the step has left after it.
+
+    The count is the point: told only her total up front, a chain spent its
+    whole allowance reading and had none left for the thing it was reading
+    toward. With the count beside each result she can plan the rest.
+    """
     body = bounded(reach.tool, reach.result)
     tail = (" Your hands are spent for this step — answer now, without a "
-            "`use` line." if spent else
-            " Use another hand if you need one, or give your answer.")
+            "`use` line." if left <= 0 else
+            f" You have {left} {'hand' if left == 1 else 'hands'} left for "
+            "this step — use another if you need one, or give your answer.")
     return f"(({reach.tool} returned: {body}.{tail}))"
 
 
@@ -215,7 +222,7 @@ async def work(loop, messages: list[dict], *, offer: Offer,
         messages += [{"role": "assistant", "content": intent.said or reply},
                      {"role": "user",
                       "content": _returned(
-                          reach, spent=len(done.reaches) - rewords >= limit)}]
+                          reach, left=limit - (len(done.reaches) - rewords))}]
 
 
 class LoopHands:

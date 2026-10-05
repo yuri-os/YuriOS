@@ -1670,4 +1670,26 @@ async def test_a_night_job_chains_no_more_hands_than_its_cap(
     if cap == 0:
         assert sent[0][0]["content"] == "You are taking stock."
     else:
-        assert f"up to {chained}" in sent[0][0]["content"]
+        assert f"Your limit for this answer is {chained}" in sent[0][0]["content"]
+
+
+async def test_each_result_says_how_many_hands_are_left(cfg, seeded_vault):
+    """Told only her total, a chain spends it all reading and reaches the
+    answer with nothing left. The count beside each result is what lets her
+    plan the rest."""
+    from yurios.mind.handwork import LoopHands
+    rig = rig_with_hands(cfg, seeded_vault, allow="read_note",
+                         tool_max_calls_per_turn=16)
+    sent: list[list[dict]] = []
+
+    async def ask(messages):
+        sent.append([dict(m) for m in messages])
+        return 'use read_note {"path": "notes/a.md"}'
+
+    await LoopHands(rig.mind).run(
+        [{"role": "system", "content": "You are taking stock."},
+         {"role": "user", "content": "the day"}], ask, cap=3)
+    told = [s[-1]["content"] for s in sent[1:]]
+    assert "You have 2 hands left" in told[0]
+    assert "You have 1 hand left" in told[1]
+    assert "hands are spent" in told[2] and "left" not in told[2]

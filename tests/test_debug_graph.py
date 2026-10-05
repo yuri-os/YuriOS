@@ -302,3 +302,15 @@ def test_a_tick_detail_carries_the_graphs_account_of_it(client):  # noqa: F811
     assert body["why"].startswith(dt.datetime.fromtimestamp(NOW - 60).strftime("%a"))
     assert "DECIDE committed to «reach_out:hello»" in body["why"]
     assert body["act_threshold"] == 0.4
+
+
+def test_a_goal_names_its_desk_file_only_when_it_has_one(tmp_path):
+    """Only a working step writes a desk file, so a reach-out has none — and a
+    link drawn to `workspace/goals/<id>.md` for every goal opened onto nothing."""
+    goal = {"id": "g-0a133bd90d34", "text": "send them the picture", "kind": "reach_out"}
+    assert debug_graph.parse_goal(goal, tmp_path)["desk"] == ""
+    assert debug_graph.parse_goal(goal)["desk"] == ""
+    (tmp_path / "workspace" / "goals").mkdir(parents=True)
+    (tmp_path / "workspace" / "goals" / "g-0a133bd90d34.md").write_text("step 1\n")
+    assert (debug_graph.parse_goal(goal, tmp_path)["desk"]
+            == "workspace/goals/g-0a133bd90d34.md")

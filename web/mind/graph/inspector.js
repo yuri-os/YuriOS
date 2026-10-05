@@ -87,9 +87,14 @@ export function goalSections(g, model) {
     ["strategy_note", "strategy note"]]) {
     if (m[k]) html += `<div class="gx-block${k === "rationale" ? " why" : ""}"><b>${label}</b>\n${esc(m[k])}</div>`;
   }
-  const desk = `workspace/goals/${g.id}.md`;
-  html += `<div class="gx-actions"><button type="button" class="gx-quiet" data-desk="${esc(desk)}">read her desk file</button>`
-    + `<button type="button" class="gx-quiet" data-go="#/vault/file/${esc(desk)}">open in vault</button></div><div class="gx-desk" hidden></div>`;
+  // Only a working step writes a desk file, so a reach-out has none: the
+  // host says which goals do rather than this guessing the path.
+  if (g.desk) {
+    html += `<div class="gx-actions"><button type="button" class="gx-quiet" data-desk="${esc(g.desk)}">read her desk file</button>`
+      + `<button type="button" class="gx-quiet" data-go="#/vault/file/${esc(g.desk)}">open in vault</button></div><div class="gx-desk" hidden></div>`;
+  } else {
+    html += `<p class="muted gx-small">No desk file — no working step has run on this goal.</p>`;
+  }
   const ticks = (g.ticks || []).map((id) => model.byId.get(id)).filter(Boolean);
   if (ticks.length) {
     html += `<h3 class="gx-h">Worked on in ${ticks.length} tick${ticks.length === 1 ? "" : "s"} in this window</h3><div class="gx-stack">`;

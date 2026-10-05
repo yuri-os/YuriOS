@@ -139,7 +139,8 @@ def register(app: FastAPI, host: CharacterHost, require) -> None:
         # The same shape and sentence the graph gives this tick, so the detail
         # view and the inspector never describe one decision two ways.
         settings = graph_settings(record)
-        goals = [debug_graph.parse_goal(g) for g in debug.goals(record)["items"]]
+        goals = [debug_graph.parse_goal(g, Path(record.paths.vault))
+                 for g in debug.goals(record)["items"]]
         by_id = {g["id"]: g for g in goals}
         event = debug_graph.tick_event(
             found["tick"], by_id,

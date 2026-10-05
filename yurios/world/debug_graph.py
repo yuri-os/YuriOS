@@ -224,12 +224,18 @@ def _stamp(*fields: str) -> Callable[[dict], float | None]:
     return read
 
 
-def parse_goal(goal: dict) -> dict:
+def parse_goal(goal: dict, vault: Path | None = None) -> dict:
     """A `GoalStore` goal, in the page's words: `title` for its text, `from`
-    for its provenance, `commit` for its commitment."""
+    for its provenance, `commit` for its commitment.
+
+    `desk` is its desk file's Vault path, or `""` when it has none. Only a
+    working step writes one, so a `reach_out` never gets one, and a link
+    the page drew for every goal opened onto nothing for those."""
     meta = goal.get("meta") or {}
+    desk = f"workspace/goals/{goal.get('id', '')}.md"
     return {
         "id": goal.get("id", ""),
+        "desk": desk if vault is not None and (vault / desk).is_file() else "",
         "title": (goal.get("text") or "").strip(),
         "kind": goal.get("kind") or "task",
         "priority": float(goal.get("priority") or 0),
@@ -392,7 +398,7 @@ def build(record, *, days: float | None = 7.0, char_name: str = "Her",
     selfies = window_rows(src("generations"), since, _stamp("created_at"))
     conversation = [r for r in read_entries(vault)
                     if since is None or (when(r.get("ts")) or 0) >= since]
-    goals = [parse_goal(g) for g in reversed(debug.goals(record)["items"])]
+    goals = [parse_goal(g, vault) for g in reversed(debug.goals(record)["items"])]
     journal = journal_events(vault / "memory" / "episodic", since)
     commits = [c for c in vaultgit.log_records(vault, limit=COMMIT_LIMIT, since=since)
                if since is None or float(c.get("at") or 0) >= since]
@@ -462,7 +468,7 @@ def build(record, *, days: float | None = 7.0, char_name: str = "Her",
             "summary": clip(meta.get("rationale") or meta.get("about")
                             or f"{g['kind']} · {g['state']} · from {g['from']}", 280),
             "goal": g["id"], "state": g["state"],
-            "ref": f"#/vault/file/workspace/goals/{g['id']}.md",
+            "ref": f"#/vault/file/{g['desk']}" if g["desk"] else "#/goals",
             "detail": {"goal": g["id"]},
         })
 

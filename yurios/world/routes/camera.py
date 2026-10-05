@@ -59,6 +59,8 @@ async def owner_selfie(request: Request, body: SelfieRequest | None = None) -> d
         "kind": "selfie",
         "status": "started",
         "_deliver": "vault",
+        # Yours, not hers: never on her list of pictures to send (§18.2a).
+        "_by": "owner",
     }
     lab.start(contract)
     return {"id": contract["id"], "kind": "selfie", "status": "started"}
@@ -78,6 +80,7 @@ async def owner_picture(request: Request, body: PictureRequest) -> dict:
         "avoid": _slot(body.avoid),
         "status": "started",
         "_deliver": "vault",
+        "_by": "owner",
     }
     lab.start(contract)
     return {"id": contract["id"], "kind": "picture", "status": "started"}

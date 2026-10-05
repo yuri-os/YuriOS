@@ -858,14 +858,19 @@ def _thought(lines: list[str]) -> str:
 
 
 def stamp_contract(contract: dict, *, goal_id: str) -> dict:
-    """The two fields the mind puts on every contract it builds.
+    """The three fields the mind puts on every contract it builds.
 
     `_deliver` is the landing rule (SPEC §18, principle 8) and `_goal_id` is
     principle 7 — every autonomous call names the goal that wanted it, so
     `goals.md` stays the complete, readable list of what her hands might do and
     `task_completion` knows which goal to wake.
+
+    `_by` says the mind started it. A night job or her free time names no goal,
+    and without this its picture came back looking exactly like one the owner
+    rendered from the gallery — so nothing could tell that it was hers to send,
+    and nothing sent it (§18.2a).
     """
-    return {**contract, "_deliver": "vault", "_goal_id": goal_id}
+    return {**contract, "_deliver": "vault", "_goal_id": goal_id, "_by": "mind"}
 
 
 def build_guard(cfg, clock: Clock) -> Guard | None:

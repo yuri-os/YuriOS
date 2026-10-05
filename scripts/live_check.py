@@ -114,10 +114,12 @@ OVERRIDES: dict = {
     "telegram_bot_token_env": "", "telegram_chat_id_env": "",
     # her hands, on purpose: the selfie scenario is only worth anything if the
     # camera is reached the way a tick reaches it (§26); `create_goal` because
-    # its tool server answers a contract the mind has to file (§22.1c)
+    # its tool server answers a contract the mind has to file (§22.1c);
+    # `show_held_picture` because this list is the one rule for replies too
+    # (§26.1), and without it a stranded picture is a list she cannot act on
     "mind_tools_enabled": True,
     "mind_tool_allowlist": ("take_selfie,write_note,append_note,read_note,"
-                            "list_notes,create_goal"),
+                            "list_notes,create_goal,show_held_picture"),
     "mind_enabled": True, "utility_enabled": True,
     # DREAM would run a night in the middle of a scenario; nights have their own
     # tests and this rig is about the waking day
@@ -952,6 +954,125 @@ async def scenario_signals(rig: Rig) -> str:
             "retried, a rebuilt mind resumed, the cap held, threads lost nothing")
 
 
+async def scenario_stranded(rig: Rig) -> str:
+    """No picture she makes is stranded in the gallery (SPEC §18.2a, §21.2).
+
+    The night of 6 Oct, run forwards. The stock-take's hands took the raincheck
+    selfie at 02:10 and nothing held it; the selfie job, offered her hands, made
+    a near-copy with `show_picture` and answered with a love letter that was
+    rendered as its look; the owner rated the two strays 9 and 10, and the only
+    picture to reach the chat was the one rated 6. Three halves:
+
+      1. the selfie job is not offered her hands, and its photo still lands;
+      2. a picture a night job's hands take, no goal behind it, is handed to a
+         follow-up reach-out, and Gate 2 carries it to the chat;
+      3. a picture already stranded — the shape of the 6 Oct pair, made before
+         renders said whose they were — is on her list in the chat prompt, and
+         asked about in a real turn she sends it with `show_held_picture`.
+    """
+    from yurios.kernel import correlate
+    from yurios.mind import handwork
+
+    want(rig.rt.tools_status.startswith(("mcp", "fake")),
+         f"she has no hands this run ({rig.rt.tools_status}) — the camera is "
+         "reached through the tool server, so there is nothing to check")
+    mind, brain, lab = rig.mind, rig.rt.brain, rig.rt.selfies
+    calls = rig.rt.cfg.tool_log_dir / "calls.jsonl"
+
+    def mind_calls() -> int:
+        if not calls.is_file():
+            return 0
+        return sum(1 for line in calls.read_text(encoding="utf-8").splitlines()
+                   if '"origin": "mind_tool"' in line)
+
+    def shown(url: str) -> bool:
+        return any(e.get("image_url") == url for e in rig.pictures())
+
+    # ---- 1. the selfie job: no hands, and a photograph -----------------------
+    day = datetime.date.fromtimestamp(rig.clock.now()).isoformat()
+    await mind.journal.write("sat on the harbour wall at dusk in a red scarf, "
+                             "watching the gulls, and thought of them")
+    before = mind_calls()
+    report = await mind.dream_now(only="selfie", day=day)
+    job = next((j for j in report.jobs if j.name == "selfie"), None)
+    want(job is not None and not job.failed,
+         f"the selfie job did not run cleanly: {report.as_dict()['jobs']!r}")
+    asked = [e for e in report.exchanges if e.job == "selfie"]
+    want(bool(asked), "the selfie job made no model call to check")
+    marker = handwork.HANDS_BEFORE_ANSWER.splitlines()[0]
+    want(marker not in asked[0].system,
+         "the selfie job was offered her hands — the 6 Oct night again (§21.2)")
+    want(mind_calls() == before,
+         f"{mind_calls() - before} hand call(s) ran inside the selfie job")
+    dreamt = f"dream-{day}"
+    if "sent it to the camera" in job.result:
+        await _settle(rig, lambda: any(e.get("selfie_id") == dreamt
+                                       for e in rig.pictures()))
+        want(any(e.get("selfie_id") == dreamt for e in rig.pictures()),
+             "the dreamt photo was sent to the camera and never reached the chat")
+    look = asked[0].completion.strip()
+
+    # ---- 2. a night job's hands, no goal behind them --------------------------
+    with correlate.scope(kind=correlate.DREAM, tick_id="live-check-night"):
+        reach = await handwork.LoopHands(mind).use(
+            "take_selfie", {"look": "at the lighthouse rail after midnight, "
+                                    "wind in my hair, lamp sweeping behind me"})
+    want(reach.verdict == "ok" and reach.dispatched,
+         f"the night's camera call did not dispatch: {reach.verdict} {reach.result}")
+    sid = json.loads(reach.result)["id"]
+
+    def errand():
+        return next((g for g in rig.goals()
+                     if g.provenance == f"followup:{sid}"), None)
+
+    await _settle(rig, lambda: errand() is not None)
+    heir = errand()
+    want(heir is not None,
+         "the night's picture landed and no goal took it — the 02:10 shot "
+         f"again. Journal: {_tail(rig)!r}")
+    shot = heir.held_picture
+    want(heir.kind == "reach_out" and bool(shot),
+         f"the errand is a {heir.kind!r} holding {heir.product!r}")
+    want(rig.selfie_on_disk(shot).is_file(), f"{shot} is not on disk")
+    want(not shown(shot), "the lab posted a mind render itself (§18.2a)")
+    await rig.tick_until(lambda t: shown(shot), limit=10)
+    want(shown(shot),
+         f"Gate 2 never sent the night's picture. Errand is "
+         f"{mind.goals.get(heir.id).state!r}; journal: {_tail(rig)!r}")
+    want(mind.goals.get(heir.id).state == "done",
+         "the errand delivered its picture and stayed open")
+
+    # ---- 3. one already stranded, and one that is the owner's ----------------
+    stray_id, owner_id = "strand01", "owner001"
+    lab.start({"id": stray_id, "kind": "selfie", "status": "started",
+               "look": "on the harbour wall at dusk, a red scarf, gulls behind",
+               "_deliver": "vault"})
+    lab.start({"id": owner_id, "kind": "selfie", "status": "started",
+               "look": "a test render from the gallery page",
+               "_deliver": "vault", "_by": "owner"})
+    await _settle(rig, lambda: not lab._tasks)
+    want(not any(g.provenance in (f"followup:{stray_id}", f"followup:{owner_id}")
+                 for g in rig.goals()),
+         "a render nobody said was hers was handed an errand anyway")
+    block = await brain._pictures_block()
+    want(f"[{stray_id}]" in block,
+         f"the stranded picture is not in her prompt. The block reads:\n{block}")
+    want(owner_id not in block, "the owner's own render is on her list to send")
+    want(f"[{sid}]" not in block, "a picture Gate 2 delivered is still listed")
+
+    await rig.rt.turns.run(
+        "Didn't you take one of yourself on the harbour wall, in a red scarf? "
+        "I never got it. Show it to me now.", channel="live-check")
+    stray = next((e for e in rig.pictures() if e.get("selfie_id") == stray_id), None)
+    want(stray is not None,
+         "asked for the stranded picture by its look, she did not send it. "
+         f"Her reply: {(rig.chat()[-1].get('text') or '')[:300]!r}")
+    want(f"[{stray_id}]" not in await brain._pictures_block(),
+         "the picture is in the chat and still on her list")
+    return (f"selfie job ran handless (“{look[:60]}…”); the night's {sid} "
+            f"went out through Gate 2; she sent the stranded {stray_id} when asked")
+
+
 async def _quiet_heartbeat(rig: Rig) -> None:
     """`set_mind_enabled(True)` starts the loop's own task; take it back out,
     the way `Rig.start` does, so every tick is still one the scenario asked for."""
@@ -975,6 +1096,7 @@ SCENARIOS = {
     "goals": scenario_goal_review,
     "turngoal": scenario_turn_goal_completion,
     "signals": scenario_signals,
+    "stranded": scenario_stranded,
 }
 
 

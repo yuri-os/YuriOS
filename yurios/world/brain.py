@@ -39,6 +39,7 @@ from yurios.mind.workspace import DESK_WRITE_TOOLS
 
 from ..kernel import correlate
 from .avatar.controller import VrmController
+from .gallery import Unsent
 from .situation import render_situation
 from .tools.client import (
     ToolRunner, ToolSpec, arg_names_from_specs, build_directive)
@@ -211,6 +212,7 @@ class ToolBrain(BrainAdapter):
         # Structured evidence for REFLECT's promise review. Kept beside `_raw`
         # because it has the same lifetime: commit hands it off, abandon drops it.
         self._tool_outcomes: dict[str, list[dict]] = {}
+        self._unsent_shelf: Optional[Unsent] = None
 
     @classmethod
     def build(cls, cfg, *, guard: Guard, timers: TimerBoard,
@@ -284,6 +286,62 @@ class ToolBrain(BrainAdapter):
         what decides if a goal line names it."""
         return (self.post is not None and self.goals is not None
                 and any(s.name == self.SHOW_HELD for s in self.offered()))
+
+    #: What PICTURES YOU HAVEN'T SENT opens with (§18.2a). The last sentence is
+    #: for the night of 5 Oct, when she wrote "Selfie shown. Message sent with
+    #: it." on her desk about a picture nobody was ever shown.
+    PICTURES_NOTE = (
+        "Every picture you made that {user} has never been shown in the chat, "
+        "oldest first — whatever you made it for, and whether or not a goal "
+        "still remembers it. Each one is finished and in your gallery; there is "
+        "nothing to take again. To show one, call `{hand}` with its "
+        "`picture_id` (the id in brackets) and it appears in the chat as you "
+        "answer. Whether and when is yours to decide. Until that call answers "
+        "`shown`, none of these has reached {user}, whatever your notes say.")
+
+    def _unsent(self) -> Optional[Unsent]:
+        """Her shelf's unsent reader, built on first use: `cfg.selfie_dir` is
+        the world's, and a brain with no shelf has nothing to list."""
+        if self._unsent_shelf is None:
+            shelf = getattr(self.cfg, "selfie_dir", None)
+            if shelf is None:
+                return None
+            chatlog = getattr(self.state.sessions, "log", None)
+            self._unsent_shelf = Unsent(shelf, getattr(chatlog, "path", None))
+        return self._unsent_shelf
+
+    async def _pictures_block(self) -> str:
+        """PICTURES YOU HAVEN'T SENT (§18.2a), or "" — every one, while the hand
+        that sends them is hers to use; a list she can do nothing about would
+        only be something to describe.
+
+        Off the loop: the first read of a long conversation is a few hundred
+        milliseconds on a slow drive, and a host holds every character's room.
+        """
+        unsent = self._unsent()
+        if unsent is None or not self.held_picture_showable:
+            return ""
+        try:
+            shots = await asyncio.to_thread(unsent.pictures)
+            held = {g.held_picture: g.id for g in self.goals.open_goals()
+                    if g.held_picture}
+        except Exception:       # noqa: BLE001 — the shelf's rule: never a lost turn
+            log.warning("unsent pictures failed; assembling without them",
+                        exc_info=True)
+            return ""
+        if not shots:
+            return ""
+        lines = []
+        for shot in shots:
+            line = f"- [{shot['ref']}] {shot['kind']}, {shot['when']}"
+            if shot["caption"]:
+                line += f" — {shot['caption']}"
+            if shot["url"] in held:
+                line += f" (goal [{held[shot['url']]}] is holding it too)"
+            lines.append(line)
+        note = self.PICTURES_NOTE.format(user=self.cfg.user_name,
+                                         hand=self.SHOW_HELD)
+        return "## PICTURES YOU HAVEN'T SENT\n\n" + note + "\n\n" + "\n".join(lines)
 
     def set_selfedit(self, selfedit) -> None:
         """Wire the §23 self-edit door, so `propose_edit` has somewhere to land.
@@ -715,6 +773,9 @@ class ToolBrain(BrainAdapter):
         never posted.
         """
         data = json.loads(result)
+        if data.get("status") == "ready" and self.post is not None \
+                and str(data.get("picture_id") or "").strip():
+            return self._show_unsent(str(data["picture_id"]).strip())
         if data.get("status") != "ready" or self.goals is None or self.post is None:
             raise RuntimeError("the standing goal store is unavailable")
         goal_id = str(data.get("goal_id") or "").strip()
@@ -745,6 +806,39 @@ class ToolBrain(BrainAdapter):
         return json.dumps({"status": "shown", "goal_id": goal.id,
                            "note": "the picture is in the chat now, above "
                                    "what you are saying; the goal is done"},
+                          ensure_ascii=False)
+
+    def _show_unsent(self, ref: str) -> str:
+        """Put one picture from PICTURES YOU HAVEN'T SENT into the chat (§18.2a).
+
+        The other door of the same hand: by the picture rather than by a goal,
+        because a picture no goal holds — a night job's, a let-go follow-up's —
+        has no goal to name. Every goal holding it learns it was delivered
+        (`picture_shown`), so an errand already filed to send it closes instead
+        of sending it again. Raises on anything not on the list, for
+        `_show_held_picture`'s reason: she must never talk over a `shown` that
+        did not post.
+        """
+        unsent = self._unsent()
+        shot = unsent.find(ref) if unsent is not None else None
+        if shot is None:
+            raise ValueError(f"{ref} isn't a picture they haven't seen — use a "
+                             "picture_id from PICTURES YOU HAVEN'T SENT")
+        origin = correlate.current()
+        post_kw: dict = {"image_url": shot["url"],
+                         "selfie_id": shot["selfie_id"]}
+        if origin is not None and origin.channel:
+            post_kw["channel"] = origin.channel
+        if origin is not None and origin.client_id:
+            post_kw["client_id"] = origin.client_id
+        self.post("assistant", "", **post_kw)
+        closed = self.goals.picture_shown(shot["url"]) if self.goals is not None else []
+        if self._on_goal_write is not None:
+            for goal in closed:
+                self._on_goal_write(goal)
+        return json.dumps({"status": "shown", "picture_id": shot["ref"],
+                           "note": "the picture is in the chat now, above "
+                                   "what you are saying"},
                           ensure_ascii=False)
 
     def realise(self, tool: str, result: str, *, extra: dict | None = None) -> None:

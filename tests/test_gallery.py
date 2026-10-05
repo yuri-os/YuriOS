@@ -8,6 +8,7 @@ one thing a panel must never do is disagree with the files.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -240,3 +241,95 @@ def test_the_route_refuses_a_score_that_is_not_one_to_ten(client, cfg, score):
                           json={"name": "1000-shot0.png", "score": score})
     assert refused.status_code == 422
     assert not (cfg.selfie_dir / gallery.RATINGS).exists()
+
+
+# --- what she hasn't sent (SPEC §18.2a) ---------------------------------------
+#
+# Live, 6 Oct: three of the night's pictures landed in the gallery, two of them
+# the best she had taken, and nothing anywhere said they existed. The list is
+# the shelf less everything the conversation ever carried.
+
+def _render(shelf: Path, name: str, **row) -> None:
+    shelf.mkdir(parents=True, exist_ok=True)
+    (shelf / name).write_bytes(b"\x89PNG")
+    line = {"image": name, "created_at": "2026-10-06T02:10:53",
+            "template": {"look": f"the look of {name}"}, **row}
+    with (shelf / "generations.jsonl").open("a", encoding="utf-8") as f:
+        f.write(json.dumps(line) + "\n")
+
+
+def _said(chat: Path, **entry) -> None:
+    chat.parent.mkdir(parents=True, exist_ok=True)
+    with chat.open("a", encoding="utf-8") as f:
+        f.write(json.dumps({"id": "x", "role": "assistant", "text": "", **entry})
+                + "\n")
+
+
+def _refs(unsent: gallery.Unsent) -> list[str]:
+    return [shot["ref"] for shot in unsent.pictures()]
+
+
+def test_unsent_is_the_shelf_less_what_the_chat_carried(tmp_path):
+    shelf, chat = tmp_path / "selfies", tmp_path / "state" / "conversation.jsonl"
+    _render(shelf, "1-night.png", selfie_id="night", kind="selfie", by="mind")
+    _render(shelf, "2-yours.png", selfie_id="yours", by="owner")
+    _render(shelf, "3-legacy.png", selfie_id="legacy")
+    _render(shelf, "4-sent.png", selfie_id="sent", kind="selfie")
+    _render(shelf, "5-gone.png", selfie_id="gone")
+    (shelf / "5-gone.png").unlink()
+    _said(chat, image_url="/selfies/4-sent.png", selfie_id="sent")
+
+    shots = gallery.Unsent(shelf, chat).pictures()
+    assert [s["ref"] for s in shots] == ["night", "legacy"]
+    night, legacy = shots
+    assert night == {"ref": "night", "name": "1-night.png",
+                     "url": "/selfies/1-night.png", "selfie_id": "night",
+                     "kind": "selfie", "when": "2026-10-06 02:10",
+                     "caption": "the look of 1-night.png"}
+    assert legacy["kind"] == "picture", "an unrecorded camera is a 'picture'"
+
+
+def test_unsent_reads_on_from_where_it_stopped(tmp_path):
+    shelf, chat = tmp_path / "selfies", tmp_path / "state" / "conversation.jsonl"
+    _render(shelf, "1-a.png", selfie_id="a")
+    _said(chat, text="hello")
+    unsent = gallery.Unsent(shelf, chat)
+    assert _refs(unsent) == ["a"]
+
+    _render(shelf, "2-b.png", selfie_id="b")
+    assert _refs(unsent) == ["a", "b"]
+    _said(chat, image_url="/selfies/1-a.png")
+    assert _refs(unsent) == ["b"]
+    # half a line is left for the next read, not lost
+    with chat.open("a", encoding="utf-8") as f:
+        f.write('{"id": "y", "image_url": "/selfies/2-')
+    assert _refs(unsent) == ["b"]
+    with chat.open("a", encoding="utf-8") as f:
+        f.write('b.png"}\n')
+    assert _refs(unsent) == []
+
+
+def test_a_rewritten_conversation_is_read_again_from_the_top(tmp_path):
+    shelf, chat = tmp_path / "selfies", tmp_path / "state" / "conversation.jsonl"
+    _render(shelf, "1-a.png", selfie_id="a")
+    _said(chat, image_url="/selfies/1-a.png", text="a long line " * 20)
+    unsent = gallery.Unsent(shelf, chat)
+    assert _refs(unsent) == []
+    chat.write_text(json.dumps({"id": "z", "text": "compacted"}) + "\n")
+    assert _refs(unsent) == ["a"]
+
+
+def test_a_shared_render_id_is_listed_and_found_by_file(tmp_path):
+    """A night re-run makes a second `dream-<day>`; her list must name each."""
+    shelf = tmp_path / "selfies"
+    _render(shelf, "1-dream-2026-08-19.png", selfie_id="dream-2026-08-19")
+    _render(shelf, "2-dream-2026-08-19.png", selfie_id="dream-2026-08-19")
+    _render(shelf, "3-cb7ec091.png", selfie_id="cb7ec091")
+    unsent = gallery.Unsent(shelf, None)
+    assert _refs(unsent) == ["1-dream-2026-08-19", "2-dream-2026-08-19",
+                             "cb7ec091"]
+    assert unsent.find("2-dream-2026-08-19")["name"] == "2-dream-2026-08-19.png"
+    assert unsent.find("dream-2026-08-19") is None, "ambiguous, so refused"
+    assert unsent.find("cb7ec091")["name"] == "3-cb7ec091.png"
+    assert unsent.find("3-cb7ec091.png")["ref"] == "cb7ec091"
+    assert unsent.find("nope") is None and unsent.find("") is None

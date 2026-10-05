@@ -310,19 +310,24 @@ def build_server(*, max_minutes: float | None = None,
                 raise ValueError("text cannot contain the goal field separator |")
             return {"status": "ready", "text": text, "kind": kind}
 
-        # A picture she already took for a goal, put into the conversation
-        # (SPEC §18.2a). Nothing is rendered: the goal holds the photo, and the
-        # host — which owns the GoalStore — posts it and closes the goal.
+        # A picture she already made, put into the conversation (SPEC §18.2a).
+        # Nothing is rendered: the goal or the gallery holds the photo, and the
+        # host — which owns the GoalStore and the chat — posts it.
         @mcp.tool(description=(
-            "Show the user a picture you already took that they haven't seen — "
-            "one WHAT YOU'RE WORKING ON marks as already taken. Pass that "
-            "goal's exact `goal_id`. It appears in the chat as you answer and "
-            "the goal is done; never use `take_selfie` to make it again."))
-        def show_held_picture(goal_id: str) -> dict:
-            goal_id = goal_id.strip()
-            if not goal_id:
-                raise ValueError("goal_id must name the goal holding the picture")
-            return {"status": "ready", "goal_id": goal_id}
+            "Show the user a picture you already made that they haven't seen. "
+            "Pass exactly one of: `goal_id`, for a goal WHAT YOU'RE WORKING ON "
+            "marks as already taken (the goal is then done), or `picture_id`, "
+            "for one listed under PICTURES YOU HAVEN'T SENT. It appears in the "
+            "chat as you answer; never use `take_selfie` or `show_picture` to "
+            "make it again."))
+        def show_held_picture(goal_id: str = "", picture_id: str = "") -> dict:
+            goal_id, picture_id = goal_id.strip(), picture_id.strip()
+            if bool(goal_id) == bool(picture_id):
+                raise ValueError("pass exactly one: goal_id (the goal holding the "
+                                 "picture) or picture_id (from PICTURES YOU "
+                                 "HAVEN'T SENT)")
+            return {"status": "ready", "goal_id": goal_id,
+                    "picture_id": picture_id}
 
     if search is not None and fetcher is not None:
         # The web (SPEC §7.7). Three hands that go together: find it, read it,

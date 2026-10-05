@@ -60,6 +60,30 @@ async def test_a_vault_shot_skips_the_chat_and_still_lands_on_disk(cfg, clock, f
     assert pngs and pngs[0].read_bytes()[:4] == b"\x89PNG"
 
 
+async def test_the_ledger_says_which_camera_and_who_pointed_it(cfg, clock, forge):
+    """Her list of pictures not yet sent (§18.2a) reads the ledger: a picture
+    is shaped like a selfie there, and the owner's renders are not hers to
+    send. The completion carries `by` so the mind can tell its own apart."""
+    rec, signals = Recorder(), []
+    lab = SelfieLab(forge, clock=clock, post=rec.post, speak=rec.speak,
+                    signal=lambda kind, payload, **kw: signals.append(payload))
+    lab.start({"id": "m1", "kind": "picture", "subject": "the harbour",
+               "_deliver": "vault", "_goal_id": "", "_by": "mind",
+               "status": "started"})
+    lab.start({"id": "o1", "kind": "selfie", "_deliver": "vault",
+               "_by": "owner", "status": "started"})
+    lab.start({"id": "c1", "kind": "selfie", "status": "started"})
+    await settle(lab)
+
+    rows = {r["selfie_id"]: r for r in map(
+        json.loads, (cfg.selfie_dir / "generations.jsonl").read_text().splitlines())}
+    assert (rows["m1"]["kind"], rows["m1"]["by"]) == ("picture", "mind")
+    assert (rows["o1"]["kind"], rows["o1"]["by"]) == ("selfie", "owner")
+    assert rows["c1"]["kind"] == "selfie" and "by" not in rows["c1"]
+    assert {s["id"]: s["by"] for s in signals} == {"m1": "mind", "o1": "owner",
+                                                    "c1": ""}
+
+
 async def test_the_shot_lands_in_the_chat_and_on_disk(cfg, clock, forge):
     rec = Recorder()
     lab = SelfieLab(forge, clock=clock, post=rec.post, speak=rec.speak)

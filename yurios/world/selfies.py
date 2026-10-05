@@ -637,6 +637,13 @@ class SelfieLab:
                 result.meta["corr_id"] = c["_corr_id"]
             if c.get("id"):
                 result.meta["selfie_id"] = str(c["id"])
+            # Which camera, and who pointed it. A picture's template is shaped
+            # like a selfie's, so the ledger could not tell the two apart; and
+            # her list of pictures not yet sent (§18.2a) must leave out the ones
+            # the owner rendered from the gallery.
+            result.meta["kind"] = kind
+            if c.get("_by"):
+                result.meta["by"] = str(c["_by"])
             self.forge._write_provenance(path, result.meta)   # the ledger (→ ch. 26)
         except Exception as e:                 # render failed: say so, quietly
             failed = True
@@ -718,6 +725,9 @@ class SelfieLab:
                           "goal_id": c.get("_goal_id"),
                           "complete_goal": bool(c.get("_complete_goal")),
                           "deliver": "vault" if _to_vault(c) else "chat",
+                          # "mind" for her hands, goal or none — what lets a
+                          # picture no goal claims still find its way to them
+                          "by": str(c.get("_by") or ""),
                          **detail},
                         source="selfies")
         except Exception:

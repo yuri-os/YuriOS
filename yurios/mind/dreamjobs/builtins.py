@@ -593,10 +593,15 @@ class SelfieJob(DreamJob):
         if not text.strip():
             out.result = "nothing happened that day"
             return out
+        # No hands (§21.2). This job *is* the night's camera, and its answer is
+        # a photograph's description and nothing else. Offered her hands, on
+        # 5 Oct it went and worked a goal instead — read the plan, rendered a
+        # second picture with `show_picture`, journalled "message sent" — and
+        # answered with the message itself, which was then rendered as a look.
         look = await ctx.ask(
             fill(self.system(SELFIE_SYSTEM), char=ctx.char_name,
                  user=ctx.user_name),
-            f"The day: {day}\n\n{text}")
+            f"The day: {day}\n\n{text}", hands=False)
         if not look or look.strip().upper().startswith("NOTHING"):
             out.result = "no picture in that day"
             return out

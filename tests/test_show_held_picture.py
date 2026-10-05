@@ -158,6 +158,91 @@ async def test_showing_it_in_chat_closes_the_follow_up_filed_to_send_it(
     assert after.state == "done" and after.held_picture == ""
 
 
+# --- PICTURES YOU HAVEN'T SENT: by the picture, not the goal (§18.2a) --------
+#
+# Live, 6 Oct: the night's stock-take took the raincheck selfie (rated 9), the
+# selfie job rendered a near-copy (rated 10), and neither reached a goal — so
+# no goal line said they existed and no hand could send them.
+
+def _shelve(cfg, name, **row):
+    cfg.selfie_dir.mkdir(parents=True, exist_ok=True)
+    (cfg.selfie_dir / name).write_bytes(b"\x89PNG")
+    line = {"image": name, "created_at": "2026-10-06T02:10:53", "kind": "selfie",
+            "template": {"look": "floor below the window, hands reaching up"},
+            **row}
+    with (cfg.selfie_dir / "generations.jsonl").open("a", encoding="utf-8") as f:
+        f.write(json.dumps(line) + "\n")
+    return f"/selfies/{name}"
+
+
+def _chatting(cfg, seeded_vault):
+    """`_rig`, with `post` writing the conversation the way `post_message`
+    does — the list reads the conversation, so a post that wrote nothing could
+    never be seen to empty it."""
+    rig, posted = _rig(cfg, seeded_vault)
+    chatlog = rig.mind.brain.state.sessions.log
+
+    def post(role, text, **kw):
+        posted.append((role, text, kw))
+        chatlog.add({"id": f"m{len(posted)}", "role": role, "text": text, **kw})
+        return {}
+
+    rig.mind.brain.post = post
+    return rig, posted
+
+
+async def test_the_prompt_lists_every_picture_not_yet_sent(cfg, seeded_vault):
+    rig, _ = _chatting(cfg, seeded_vault)
+    night = _shelve(cfg, "1791220254-cb7ec091.png", selfie_id="cb7ec091", by="mind")
+    _shelve(cfg, "1791220260-0wn3r000.png", selfie_id="0wn3r000", by="owner")
+    held = _holding(rig, {**SHOT, "image_url": night, "selfie_id": "cb7ec091"})
+
+    block = await rig.mind.brain._pictures_block()
+    assert block.startswith("## PICTURES YOU HAVEN'T SENT")
+    assert "`show_held_picture` with its `picture_id`" in block
+    assert ("- [cb7ec091] selfie, 2026-10-06 02:10 — floor below the window, "
+            f"hands reaching up (goal [{held.id}] is holding it too)") in block
+    assert "0wn3r000" not in block, "the owner's own render is not hers to send"
+
+    soul, prompt = await rig.mind.brain._assemble(
+        "s", "hi", window=[], lore=[])
+    assert "[cb7ec091]" in prompt.messages[0]["content"]
+
+
+async def test_no_hand_no_list(cfg, seeded_vault):
+    rig, _ = _chatting(cfg, seeded_vault)
+    _shelve(cfg, "1791220254-cb7ec091.png", selfie_id="cb7ec091")
+    rig.mind.brain.set_hands_policy(lambda tool: tool != "show_held_picture")
+    assert await rig.mind.brain._pictures_block() == ""
+
+
+async def test_showing_one_by_picture_id_posts_it_and_closes_its_errand(
+        cfg, seeded_vault):
+    from yurios.world.tooltags import ToolCall
+
+    rig, posted = _chatting(cfg, seeded_vault)
+    night = _shelve(cfg, "1791220254-cb7ec091.png", selfie_id="cb7ec091", by="mind")
+    errand = rig.mind.goals.add("send them the picture I took", kind="reach_out",
+                                provenance="followup:cb7ec091",
+                                meta={"product": {"image_url": night,
+                                                  "selfie_id": "cb7ec091",
+                                                  "deliver": "vault"}})
+
+    result = json.loads(await rig.mind.brain._execute(
+        ToolCall("show_held_picture", {"picture_id": "cb7ec091"})))
+
+    assert result["status"] == "shown" and result["picture_id"] == "cb7ec091"
+    assert posted == [("assistant", "", {"image_url": night,
+                                         "selfie_id": "cb7ec091"})]
+    assert rig.mind.goals.get(errand.id).state == "done", \
+        "Gate 2 would have sent it a second time"
+    assert await rig.mind.brain._pictures_block() == "", "and it is off the list"
+
+    again = await rig.mind.brain._execute(
+        ToolCall("show_held_picture", {"picture_id": "cb7ec091"}))
+    assert again.startswith("error") and len(posted) == 1
+
+
 def test_how_are_your_goals_going_is_a_status_question():
     assert is_goal_status_request("how are your goals going?")
     assert is_goal_status_request("How are your goals coming along")

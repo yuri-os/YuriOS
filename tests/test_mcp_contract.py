@@ -287,10 +287,18 @@ async def test_show_held_picture_validates_a_host_realisation_contract():
     srv = build_server(goals=True)
     async with create_connected_server_and_client_session(srv._mcp_server) as s:
         tools = {tool.name: tool for tool in (await s.list_tools()).tools}
-        assert set(tools["show_held_picture"].inputSchema["properties"]) == {"goal_id"}
+        assert set(tools["show_held_picture"].inputSchema["properties"]) == {
+            "goal_id", "picture_id"}
         result = await s.call_tool("show_held_picture", {"goal_id": " g-123 "})
-        assert json.loads(result_text(result)) == {"status": "ready", "goal_id": "g-123"}
-        assert (await s.call_tool("show_held_picture", {"goal_id": "  "})).isError
+        assert json.loads(result_text(result)) == {
+            "status": "ready", "goal_id": "g-123", "picture_id": ""}
+        result = await s.call_tool("show_held_picture", {"picture_id": "cb7ec091"})
+        assert json.loads(result_text(result)) == {
+            "status": "ready", "goal_id": "", "picture_id": "cb7ec091"}
+        # exactly one: neither, blank, or both is a mistake she can read
+        for bad in ({}, {"goal_id": "  "},
+                    {"goal_id": "g-1", "picture_id": "cb7ec091"}):
+            assert (await s.call_tool("show_held_picture", bad)).isError
 
 
 async def test_set_timer_default_label_and_bounds():

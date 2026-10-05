@@ -253,6 +253,11 @@ class BrainAdapter:
                         exc_info=True)
             return ""
 
+    async def _pictures_block(self) -> str:
+        """PICTURES YOU HAVEN'T SENT (§18.2a). A mindless desktop brain has no
+        shelf and no hand to send from it, so nothing."""
+        return ""
+
     async def _recall_knowledge(self, text: str) -> list:
         """The shelf, searched for this turn. Never raises: a broken index is a
         turn without the block, not a turn that doesn't happen."""
@@ -322,7 +327,8 @@ class BrainAdapter:
         if origin is not None and origin.channel == "voice":
             prompt.messages[0]["content"] += f"\n\n## VOICE\n\n{SPOKEN_STYLE_DIRECTIVE}"
         prompt.messages[0]["content"] += f"\n\n## EXPRESSION\n\n{EXPRESSION_DIRECTIVE}"
-        for block in (self._mind_block(), self._desk_block()):
+        for block in (self._mind_block(), self._desk_block(),
+                      await self._pictures_block()):
             if block:
                 prompt.messages[0]["content"] += f"\n\n{block}"
         return soul, prompt

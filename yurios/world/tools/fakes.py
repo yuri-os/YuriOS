@@ -29,10 +29,12 @@ SPECS = [
                               "kind": {"type": "string",
                                        "enum": ["task", "reach_out"]}},
               "required": ["text"]}),
-    ToolSpec("show_held_picture", "Show the user a picture you already took "
-             "for a goal that they haven't seen.",
-             {"properties": {"goal_id": {"type": "string"}},
-              "required": ["goal_id"]}),
+    ToolSpec("show_held_picture", "Show the user a picture you already made "
+             "that they haven't seen — by the goal holding it, or by its "
+             "picture_id from PICTURES YOU HAVEN'T SENT.",
+             {"properties": {"goal_id": {"type": "string"},
+                             "picture_id": {"type": "string"}},
+              "required": []}),
     # Her desk and her skills (§34.2). Advertised here because they are the hands
     # the loop reaches for most, and a fake tool set that omitted them let the
     # loop's tests pass over the exact shape — a whole document as a JSON string
@@ -165,7 +167,8 @@ class FakeToolRunner:
                                "kind": args.get("kind") or "task"})
         if tool == "show_held_picture":
             return json.dumps({"status": "ready",
-                               "goal_id": str(args.get("goal_id") or "").strip()})
+                               "goal_id": str(args.get("goal_id") or "").strip(),
+                               "picture_id": str(args.get("picture_id") or "").strip()})
         if tool == "list_notes":
             return json.dumps({"folder": args.get("folder") or "",
                                "notes": [{"path": "research/learning_you.md",

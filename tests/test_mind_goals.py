@@ -815,6 +815,7 @@ def test_the_contract_stamp_names_the_goal_that_wanted_it():
     stamped = stamp_contract({"topic": "tides"}, goal_id="g-1")
     assert stamped["_deliver"] == "vault"      # principle 8
     assert stamped["_goal_id"] == "g-1"        # principle 7
+    assert stamped["_by"] == "mind"            # §18.2a: hers, goal or none
     assert json.loads(json.dumps(stamped)) == stamped
 
 

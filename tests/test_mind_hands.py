@@ -12,6 +12,8 @@ import asyncio
 import json
 import logging
 
+import pytest
+
 from yurios.kernel.clock import Clock
 from yurios.mind import loop as mind_loop
 from yurios.mind.hands import (CHEAP, EXPENSIVE, HANDS, Hands, describe_hands,
@@ -1048,6 +1050,61 @@ async def test_a_failed_render_leaves_the_goal_holding_nothing(cfg, seeded_vault
     await rig.mind.tick()
 
     assert rig.mind.goals.get(goal.id).product == {}
+
+
+def _strays(rig):
+    return [g for g in rig.mind.goals.all()
+            if g.provenance == "followup:e3110ba4"]
+
+
+async def test_a_picture_no_goal_holds_is_handed_to_a_reach_out(cfg, seeded_vault):
+    """A night job's hands name no goal (§18.2a). Live, 6 Oct: the stock-take
+    took the raincheck selfie at 02:10 and it sat in the gallery for good,
+    because only a goal could ever have carried it to Gate 2."""
+    rig = rig_with_hands(cfg, seeded_vault,
+                         *["think still looking at it."] * 4, allow="")
+    rig.mind.bus.post("task_completion", _completion(None, by="mind"),
+                      source="selfies")
+    await rig.mind.tick()
+
+    [heir] = _strays(rig)
+    assert heir.kind == "reach_out" and heir.commitment == "single-minded"
+    assert heir.held_picture == SHOT
+    assert heir.product["detail"] == "the window seat, the lamp on the left"
+    assert rig.post.proactive() == [], "the lab's rule holds: Gate 2 sends it"
+
+    # the same completion seen twice is one errand
+    rig.mind.bus.post("task_completion", _completion(None, by="mind"),
+                      source="selfies")
+    await rig.mind.tick()
+    assert len(_strays(rig)) == 1
+
+
+async def test_a_goal_that_closed_before_its_picture_landed_still_hands_it_on(
+        cfg, seeded_vault):
+    rig = rig_with_hands(cfg, seeded_vault,
+                         *["think still looking at it."] * 4, allow="")
+    goal = rig.mind.goals.add("take the raincheck selfie", kind="task")
+    rig.mind.goals.set_state(goal.id, "done")
+    rig.mind.bus.post("task_completion", _completion(goal.id, by="mind"),
+                      source="selfies")
+    await rig.mind.tick()
+    assert [g.held_picture for g in _strays(rig)] == [SHOT]
+
+
+@pytest.mark.parametrize("over", [
+    {"by": "owner"},                     # rendered from the gallery: theirs already
+    {},                                  # nobody said it was hers
+    {"by": "mind", "deliver": "chat"},   # already in the conversation
+    {"by": "mind", "error": "OutOfMemoryError", "image_url": ""},
+], ids=["owner", "unstamped", "in-chat", "failed"])
+async def test_only_her_own_unsent_picture_gets_an_errand(cfg, seeded_vault, over):
+    rig = rig_with_hands(cfg, seeded_vault,
+                         *["think still looking at it."] * 4, allow="")
+    rig.mind.bus.post("task_completion", _completion(None, **over),
+                      source="selfies")
+    await rig.mind.tick()
+    assert _strays(rig) == []
 
 
 async def test_a_promise_that_made_a_photo_hands_it_to_a_goal_that_can_send_it(

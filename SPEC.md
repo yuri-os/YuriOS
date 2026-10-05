@@ -1780,6 +1780,29 @@ them is precisely the always-interrupting-assistant failure.
   is done, its errand having happened. Marking only the goal that delivered it sent the same
   picture twice on 5 Oct: the follow-up delivered it at 09:01, the parent's goal line still said
   it was taken and unseen, and at 09:04 she showed it again.
+
+  A picture her hands make that **no goal takes delivery of** — a night job's call names no goal,
+  and a goal can close or stop waiting before its render lands — **MUST** be handed to the same
+  errand (`acts.adopt_stray_picture`): a `single-minded` `reach_out` under `followup:<render id>`,
+  holding it, deduplicated on that provenance, so Gate 2 carries it and either door's delivery
+  closes it. The mind's contracts say they are hers (`_by: "mind"`, beside `_deliver` and
+  `_goal_id`); the owner's renders from the gallery say `_by: "owner"` and are theirs already, and
+  neither a failed render nor one already in the chat files anything. Live, 6 Oct: the stock-take
+  took the raincheck selfie at 02:10 and the selfie job a near-copy at 02:11, the owner later rated
+  them 9 and 10, and the only picture of the night that reached the chat was the one rated 6.
+
+  And whatever happens to a picture on the way, the conversation **MUST** know every one she made
+  that it has never carried. PICTURES YOU HAVEN'T SENT lists, oldest first, every render on her
+  shelf — the owner's (`by: owner`) excepted — whose `image_url` no conversation line has ever
+  carried (`world/gallery.Unsent`, which reads the ledger and the conversation on from where it
+  last stopped): its id, which camera, when, the start of her look, and the goal holding it, if
+  one is. It is shown while `show_held_picture` is offered, and that hand's other door is
+  `picture_id`: it takes exactly one of `goal_id` or `picture_id`, by picture it posts the same one
+  entry a goal's showing does, and `picture_shown` re-marks every goal holding it, so an errand
+  filed to send it closes instead of sending it again. A picture not on the list is an error she
+  reads. The lab records each render's `kind` and `by` in the ledger for this — a picture's
+  template is shaped like a selfie's — and a ledger line from before either was recorded is hers,
+  of an unnamed camera.
 - §18.2b **A message she decided to send is hers to word, and still Gate 2's to time.** Every goal
   step is offered `tell_them {"text": …}`, hands or none. It is not a hand — nothing runs, no tool
   server is asked, and §26's switches and call cap do not apply — it files a `reach_out` goal under
@@ -2129,6 +2152,11 @@ that set and a poor place to stop.
   down is a fact the next reader inherits wrong. Overridable per character like any other flag.
   `DreamJob.cost()` **MUST** price the preamble it will send, or the night's first item is
   underbilled and §21.2's anti-wedge rule starves everything queued behind it.
+  `selfie` carries her soul and **MUST NOT** be offered her hands (§26.2): it *is* the night's
+  camera, and its answer is a photograph's description and nothing else. Offered them on 5 Oct, it
+  worked a goal instead — reread the plan, rendered a second picture with `show_picture`, wrote
+  "message sent" on her desk — and answered with the message itself, which was rendered as the
+  look.
 - **What a night wrote reaches the journal as its conclusion.** The desk is not indexed and the
   journal is, so a job's journal line is the only part of its writing that recall, consolidation
   and the conversation ever see — and "wrote a diary entry for <day>" told them only that one
@@ -2766,8 +2794,8 @@ needs a sandbox.
 - §26.2 **A call on her own is a step of her own work, and a step may chain.** She reaches for a
   hand unasked in exactly two places: a goal step (`_act_goal_work`), where every call carries the
   id of the open goal that wanted it, and a DREAM job written in her own voice (`soul: full`,
-  §21.2) — extraction jobs (consolidation, fact lists, summaries for search) and a dry run never
-  get hands. Free time (§22.7) is not a third: it may only *read* her desk and skills before it
+  §21.2) — extraction jobs (consolidation, fact lists, summaries for search), the `selfie` job
+  (§21.2) and a dry run never get hands. Free time (§22.7) is not a third: it may only *read* her desk and skills before it
   decides, and what it decides to do is filed as a goal and done in that goal's steps. One tick is still one intention (§15), but the step it takes is worked as far as her
   hands go: she answers with a `use` line — a `use <hand> {` run onto the end of a sentence is the
   same call, and **MUST** be read as one (live, GLM wrote a whole chain as one paragraph and none of

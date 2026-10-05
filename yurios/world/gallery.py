@@ -27,6 +27,10 @@ good picture* becomes a question the ledger can answer.
 from __future__ import annotations
 
 import datetime
+import json
+import os
+import threading
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -175,3 +179,137 @@ def page(directory: str | Path, *, page: int = 0,
     total = sum(1 for _ in base.glob("*.png")) if base.is_dir() else 0
     return {"items": items, "page": page, "limit": limit, "has_more": has_more,
             "total": total, "rated": len(scores)}
+
+
+# --------------------------------------------------- what she hasn't sent yet
+
+#: How much of each picture's look her list quotes — enough to tell the raincheck
+#: selfie from the window-seat one, not the whole paragraph she wrote.
+UNSENT_CAPTION_CHARS = 160
+
+
+class Unsent:
+    """The pictures she made that never reached the chat (SPEC §18.2a).
+
+    Gate 2 and the goals that hold a picture are how a photograph normally
+    travels, and both can lose one: a night job's hands name no goal, a goal
+    closes before its render lands, a follow-up is let go of. On 6 Oct three
+    of the night's shots sat in the gallery — two of them the best she had
+    taken — and nothing anywhere said they existed. So the question is asked of
+    the shelf itself: every render on it, less every one the conversation has
+    ever carried. Whatever happened in between, that difference is the list.
+
+    "Hers" is everything but the owner's own renders from the gallery page
+    (`by: owner`); a ledger line from before `by` was recorded is hers.
+
+    Two files, both append-only, both read from where the last read stopped —
+    the ledger grows a line per render and the conversation one per sentence,
+    so re-reading either per turn would cost more every day she lives. A file
+    that got shorter was rewritten (the conversation compacts) and is read
+    again from the top.
+    """
+
+    def __init__(self, shelf: str | Path, chat: str | Path | None):
+        self.shelf = Path(shelf)
+        self.chat = Path(chat) if chat else None
+        self._lock = threading.Lock()
+        self._shots: dict[str, dict] = {}       # image name -> ledger row
+        self._sent: set[str] = set()            # image names the chat carried
+        self._read_to = {"ledger": 0, "chat": 0}
+
+    def _tail(self, which: str, path: Path | None) -> tuple[list[dict], bool]:
+        """The whole lines appended since the last read, and whether the file
+        was rewritten (so what was learned from it before no longer holds)."""
+        start = self._read_to[which]
+        try:
+            size = path.stat().st_size if path is not None else 0
+        except OSError:
+            size = 0
+        reset = size < start
+        if reset:
+            start = self._read_to[which] = 0
+        if path is None or size == start:
+            return [], reset
+        with path.open("rb") as f:
+            f.seek(start)
+            blob = f.read(size - start)
+        end = blob.rfind(b"\n")
+        if end < 0:                  # half a line, still being written
+            return [], reset
+        self._read_to[which] = start + end + 1
+        rows = []
+        for line in blob[:end].splitlines():
+            try:
+                row = json.loads(line)
+            except ValueError:
+                continue             # a torn line, as every reader here skips
+            if isinstance(row, dict):
+                rows.append(row)
+        return rows, reset
+
+    def _refresh(self) -> None:
+        rows, reset = self._tail("ledger", self.shelf / LEDGER)
+        if reset:
+            self._shots.clear()
+        for row in rows:
+            name = row.get("image")
+            if isinstance(name, str) and name and row.get("by") != "owner":
+                self._shots[name] = row
+        rows, reset = self._tail("chat", self.chat)
+        if reset:
+            self._sent.clear()
+        for row in rows:
+            url = row.get("image_url")
+            if isinstance(url, str) and url:
+                self._sent.add(url.rsplit("/", 1)[-1])
+
+    def pictures(self) -> list[dict]:
+        """Every one still unsent, oldest first, shaped for her prompt.
+
+        `ref` is what she passes back: the render's own id, which is the one her
+        notes and her tool results know it by — or, where two renders share one
+        (a night re-run makes a second `dream-<day>`), the file's stem.
+        """
+        with self._lock:
+            self._refresh()
+            rows = [row for name, row in self._shots.items()
+                    if name not in self._sent]
+        if not rows:
+            return []
+        try:
+            on_shelf = set(os.listdir(self.shelf))   # one scan, not a stat each
+        except OSError:
+            return []
+        rows = [row for row in rows if row["image"] in on_shelf]
+        ids = Counter(str(row.get("selfie_id") or "") for row in rows)
+        out = []
+        for row in rows:
+            name = str(row["image"])
+            sid = str(row.get("selfie_id") or "")
+            caption = " ".join(_caption(row).split())
+            if len(caption) > UNSENT_CAPTION_CHARS:
+                caption = caption[:UNSENT_CAPTION_CHARS - 1].rstrip() + "…"
+            when = str(row.get("created_at") or "")[:16].replace("T", " ")
+            out.append({"ref": sid if sid and ids[sid] == 1 else Path(name).stem,
+                        "name": name, "url": f"/selfies/{name}",
+                        "selfie_id": sid,
+                        # a line from before `kind` was recorded could be
+                        # either camera's, and "picture" is true of both
+                        "kind": "selfie" if row.get("kind") == "selfie"
+                        else "picture",
+                        "when": when, "caption": caption})
+        return out
+
+    def find(self, ref: str) -> dict | None:
+        """The unsent picture `ref` names — by the id her list shows, by the
+        file's stem or name, or by a render id only if it names just one."""
+        ref = (ref or "").strip()
+        if not ref:
+            return None
+        shots = self.pictures()
+        exact = [s for s in shots if ref in (s["ref"], s["name"],
+                                             Path(s["name"]).stem)]
+        if exact:
+            return exact[-1]
+        by_id = [s for s in shots if s["selfie_id"] == ref]
+        return by_id[0] if len(by_id) == 1 else None

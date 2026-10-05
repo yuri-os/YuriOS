@@ -961,7 +961,7 @@ def land_dispatched(loop, sig: Signal) -> str:
     goal_id = str(sig.payload.get("goal_id") or "")
     goal = loop.goals.get(goal_id) if goal_id else None
     if goal is None or goal.state not in ("pending", "active", "waiting"):
-        return ""
+        return adopt_stray_picture(loop, sig)
     product = _product_of(sig)
     if sig.payload.get("complete_goal") and not failure_of(sig):
         completion_meta: dict = {
@@ -975,7 +975,7 @@ def land_dispatched(loop, sig: Signal) -> str:
         return (f"completed “{goal.text}” when its "
                 f"{completion_meta['completed_by']} landed")
     if goal.state != "waiting":
-        return ""
+        return adopt_stray_picture(loop, sig)
     # What came back is put ON the goal, not posted (§18.2a — the lab still
     # posts nothing). This is the step that was missing: without somewhere to
     # keep it, a rendered photo existed only in the gallery and the goal that
@@ -1007,6 +1007,40 @@ def land_dispatched(loop, sig: Signal) -> str:
         where = ("it's in the vault, not in the chat"
                  if sig.payload.get("deliver") == "vault" else "it's in the chat")
     return (f"the {what} I started for “{goal.text}” came back — {where}")
+
+
+def adopt_stray_picture(loop, sig: Signal) -> str:
+    """A picture her hands made that no goal took delivery of (SPEC §18.2a).
+
+    A night job, or her free time, reaches for the camera with no goal behind
+    the call; and a goal can close, or stop waiting, before its render lands.
+    Either way the mind's landing rule kept the picture out of the chat and
+    nothing held it for Gate 2, so it sat in the gallery for good. Live, 6 Oct:
+    the stock-take took the raincheck selfie at 02:10, rated 9, and nobody was
+    ever going to send it. It is handed to the same errand a goal's picture
+    gets — a `single-minded` `followup:` reach-out holding it, so Gate 2 brings
+    it to them when it is a moment to, and either door's delivery closes it.
+
+    Only the mind's (`by: mind`): a picture the owner rendered from the gallery
+    is theirs already. Deduplicated on the render's id, which the provenance
+    carries, so the same completion seen twice is one errand.
+    """
+    if str(sig.payload.get("by") or "") != "mind":
+        return ""
+    product = _product_of(sig)
+    if not product or product.get("deliver") == "chat":
+        return ""
+    url = product["image_url"]
+    detail = str(product.get("detail") or "").strip()
+    sid = str(product.get("selfie_id") or "").strip()
+    about = f" — {detail}" if detail else (f" ({sid})" if sid else "")
+    loop.goals.add(
+        trim("send them the picture I took" + about),
+        kind="reach_out", priority=0.7,
+        due=iso_of(loop.clock.now() + 24 * 3600),
+        commitment="single-minded", provenance=f"followup:{sid or url}",
+        meta={"product": product})
+    return f"a picture I took came back with no goal holding it — it's for them, not the shelf: {url}"
 
 
 async def maintenance(loop, goal: Goal,

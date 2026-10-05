@@ -336,6 +336,29 @@ async def test_a_dreamt_selfie_carries_the_corr_id_that_joins_it_to_its_photo(ri
     assert sent[0]["_corr_id"] and sent[0]["_corr_id"] == audited[-1]
 
 
+async def test_the_selfie_job_is_not_offered_her_hands(rig, cfg):
+    """The selfie job is the night's camera, and its answer is a description
+    (§21.2). Offered her hands on 5 Oct, it worked a goal instead, rendered a
+    second picture with `show_picture`, and answered with a love letter that
+    was then rendered as the look. The diary, beside it, still gets them."""
+    runner, _clock, vault = rig
+    runner.cfg = cfg.model_copy(update={"selfie_backend": "diffusers"})
+    _day_file(vault, "2026-07-04", ["you: hey  ⇄  her: [happy] hi"])
+    runner.selfie = lambda contract: None
+    offered: list[str] = []
+
+    class Hands(_FakeHands):
+        async def run(self, messages, ask):
+            offered.append(messages[0]["content"][:40])
+            return await ask(messages)
+
+    runner.hands = Hands(["take_selfie", "show_picture", "read_note"])
+    await runner.run(only="selfie", token_budget=40000)
+    assert offered == [], "the selfie job's call was offered her hands"
+    await runner.run(only="diary", token_budget=40000)
+    assert offered, "the diary lost her hands too — only the selfie gives them up"
+
+
 async def test_a_dry_run_claims_no_call_it_did_not_make(rig):
     runner, _clock, vault = rig
     _day_file(vault, "2026-07-04", ["you: hey  ⇄  her: [happy] hi"])

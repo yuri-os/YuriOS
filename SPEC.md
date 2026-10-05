@@ -1802,7 +1802,10 @@ them is precisely the always-interrupting-assistant failure.
   filed to send it closes instead of sending it again. A picture not on the list is an error she
   reads. The lab records each render's `kind` and `by` in the ledger for this — a picture's
   template is shaped like a selfie's — and a ledger line from before either was recorded is hers,
-  of an unnamed camera.
+  of an unnamed camera. The owner can take a picture off the list without it being posted:
+  `gallery.mark_seen` appends to `seen.jsonl` beside the ratings, append-only and refusing a name
+  not on the shelf, and the list leaves out every picture named there. Most of what was stranded
+  before the list existed had been looked at in the gallery all along.
 - §18.2b **A message she decided to send is hers to word, and still Gate 2's to time.** Every goal
   step is offered `tell_them {"text": …}`, hands or none. It is not a hand — nothing runs, no tool
   server is asked, and §26's switches and call cap do not apply — it files a `reach_out` goal under

@@ -40,6 +40,9 @@ from yurios.mind.util import jsonl_append, jsonl_page, jsonl_read
 LEDGER = "generations.jsonl"
 #: Ours, beside it — one line per rating, keyed by image name.
 RATINGS = "ratings.jsonl"
+#: …and the owner's word that they have seen a picture outside the chat — in
+#: the gallery, say — so it is off her list of pictures not yet sent (§18.2a).
+SEEN = "seen.jsonl"
 
 #: A page of tiles. Small on purpose: a thumbnail is the full-size PNG, and
 #: twelve of them is already more than a 352px chat column shows at once.
@@ -202,9 +205,13 @@ class Unsent:
     "Hers" is everything but the owner's own renders from the gallery page
     (`by: owner`); a ledger line from before `by` was recorded is hers.
 
-    Two files, both append-only, both read from where the last read stopped —
+    The owner can also take one off by saying they have seen it elsewhere
+    (`mark_seen`, `seen.jsonl` beside the ratings): most of what was stranded
+    before this list existed had been looked at in the gallery all along.
+
+    Three files, all append-only, each read from where the last read stopped —
     the ledger grows a line per render and the conversation one per sentence,
-    so re-reading either per turn would cost more every day she lives. A file
+    so re-reading any per turn would cost more every day she lives. A file
     that got shorter was rewritten (the conversation compacts) and is read
     again from the top.
     """
@@ -215,7 +222,8 @@ class Unsent:
         self._lock = threading.Lock()
         self._shots: dict[str, dict] = {}       # image name -> ledger row
         self._sent: set[str] = set()            # image names the chat carried
-        self._read_to = {"ledger": 0, "chat": 0}
+        self._seen: set[str] = set()            # …and the owner marked seen
+        self._read_to = {"ledger": 0, "chat": 0, "seen": 0}
 
     def _tail(self, which: str, path: Path | None) -> tuple[list[dict], bool]:
         """The whole lines appended since the last read, and whether the file
@@ -262,6 +270,11 @@ class Unsent:
             url = row.get("image_url")
             if isinstance(url, str) and url:
                 self._sent.add(url.rsplit("/", 1)[-1])
+        rows, reset = self._tail("seen", self.shelf / SEEN)
+        if reset:
+            self._seen.clear()
+        self._seen.update(str(row["image"]) for row in rows
+                          if isinstance(row.get("image"), str))
 
     def pictures(self) -> list[dict]:
         """Every one still unsent, oldest first, shaped for her prompt.
@@ -273,7 +286,7 @@ class Unsent:
         with self._lock:
             self._refresh()
             rows = [row for name, row in self._shots.items()
-                    if name not in self._sent]
+                    if name not in self._sent and name not in self._seen]
         if not rows:
             return []
         try:
@@ -313,3 +326,19 @@ class Unsent:
             return exact[-1]
         by_id = [s for s in shots if s["selfie_id"] == ref]
         return by_id[0] if len(by_id) == 1 else None
+
+
+def mark_seen(directory: str | Path, names: list[str], *,
+              by: str = "user") -> list[dict]:
+    """Say the owner has seen these pictures, so she stops offering them.
+
+    Appends, like a rating, and refuses a name that is not on the shelf — a
+    mark nothing can be joined back to is worse than none.
+    """
+    for name in names:
+        resolve(directory, name)
+    at = datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds")
+    rows = [{"image": name, "by": by, "at": at} for name in names]
+    for row in rows:
+        jsonl_append(Path(directory) / SEEN, row)
+    return rows

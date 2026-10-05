@@ -333,3 +333,23 @@ def test_a_shared_render_id_is_listed_and_found_by_file(tmp_path):
     assert unsent.find("cb7ec091")["name"] == "3-cb7ec091.png"
     assert unsent.find("3-cb7ec091.png")["ref"] == "cb7ec091"
     assert unsent.find("nope") is None and unsent.find("") is None
+
+
+def test_a_picture_marked_seen_leaves_the_list(tmp_path):
+    """Most of what was stranded before the list existed had been looked at in
+    the gallery; the owner's word takes it off without posting it again."""
+    shelf, chat = tmp_path / "selfies", tmp_path / "state" / "conversation.jsonl"
+    _render(shelf, "1-a.png", selfie_id="a")
+    _render(shelf, "2-b.png", selfie_id="b")
+    _said(chat, text="hello")
+    unsent = gallery.Unsent(shelf, chat)
+    assert _refs(unsent) == ["a", "b"]
+
+    rows = gallery.mark_seen(shelf, ["1-a.png"])
+    assert rows[0]["image"] == "1-a.png" and rows[0]["by"] == "user"
+    assert _refs(unsent) == ["b"]
+    # a conversation rewritten from the top forgets nothing the owner said
+    chat.write_text(json.dumps({"id": "z", "text": "c"}) + "\n")
+    assert _refs(unsent) == ["b"]
+    with pytest.raises(gallery.UnknownShot):
+        gallery.mark_seen(shelf, ["9-not-here.png"])

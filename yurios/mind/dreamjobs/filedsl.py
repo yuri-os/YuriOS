@@ -48,7 +48,7 @@ log = logging.getLogger("mind.dreamjobs")
 #: `kind` is absent on purpose alongside `name`: it selects the `work` a new
 #: job gets, and a file may retune a builtin, never re-implement one.
 JOB_FILE_KEYS = ("title", "description", "priority", "per_day", "enabled",
-                 "soul", "standing")
+                 "soul", "standing", "max_hands")
 
 
 def _as_float(value, fallback: float) -> float:
@@ -100,6 +100,22 @@ def _as_int(value, fallback: int, *, ceiling: int) -> int:
     return max(1, min(wanted, ceiling))
 
 
+def _as_count(value) -> int | None:
+    """A frontmatter count that may be zero — `max_hands: 0` means none.
+
+    `None` for anything unreadable, so a mangled value leaves the job's own
+    default standing rather than quietly becoming no hands or every hand. The
+    house ceiling is not applied here but where the call is made, so a change
+    to `.env` reaches a file nobody has touched.
+    """
+    if isinstance(value, bool):
+        return None
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return None
+
+
 @dataclass
 class JobFile:
     """One `vault/dreams/<name>.md`, parsed."""
@@ -122,6 +138,10 @@ class JobFile:
                 value = value is not False
             elif key == "soul":
                 value = "off" if str(value).lower() in ("off", "none", "false") else "full"
+            elif key == "max_hands":
+                value = _as_count(value)
+                if value is None:
+                    continue
             else:
                 value = str(value)
             setattr(job, key if key != "enabled" else "_enabled", value)
@@ -189,7 +209,8 @@ def load_job_files(root: Path) -> list[JobFile]:
 #: imported the mind and the mind imported the importer back, a cycle that only
 #: held together because both sides did it from inside a function.
 def seed_job_files() -> dict[str, str]:
-    def front(name, title, desc, priority, per_day, soul, body):
+    def front(name, title, desc, priority, per_day, soul, body,
+              max_hands=None):
         # `yaml.safe_dump` for the free-text fields, not an f-string: a
         # description is prose and prose contains colons. One of these written by
         # hand with a colon in it is a job that silently stops loading, which is
@@ -198,18 +219,20 @@ def seed_job_files() -> dict[str, str]:
         meta = yaml.safe_dump(
             {"name": name, "title": title, "description": desc,
              "priority": priority, "per_day": per_day,
-             "enabled": True, "soul": soul},
+             "enabled": True, "soul": soul,
+             **({} if max_hands is None else {"max_hands": max_hands})},
             sort_keys=False, allow_unicode=True, default_flow_style=False)
         return f"---\n{meta}---\n\n{body.strip()}\n"
 
     return {
         "diary.md": front(
             "diary", "Diary", DiaryJob.description, DiaryJob.priority,
-            DiaryJob.per_day, DiaryJob.soul, DIARY_SYSTEM),
+            DiaryJob.per_day, DiaryJob.soul, DIARY_SYSTEM,
+            DiaryJob.max_hands),
         "strategy.md": front(
             "strategy", "Strategy", StrategyJob.description,
             StrategyJob.priority, StrategyJob.per_day,
-            StrategyJob.soul, STRATEGY_SYSTEM),
+            StrategyJob.soul, STRATEGY_SYSTEM, StrategyJob.max_hands),
         "selfie.md": front(
             "selfie", "Selfie", SelfieJob.description, SelfieJob.priority,
             SelfieJob.per_day, SelfieJob.soul, SELFIE_SYSTEM),
@@ -229,6 +252,7 @@ that **is** the system prompt she is given:
     per_day: true
     enabled: true
     soul: full
+    max_hands: 4
     ---
 
     Write YOUR private diary entry about that day...
@@ -331,6 +355,13 @@ written in her voice — that is what stops every character's diary reading the
 same. `off` for mechanical work; `consolidate` ships that way, because the facts
 it distils are read by everyone afterwards.
 
+`max_hands:` is how many of her hands (reading notes, searching, the camera…)
+a job may use before it answers; `0` gives it none. This is the dial for what a
+night costs: every use resends everything so far, so fourteen of them can cost
+thirty times what the answer does. Leave it out for the house limit
+(`TOOL_MAX_CALLS_PER_TURN`), which is also the most a file may ask for.
+`strategy` ships with none — its goals are already in its prompt.
+
 `enabled: false` switches a job off. It cannot switch one *on* that the house has
 no backend for — `selfie` still needs a camera, `research` still needs search.
 
@@ -369,6 +400,7 @@ class FileJob(DreamJob):
         self._enabled = spec.front.get("enabled", True) is not False
         self.soul = ("off" if str(spec.front.get("soul", "full")).lower()
                      in ("off", "none", "false") else "full")
+        self.max_hands = _as_count(spec.front.get("max_hands"))
         self.output = str(spec.front.get("output") or f"{self.name}/{{day}}.md")
         self.prompt_override = spec.prompt.strip()
 

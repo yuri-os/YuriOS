@@ -244,7 +244,8 @@ class DreamHands(Protocol):
     def offer(self) -> Any: ...
 
     async def run(self, messages: list[dict],
-                  ask: Callable[[list[dict]], Awaitable[str]]) -> str: ...
+                  ask: Callable[[list[dict]], Awaitable[str]], *,
+                  cap: int | None = None) -> str: ...
 
     async def use(self, tool: str, args: dict) -> Any: ...
 
@@ -298,6 +299,8 @@ class DreamContext:
     #: the stock-take are hers and must sound like it, while consolidation is
     #: extraction and `facts.md` should read the same whoever distilled it.
     soul: str = "off"                  # full | off
+    #: The job's `max_hands` (§21.2): `None` = the house cap, `0` = no hands.
+    max_hands: int | None = None
     #: The house config, for the jobs whose limits are clamped by it. On the
     #: context rather than passed to `work()` because every other thing a job
     #: reaches arrives this way, and a second channel would be a second place to
@@ -366,9 +369,10 @@ class DreamContext:
             # a rehearsal — a dry run that called a tool would not be dry.
             # `hands=False` is a job that runs its own loop over them.
             if (hands and self.hands is not None and self.soul != "off"
-                    and not self.dry_run):
+                    and not self.dry_run and self.max_hands != 0):
                 out = await self.hands.run(
-                    messages, lambda msgs: utility(msgs, **params))
+                    messages, lambda msgs: utility(msgs, **params),
+                    cap=self.max_hands)
             else:
                 out = await utility(messages, **params)
             system = messages[0]["content"]   # …as sent, hands block and all

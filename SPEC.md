@@ -2133,7 +2133,7 @@ that set and a poor place to stop.
   wrong answers, not a backlog worth eating. It follows that a standing job keeps the ladder
   entering DREAM on quiet nights, which is the point of it and not a leak.
 - **The roster is hers, not this file's.** `vault/dreams/<name>.md` — YAML frontmatter (`title`,
-  `description`, `priority`, `per_day`, `enabled`, `soul`, `output`) over a body that **is** the
+  `description`, `priority`, `per_day`, `enabled`, `soul`, `max_hands`, `output`) over a body that **is** the
   system prompt — is loaded after the builtins and overlaid on them. A file named after a builtin
   **MUST** retune it and **MUST NOT** replace its `work`: `diary` stays a `DiaryJob` and keeps
   `relabel()` and its day bookkeeping however its prompt is rewritten, because those are
@@ -2160,6 +2160,16 @@ that set and a poor place to stop.
   worked a goal instead — reread the plan, rendered a second picture with `show_picture`, wrote
   "message sent" on her desk — and answered with the message itself, which was rendered as the
   look.
+- **A night job's hands are bounded per job.** `max_hands` is how many hand calls one job's call
+  may chain before it answers; `0` offers none and the call is the plain call, with no hands block.
+  A job that names none gets the house's `TOOL_MAX_CALLS_PER_TURN`, and a file **MUST NOT** raise
+  it past that (§26.1's two-switch rule, one layer down); the clamp is applied where the call is
+  made, so an `.env` change reaches a file nobody touched. A mangled value **MUST** leave the
+  job's default. This is the dial for what a night costs, because each round resends the whole
+  transcript and a chain's cost grows with the square of its length. `strategy` ships with `0`:
+  its open goals are already in its prompt, and offered her hands on 6 Oct it reread her desk
+  fourteen times, took a selfie and stepped a goal — 158k tokens of a 200k day for a stock-take
+  of a hundred and fifty words. `diary` ships with `4`.
 - **What a night wrote reaches the journal as its conclusion.** The desk is not indexed and the
   journal is, so a job's journal line is the only part of its writing that recall, consolidation
   and the conversation ever see — and "wrote a diary entry for <day>" told them only that one

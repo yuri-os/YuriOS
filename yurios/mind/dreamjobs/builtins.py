@@ -82,6 +82,13 @@ class DreamJob:
     #: mechanical extraction, where a persona would be a thumb on the scale.
     #: Overridable per character from `vault/dreams/<name>.md`.
     soul = "full"
+    #: How many of her hands this job may chain before it answers (§21.2).
+    #: `None` is the house's `TOOL_MAX_CALLS_PER_TURN`; `0` offers none and the
+    #: job is one plain call. Not a nicety: each round resends the whole
+    #: transcript, so the cost of a chain grows with the square of its length —
+    #: fourteen rounds of `read_note` once spent 158k tokens on a stock-take.
+    #: A file may ask for less than the house allows, never more.
+    max_hands: int | None = None
     #: Set from a job file's `enabled:`. A separate attribute rather than a
     #: mutated `enabled()` because two jobs already override that method for
     #: reasons of their own — the selfie needs a camera — and a file must be
@@ -154,6 +161,7 @@ class DreamJob:
         return {"name": self.name, "title": self.title,
                 "description": self.description, "priority": self.priority,
                 "per_day": self.per_day, "soul": self.soul,
+                "max_hands": self.max_hands,
                 "standing": self.standing, "kind": self.kind,
                 # Where this job's prompt came from. Named `from_file` and not
                 # `custom`, which is what it said first and was wrong the moment
@@ -300,6 +308,9 @@ class DiaryJob(DreamJob):
     description = ("Write a short private diary entry for each finished day — "
                    "what the day was like, not what happened in it.")
     priority = 0.6
+    #: Enough to look something up from the day; a chain past this is no
+    #: longer a diary entry.
+    max_hands = 4
 
     async def work(self, ctx: DreamContext, day: str) -> JobReport:
         text = ctx.journal(day)
@@ -475,6 +486,11 @@ class StrategyJob(DreamJob):
                    "what matters, what's gone stale, and what to do next.")
     priority = 0.4
     per_day = False
+    #: None (§21.2). The open goals are already in the prompt, and offered her
+    #: hands on 6 Oct the stock-take became goal work — fourteen rounds of
+    #: rereading her desk, a selfie and a goal step — instead of the hundred and
+    #: fifty words it asks for.
+    max_hands = 0
 
     def cost(self, ctx: DreamContext, day: str) -> int:
         open_goals = list(ctx.goals.open_goals()) if ctx.goals is not None else []

@@ -184,6 +184,12 @@ more — the same two-switch rule that stops a file switching on a camera the ho
 A `kind: research` job also needs `SEARCH_BACKEND` to be something other than `off`, or it is not
 in the night's list at all.
 
+What a night *actually* costs is mostly her hands, not the tick budget. A job in her own voice may
+read notes, search or reach for the camera before it answers, and every one of those rounds resends
+the whole conversation so far — so a chain's cost grows with the square of its length. The dial is
+`max_hands:` in that job's file: `0` is none, and leaving it out means `TOOL_MAX_CALLS_PER_TURN`,
+which is also the most a file may ask for. `strategy` ships with `0` and `diary` with `4`.
+
 ## Server
 
 | Key | Default | |
@@ -252,7 +258,7 @@ Backend-specific keys (`QWEN_*`, `SOVITS_*`) are in [Voice](voice.md).
 | Key | Default | |
 |---|---|---|
 | `TOOLS_BACKEND` | `mcp` | `mcp` · `fake` · `off` |
-| `TOOL_MAX_CALLS_PER_TURN` | `2` | |
+| `TOOL_MAX_CALLS_PER_TURN` | `16` | calls one reply, or one step of her own work, may chain; also the ceiling on a night job's `max_hands` |
 | `TOOL_TIMEOUT_S` | `10` | |
 | `TOOL_RATE_TIMER` / `_MUSIC` / `_GOAL` / `_SELFIE` / `_PICTURE` / `_DESK` | `6` / `6` / `6` / `2` / `2` / `20` | calls per minute |
 | `TIMER_MAX_MINUTES` | `1440` | `set_timer`'s ceiling, in minutes — a day. The board is `<vault>/state/timers.json`; a restart does not drop pending timers. |

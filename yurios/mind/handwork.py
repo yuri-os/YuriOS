@@ -244,7 +244,8 @@ class LoopHands:
                                              "a night job does not file with")
 
     async def run(self, messages: list[dict],
-                  ask: Callable[[list[dict]], Awaitable[str]]) -> str:
+                  ask: Callable[[list[dict]], Awaitable[str]], *,
+                  cap: int | None = None) -> str:
         """One job's call, with her hands offered before she answers.
 
         With none offered it is exactly the call it was. The answer comes back
@@ -255,7 +256,12 @@ class LoopHands:
         offer = self.offer()
         if not offer:
             return await ask(messages)
-        cap = int(getattr(self.loop.cfg, "tool_max_calls_per_turn", 1))
+        # The job's own `max_hands`, never past the house's (§21.2) — the
+        # number she is told below is then the one that will actually hold.
+        house = int(getattr(self.loop.cfg, "tool_max_calls_per_turn", 1))
+        cap = house if cap is None else max(0, min(int(cap), house))
+        if not cap:
+            return await ask(messages)
         catalog = Hands.rows(offer.tools)
         if offer.waiting():
             catalog += "\n\n" + offer.waiting()

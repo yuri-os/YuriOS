@@ -392,6 +392,13 @@ conversation needs it, because a day nobody talked is not a day her journal has.
 chat, the way a dream selfie arrives; only the newest waits, so a week away is one report and not
 seven.
 
+**`max_hands:`** is how many of her hands a job may use before it answers, and it is the dial for
+what a night costs. Each use resends everything so far, so fourteen of them — which is what the
+stock-take once did, rereading her desk page by page — cost thirty times the answer. `0` gives a
+job none; leaving it out means the house's `TOOL_MAX_CALLS_PER_TURN`, which is also the most a file
+may ask for. `strategy` ships with `0`, because her goals are already in its prompt, and `diary`
+with `4`.
+
 ```yaml
 ---
 name: market-brief

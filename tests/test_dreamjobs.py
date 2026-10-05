@@ -23,7 +23,7 @@ from yurios.mind.dreamjobs import (JOB_NAME_RE, PROMPT_OVERHEAD_CHARS,
 # The internals are addressed at the module that owns them rather than through
 # the package's public face, so a test that pokes at one says which it means.
 from yurios.mind.dreamjobs.builtins import fill
-from yurios.mind.dreamjobs.filedsl import _shorter_effort
+from yurios.mind.dreamjobs.filedsl import _shorter_effort, seed_job_files
 from yurios.mind.dreamjobs.research import _already_asked, _lede, _query_key
 from yurios.mind.vaultio import MindVault
 from yurios.mind.workspace import SkillStore, Workspace
@@ -348,7 +348,7 @@ async def test_the_selfie_job_is_not_offered_her_hands(rig, cfg):
     offered: list[str] = []
 
     class Hands(_FakeHands):
-        async def run(self, messages, ask):
+        async def run(self, messages, ask, *, cap=None):
             offered.append(messages[0]["content"][:40])
             return await ask(messages)
 
@@ -357,6 +357,77 @@ async def test_the_selfie_job_is_not_offered_her_hands(rig, cfg):
     assert offered == [], "the selfie job's call was offered her hands"
     await runner.run(only="diary", token_budget=40000)
     assert offered, "the diary lost her hands too — only the selfie gives them up"
+
+
+class _CapHands:
+    """Records the cap each job's call was offered its hands under."""
+
+    def __init__(self):
+        from yurios.mind.hands import Offer
+        self._offer = Offer(tools=("read_note",))
+        self.caps: list[int | None] = []
+
+    def offer(self):
+        return self._offer
+
+    async def run(self, messages, ask, *, cap=None):
+        self.caps.append(cap)
+        return await ask(messages)
+
+
+async def test_strategy_is_not_offered_her_hands_by_default(rig):
+    """§21.2: the stock-take already holds her goals. Offered her hands on 6 Oct
+    it reread her desk fourteen times, took a selfie and worked a goal — 158k
+    tokens for a hundred and fifty words — and a vault file that never names
+    `max_hands` must still get the builtin's none."""
+    runner, _clock, vault = rig
+    _day_file(vault, "2026-07-04", ["you: hey  ⇄  her: [happy] hi"])
+    _job_file(vault, "strategy", front="priority: 0.4\n")
+    runner.reload()
+    hands = _CapHands()
+    runner.hands = hands
+    await runner.run(only="strategy", token_budget=40000)
+    assert hands.caps == []
+    await runner.run(only="diary", token_budget=40000)
+    assert hands.caps == [4]
+
+
+@pytest.mark.parametrize("written, offered", [
+    ("max_hands: 2\n", [2]),       # a file may ask for fewer…
+    ("max_hands: 0\n", []),        # …or none, and then hands are never offered
+    ("max_hands: lots\n", [4]),    # a mangled value leaves the job's default
+    ("", [4]),
+])
+async def test_a_job_file_sets_how_many_hands_a_job_may_chain(
+        rig, written, offered):
+    runner, _clock, vault = rig
+    _day_file(vault, "2026-07-04", ["you: hey  ⇄  her: [happy] hi"])
+    _job_file(vault, "diary", front=written)
+    runner.reload()
+    hands = _CapHands()
+    runner.hands = hands
+    await runner.run(only="diary", token_budget=40000)
+    assert hands.caps == offered
+    assert {j["name"]: j for j in runner.status()}["diary"]["max_hands"] == (
+        offered[0] if offered else 0)
+
+
+def test_a_new_job_file_takes_the_house_cap_unless_it_names_one(tmp_path, cfg):
+    v = tmp_path / "vault"
+    _job_file(v, "gratitude", front="priority: 0.2\n")
+    _job_file(v, "brief", front="max_hands: 1\n")
+    jobs = {j.name: j for j in _runner(tmp_path, cfg, v).jobs}
+    assert jobs["gratitude"].max_hands is None
+    assert jobs["brief"].max_hands == 1
+
+
+def test_seeded_job_files_name_their_hands():
+    """A fresh vault shows the dial, so the first person to wonder what a night
+    costs finds it in the file they would edit."""
+    seeded = seed_job_files()
+    assert "max_hands: 0" in seeded["strategy.md"]
+    assert "max_hands: 4" in seeded["diary.md"]
+    assert "max_hands" not in seeded["selfie.md"]
 
 
 async def test_a_dry_run_claims_no_call_it_did_not_make(rig):
@@ -1209,7 +1280,7 @@ class _FakeHands:
     def offer(self):
         return self._offer
 
-    async def run(self, messages, ask):
+    async def run(self, messages, ask, *, cap=None):
         return await ask(messages)
 
     async def use(self, tool, args):

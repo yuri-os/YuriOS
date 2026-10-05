@@ -433,7 +433,7 @@ class DreamRunner:
 
         for job in jobs:
             ctx = self._context(day="", dry_run=dry_run, job=job.name,
-                                soul=job.soul)
+                                soul=job.soul, max_hands=job.max_hands)
             try:
                 pending = [day] if day else job.backlog(ctx, self.ledger)
             except Exception:  # noqa: BLE001

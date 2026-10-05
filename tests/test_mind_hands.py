@@ -1638,3 +1638,36 @@ async def test_a_step_is_told_which_desk_file_is_its_own(cfg, seeded_vault):
     second = utility.calls[-1][1]["content"]
     assert f"WHAT YOU HAVE ALREADY WORKED OUT ON THIS (goals/{skill.id}.md)" in second
     assert f"goals/{skill.id}.md (" in second and "— this goal" in second
+
+
+# --- a night job's hands (§21.2, `max_hands`) ----------------------------------
+
+@pytest.mark.parametrize("cap, chained", [
+    (2, 2),         # the job's own number holds…
+    (99, 3),        # …never past the house's TOOL_MAX_CALLS_PER_TURN
+    (None, 3),      # a job that names none gets the house's
+    (0, 0),         # and none is one plain call, with no hands block at all
+])
+async def test_a_night_job_chains_no_more_hands_than_its_cap(
+        cfg, seeded_vault, cap, chained):
+    """Each round resends the whole transcript, so a chain that will not stop
+    costs the square of its length: fourteen `read_note`s once spent 158k
+    tokens of a 200k day on one stock-take. The cap is what stops it."""
+    from yurios.mind.handwork import LoopHands
+    rig = rig_with_hands(cfg, seeded_vault, allow="read_note",
+                         tool_max_calls_per_turn=3)
+    sent: list[list[dict]] = []
+
+    async def ask(messages):
+        sent.append([dict(m) for m in messages])
+        return 'use read_note {"path": "notes/a.md"}'
+
+    messages = [{"role": "system", "content": "You are taking stock."},
+                {"role": "user", "content": "the day"}]
+    await LoopHands(rig.mind).run(messages, ask, cap=cap)
+    assert len(rig.runner.calls) == chained
+    assert len(sent) == chained + 1
+    if cap == 0:
+        assert sent[0][0]["content"] == "You are taking stock."
+    else:
+        assert f"up to {chained}" in sent[0][0]["content"]

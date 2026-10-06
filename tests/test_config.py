@@ -11,6 +11,7 @@ def test_defaults():
     assert cfg.port == 8768                       # +1 off Build #4
     assert cfg.tools_backend == "mcp"
     assert cfg.tool_max_calls_per_turn == 16
+    assert cfg.mind_goal_max_hands == 4         # a goal step's own, §26.2
     assert cfg.timer_max_minutes == 1440
     assert cfg.rain_intensity == 0.6
     # the mind's dials (SPEC §15–§18)
@@ -97,6 +98,7 @@ def test_the_example_ships_her_hands_on_with_every_hand():
     assert cfg.mind_tools_during_chat == "auto"
     assert cfg.tool_max_calls_per_turn == 16
     # …and what she does on her own is still metered
+    assert cfg.mind_goal_max_hands == 4
     assert cfg.mind_tool_calls_per_day == 64
     assert cfg.mind_tool_pressure_ceiling == 0.5
     # a cooldown shorter than the goal's own re-consider gap is not a cooldown

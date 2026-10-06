@@ -208,6 +208,13 @@ class Config(VoiceConfig):
     # becoming "she chews the same goal forever": three steps is enough to read
     # the desk, do a thing, and write down where it got to.
     mind_goal_max_steps: int = 3
+    # How many hands one of those steps may chain before it answers (SPEC
+    # §26.2), never past `tool_max_calls_per_turn`. Its own number, not the
+    # reply's: each round resends the whole step, so a chain costs the square
+    # of its length. On 7 Oct a goal the stock-take filed spent its step
+    # rereading the desk — twelve hands, ~113k of a 200k day — before writing
+    # one note. Four is enough to read and then write, three steps running.
+    mind_goal_max_hands: int = 4
     # Goals of her own, out of the night's stock-take (§22.1). On, because a
     # companion who can only ever want what you asked her to want is the thing
     # this project is trying not to build — and off is one click away, next to

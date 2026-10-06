@@ -397,7 +397,8 @@ what a night costs. Each use resends everything so far, so fourteen of them — 
 stock-take once did, rereading her desk page by page — cost thirty times the answer. `0` gives a
 job none; leaving it out means the house's `TOOL_MAX_CALLS_PER_TURN`, which is also the most a file
 may ask for. `diary` and `strategy` ship with `4`. She is told her limit before she starts and how
-many she has left after each result, so she can plan them.
+many she has left after each result, so she can plan them. A goal the stock-take files is worked by
+day under `MIND_GOAL_MAX_HANDS` (`4`) instead — the job's own cap does not follow it.
 
 ```yaml
 ---
@@ -726,6 +727,7 @@ MIND_CONSIDER_COOLDOWN_S=3600     # minimum gap between re-chewing one goal
 MIND_GOAL_FILING_ENABLED=true     # may the night file a goal of her own?
 MIND_SELF_GOALS_MAX=3             # how many of hers may be open at once
 MIND_GOAL_MAX_STEPS=3             # working ticks one goal gets before it waits
+MIND_GOAL_MAX_HANDS=4             # hands one of those steps may chain (≤ TOOL_MAX_CALLS_PER_TURN)
 MIND_DISPATCH_TIMEOUT_S=3600      # how long a goal waits on work it dispatched
 MIND_SOUL_IN_PROMPTS=full         # full | brief | off — her card in private prompts
 MIND_DAILY_TOKENS=200000

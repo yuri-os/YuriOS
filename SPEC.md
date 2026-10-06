@@ -2172,6 +2172,8 @@ that set and a poor place to stop.
   look or two, since its prompt carries each goal's summary and not its progress. Every result in
   a chain — a night job's or a goal step's — **MUST** tell her how many hands she has left, so she
   can plan the rest rather than spend the allowance reading and reach the answer with none.
+  A goal the stock-take files is worked under the goal step's cap (§26.2), not the job's: on
+  7 Oct the night itself chained nothing and the goal it filed spent twelve hands the next tick.
 - **What a night wrote reaches the journal as its conclusion.** The desk is not indexed and the
   journal is, so a job's journal line is the only part of its writing that recall, consolidation
   and the conversation ever see — and "wrote a diary entry for <day>" told them only that one
@@ -2735,6 +2737,7 @@ timeouts `MIND_{ENGAGED,IDLE,DORMANT,DREAM}_CADENCE_S`, `MIND_ENGAGED_TIMEOUT_S`
 `MIND_DREAM_START_HOUR`/`END_HOUR`; and the reflex windows `IDLE_SETTLE_S`, `IDLE_ACT_MIN/MAX_S`,
 `IDLE_TALK_MIN/MAX_S` (§15.5). Her desk (§34): `WORKSPACE_ENABLED`, `WORKSPACE_DIGEST_FILES`,
 `SKILLS_ENABLED`, `TOOL_RATE_DESK`. The goal lifecycle (§22.3): `MIND_GOAL_MAX_STEPS`,
+`MIND_GOAL_MAX_HANDS` (§26.2),
 `MIND_DISPATCH_TIMEOUT_S`, `GOALS_IN_PROMPT`; and goals of her own (§22.1b):
 `MIND_GOAL_FILING_ENABLED` (**true**) with `MIND_SELF_GOALS_MAX`; free time (§22.7):
 `MIND_MUSE_COOLDOWN_S` (**7200**). Her hands (§26.1) — one rule for
@@ -2817,8 +2820,13 @@ needs a sandbox.
   it ran); mid-line the brace is what separates a call from prose about one — the hand runs through
   every precondition below, its
   result comes back as the next message, and she is asked again — until she ends on prose or
-  `TOOL_MAX_CALLS_PER_TURN` calls are spent, past which a `use` line is dropped rather than run
-  (`mind/handwork.py`). A step is shown each hand as one example line (`HANDS[tool].args`) and
+  the step's calls are spent, past which a `use` line is dropped rather than run
+  (`mind/handwork.py`). A goal step's calls are `MIND_GOAL_MAX_HANDS` (**4**), a night job's its
+  `max_hands` (§21.2), and both **MUST** stay within `TOOL_MAX_CALLS_PER_TURN`, the number a
+  reply gets; the clamp is applied where the call is made, and the number her prompt states **MUST** be
+  the clamped one. A step has its own number because each round resends the whole step: on 7 Oct a
+  goal the stock-take had filed, under the reply's sixteen, read her desk ten times and listed it
+  once before writing a single note — twelve hands, ~113k tokens of a 200k day in one tick. A step is shown each hand as one example line (`HANDS[tool].args`) and
   never the tool's description, so that example **MUST** name every argument she needs to use the
   hand fully; one it leaves out is listed, with its reason, in
   `tests/test_mcp_contract.py::UNSHOWN_TO_THE_MIND`, which fails on any other. `read_note` shown

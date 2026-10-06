@@ -191,6 +191,10 @@ the whole conversation so far — so a chain's cost grows with the square of its
 which is also the most a file may ask for. `diary` and `strategy` ship with `4`, and she is told
 how many she has left after each one.
 
+The same arithmetic applies by day. A goal step chains up to `MIND_GOAL_MAX_HANDS` (**4**, never
+past `TOOL_MAX_CALLS_PER_TURN`) — and that matters at night too, because the stock-take files goals
+and the next tick works them under this cap, not the job's.
+
 ## Server
 
 | Key | Default | |
@@ -259,7 +263,7 @@ Backend-specific keys (`QWEN_*`, `SOVITS_*`) are in [Voice](voice.md).
 | Key | Default | |
 |---|---|---|
 | `TOOLS_BACKEND` | `mcp` | `mcp` · `fake` · `off` |
-| `TOOL_MAX_CALLS_PER_TURN` | `16` | calls one reply, or one step of her own work, may chain; also the ceiling on a night job's `max_hands` |
+| `TOOL_MAX_CALLS_PER_TURN` | `16` | calls one reply may chain; also the ceiling on a night job's `max_hands` and on `MIND_GOAL_MAX_HANDS` |
 | `TOOL_TIMEOUT_S` | `10` | |
 | `TOOL_RATE_TIMER` / `_MUSIC` / `_GOAL` / `_SELFIE` / `_PICTURE` / `_DESK` | `6` / `6` / `6` / `2` / `2` / `20` | calls per minute |
 | `TIMER_MAX_MINUTES` | `1440` | `set_timer`'s ceiling, in minutes — a day. The board is `<vault>/state/timers.json`; a restart does not drop pending timers. |

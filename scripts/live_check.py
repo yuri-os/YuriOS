@@ -954,6 +954,91 @@ async def scenario_signals(rig: Rig) -> str:
             "retried, a rebuilt mind resumed, the cap held, threads lost nothing")
 
 
+async def scenario_goal_hands(rig: Rig) -> str:
+    """A goal step chains no more hands than `MIND_GOAL_MAX_HANDS` (SPEC §26.2).
+
+    On 7 Oct a goal the stock-take filed, under the reply's sixteen, read her
+    desk ten times and listed it once before writing one note — ~113k tokens in
+    a tick. Twice here: once with the real model on a goal that invites exactly
+    that, asserting on what she was told and what ran; then scripted past the
+    cap, so the dropped call is proven against her real tool server and not
+    left to whether the model happened to stop on its own.
+    """
+    from yurios.mind.handwork import goal_cap
+    cap = goal_cap(rig.mind)
+    want(0 < cap < rig.mind.cfg.tool_max_calls_per_turn,
+         f"the goal step's cap is {cap}, the reply's "
+         f"{rig.mind.cfg.tool_max_calls_per_turn} — nothing to prove")
+    for other in rig.open_goals():
+        rig.mind.goals.set_state(other.id, "abandoned")
+    notes = rig.rt.cfg.vault_dir / "workspace" / "notes"
+    notes.mkdir(parents=True, exist_ok=True)
+    for i in range(8):
+        (notes / f"walk-{i}.md").write_text(
+            f"# Walk {i}\n\nWe stopped at picture {i}; he lingered on the "
+            f"{['rain', 'window', 'city', 'bed'][i % 4]} one.\n", encoding="utf-8")
+    log = rig.rt.cfg.tool_log_dir / "calls.jsonl"
+
+    def lines_since(skip: int) -> list[dict]:
+        if not log.is_file():
+            return []
+        return [json.loads(x) for x in
+                log.read_text(encoding="utf-8").splitlines()[skip:] if x]
+
+    # What the step was actually sent, without changing a word of it.
+    sent: list[list[dict]] = []
+    original = rig.rt.mind._utility
+
+    async def recording(messages, **kw) -> str:
+        sent.append([dict(m) for m in messages])
+        return await original(messages, **kw)
+
+    rig.rt.mind._utility = recording                # type: ignore[method-assign]
+    try:
+        skip = len(lines_since(0))
+        goal = rig.goal("read every note in notes/ — all eight walk notes, one "
+                        "by one — and write what they share to notes/walks.md")
+        traces = await rig.tick_until(
+            lambda t: (t.get("acted") or {}).get("goal") == goal.id)
+        want((traces[-1].get("acted") or {}).get("goal") == goal.id,
+             f"no tick worked the goal: {[t.get('decided') for t in traces]!r}")
+        tick = traces[-1]["tick_id"]
+        steps = [m for m in sent
+                 if "advancing one of your own goals" in m[0]["content"].lower()]
+        want(bool(steps), "no goal-step prompt was recorded")
+        want(f"up to {cap} in this step" in steps[0][0]["content"],
+             f"the step was not told its cap of {cap}")
+        reached = [x for x in lines_since(skip) if x.get("tick_id") == tick]
+        want(len(reached) <= cap,
+             f"the real step chained {len(reached)} hands past a cap of {cap}: "
+             f"{[x.get('tool') for x in reached]!r}")
+        longest = max(len(m) for m in steps)
+        want(longest <= 2 + 2 * cap,
+             f"a step round carried {longest} messages, past {2 + 2 * cap}")
+        real = (f"real model: {len(reached)} hand(s) of {cap} "
+                f"({', '.join(x.get('tool', '?') for x in reached) or 'none'}), "
+                f"{len(steps)} round(s)")
+    finally:
+        rig.rt.mind._utility = original             # type: ignore[method-assign]
+
+    # …and past the cap on purpose: every reply a `use` line.
+    rig.mind.goals.set_state(goal.id, "abandoned")
+    rig.later(rig.mind.cfg.mind_consider_cooldown_s + 60)
+    skip = len(lines_since(0))
+    forced = rig.goal("go through the walk notes once more")
+    rig.scripted_utility(*[f'use read_note {{"path": "notes/walk-{i}.md"}}'
+                           for i in range(8)])
+    traces = await rig.tick_until(
+        lambda t: (t.get("acted") or {}).get("goal") == forced.id)
+    tick = traces[-1]["tick_id"]
+    ran = [x for x in lines_since(skip) if x.get("tick_id") == tick
+           and x.get("tool") == "read_note"]
+    want(len(ran) == cap and all(x["verdict"] == "ok" for x in ran),
+         f"eight scripted reaches ran {len(ran)} times, not {cap}: {ran!r}")
+    rig.mind.goals.set_state(forced.id, "abandoned")
+    return f"{real}; scripted: 8 reaches asked, {len(ran)} ran"
+
+
 async def scenario_stranded(rig: Rig) -> str:
     """No picture she makes is stranded in the gallery (SPEC §18.2a, §21.2).
 
@@ -1097,6 +1182,7 @@ SCENARIOS = {
     "turngoal": scenario_turn_goal_completion,
     "signals": scenario_signals,
     "stranded": scenario_stranded,
+    "goalhands": scenario_goal_hands,
 }
 
 

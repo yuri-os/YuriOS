@@ -1693,3 +1693,31 @@ async def test_each_result_says_how_many_hands_are_left(cfg, seeded_vault):
     assert "You have 2 hands left" in told[0]
     assert "You have 1 hand left" in told[1]
     assert "hands are spent" in told[2] and "left" not in told[2]
+
+
+# --- a goal step's hands (§26.2, `MIND_GOAL_MAX_HANDS`) -----------------------
+
+@pytest.mark.parametrize("goal_hands, chained", [
+    (2, 2),         # the step's own number holds…
+    (99, 3),        # …never past the house's TOOL_MAX_CALLS_PER_TURN
+    (0, 0),         # and none runs no hand; the step still ends on her thought
+])
+async def test_a_goal_step_chains_no_more_hands_than_its_cap(
+        cfg, seeded_vault, goal_hands, chained):
+    """A goal step used to get the reply's sixteen. On 7 Oct one the
+    stock-take had filed read her desk ten times, listed it, and only then
+    wrote its note — ~113k of a 200k day in one tick. Its own cap stops that,
+    and the number in its prompt is the one that holds."""
+    reads = [f'use read_note {{"path": "notes/{i}.md"}}' for i in range(8)]
+    utility = ScriptedUtility(*reads)
+    rig = rig_with_hands(cfg, seeded_vault, utility=utility, allow="read_note",
+                         tool_max_calls_per_turn=3,
+                         mind_goal_max_hands=goal_hands)
+    goal = rig.mind.goals.add("go through my notes", kind="task", priority=0.95)
+    await work(rig)
+    assert len(rig.runner.calls) == chained
+    assert rig.mind.goals.get(goal.id).steps == 1
+    steps = [m for m in utility.calls
+             if "advancing one of your own goals" in m[0]["content"].lower()]
+    assert f"up to {chained} in this step" in steps[0][0]["content"]
+

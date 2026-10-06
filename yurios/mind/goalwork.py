@@ -551,7 +551,8 @@ def work_system(loop, goal: Goal, offer, last: bool) -> str:
         "",
     ]
     offer = step_offer(offer)
-    lines.append(loop.hands.catalog(tuple(offer.tools)))
+    lines.append(loop.hands.catalog(tuple(offer.tools),
+                                    cap=handwork.goal_cap(loop)))
     if offer.waiting():
         lines += ["", offer.waiting()]
     lines += [
@@ -624,7 +625,7 @@ def prepare_system(loop, goal: Goal, offer: Offer, last: bool) -> str:
             "that. Do not write the message itself here: it is written when it "
             "is sent.",
             "",
-            loop.hands.catalog(tuple(offer.tools)),
+            loop.hands.catalog(tuple(offer.tools), cap=handwork.goal_cap(loop)),
         ]
         if offer.waiting():
             lines += ["", offer.waiting()]
@@ -691,7 +692,7 @@ async def prepare(loop, goal: Goal, offer) -> tuple[dict, dict, list[str]]:
     with correlate.scope(kind=correlate.GOAL_WORK):
         worked = await handwork.work(
             loop, messages, offer=hands, ask=ask, goal_id=goal.id,
-            stop_on_dispatch=True,
+            stop_on_dispatch=True, cap=handwork.goal_cap(loop),
             on_reach=lambda reach: notes.append(journal_reach(loop, goal, reach)))
 
     intent = worked.answer
@@ -879,7 +880,8 @@ async def goal_work(loop, goal: Goal,
     One step is one intention — this goal, this tick — worked through as far
     as her hands take it: while hands are offered she may chain calls, each
     result coming back before the next (mind/handwork.py), up to
-    `TOOL_MAX_CALLS_PER_TURN`, and the step ends on her thought. Work that
+    `MIND_GOAL_MAX_HANDS` (never past `TOOL_MAX_CALLS_PER_TURN`), and the step
+    ends on her thought. Work that
     finishes off-tick ends it early, and the goal waits for it.
 
     Nothing here ever speaks. The product of a step lands on her desk and in
@@ -912,7 +914,7 @@ async def goal_work(loop, goal: Goal,
         # hands it is still offered `tell_them`, so it always goes this way.
         worked = await handwork.work(
             loop, messages, offer=step_offer(offer), ask=ask, goal_id=goal.id,
-            stop_on_dispatch=True,
+            stop_on_dispatch=True, cap=handwork.goal_cap(loop),
             on_reach=lambda reach: notes.append(journal_reach(loop, goal, reach)))
 
     intent = worked.answer

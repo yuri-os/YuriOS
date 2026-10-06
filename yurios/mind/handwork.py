@@ -9,8 +9,9 @@ from the desk what the first had been for.
 Now a step is a short conversation with her own hands. She answers with a `use`
 line, the hand runs, the result goes back to her as the next message, and she is
 asked again — until she answers with prose (a thought, the job's output) or the
-step's calls run out (`TOOL_MAX_CALLS_PER_TURN`, the same number a reply to you
-gets). Each call still passes every precondition `Hands.check` has, one at a
+step's calls run out — `MIND_GOAL_MAX_HANDS` for a goal step, a job's own
+`max_hands` for a night, and never past `TOOL_MAX_CALLS_PER_TURN`, the number a
+reply to you gets (`capped`). Each call still passes every precondition `Hands.check` has, one at a
 time: the daily cap, the cooldowns, the expensive class waiting for an empty
 room. What changed is how many a step may make, not what any one of them needs.
 
@@ -225,6 +226,23 @@ async def work(loop, messages: list[dict], *, offer: Offer,
                           reach, left=limit - (len(done.reaches) - rewords))}]
 
 
+def capped(loop, wanted: int | None) -> int:
+    """How many hands a step of hers may chain: `wanted`, never past the house.
+
+    `None` is the house's `TOOL_MAX_CALLS_PER_TURN` itself. The clamp is the
+    §26.1 two-switch rule one layer down — a job file or a mind setting may ask
+    for fewer than a reply gets, never more — and it is applied here, where the
+    call is made, so the number she is told is the one that holds.
+    """
+    house = int(getattr(loop.cfg, "tool_max_calls_per_turn", 1))
+    return house if wanted is None else max(0, min(int(wanted), house))
+
+
+def goal_cap(loop) -> int:
+    """A goal step's hands (§26.2): `MIND_GOAL_MAX_HANDS`, clamped."""
+    return capped(loop, getattr(loop.cfg, "mind_goal_max_hands", None))
+
+
 class LoopHands:
     """The mind's hands, as a DREAM job reaches them (dreamjobs/context.py).
 
@@ -265,8 +283,7 @@ class LoopHands:
             return await ask(messages)
         # The job's own `max_hands`, never past the house's (§21.2) — the
         # number she is told below is then the one that will actually hold.
-        house = int(getattr(self.loop.cfg, "tool_max_calls_per_turn", 1))
-        cap = house if cap is None else max(0, min(int(cap), house))
+        cap = capped(self.loop, cap)
         if not cap:
             return await ask(messages)
         catalog = Hands.rows(offer.tools)

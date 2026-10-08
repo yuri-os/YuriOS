@@ -44,7 +44,10 @@ log = logging.getLogger("world.host")
 #: One upload — a zip of job files is a few kilobytes; anything near this is
 #: not a set of prompts.
 MAX_IMPORT_BYTES = 2 * 1024 * 1024
-_FRONT = re.compile(r"\A---\s*\n(?P<front>.*?)\n---\s*\n", re.S)
+# `[ \t]*`, not `\s*`: a `\s` after the closing fence would swallow the blank
+# line between the frontmatter and the prompt, and a rename would rewrite more
+# of the file than its one `name:` line.
+_FRONT = re.compile(r"\A---[ \t]*\n(?P<front>.*?)\n---[ \t]*\n", re.S)
 _NAME_LINE = re.compile(r"^name:.*$", re.M)
 
 
@@ -61,6 +64,21 @@ def with_name(text: str, name: str) -> str:
     front = (_NAME_LINE.sub(f"name: {name}", front, count=1) if _NAME_LINE.search(front)
              else f"name: {name}\n{front}")
     return f"---\n{front}\n---\n" + text[match.end():]
+
+
+def is_job_file(filename: str) -> bool:
+    """The loader's own rule (`load_job_files`): a folder's README is its
+    documentation, and a dotfile is nobody's — neither is a job, so neither is
+    exported, and an import of a zip that carries one passes over it quietly."""
+    name = Path(filename).name
+    return (name.lower().endswith(".md") and not name.startswith(".")
+            and Path(name).stem.lower() != "readme")
+
+
+def first_line(reason: str) -> str:
+    """The sentence of a refusal, without the worked example the runner appends
+    for its own editor — one line per refused file is what a status line holds."""
+    return reason.split("\n", 1)[0].rstrip(": ")
 
 
 def declared_name(text: str, fallback: str) -> str:
@@ -165,7 +183,8 @@ def register(app: FastAPI, host: CharacterHost, require) -> None:
         buffer = io.BytesIO()
         with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
             for path in sorted(jobs_dir(record).glob("*.md")):
-                archive.writestr(path.name, path.read_text(encoding="utf-8"))
+                if is_job_file(path.name):
+                    archive.writestr(path.name, path.read_text(encoding="utf-8"))
         return Response(buffer.getvalue(), media_type="application/zip", headers={
             "Content-Disposition": f'attachment; filename="{record.id}-night-jobs.zip"'})
 
@@ -193,12 +212,12 @@ def register(app: FastAPI, host: CharacterHost, require) -> None:
                 try:
                     with zipfile.ZipFile(io.BytesIO(data)) as archive:
                         for info in archive.infolist():
-                            if info.filename.lower().endswith(".md") and not info.is_dir():
+                            if is_job_file(info.filename) and not info.is_dir():
                                 files.append((Path(info.filename).name,
                                               archive.read(info).decode("utf-8", "replace")))
                 except zipfile.BadZipFile:
                     raise HTTPException(422, f"{filename} is not a zip file") from None
-            else:
+            elif is_job_file(filename):
                 files.append((filename, data.decode("utf-8", "replace")))
         if not files:
             raise HTTPException(422, "no .md job files in that upload")
@@ -215,7 +234,7 @@ def register(app: FastAPI, host: CharacterHost, require) -> None:
             try:
                 await write_job(record, name, text)
             except HTTPException as exc:
-                refused.append({"file": filename, "reason": str(exc.detail)})
+                refused.append({"file": filename, "reason": first_line(str(exc.detail))})
                 continue
             imported.append(name)
         if imported:

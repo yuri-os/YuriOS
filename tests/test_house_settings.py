@@ -168,6 +168,8 @@ def test_night_jobs_export_as_a_zip_and_import_into_another_character(board):
     assert exported.headers["content-type"] == "application/zip"
     names = zipfile.ZipFile(io.BytesIO(exported.content)).namelist()
     assert {"stars.md", "letters.md"} <= set(names)
+    # the folder's README is its documentation, not a job: never exported
+    assert not any(n.lower() == "readme.md" for n in names)
 
     imported = board.client.post(
         "/api/characters/mia/dream-jobs/import",
@@ -175,6 +177,9 @@ def test_night_jobs_export_as_a_zip_and_import_into_another_character(board):
                ("files", ("broken.md", b"no frontmatter here", "text/markdown"))]).json()
     assert {"stars", "letters"} <= set(imported["imported"]), imported
     assert imported["refused"][0]["file"] == "broken.md"
+    # one line per refusal — the runner's worked example is for its own editor
+    assert "\n" not in imported["refused"][0]["reason"]
+    assert imported["refused"][0]["reason"].startswith("a job starts with YAML frontmatter")
 
     # the same again: hers now, so skipped unless asked to replace
     again = board.client.post(
@@ -189,6 +194,11 @@ def test_an_imported_job_is_filed_under_the_name_it_declares():
     renamed = module_routes.with_name(text, "night-diary")
     assert "name: night-diary" in renamed and "name: diary" not in renamed
     assert renamed.endswith("write one line.\n")
+    # only the name line moves: the blank line before the prompt survives
+    assert renamed == text.replace("name: diary", "name: night-diary")
+    assert module_routes.is_job_file("diary.md")
+    assert not module_routes.is_job_file("README.md")
+    assert not module_routes.is_job_file("dreams/.hidden.md")
     bare = "---\ntitle: t\n---\n\nbody\n"
     assert module_routes.declared_name(bare, "from-file") == "from-file"
     assert module_routes.with_name(bare, "x").startswith("---\nname: x\ntitle: t\n---\n")

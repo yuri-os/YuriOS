@@ -219,7 +219,10 @@ export async function renderJobs(container, character, characters) {
     const box = el("textarea", { className: "set-input code-box job-box", rows: 24,
       spellcheck: false, value: text });
     const others = characters.filter((c) => c.id !== id);
+    // starts on nobody: which character a job lands in is a choice, never
+    // whoever happens to sort first
     const target = el("select", { className: "set-input inline-select" },
+      el("option", { value: "", textContent: "choose…" }),
       ...others.map((c) => el("option", { value: c.id, textContent: c.name })));
     const save = button(fresh ? "Create job" : "Save job", async () => {
       save.disabled = true;
@@ -236,6 +239,10 @@ export async function renderJobs(container, character, characters) {
       }
     }, "settings-save");
     const copy = button("Copy", async () => {
+      if (!target.value) {
+        note.say("choose the character to copy it to", "error");
+        return;
+      }
       try {
         await api(`/api/characters/${enc(target.value)}/dream-jobs/${enc(name)}`,
           { method: "PUT", body: { text: box.value } });
@@ -373,6 +380,7 @@ export async function renderScenes(container, character, characters) {
     .then((d) => d.book);
   const others = characters.filter((c) => c.id !== id);
   const source = el("select", { className: "set-input inline-select" },
+    el("option", { value: "", textContent: "choose…" }),
     ...others.map((c) => el("option", { value: c.id, textContent: c.name })));
 
   container.replaceChildren(
@@ -394,6 +402,10 @@ export async function renderScenes(container, character, characters) {
         others.length ? el("span", { className: "inline-group" },
           el("span", { className: "mini-label", textContent: "take from" }), source,
           button("Load", async () => {
+            if (!source.value) {
+              note.say("choose the character to take a library from", "error");
+              return;
+            }
             try {
               const theirs = await api(`/api/characters/${enc(source.value)}/selfie-templates`);
               offer(theirs.book, `${source.selectedOptions[0]?.textContent}'s library`);

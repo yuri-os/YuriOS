@@ -40,6 +40,10 @@ export default defineConfig({
         // shared/runtime.js aims its calls; its own entry because none of the
         // room's rendering belongs on a page that only reads files.
         mind: resolve(import.meta.dirname, 'mind/index.html'),
+        // House settings (SPEC §11.2): the house `.env` as a page of its own,
+        // served at /settings/. The board's own entry is a character list; the
+        // two-hundred-odd knobs underneath every character wanted the room.
+        settings: resolve(import.meta.dirname, 'settings/index.html'),
       },
     },
   },

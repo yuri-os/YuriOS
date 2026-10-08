@@ -253,6 +253,37 @@ def test_a_crash_loop_stops_restarting_and_says_so(tmp_path, monkeypatch, restor
     assert daemon.exit_summary(record).startswith("exit status 1; ")
 
 
+def test_a_restart_she_asked_for_is_not_a_crash(tmp_path, monkeypatch, restore_signals):
+    """House settings' Restart ends the server with RESTART_EXIT (SPEC §11.3).
+    That is a request, not a death: no backoff, no crash-loop budget spent —
+    five in a row must not read as a crash loop — and the record says so."""
+    monkeypatch.setattr(daemon, "BACKOFF_SECONDS", (60.0,) * 6)    # would hang if used
+    monkeypatch.setattr(daemon, "MAX_FAST_FAILURES", 1)
+    supervisor = daemon.Supervisor(tmp_path)
+    asked = [FakeChild(400 + n, daemon.RESTART_EXIT) for n in range(5)]
+    last = FakeChild(499, 0, on_wait=lambda child: (
+        daemon.last_exit(tmp_path)["detail"] == "restart requested"
+        and supervisor._handle_stop(signal.SIGTERM, None)))
+    spawned = _fake_children(supervisor, [*asked, last])
+
+    assert supervisor.run() == 0
+    assert len(spawned) == 6
+    assert supervisor.restarts == 5
+
+
+def test_the_supervised_child_knows_it_is_supervised(tmp_path, monkeypatch):
+    seen = {}
+
+    def popen(argv, **kwargs):
+        seen.update(kwargs["env"])
+        raise OSError("not really spawning")
+
+    monkeypatch.setattr(daemon.subprocess, "Popen", popen)
+    with pytest.raises(OSError):
+        daemon.Supervisor(tmp_path)._spawn()
+    assert seen[daemon.SUPERVISED_ENV] == "1"
+
+
 def test_a_run_that_stayed_up_refills_the_crash_budget(tmp_path, monkeypatch, restore_signals):
     monkeypatch.setattr(daemon, "BACKOFF_SECONDS", (0.0,) * 6)
     monkeypatch.setattr(daemon, "MAX_FAST_FAILURES", 1)

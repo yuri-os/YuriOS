@@ -1466,7 +1466,8 @@ you's words`. A save writes `.env` and takes effect on restart, like the rest of
 the house file.
 
 The settings surface (`yurios/envfile.py`) is **one table, two front ends**: the panel — the gear in
-every room and **House settings** on the board — and `yurios settings` in the terminal. Neither
+every room and **House settings** on the board (a page of its own, §11.2) — and `yurios settings`
+in the terminal. Neither
 owns the list, so they cannot disagree about what a knob is called or what it may hold. The table
 **MUST** be the running `Config`'s whole field set, not a shortlist: a hand-written half carries
 the knobs worth a real control (the model comboboxes, the enums, the secrets), and the rest is
@@ -1531,6 +1532,96 @@ The same gear opens a second panel above it with a different owner: **this chara
 (§31.4). Those fields belong to her registry record, every one of them blank by default meaning
 *inherit the file below*, and a save there applies to the running conversation at once. One dialog,
 two scopes, two honest promises — and the panel **MUST** say which is which.
+
+### §11.2 — House settings is a page, laid out for finding things
+
+The board's **House settings** opens `/settings/` (`web/settings/`), not a dialog: the house `.env`
+is a couple of hundred knobs, and a single scroll with a filter over it answers "where is X" only
+for someone who already knows X's name. The page is the mind debug page's shell (§24.3) — a rail of
+pages on the left, one page on the stage — with an **Overview** first: who she talks to
+(`USER_NAME`), the house at a glance (her model, memory, mind, hands, web, camera, voice, access,
+Telegram — each a link to where it is changed), everything that has moved off its default, and
+what is saved but waiting for a restart.
+
+- §11.2.1 **The layout is the table's, not the page's.** `envfile.PAGES` places every knob on a page
+  and in a titled section, in the order a person reads them — the switch that turns a thing on,
+  then what it needs, then how hard it runs — with a plain-language **label** beside the `.env`
+  key. `GET /api/settings` sends that layout as `pages` (and the overview's fields as `overview`)
+  beside the `groups` the room dialog reads; both are regroupings of `groups_for`, so the page
+  **MUST NOT** be able to offer a knob, a type or a vocabulary the dialog and the CLI do not. The
+  labels ride on every surface's rows. A knob `PAGES` does not place **MUST** still be shown — on an
+  **Other** page under its `.env.example` section — and the suite fails until it is placed, so
+  "added to the config" and "findable on the page" cannot drift apart silently.
+- §11.2.2 **Every knob says what it does.** `.env.example` documents every knob — the ones worth
+  touching live, the rest commented out at their defaults (`# KEY=default  # help`), which the
+  index reads below any live line for the same key so a copied `.env` pins no default the config
+  may later move. Only a knob shipped **empty** cannot carry its comment on its own line (dotenv
+  reads `KEY=   # help` as the value); `envfile.HELP` names exactly those, and the suite fails
+  when a knob is in neither. A derived knob
+  whose value is one of a few words — the backend switches, `SEARCH_SAFESEARCH`,
+  `EXPRESSION_DEFAULT` — is a dropdown (`envfile.ENRICHED`, the §11 vocabulary rule), and one that
+  only means something under another setting carries `relevant_if` (`envfile.RELEVANT`) and is
+  hidden until it does.
+- §11.2.3 **A row says where it stands.** Each non-secret field carries its `default` (the value
+  with no line in the file), and a row that has moved off it says so, names the default, and
+  offers **reset** — an ordinary edit that puts the default back in the control, saved and
+  discarded like any other. A character's override row offers the same way back to *inherit*.
+  A path written `./vault` and a default of `vault` are one folder and **MUST NOT** read as
+  changed. Each
+  field the file holds at a value the running server did not boot with carries `pending`, so
+  "waits for a restart" is still true after a reload, not only in the moment after a save.
+  `OWNER_TOKEN` is never pending: pairing applies it live (§11.1).
+- §11.2.4 **One save for the house.** The file is one file and a restart applies all of it, so the
+  page has one save, in a bar that appears only when something is unsaved; it sends only the
+  changed fields, marks the rows and the rail pages that hold them, and warns before leaving with
+  edits unsaved. A search answers from every page at once and counts its matches per page in the
+  rail. The rows are `/shared/settings.js`'s (`window.YuriOSSettings.createForm`) — the room
+  dialog's model picker, pairing panel and vocabulary boxes, not a second copy.
+
+### §11.3 — The files `.env` only names, and the restart that applies them
+
+- §11.3.1 **Restart from the page.** A save is a promise about the next boot, so the page keeps it:
+  `POST /api/house/restart` ends the server with `daemon.RESTART_EXIT` (75) and the supervisor
+  (`yurios start`) starts it again at once — a requested restart **MUST NOT** spend the crash-loop
+  budget or wait a backoff, and `last-exit.json` records it as requested. The supervisor marks its
+  child (`YURIOS_SUPERVISED=1`), and only the plain server launch path declares itself restartable;
+  a server nobody would start again (`--foreground`, a bare `python -m`, the desktop window)
+  **MUST** refuse with 409 rather than stop, and the button says what to do instead. The button
+  takes two presses, and the page waits for a **new** `boot_id` from `GET /api/house` before
+  reloading — an open port alone may still be the old server.
+- §11.3.2 **Her other people's hands.** `MCP_SERVERS` names a JSON file, and the **MCP servers**
+  page edits that file: one card per server (command, one argument per line, `KEY=value`
+  environment, rate, on/off), import of a pasted or loaded `{"mcpServers": …}` block, export, and
+  **Test**, which spawns that one entry and lists the tools it offers before anything is saved.
+  Saving validates through `tools.client.check_servers` — the loader's own rules, so the form
+  refuses what the boot would — and, when `.env` names no file yet, creates `mcp-servers.json` beside
+  it and names it. An entry may be `disabled`: kept in the file, never spawned.
+- §11.3.3 **The house scene overlay.** `SELFIE_TEMPLATES_EXTRA` is edited the same way: the YAML is
+  checked with `selfiebook.parse_text` and written **verbatim**, comments kept, creating
+  `data/selfie-extra.yaml` and naming it when nothing is named yet.
+- Every route here is owner-or-loopback, like the panel beside it (§11): each writes a file the
+  server executes or reads at boot, or ends the server.
+
+### §11.4 — A character's own page, and the files she carries as modules
+
+Below the house pages the rail lists every character on the node. Her page has three tabs.
+
+- §11.4.1 **Settings.** Her brain overrides (§31.4, applied to a running conversation at once),
+  her profile and background switches (the record the switchboard drawer edits, §29), and her own
+  channel credentials (her `TELEGRAM_*_<ID>` keys, through her runtime while she runs). These ride
+  the page's one save bar beside the house's edits and are sent only where they moved. A character
+  under review (§28) **MUST NOT** be approved by a save here — her profile is read-only until she
+  is approved on the board.
+- §11.4.2 **Night jobs.** `vault/dreams/*.md` (§21.2), through host routes that work with her
+  stopped (`/api/characters/<id>/dream-jobs`): list, write, delete (a builtin reverts), export one
+  as its `.md` or all as a zip, import `.md` files or zips, and copy one straight into another
+  character. A file is filed under the name its frontmatter declares (rewritten in that one line
+  when imported under another), refused with `validate_job_file`'s own sentence, skipped when she
+  already has it unless replacing was asked for, and committed as a person's edit (`now=True`).
+- §11.4.3 **Selfie scenes.** Her `selfie.yaml` (§7.6) as a unit: export, import a YAML to **merge**
+  into hers (a row named in both takes the incoming one) or **replace** it, take another
+  character's library the same two ways, go back to the shipped one, or edit the whole file as YAML.
+  The studio still edits it row by row; both write through the same PUT.
 
 ## §12 — Omissions → superseded by §26
 
@@ -3278,8 +3369,9 @@ changes; a runtime does not know it has neighbours.
   **MUST** display an unrecognised state as unknown rather than inventing one.
 - §32.3 **One design system.** The board, both bodies (§6.6) and the shared `.env` panel (§11)
   carry the same chrome (§6.3): entering a character must not feel like leaving the app. The board
-  carries the panel too, under **House settings** — one scope up from the drawer's per-character
-  Settings, and served by the host itself so it answers with nothing running.
+  reaches the house file too, under **House settings** — one scope up from the drawer's
+  per-character Settings, a page of its own (§11.2) whose API the host serves itself, so it
+  answers with nothing running.
 - §32.4 **The API is same-origin JSON** (`web/dashboard/API.md`): `GET /api/characters`,
   `GET /api/connections`, `POST /api/characters/import`, `GET|PATCH /api/characters/<id>/profile`,
   `GET|PATCH /api/characters/<id>/brain` (§31.4 — also unprefixed, for the primary),

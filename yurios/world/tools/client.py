@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -324,6 +325,58 @@ class MultiToolRunner:
         self._owner.clear()
 
 
+#: A server name: what her tools are filed under and how the rate limiter keys
+#: them. Not a path, not a sentence.
+SERVER_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
+
+
+def check_servers(data) -> dict[str, dict]:
+    """The `mcpServers` mapping, validated and normalised — the one definition of
+    what an entry may hold, for the loader below and for House settings' editor
+    (world/host/house.py), which must refuse what this would refuse at boot.
+
+    An entry is `command` (required), `args` (list of strings), `env` (strings),
+    `rate` (calls per minute, or absent for `TOOL_RATE_EXTERNAL`) and `disabled`
+    — kept in the file, never spawned, so switching a server off does not mean
+    retyping it later. Raises ValueError with the sentence a form can show.
+    """
+    if isinstance(data, dict) and "mcpServers" in data:
+        data = data["mcpServers"]
+    if data is None:
+        return {}
+    if not isinstance(data, dict):
+        raise ValueError('expected {"mcpServers": {"name": {"command": …}}}')
+    out: dict[str, dict] = {}
+    for name, entry in data.items():
+        name = str(name)
+        if not SERVER_NAME_RE.match(name):
+            raise ValueError(f"{name!r} is not a server name: letters, digits, "
+                             "- _ and . only")
+        if not isinstance(entry, dict):
+            raise ValueError(f"mcp server {name!r} must be an object")
+        command = str(entry.get("command") or "").strip()
+        if not command:
+            raise ValueError(f"mcp server {name!r} has no command")
+        args = entry.get("args") or []
+        if not isinstance(args, list):
+            raise ValueError(f"mcp server {name!r}: args must be a list")
+        env = entry.get("env") or {}
+        if not isinstance(env, dict):
+            raise ValueError(f"mcp server {name!r}: env must be an object")
+        rate = entry.get("rate")
+        if rate is not None and (isinstance(rate, bool) or not isinstance(rate, (int, float))
+                                 or rate <= 0):
+            raise ValueError(f"mcp server {name!r}: rate must be a positive number")
+        clean: dict = {"command": command, "args": [str(a) for a in args],
+                       "env": {str(k): str(v) for k, v in env.items()}}
+        if rate is not None:
+            clean["rate"] = rate
+        if entry.get("disabled"):
+            clean["disabled"] = True
+        out[name] = clean
+    return out
+
+
 def load_servers(path: str | Path) -> list[dict]:
     """Read `mcp-servers.json` — the `{"mcpServers": {…}}` shape everything else
     uses, so a config you already have pastes straight in.
@@ -333,7 +386,8 @@ def load_servers(path: str | Path) -> list[dict]:
                                   "env": {}, "rate": 4}}}
 
     `rate` is the one addition: calls per minute for every tool that server
-    offers (§7.3's bucket). Absent, they get `TOOL_RATE_EXTERNAL`.
+    offers (§7.3's bucket). Absent, they get `TOOL_RATE_EXTERNAL`. `disabled`
+    is the other: the entry stays in the file and is not spawned.
 
     A missing file is not an error — it is the default configuration. A file
     that *is* there and won't parse is, because silently running with no
@@ -343,18 +397,10 @@ def load_servers(path: str | Path) -> list[dict]:
     if not path.is_file():
         return []
     data = json.loads(path.read_text(encoding="utf-8"))
-    servers = []
-    for name, entry in (data.get("mcpServers") or {}).items():
-        command = entry.get("command")
-        if not command:
-            raise ValueError(f"mcp server {name!r} has no command")
-        servers.append({
-            "name": name,
-            "command": [command, *(entry.get("args") or [])],
-            "env": {str(k): str(v) for k, v in (entry.get("env") or {}).items()},
-            "rate": entry.get("rate"),
-        })
-    return servers
+    return [{"name": name, "command": [entry["command"], *entry["args"]],
+             "env": entry["env"], "rate": entry.get("rate")}
+            for name, entry in check_servers(data).items()
+            if not entry.get("disabled")]
 
 
 def result_text(result) -> str:

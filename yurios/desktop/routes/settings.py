@@ -105,6 +105,28 @@ def _display(field: dict, cfg, key_cfg, stored: dict[str, str]) -> object:
     return raw
 
 
+def _pending(field: dict, cfg, key_cfg, stored: dict[str, str]) -> bool:
+    """Saved to `.env` but not what this process is running on.
+
+    Everything here is read at boot, so a save is a promise about the next
+    start — and the page can only say "restart to apply" truthfully if it can
+    tell, after a reload, which saves are still waiting. The running value is
+    the boot-time `Config` this route already edits against; the file is
+    re-read. `OWNER_TOKEN` is the exception that proves it: pairing applies it
+    to the live boundary at once (§11.1), so it is never waiting.
+    """
+    key = field["key"]
+    if key not in stored or key == "OWNER_TOKEN":
+        return False
+    source = key_cfg if field.get("key_env") else cfg
+    running = getattr(source, field["attr"], None)
+    if field["type"] == "password":
+        return stored[key] != str(running or "")
+    if isinstance(running, Path):
+        return Path(stored[key]) != running
+    return str(_display(field, cfg, key_cfg, stored)) != str(envfile.display(field, source))
+
+
 def _pairing(request: Request, cfg) -> dict:
     """The pairing view, built from the token the server will actually accept.
 
@@ -150,23 +172,44 @@ async def list_models(request: Request, provider: str = ""):
 
 @router.get("/api/settings")
 async def get_settings(request: Request):
+    """The table twice over: `groups` for the gear's dialog in every room, and
+    `pages` — the same fields, laid out as the board's House settings page
+    (`envfile.PAGES`, SPEC §11.2). One wire format for a field either way."""
     _require_local(request)
     cfg = _config(request)
     key_cfg = _key_config(request, cfg)
     stored = _stored_values()
+
+    def wire(f: dict) -> dict:
+        out = {k: v for k, v in f.items() if k not in ("attr", "key_env")}
+        if f["type"] == "password":
+            out["configured"] = bool(_display(f, cfg, key_cfg, stored))
+        else:
+            out["value"] = _display(f, cfg, key_cfg, stored)
+            out["default"] = envfile.default_of(f, cfg)
+            # `./vault` and `vault` are one folder: said the file's way, so a
+            # path written as the example writes it does not read as "changed"
+            default_raw = getattr(getattr(type(cfg), "model_fields", {}).get(f["attr"]),
+                                  "default", None)
+            if (isinstance(default_raw, Path) and isinstance(out["value"], str)
+                    and out["value"] and Path(out["value"]) == default_raw):
+                out["default"] = out["value"]
+        if _pending(f, cfg, key_cfg, stored):
+            out["pending"] = True
+        return out
+
+    layout = envfile.pages_for(cfg, key_cfg=key_cfg)
     return {
         "env_path": str(ENV_PATH),
         "groups": [
             {"group": g["group"], "advanced": bool(g.get("advanced")),
-             "fields": [
-                 ({**{k: v for k, v in f.items() if k not in ("attr", "key_env")},
-                    "configured": bool(_display(f, cfg, key_cfg, stored))}
-                  if f["type"] == "password" else
-                  {**{k: v for k, v in f.items() if k not in ("attr", "key_env")},
-                    "value": _display(f, cfg, key_cfg, stored)})
-                 for f in g["fields"]]}
+             "fields": [wire(f) for f in g["fields"]]}
             for g in _groups_for(cfg, key_cfg=key_cfg)
         ],
+        "overview": [wire(f) for f in layout["overview"]],
+        "pages": [{**page, "sections": [{**section, "fields": [wire(f) for f in section["fields"]]}
+                                         for section in page["sections"]]}
+                  for page in layout["pages"]],
     }
 
 

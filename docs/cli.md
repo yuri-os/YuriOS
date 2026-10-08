@@ -27,7 +27,7 @@ yurios download                       # the recommended GGUF, or pass an id
 ```
 
 Every `.env` knob this build has is on `yurios settings` — the same table the
-House settings panel renders (207 keys; four runtime-only names are hidden). A
+House settings page renders (four runtime-only names are hidden). A
 save writes `.env` and asks for a restart; it does not hot-apply.
 
 ```bash

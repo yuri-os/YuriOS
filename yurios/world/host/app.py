@@ -24,7 +24,7 @@ from yurios.characters import CharacterRecord, CharacterRegistry
 
 from ..config import Config
 from ..main import DIST_DIR, WEB_DIR
-from . import brains, pages, studio, switchboard
+from . import brains, house, modules, pages, studio, switchboard
 from . import debug as debug_routes
 from .hosting import CharacterBusy, CharacterHost, _RuntimeDispatcher, _turn_away
 
@@ -90,7 +90,7 @@ def create_host_app(base: Config, registry: CharacterRegistry | None = None, *,
             raise HTTPException(404, "no such character")
         return record
 
-    # The routes, in five modules and in this order (SPEC §29). Order is not
+    # The routes, in seven modules and in this order (SPEC §29). Order is not
     # cosmetic: every explicit route has to be declared before the runtime
     # dispatcher is mounted over `/api/characters` below, or the dispatcher
     # swallows them — and within `debug`, `/debug/prompts/days` has to precede
@@ -99,6 +99,10 @@ def create_host_app(base: Config, registry: CharacterRegistry | None = None, *,
     brains.register(app, host, require)
     studio.register(app, host, require)
     debug_routes.register(app, host, require)
+    # House settings' own surfaces (SPEC §11.3, §11.4): the restart, the files
+    # `.env` only names, and the files a character carries as modules.
+    house.register(app, host, require)
+    modules.register(app, host, require)
     pages.register(app, host, require)
 
 

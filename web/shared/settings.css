@@ -142,6 +142,25 @@ select.set-input{ cursor:pointer; }
 }
 .set-reveal:hover, .set-browse:hover{ border-color:var(--soft); color:var(--ink); }
 .set-help{ color:var(--dim); font:9px/1.6 var(--font-mono); margin-top:7px; }
+/* A row with a name of its own (envfile.PAGES' label): the name reads as a
+ * name, and the .env key stays beside it, small, because it is still the word
+ * in the file. A row without one keeps the bare mono key above. */
+.set-label{
+  color:var(--ink); font:500 12.5px/1.4 var(--font-sans);
+  letter-spacing:0; text-transform:none;
+}
+.set-env{ color:var(--dim); font:9px var(--font-mono); letter-spacing:.04em; text-transform:none; }
+.set-key:has(.set-label){ display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 10px; }
+/* moved off its default (said only then), and saved-but-not-yet-running */
+.set-default{ display:flex; align-items:center; gap:8px; color:var(--soft); font:9px/1.6 var(--font-mono); margin-top:5px; }
+.set-default[hidden]{ display:none; }
+.set-reset{
+  padding:1px 8px; border:1px solid var(--rule); border-radius:2px; background:transparent;
+  color:var(--acid); font:9px var(--font-mono); letter-spacing:.06em; text-transform:uppercase;
+  cursor:pointer;
+}
+.set-reset:hover{ border-color:var(--acid-dark); }
+.set-pending{ color:var(--amber, #f4bd62); font:9px/1.6 var(--font-mono); margin-top:5px; }
 
 /* A closed vocabulary: every name on screen, ticked or not (type "multi").
  * A list, not a paragraph — one row per name, the name in a column of its own

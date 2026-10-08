@@ -50,6 +50,14 @@ BACKOFF_SECONDS = (1.0, 2.0, 4.0, 8.0, 16.0, 30.0)
 MAX_FAST_FAILURES = 5
 CHILD_STOP_TIMEOUT = 15.0
 EXIT_TAIL_LINES = 20
+# The exit code that means "start me again, I asked for it" (EX_TEMPFAIL): House
+# settings' Restart button (world/host/house.py) ends the server with it. Not a
+# crash, so it neither counts toward the crash-loop budget nor waits a backoff.
+RESTART_EXIT = 75
+# Set on the child, so the server knows a restart it asks for will be honoured —
+# a server started any other way (`--foreground`, a bare `python -m`) has nobody
+# to bring it back, and its Restart button says so instead of ending it.
+SUPERVISED_ENV = "YURIOS_SUPERVISED"
 
 
 def install_root() -> Path:
@@ -370,7 +378,8 @@ class Supervisor:
         try:
             return subprocess.Popen(
                 [sys.executable, "-m", "yurios.world", *self.argv], cwd=self.root,
-                stdin=subprocess.DEVNULL, stdout=handle, stderr=subprocess.STDOUT), handle
+                stdin=subprocess.DEVNULL, stdout=handle, stderr=subprocess.STDOUT,
+                env={**os.environ, SUPERVISED_ENV: "1"}), handle
         except OSError:
             handle.close()
             raise
@@ -420,6 +429,12 @@ class Supervisor:
                                 restarting=False)
                     self._log(f"she stopped ({describe_exit(code)})")
                     return 0
+                if code == RESTART_EXIT:
+                    record_exit(self.root, pid=child.pid, code=code, requested=True,
+                                restarting=True, detail="restart requested")
+                    self.restarts += 1
+                    self._log("she asked to be restarted; starting her again")
+                    continue
                 if lived >= HEALTHY_SECONDS:
                     fast_failures = 0
                 else:

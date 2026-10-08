@@ -152,8 +152,14 @@ Then open the address shown by `yurios status` (normally `http://localhost:8768`
 The dashboard offers the same model choice if you open it first; restart after it too.
 
 Everything else in `.env` is editable from either surface too: **House settings** on
-the switchboard (and the gear in every room) opens the same table `yurios settings`
-prints.
+the switchboard opens a settings page — every knob sorted into pages (Models, Memory,
+Mind, Hands, Web, Pictures, Voice, Room & body, Channels, Access, System) with a
+search across all of them — and the gear in every room opens the same table as a
+dialog. Both are the table `yurios settings` prints. The same page has a **Restart**
+button for applying saves (when started with `yurios start`), editors for the files
+`.env` only points at (third-party MCP servers, the house selfie-scene overlay), and a
+page per character for her own model and switches, her night jobs and her selfie
+scenes — each importable and exportable as files.
 
 ```bash
 yurios settings                       # the common knobs, and whatever you have changed

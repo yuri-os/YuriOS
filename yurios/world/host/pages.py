@@ -1,9 +1,9 @@
 """The HTML entry points (SPEC §29.3).
 
-Seven routes that return a page rather than JSON: the switchboard at `/` and at
-its own `/dashboard/`, the studio, and the four ways into one character — her
-sanctuary, her Live2D body, the text client, and the mind debug page. Each
-hands off to a Vite bundle mounted further down `create_host_app`.
+Eight routes that return a page rather than JSON: the switchboard at `/` and at
+its own `/dashboard/`, the studio, House settings, and the four ways into one
+character — her sanctuary, her Live2D body, the text client, and the mind debug
+page. Each hands off to a Vite bundle mounted further down `create_host_app`.
 """
 from __future__ import annotations
 
@@ -75,6 +75,14 @@ def register(app: FastAPI, host: CharacterHost, require) -> None:
     @app.get("/studio/")
     async def studio_page():
         return _entry("studio")
+
+    # House settings (SPEC §11.2): the `.env` under every character, as a page.
+    # The house's, not anybody's — no character in the path, and it reads the
+    # board's own /api/settings, which answers with nobody running (§11).
+    @app.get("/settings")
+    @app.get("/settings/")
+    async def house_settings_page():
+        return _entry("settings")
 
     @app.get("/characters/{character_id}/sanctuary")
     @app.get("/characters/{character_id}/sanctuary/")

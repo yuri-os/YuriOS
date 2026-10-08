@@ -41,24 +41,21 @@
  * her voice are two small objects, not a process — a save applies to the running
  * conversation at once. So one dialog carries two scopes with two honest
  * promises: hers now, the house's on restart. `rows` carries the scope, which is
- * what keeps the diff going to the right endpoint. The board opens the same
- * dialog with data-scope="house" on it, which drops the character panel: the
- * switchboard is not standing in anybody's room. */
+ * what keeps the diff going to the right endpoint.
+ *
+ * The board's House settings is a whole page rather than this dialog
+ * (web/settings/, SPEC §11.2) — the switchboard is not standing in anybody's
+ * room, so it has no brain panel to show — and it renders the very same rows.
+ * Everything below up to the dialog is published as window.YuriOSSettings —
+ * `createForm` is a row builder plus the baseline a save diffs against — so the
+ * page lays the fields out its own way without a second copy of the model
+ * picker, the pairing panel or the vocabulary boxes. The dialog wiring at the
+ * bottom runs only where a <dialog id="settings"> exists. */
 (() => {
   const runtimeReady = window.YuriOSRuntime
     ? Promise.resolve()
     : import('/shared/runtime.js').catch(() => {});
   const apiPath = (path) => window.YuriOSRuntime?.apiPath(path) || path;
-  const dlg = document.getElementById("settings");
-  if (!dlg) return;
-  const body = document.getElementById("settings-body");
-  const note = document.getElementById("settings-note");
-  const pathEl = document.getElementById("settings-path");
-  let initial = {};        // scope:key → value as loaded (the diff baseline)
-  let rows = [];           // {key, scope, read} — the source of truth for save()
-  let loaded = false;
-  let brain = null;        // the character's own brain panel, if this node has one
-  let filterBox = null;    // the header's narrowing box, built on first load
 
   const el = (tag, props = {}, ...kids) => {
     const n = Object.assign(document.createElement(tag), props);
@@ -186,6 +183,12 @@
     return {
       node: combo, status: b.status,
       read: () => (input.value.trim() ? joinModel(sel.value, input.value) : ""),
+      write: (value) => {
+        const parts = splitModel(String(value ?? ""));
+        sel.value = parts.provider;
+        input.value = parts.model;
+        b.hide();
+      },
     };
   }
 
@@ -207,7 +210,8 @@
     const combo = el("div", { className: "set-model" },
       el("div", { className: "set-model-row" }, input, b.browse), b.list);
     document.addEventListener("mousedown", (e) => { if (!combo.contains(e.target)) b.hide(); });
-    return { node: combo, read: () => input.value, status: b.status };
+    return { node: combo, read: () => input.value, status: b.status,
+      write: (value) => { input.value = String(value ?? ""); b.hide(); } };
   }
 
   // ---- OWNER_TOKEN: the field whose value has to reach another device ----
@@ -292,7 +296,7 @@
       toggle: () => (panel.hidden ? show(false) : (panel.hidden = true)) };
   }
 
-  function ownerTokenExtras(ctl, wrap) {
+  function ownerTokenExtras(ctl, wrap, say) {
     const pair = pairingPanel(ctl.input);
     const generate = el("button", { type: "button", className: "set-reveal",
       textContent: "generate" });
@@ -309,7 +313,7 @@
         // to send afterwards — which is why nothing here touches the field.
         await pair.show(true, data);
       } catch (e) {
-        note.textContent = "could not generate a token: " + e;
+        say("could not generate a token: " + e);
       } finally {
         generate.disabled = false;
       }
@@ -328,11 +332,18 @@
       // keep an unknown current value selectable rather than silently losing it
       if (f.value && !(f.options || []).includes(String(f.value)))
         s.append(el("option", { value: f.value, textContent: f.value + " (current)", selected: true }));
-      return { node: s, read: () => s.value };
+      return { node: s, read: () => s.value,
+        write: (value) => {
+          const v = String(value ?? "");
+          if (![...s.options].some((o) => o.value === v))
+            s.append(el("option", { value: v, textContent: v }));
+          s.value = v;
+        } };
     }
     if (f.type === "bool") {
       const c = el("input", { id, type: "checkbox", className: "set-check", checked: !!f.value });
-      return { node: c, read: () => c.checked };
+      return { node: c, read: () => c.checked,
+        write: (value) => { c.checked = value === true || String(value) === "true"; } };
     }
     // A closed vocabulary the .env stores as a comma-separated list. A text box
     // over one of these is the field you cannot fill in — MIND_TOOL_ALLOWLIST
@@ -388,6 +399,11 @@
         if (!(f.options || []).includes(name))
           add(name, { group: "unknown", note: "not a name this build knows" });
       return { node: box,
+        write: (value) => {
+          const want = new Set(String(value ?? "").split(",").map((n) => n.trim()).filter(Boolean));
+          const every = f.all && want.has(f.all);
+          for (const b of boxes) b.check.checked = every || want.has(b.name);
+        },
         read: () => {
           const ticked = boxes.filter((b) => b.check.checked).map((b) => b.name);
           const every = f.options || [];
@@ -443,7 +459,8 @@
     const read = () => (f.type === "number"
       ? (input.value === "" ? "" : Number(input.value))
       : input.value);
-    return { node: input, datalist, read, input };
+    const write = (value) => { input.value = value == null ? "" : String(value); };
+    return { node: input, datalist, read, write, input };
   }
 
   // ---- her own brain: the same controls, tri-stated on "inherit" ----
@@ -462,7 +479,8 @@
         selected: shown === "" }));
       s.append(el("option", { value: "true", textContent: "on", selected: shown === "true" }));
       s.append(el("option", { value: "false", textContent: "off", selected: shown === "false" }));
-      return { node: s, read: () => s.value };
+      return { node: s, read: () => s.value,
+        write: (value) => { s.value = value == null ? "" : String(value); } };
     }
     const input = el("input", {
       id, className: "set-input", type: f.type === "number" ? "number" : "text",
@@ -471,22 +489,201 @@
         ? "inherit" : `inherit — ${f.inherited}`,
     });
     if (f.step) input.step = f.step;
-    return { node: input, read: () => input.value.trim() };
+    return { node: input, read: () => input.value.trim(),
+      write: (value) => { input.value = value == null ? "" : String(value); } };
   }
 
-  function brainRow(f) {
-    const label = el("label", { className: "set-row" });
-    const ctl = brainControl(f);
-    const wrap = el("div", { className: "set-ctl" }, ctl.node);
-    if (f.type !== "model") label.htmlFor = "brain-" + f.key;
-    rows.push({ key: f.key, scope: "brain", read: ctl.read });
-    initial["brain:" + f.key] = ctl.read();
-    label.dataset.match = (f.key + " " + (f.help || "")).toLowerCase();
-    label.append(el("div", { className: "set-key", textContent: f.key.replace(/_/g, " ") }), wrap);
-    if (f.help) label.append(el("div", { className: "set-help", textContent: f.help }));
-    if (ctl.status) label.append(ctl.status);
-    return label;
+  // The row's name: the page's label when the table gives one, with the .env
+  // key beside it — still the word in the file and the one `yurios settings`
+  // takes — or the bare key where there is none.
+  function rowHead(f, bare) {
+    const head = el("div", { className: "set-key" });
+    if (!f.label) { head.textContent = bare; return head; }
+    head.append(el("span", { className: "set-label", textContent: f.label }),
+      el("code", { className: "set-env", textContent: f.key }));
+    return head;
   }
+
+  const shownValue = (v) => (typeof v === "boolean" ? (v ? "on" : "off")
+    : (String(v ?? "") === "" ? "empty" : String(v)));
+
+  // The way back to a value: a note that appears only while the control is off
+  // it — "default" under every untouched row would be noise, and under a moved
+  // one it is the undo — with a button that puts it back. Live, not drawn once:
+  // it follows the control as you type, and the reset is an ordinary edit (a
+  // change event), so it is saved, diffed and discarded like any other.
+  function backNote(ctl, target, say) {
+    if (!ctl.write) return null;
+    const note = el("div", { className: "set-default" });
+    const reset = el("button", { type: "button", className: "set-reset", textContent: "reset" });
+    note.append(el("span", { textContent: say }), reset);
+    const update = () => { note.hidden = String(ctl.read() ?? "") === String(target ?? ""); };
+    reset.addEventListener("click", (event) => {
+      event.preventDefault();
+      ctl.write(target);
+      ctl.node.dispatchEvent(new Event("change", { bubbles: true }));
+      update();
+    });
+    update();
+    return { node: note, update };
+  }
+
+  function defaultNote(f, ctl) {
+    if (f.default == null || f.type === "password") return null;
+    return backNote(ctl, f.default, "changed · default " + shownValue(f.default) + " ·");
+  }
+
+  /* One settings form: the rows it has drawn, and what each said when drawn —
+   * the baseline save() diffs against, so only what you touched is sent. The
+   * dialog builds one, the House settings page builds another; `say` is where a
+   * row reports trouble of its own (the pairing button's errors). */
+  function createForm(say = () => {}) {
+    let rows = [];           // {key, scope, read} — the source of truth for a save
+    let initial = {};        // scope:key → value as drawn (the diff baseline)
+    const track = (scope, key, read) => {
+      rows.push({ key, scope, read });
+      initial[`${scope}:${key}`] = read();
+    };
+    // a row with a live note keeps it in step with its control
+    const follow = (row, note) => {
+      if (!note) return;
+      row.append(note.node);
+      for (const type of ["input", "change"]) row.addEventListener(type, note.update);
+    };
+
+    function brainRow(f) {
+      const label = el("label", { className: "set-row" });
+      const ctl = brainControl(f);
+      const wrap = el("div", { className: "set-ctl" }, ctl.node);
+      if (f.type !== "model") label.htmlFor = "brain-" + f.key;
+      track("brain", f.key, ctl.read);
+      label.dataset.key = f.key;
+      label.dataset.type = f.type;
+      label.dataset.match = [f.key, f.label || "", f.help || ""].join(" ").toLowerCase();
+      label.append(rowHead(f, f.key.replace(/_/g, " ")), wrap);
+      if (f.help) label.append(el("div", { className: "set-help", textContent: f.help }));
+      // hers alone until she gives it back: clearing the override inherits the house
+      const inherited = f.type === "bool" ? (f.inherited ? "on" : "off") : shownValue(f.inherited);
+      follow(label, backNote(ctl, "", `her own · the house says ${inherited} ·`));
+      if (ctl.status) label.append(ctl.status);
+      return label;
+    }
+
+    function fieldRow(f, { scope = "env" } = {}) {
+      // A row is a <label> for its one control — except a vocabulary field,
+      // which is a group of controls each with a label of its own. Nesting those
+      // inside an outer <label> is invalid HTML, and browsers make it visible: a
+      // label with no `for` binds to its FIRST labelable descendant, so clicking
+      // "research" would tick "research" and toggle "write_note" with it.
+      const label = el(f.type === "multi" ? "div" : "label", { className: "set-row" });
+      const head = rowHead(f, f.key.toLowerCase());
+      const wrap = el("div", { className: "set-ctl" });
+
+      let ctl;
+      let pairPanel = null;
+      if (f.type === "model" || f.type === "embed_model") {
+        ctl = f.type === "embed_model" ? embedModelField(f) : modelField(f);
+        wrap.append(ctl.node);
+      } else {
+        ctl = control(f);
+        if (f.type !== "multi") label.htmlFor = "set-" + f.key;   // click-to-focus
+        wrap.append(ctl.node);
+        if (ctl.datalist) wrap.append(ctl.datalist);
+        if (f.type === "password" && ctl.input) {
+          const reveal = el("button", { type: "button", className: "set-reveal", textContent: "show" });
+          reveal.addEventListener("click", () => {
+            const hidden = ctl.input.type === "password";
+            ctl.input.type = hidden ? "text" : "password";
+            reveal.textContent = hidden ? "hide" : "show";
+          });
+          wrap.append(reveal);
+          wrap.append(ctl.remove);
+          if (f.key === "OWNER_TOKEN") pairPanel = ownerTokenExtras(ctl, wrap, say);
+        }
+      }
+
+      track(scope, f.key, ctl.read);
+      label.dataset.key = f.key;
+      // Filter text: the key, the label, the help, and — for a vocabulary
+      // field — every name in it, so "selfie" finds the row that lets her take one.
+      label.dataset.match = [f.key, f.label || "", f.help || "", ...(f.options || []),
+                             ...Object.values(f.option_detail || {})
+                               .map((d) => d.help || "")]
+        .join(" ").toLowerCase();
+      if (f.relevant_if) label.dataset.relevantIf = JSON.stringify(f.relevant_if);
+      label.append(head, wrap);
+      if (f.help) label.append(el("div", { className: "set-help", textContent: f.help }));
+      follow(label, defaultNote(f, ctl));
+      if (ctl.status) label.append(ctl.status);
+      if (pairPanel) label.append(pairPanel);      // under the field it belongs to
+      return label;
+    }
+
+    // scope → {key: value} for every row that no longer says what it was drawn with
+    function diffs() {
+      const out = { brain: {}, env: {} };
+      for (const row of rows) {
+        out[row.scope] ||= {};
+        const now = row.read();
+        if (String(now) !== String(initial[`${row.scope}:${row.key}`]))
+          out[row.scope][row.key] = now;
+      }
+      return out;
+    }
+
+    // a save landed: what was sent is the new baseline
+    function settle(scope, values, keys = Object.keys(values)) {
+      for (const k of keys) initial[`${scope}:${k}`] = values[k];
+    }
+
+    function reset() { rows = []; initial = {}; }
+
+    return { brainRow, fieldRow, track, diffs, settle, reset };
+  }
+
+  // Which rows apply under the controls' current values (`relevant_if`): a
+  // row's rules name other fields by key and the values under which it means
+  // anything. Marked, not hidden — whoever owns the layout decides what an
+  // irrelevant row looks like.
+  function relevance(root) {
+    for (const row of root.querySelectorAll(".set-row[data-relevant-if]")) {
+      let rules = {};
+      try { rules = JSON.parse(row.dataset.relevantIf || "{}"); } catch (_) {}
+      row.dataset.relevant = String(Object.entries(rules).every(([key, allowed]) => {
+        const input = document.getElementById("set-" + key);
+        const value = input?.type === "checkbox" ? String(input.checked) : String(input?.value ?? "");
+        return (allowed || []).map(String).includes(value);
+      }));
+    }
+  }
+
+  // POST the .env half of a diff. Returns the server's answer as it is; the
+  // caller settles its own baseline from `written`.
+  async function saveEnv(diff) {
+    await runtimeReady;
+    const r = await fetch(apiPath("/api/settings"), {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(diff),
+    });
+    const res = await r.json();
+    if (!r.ok) throw new Error(res.detail || `HTTP ${r.status}`);
+    return res;
+  }
+
+  window.YuriOSSettings = Object.freeze({
+    createForm, relevance, saveEnv, ready: runtimeReady, apiPath,
+  });
+
+  // ---- the dialog: the gear in every room ------------------------------------
+  const dlg = document.getElementById("settings");
+  if (!dlg) return;
+  const body = document.getElementById("settings-body");
+  const note = document.getElementById("settings-note");
+  const pathEl = document.getElementById("settings-path");
+  const form = createForm((text) => { note.textContent = text; });
+  let loaded = false;
+  let brain = null;        // the character's own brain panel, if this node has one
+  let filterBox = null;    // the header's narrowing box, built on first load
 
   function brainSection(data) {
     const sec = el("section", { className: "set-group set-group-live" });
@@ -497,7 +694,7 @@
       : "She is not running; these apply the moment she starts.";
     sec.append(el("p", { className: "set-scope-note",
       textContent: `Hers alone. Leave a field empty to inherit the .env below. ${running}` }));
-    for (const f of data.fields) sec.append(brainRow(f));
+    for (const f of data.fields) sec.append(form.brainRow(f));
     const key = data.effective?.api_key_env;
     if (key && !data.key_configured) {
       sec.append(el("p", { className: "set-scope-warn",
@@ -506,63 +703,10 @@
     return sec;
   }
 
-  function fieldRow(f) {
-    // A row is a <label> for its one control — except a vocabulary field,
-    // which is a group of controls each with a label of its own. Nesting those
-    // inside an outer <label> is invalid HTML, and browsers make it visible: a
-    // label with no `for` binds to its FIRST labelable descendant, so clicking
-    // "research" would tick "research" and toggle "write_note" with it.
-    const label = el(f.type === "multi" ? "div" : "label", { className: "set-row" });
-    const head = el("div", { className: "set-key" }, f.key.toLowerCase());
-    const wrap = el("div", { className: "set-ctl" });
-
-    let ctl;
-    let pairPanel = null;
-    if (f.type === "model" || f.type === "embed_model") {
-      ctl = f.type === "embed_model" ? embedModelField(f) : modelField(f);
-      wrap.append(ctl.node);
-    } else {
-      ctl = control(f);
-      if (f.type !== "multi") label.htmlFor = "set-" + f.key;   // click-to-focus
-      wrap.append(ctl.node);
-      if (ctl.datalist) wrap.append(ctl.datalist);
-      if (f.type === "password" && ctl.input) {
-        const reveal = el("button", { type: "button", className: "set-reveal", textContent: "show" });
-        reveal.addEventListener("click", () => {
-          const hidden = ctl.input.type === "password";
-          ctl.input.type = hidden ? "text" : "password";
-          reveal.textContent = hidden ? "hide" : "show";
-        });
-        wrap.append(reveal);
-        wrap.append(ctl.remove);
-        if (f.key === "OWNER_TOKEN") pairPanel = ownerTokenExtras(ctl, wrap);
-      }
-    }
-
-    rows.push({ key: f.key, scope: "env", read: ctl.read });
-    initial["env:" + f.key] = ctl.read();
-    // Filter text: the key, the help, and — for a vocabulary field — every
-    // name in it, so "selfie" finds the row that lets her take one.
-    label.dataset.match = [f.key, f.help || "", ...(f.options || []),
-                           ...Object.values(f.option_detail || {})
-                             .map((d) => d.help || "")]
-      .join(" ").toLowerCase();
-    if (f.relevant_if) label.dataset.relevantIf = JSON.stringify(f.relevant_if);
-    label.append(head, wrap);
-    if (f.help) label.append(el("div", { className: "set-help", textContent: f.help }));
-    if (ctl.status) label.append(ctl.status);
-    if (pairPanel) label.append(pairPanel);      // under the field it belongs to
-    return label;
-  }
-
   // The character panel is optional: a build with no registry behind it (the
   // Build #2 desktop app) 404s here, and a node with nothing running answers
   // 503 — both mean "no character to configure", not an error to show.
   async function loadBrain() {
-    // The board opens this dialog for the house, not for a character: there is
-    // no "her" to show a brain panel for, and the primary character's would be
-    // the wrong one to show anyway.
-    if (dlg.dataset.scope === "house") return null;
     try {
       const r = await fetch(apiPath("/api/brain"));
       if (!r.ok) return null;
@@ -604,15 +748,7 @@
   }
 
   function applyRelevance() {
-    for (const row of body.querySelectorAll(".set-row[data-relevant-if]")) {
-      let rules = {};
-      try { rules = JSON.parse(row.dataset.relevantIf || "{}"); } catch (_) {}
-      row.dataset.relevant = String(Object.entries(rules).every(([key, allowed]) => {
-        const input = document.getElementById("set-" + key);
-        const value = input?.type === "checkbox" ? String(input.checked) : String(input?.value ?? "");
-        return (allowed || []).map(String).includes(value);
-      }));
-    }
+    relevance(body);
     applyFilter();
   }
 
@@ -637,7 +773,7 @@
     ]);
     pathEl.textContent = settings.env_path || "";
     body.textContent = "";
-    initial = {}; rows = [];
+    form.reset();
     brain = brainData;
     if (brain) {
       body.append(brainSection(brain));
@@ -651,7 +787,7 @@
       const appendGroup = (parent, g) => {
         const sec = el("section", { className: "set-group" });
         sec.append(el("h3", { className: "set-group-title", textContent: g.group }));
-        for (const f of g.fields) sec.append(fieldRow(f));
+        for (const f of g.fields) sec.append(form.fieldRow(f));
         parent.append(sec);
       };
       for (const g of ordinary) appendGroup(body, g);
@@ -685,7 +821,7 @@
     });
     const res = await r.json();
     if (!r.ok) throw new Error(res.detail || `HTTP ${r.status}`);
-    for (const k of Object.keys(diff)) initial["brain:" + k] = diff[k];
+    form.settle("brain", diff);
     const applied = (res.applied || []).length;
     if (!applied) return `saved ${brainName()}'s settings`;
     return res.running
@@ -695,15 +831,10 @@
 
   const brainName = () => (brain && brain.name) || "she";
 
-  async function saveEnv(diff) {
-    const r = await fetch(apiPath("/api/settings"), {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(diff),
-    });
-    const res = await r.json();
-    if (!r.ok) throw new Error(res.detail || `HTTP ${r.status}`);
+  async function saveDialogEnv(diff) {
+    const res = await saveEnv(diff);
     const n = (res.written || []).length;
-    for (const k of res.written || []) initial["env:" + k] = diff[k];
+    form.settle("env", diff, res.written || []);
     return { restart: !!res.restart_required,
              text: res.restart_required
                ? `${n} .env setting${n === 1 ? "" : "s"} saved — restart to apply`
@@ -712,12 +843,7 @@
 
   async function save() {
     await runtimeReady;
-    const diffs = { brain: {}, env: {} };
-    for (const row of rows) {
-      const now = row.read();
-      if (String(now) !== String(initial[`${row.scope}:${row.key}`]))
-        diffs[row.scope][row.key] = now;
-    }
+    const diffs = form.diffs();
     const changedBrain = Object.keys(diffs.brain).length;
     const changedEnv = Object.keys(diffs.env).length;
     if (!changedBrain && !changedEnv) { note.textContent = "no changes"; return; }
@@ -728,7 +854,7 @@
     try {
       if (changedBrain) said.push(await saveBrain(diffs.brain));
       if (changedEnv) {
-        const res = await saveEnv(diffs.env);
+        const res = await saveDialogEnv(diffs.env);
         restart = res.restart;
         said.push(res.text);
       }

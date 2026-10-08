@@ -80,6 +80,10 @@ def main(argv: list[str] | None = None) -> None:
     result = migrate_legacy_data(cfg, cfg.data_dir)
     log.info("data layout 0.2: %s", result.status)
     app = create_host_app(cfg, CharacterRegistry(cfg.data_dir))
+    # This launch path, and only this one, can end itself to be started again
+    # (House settings' Restart, SPEC §11.3): the window path owns a native
+    # event loop that an exit code would not get back to the supervisor through.
+    app.state.restartable = True
     print(f"\n  YuriOS dashboard → http://{cfg.host}:{cfg.port}\n")
     # uvicorn shuts down gracefully on SIGINT, then re-raises it (its
     # capture_signals contract) — swallow that final KeyboardInterrupt so a
@@ -88,6 +92,9 @@ def main(argv: list[str] | None = None) -> None:
         build_server(app, cfg).run()
     except KeyboardInterrupt:
         pass
+    if getattr(app.state, "restart_requested", False):
+        from yurios.daemon import RESTART_EXIT
+        raise SystemExit(RESTART_EXIT)
 
 
 if __name__ == "__main__":

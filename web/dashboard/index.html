@@ -11,9 +11,6 @@
        settings panel, same reasoning): one tube, two doors -->
   <link rel="stylesheet" href="/shared/neon.css">
   <link rel="stylesheet" href="./dashboard.css">
-  <!-- the house `.env` panel (SPEC §11), the same stylesheet and the same script
-       every room loads. The board is where you reach it with nobody running. -->
-  <link rel="stylesheet" href="/shared/settings.css">
 </head>
 <body>
   <svg class="icon-bank" aria-hidden="true">
@@ -61,12 +58,13 @@
       <!-- The house's settings, not a character's: models, the bind and its
            owner token, voice, keys — the `.env` every character inherits (§11).
            The drawer's Settings button, one scope down, edits one character's
-           record; this one edits the file underneath all of them. -->
-      <button id="settings-open" class="button button-quiet" type="button"
-              title="the installation's .env — models, server, voice, keys">
+           record; this one edits the file underneath all of them, on a page of
+           its own (/settings/, SPEC §11.2) rather than a dialog over the board. -->
+      <a id="settings-open" class="button button-quiet" href="/settings/"
+         title="the installation's .env — models, server, voice, keys">
         <svg><use href="#i-tune"></use></svg>
         <span>House settings</span>
-      </button>
+      </a>
       <a class="button button-primary" href="/studio/">
         <svg><use href="#i-plus"></use></svg>
         <span>Create character</span>
@@ -320,31 +318,7 @@
     </form>
   </dialog>
 
-  <!-- the house `.env` panel (SPEC §11, → /shared/settings.js). Identical markup
-       to the one every room carries, plus data-scope="house": the board is not
-       standing in anybody's room, so the character's own brain panel is left
-       out and this dialog is the file alone. -->
-  <dialog id="settings" class="settings" data-scope="house">
-    <form method="dialog" class="settings-form" id="house-settings-form">
-      <header class="settings-head">
-        <span class="settings-title">house settings</span>
-        <span class="settings-path" id="settings-path" title="the file being edited"></span>
-        <button type="button" id="settings-close" class="settings-x" aria-label="close"></button>
-      </header>
-      <div class="settings-body" id="settings-body">
-        <p class="settings-loading">loading…</p>
-      </div>
-      <footer class="settings-foot">
-        <span class="settings-note" id="settings-note"></span>
-        <button type="button" id="settings-save" class="settings-save">save</button>
-      </footer>
-    </form>
-  </dialog>
-
   <div id="toast-region" class="toast-region" aria-live="polite" aria-atomic="true"></div>
   <script type="module" src="./dashboard.js"></script>
-  <!-- raw, from the /shared mount, exactly as the rooms load it — one .env
-       editor, not a second copy that drifts -->
-  <script src="/shared/settings.js"></script>
 </body>
 </html>

@@ -165,7 +165,9 @@ def test_the_boards_revalidate_their_own_entry_html(tmp_path, monkeypatch):
     dist = tmp_path / "dist"
     (dist / "dashboard").mkdir(parents=True)
     (dist / "studio").mkdir(parents=True)
+    (dist / "settings").mkdir(parents=True)
     (dist / "dashboard" / "index.html").write_text("switchboard", encoding="utf-8")
+    (dist / "settings" / "index.html").write_text("house settings", encoding="utf-8")
     (dist / "studio" / "index.html").write_text("studio", encoding="utf-8")
     (dist / "studio" / "optimize.js").write_text("// beside it", encoding="utf-8")
     registry = CharacterRegistry(tmp_path)
@@ -177,7 +179,8 @@ def test_the_boards_revalidate_their_own_entry_html(tmp_path, monkeypatch):
 
     with TestClient(app) as client:
         for url, body in (("/", "switchboard"), ("/dashboard/", "switchboard"),
-                          ("/studio/", "studio")):
+                          ("/studio/", "studio"), ("/settings/", "house settings"),
+                          ("/settings", "house settings")):
             page = client.get(url)
             assert page.status_code == 200, url
             assert page.text == body
@@ -774,18 +777,35 @@ def test_the_board_carries_the_house_settings_panel_with_nothing_running(
         assert fields["CHAT_MODEL"]["value"] == "old"
         assert body["env_path"] == str(env)
 
+        assert "pending" not in fields["CHAT_MODEL"]
         saved = client.post("/api/settings", json={"CHAT_MODEL": "new"}).json()
         assert saved["written"] == ["CHAT_MODEL"]
         assert "CHAT_MODEL=new" in env.read_text()
+        # saved, but the running house still booted on "old": the page can say
+        # "waits for a restart" truthfully after a reload, not just after a save
+        body = client.get("/api/settings").json()
+        fields = {f["key"]: f for g in body["groups"] for f in g["fields"]}
+        assert fields["CHAT_MODEL"]["value"] == "new"
+        assert fields["CHAT_MODEL"]["pending"] is True
+        assert "pending" not in fields["USER_NAME"]
 
-        # …and the panel's own source, which the board loads by path
+        # …the same table laid out as House settings' rail (SPEC §11.2)…
+        pages = {page["id"]: page for page in body["pages"]}
+        assert {"models", "access"} <= set(pages)
+        assert [f["key"] for f in body["overview"]] == ["USER_NAME"]
+        models = {f["key"]: f for s in pages["models"]["sections"] for f in s["fields"]}
+        assert models["CHAT_MODEL"]["label"] == "Chat model"
+        # …and the panel's own source, which the page loads by path
         assert "/api/settings" in client.get("/shared/settings.js").text
         assert client.get("/shared/settings.css").status_code == 200
 
-    board = (Path(__file__).resolve().parents[1] / "web" / "dashboard" / "index.html")
-    markup = board.read_text()
-    assert 'id="settings-open"' in markup and 'data-scope="house"' in markup
-    assert '<script src="/shared/settings.js"></script>' in markup
+    web = Path(__file__).resolve().parents[1] / "web"
+    markup = (web / "dashboard" / "index.html").read_text()
+    # the board's button is a door to the page, not a dialog over the board
+    assert 'id="settings-open"' in markup and 'href="/settings/"' in markup
+    assert 'id="settings"' not in markup
+    page = (web / "settings" / "index.html").read_text()
+    assert '<script src="/shared/settings.js"></script>' in page
     assert 'id="user-name-ask"' in markup
     assert 'id="user-name-form"' in markup
 

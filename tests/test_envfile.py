@@ -110,7 +110,9 @@ def test_the_curated_groups_come_first_and_are_not_repeated_below():
     groups = envfile.groups_for(Config(_env_file=None))
     names = [group["group"] for group in groups]
     assert names[:5] == ["You", "Brain", "Embeddings", "Storage", "Server"]
-    assert names[-1] == "Everything else"
+    # every knob is documented under a section of .env.example now, so the
+    # catch-all is empty — and an empty group is not drawn
+    assert "Everything else" not in names
 
     seen: set[str] = set()
     for group in groups:
@@ -286,3 +288,95 @@ def test_yurios_settings_refuses_a_knob_this_build_has_never_heard_of(
     assert cli_main(["settings", "MADE_UP_KNOB=1"]) == 1
     assert "no such setting" in capsys.readouterr().err
     assert "MADE_UP_KNOB" not in env.read_text()
+
+
+# --- House settings, as a page (SPEC §11.2) ------------------------------------
+
+def _laid_out(layout: dict) -> list[dict]:
+    return [*layout["overview"],
+            *(f for page in layout["pages"] for s in page["sections"] for f in s["fields"])]
+
+
+def test_every_knob_has_a_place_on_the_page_and_a_name_and_a_sentence():
+    """The page is a regrouping of the table, never a shortlist of it — and a
+    knob added to the config lands on "Other" until somebody decides where a
+    person would look for it. This is that somebody's reminder."""
+    cfg = Config(_env_file=None)
+    layout = envfile.pages_for(cfg)
+    laid = _laid_out(layout)
+
+    assert "other" not in {page["id"] for page in layout["pages"]}, \
+        [f["key"] for page in layout["pages"] if page["id"] == "other"
+         for s in page["sections"] for f in s["fields"]]
+    assert sorted(f["key"] for f in laid) == sorted(envfile.fields_by_key(cfg))
+    assert len(laid) == len({f["key"] for f in laid}), "a knob is on two pages"
+    assert [f["key"] for f in laid if not f.get("label")] == []
+    assert [f["key"] for f in laid if not f.get("help")] == []
+
+
+def test_the_layout_names_only_knobs_that_exist():
+    """A misspelt key in PAGES would simply never be drawn, and the real knob
+    would turn up under "Other" — so the typo is caught here instead."""
+    declared = {name.upper() for name in Config.model_fields}
+    named = [key for page in envfile.PAGES for s in page["sections"]
+             for key, _ in s["fields"]] + [key for key, _ in envfile.OVERVIEW_FIELDS]
+    assert [key for key in named if key not in declared] == []
+    assert len(named) == len(set(named)), "a key is placed twice"
+
+
+def test_a_knob_placed_nowhere_is_still_shown(monkeypatch):
+    monkeypatch.setattr(envfile, "PAGES", [
+        page for page in envfile.PAGES if page["id"] != "web"])
+    layout = envfile.pages_for(Config(_env_file=None))
+    other = next(page for page in layout["pages"] if page["id"] == "other")
+    keys = {f["key"] for s in other["sections"] for f in s["fields"]}
+    assert {"SEARCH_BACKEND", "SEARXNG_URL"} <= keys
+
+
+def test_backend_switches_are_dropdowns_and_their_followers_say_when_they_matter():
+    table = envfile.fields_by_key(Config(_env_file=None))
+    for key in ("TOOLS_BACKEND", "SEARCH_BACKEND", "SELFIE_BACKEND", "CHAT_IMAGE_INPUT",
+                "NOTIFY_BACKEND", "DESKTOP_BODY", "MIND_SOUL_IN_PROMPTS"):
+        assert table[key]["type"] == "select", key
+        assert str(envfile.display(table[key], Config(_env_file=None))) in table[key]["options"]
+    assert table["SEARXNG_URL"]["relevant_if"] == {"SEARCH_BACKEND": ["searxng"]}
+    assert table["SELFIE_LOCAL_HIRES"]["relevant_if"] == {"SELFIE_BACKEND": ["diffusers"]}
+    assert table["NOTIFY_BACKEND"]["relevant_if"] == {"NOTIFY_ENABLED": ["true"]}
+
+
+def test_a_default_is_the_value_with_no_line_in_the_file():
+    cfg = Config(_env_file=None, temperature=0.4)
+    table = envfile.fields_by_key(cfg)
+    assert envfile.default_of(table["TEMPERATURE"], cfg) == 0.9
+    assert envfile.default_of(table["MIND_ENABLED"], cfg) is True
+    assert envfile.default_of(table["VAULT_DIR"], cfg) == "vault"
+    # a secret has no default worth showing, and a per-character key has no one answer
+    assert envfile.default_of(table["OPENROUTER_API_KEY"], cfg) is None
+    assert envfile.default_of(table["TELEGRAM_BOT_TOKEN"], cfg) is None
+
+
+def test_every_knob_is_documented_in_the_example_file():
+    """`.env.example` is the catalogue: every derived knob is in it — live, or
+    commented out at its default — with a one-line help after it. The only
+    exceptions are the knobs shipped EMPTY, which cannot carry a trailing
+    comment (dotenv reads `KEY=   # help` as the value), and `envfile.HELP`
+    names exactly those."""
+    index = envfile.example_index()
+    curated = {f["attr"] for g in envfile.CURATED for f in g["fields"]}
+    derived = [name.upper() for name in Config.model_fields
+               if name not in envfile.HIDDEN and name not in curated]
+    assert [key for key in derived if key not in index] == []
+    undescribed = {key for key in derived if not index[key][1]}
+    assert undescribed - set(envfile.ENRICHED) == set(envfile.HELP)
+
+
+def test_a_commented_line_documents_a_knob_but_never_outranks_a_live_one(tmp_path):
+    example = tmp_path / ".env.example"
+    example.write_text(
+        "# --- the mind ---\n"
+        "MIND_ENABLED=true                 # off = no ambient life\n"
+        "# MIND_ENABLED=false — prose that only mentions the key\n"
+        "# MIND_SEED=0                      # 0 = unseeded\n", encoding="utf-8")
+    index = envfile.example_index(example)
+    assert index["MIND_ENABLED"] == ("the mind", "off = no ambient life")
+    assert index["MIND_SEED"] == ("the mind", "0 = unseeded")

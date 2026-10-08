@@ -115,6 +115,22 @@ def read(path: str | Path) -> dict[str, Any]:
     return parse(data)
 
 
+def parse_text(text: str) -> dict[str, Any]:
+    """`read`, for YAML that arrived as text — an imported file, the house
+    overlay typed into House settings — rather than as a path. Same refusals."""
+    try:
+        data = yaml.safe_load(text or "")
+    except yaml.YAMLError as exc:
+        raise ValueError(f"not valid YAML: {exc}") from exc
+    if data is not None and not isinstance(data, Mapping):
+        raise ValueError("a selfie library must be a mapping of slots")
+    for name in SLOT_NAMES:
+        section = (data or {}).get(name)
+        if section is not None and not isinstance(section, Mapping):
+            raise ValueError(f"{name} must be a mapping of name: prompt")
+    return parse(data)
+
+
 def normalise(value: Mapping[str, Any] | None) -> dict[str, Any]:
     """The studio's payload, cleaned: blank keys and blank prompts dropped, a
     duplicate key keeping its last row (which is what the file would have done

@@ -118,6 +118,10 @@ svg { width: 1.1em; height: 1.1em; fill: none; stroke: currentColor; stroke-widt
 .stage-head h1 { --sign-size: clamp(19px, 2vw, 27px); margin: 0; }
 .stage-note { margin: 6px 0 0; max-width: 72ch; color: var(--dim); font-size: 13px; line-height: 1.6; }
 .stage-body { display: flex; flex-direction: column; gap: 18px; max-width: 1080px; }
+/* An author `display` beats the UA's `[hidden]{display:none}`: without this the
+   add-on/character container (#stage-extra, also a .stage-body) stays on screen
+   under whichever house page is shown after it. */
+.stage-body[hidden] { display: none; }
 .page { display: flex; flex-direction: column; gap: 18px; }
 .page[hidden] { display: none; }
 .page-label { display: none; margin: 10px 0 -6px; font: 10px var(--font-mono); letter-spacing: .14em; text-transform: uppercase; color: var(--acid); }

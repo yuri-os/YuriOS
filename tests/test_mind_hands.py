@@ -829,9 +829,16 @@ async def test_a_second_call_she_was_not_answered_never_goes_back_to_her(
     await work(rig)
     assert [c[1]["path"] for c in rig.runner.calls] == ["diary/a.md"]
     asked = utility.calls[-1]
-    hers = [m["content"] for m in asked if m["role"] == "assistant"]
-    assert hers[-1].endswith('use read_note {"path": "diary/a.md"}')
-    assert not any("free-time/b.md" in m["content"] for m in asked)
+    text = "\n".join(m["content"] for m in asked)
+    # The call that ran goes back. A compact follow-up carries it under
+    # WHAT YOU JUST SAID; the full resend carries it as her assistant turn.
+    # Either way the second call, the one she wrote before any result, does not.
+    if "WHAT YOU JUST SAID" in text:
+        said = text.split("WHAT YOU JUST SAID", 1)[1].split("((", 1)[0]
+    else:
+        said = next(m["content"] for m in reversed(asked) if m["role"] == "assistant")
+    assert said.rstrip().endswith('use read_note {"path": "diary/a.md"}')
+    assert "free-time/b.md" not in text
 
 
 async def test_a_finish_beside_a_call_that_never_ran_leaves_the_goal_open(

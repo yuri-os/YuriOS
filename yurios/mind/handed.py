@@ -178,16 +178,22 @@ def system(loop, tools: tuple[str, ...], path: str) -> str:
     return "\n".join(lines).strip()
 
 
-def context(loop, path: str, text: str) -> str:
-    """The document, and enough of her own situation to place it."""
+def document(path: str, text: str) -> str:
+    """The document as she is shown it: its head, and how to read on."""
     head = text[:HEAD_CHARS].rstrip()
     rest = len(text) - len(head)
     lines = text.count("\n") + 1
-    parts = [f"THE DOCUMENT — {path}, {lines} lines\n\n{head}"]
+    out = f"THE DOCUMENT — {path}, {lines} lines\n\n{head}"
     if rest > 0:
-        parts[0] += (f"\n\n(…{rest} more characters. `read_note` with "
-                     f'{{"path": "{path}", "start_line": …}} reads on, if your '
-                     "hands are on.)")
+        out += (f"\n\n(…{rest} more characters. `read_note` with "
+                f'{{"path": "{path}", "start_line": …}} reads on, if your '
+                "hands are on.)")
+    return out
+
+
+def context(loop, path: str, text: str) -> str:
+    """The document, and enough of her own situation to place it."""
+    parts = [document(path, text)]
     try:
         parts.append("THE SITUATION RIGHT NOW\n\n" + loop.world.situation())
     except Exception:  # noqa: BLE001
@@ -243,7 +249,10 @@ async def consider(loop, offer: Offer | None) -> tuple[dict, dict, list[str]]:
     with correlate.scope(kind=correlate.HANDED):
         worked = await handwork.work(
             loop, messages, offer=Offer(tools=tools), ask=ask, cap=MAX_CALLS,
-            file_goal=lambda args: acts.file_from_handed(loop, args, path=path))
+            file_goal=lambda args: acts.file_from_handed(loop, args, path=path),
+            # A later round keeps the document, which is what she is
+            # deciding about, and not her situation (§22.4).
+            anchor=document(path, text))
 
     notes: list[str] = []
     filed = None

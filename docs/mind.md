@@ -730,6 +730,7 @@ MIND_GOAL_MAX_STEPS=3             # working ticks one goal gets before it waits
 MIND_GOAL_MAX_HANDS=4             # hands one of those steps may chain (≤ TOOL_MAX_CALLS_PER_TURN)
 MIND_DISPATCH_TIMEOUT_S=3600      # how long a goal waits on work it dispatched
 MIND_SOUL_IN_PROMPTS=full         # full | brief | off — her card in private prompts
+MIND_COMPACT_FOLLOWUPS=true       # later rounds of one step drop her card and the situation; false resends the whole step
 MIND_DAILY_TOKENS=200000
 MIND_DREAM_TICK_TOKENS=40000
 MIND_DREAM_RESEARCH_TOKENS=120000

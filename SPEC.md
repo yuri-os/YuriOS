@@ -2256,8 +2256,10 @@ that set and a poor place to stop.
   A job that names none gets the house's `TOOL_MAX_CALLS_PER_TURN`, and a file **MUST NOT** raise
   it past that (§26.1's two-switch rule, one layer down); the clamp is applied where the call is
   made, so an `.env` change reaches a file nobody touched. A mangled value **MUST** leave the
-  job's default. This is the dial for what a night costs, because each round resends the whole
-  transcript and a chain's cost grows with the square of its length. `diary` and `strategy` ship
+  job's default. This is the dial for what a night costs. With `MIND_COMPACT_FOLLOWUPS=false` each
+  round resends the whole transcript and a chain's cost grows with the square of its length; the
+  default sends the short follow-up of §22.4 instead, and the cap still bounds how many rounds run.
+  `diary` and `strategy` ship
   with `4`. Uncapped, on 6 Oct, the stock-take reread her desk fourteen times, took a selfie and
   stepped a goal — 158k tokens of a 200k day for a hundred and fifty words — but it does need a
   look or two, since its prompt carries each goal's summary and not its progress. Every result in
@@ -2632,7 +2634,19 @@ optional due time, **provenance**, and a **commitment strategy**; lifecycle
   wrote the same working note, and "she has a personality" was a claim about the chat window only.
   The preamble is droppable to `brief` (voice law + backbone + personality) under
   `MIND_SOUL_IN_PROMPTS`, in §7.2's order — what places her goes before what she is — and a soul
-  that cannot be read **MUST** cost the block and never the call (§20.2's rule for the shelf). **Including what the goal was about**: a promise is scanned as the predicate
+  that cannot be read **MUST** cost the block and never the call (§20.2's rule for the shelf).
+  **A chained step sends that context once.** `MIND_COMPACT_FOLLOWUPS` (**true**) keeps the
+  preamble and the bulk of the step — desk, skills, situation, facts, recall — on the first model
+  call of a chain only. Each later round in that same chain **MUST** still carry the step's own
+  instructions in full, because they are what her answer is read against (a goal's finished mark,
+  a night job's output format): a round without them is a round that cannot finish. In front of
+  them goes a one-line reminder of who she is (`You are {name}. Continue as yourself.` when
+  `MIND_SOUL_IN_PROMPTS` is `full` or `brief`, and no name when it is `off`). The message then
+  carries what the step is about — the goal, the exchange that made it and her plan for a goal
+  step; the document for a handed one; a night job's whole input; otherwise the head of the step,
+  bounded — every earlier hand of the step with its result cut short, her previous answer, and the
+  newest result whole, including how many hands she has left. `false` resends the whole step and
+  fuses the preamble again on every round. **Including what the goal was about**: a promise is scanned as the predicate
   after "I'll", so the subject stays behind in their sentence, and a step handed "find out which one
   is faster" alone invents a subject for it with total confidence. A goal filed from an exchange
   **MUST** carry that exchange (`meta.about`), because the goal outlives the conversation.
@@ -2844,7 +2858,8 @@ of the night through `DreamJob.enabled` regardless of what the file says. The so
 prompts (§22.4): `MIND_SOUL_IN_PROMPTS` (`full` | `brief` | `off`) and `MIND_SOUL_CACHE_S` — the
 one pair here that defaults **on**, because a prompt that was always meant to carry the card is a
 defect and a defect fix shipped switched off ships the defect; `off` exists so the difference stays
-measurable and reversible. The port is **8768**.
+measurable and reversible. `MIND_COMPACT_FOLLOWUPS` (**true**, §22.4) shortens every model call
+after the first in a chained step; `false` resends the whole step. The port is **8768**.
 
 ---
 
@@ -2915,7 +2930,9 @@ needs a sandbox.
   (`mind/handwork.py`). A goal step's calls are `MIND_GOAL_MAX_HANDS` (**4**), a night job's its
   `max_hands` (§21.2), and both **MUST** stay within `TOOL_MAX_CALLS_PER_TURN`, the number a
   reply gets; the clamp is applied where the call is made, and the number her prompt states **MUST** be
-  the clamped one. A step has its own number because each round resends the whole step: on 7 Oct a
+  the clamped one. A step has its own number because a chain that resends the whole step grows
+  with the square of its length. `MIND_COMPACT_FOLLOWUPS` (**true**, §22.4) stops that resend after
+  the first call; `false` restores it. On 7 Oct a
   goal the stock-take had filed, under the reply's sixteen, read her desk ten times and listed it
   once before writing a single note — twelve hands, ~113k tokens of a 200k day in one tick. A step is shown each hand as one example line (`HANDS[tool].args`) and
   never the tool's description, so that example **MUST** name every argument she needs to use the

@@ -1026,10 +1026,15 @@ async def scenario_goal_hands(rig: Rig) -> str:
     rig.later(rig.mind.cfg.mind_consider_cooldown_s + 60)
     skip = len(lines_since(0))
     forced = rig.goal("go through the walk notes once more")
-    rig.scripted_utility(*[f'use read_note {{"path": "notes/walk-{i}.md"}}'
-                           for i in range(8)])
-    traces = await rig.tick_until(
-        lambda t: (t.get("acted") or {}).get("goal") == forced.id)
+    # Eight asked, five answered (four hands, and the fifth dropped): the rest
+    # must not answer the next scenario's opening call.
+    original = rig.scripted_utility(*[f'use read_note {{"path": "notes/walk-{i}.md"}}'
+                                      for i in range(8)])
+    try:
+        traces = await rig.tick_until(
+            lambda t: (t.get("acted") or {}).get("goal") == forced.id)
+    finally:
+        rig.rt.mind._utility = original             # type: ignore[method-assign]
     tick = traces[-1]["tick_id"]
     ran = [x for x in lines_since(skip) if x.get("tick_id") == tick
            and x.get("tool") == "read_note"]
@@ -1158,6 +1163,180 @@ async def scenario_stranded(rig: Rig) -> str:
             f"went out through Gate 2; she sent the stranded {stray_id} when asked")
 
 
+#: What every later round of a chained step opens its instructions with (§22.4).
+FOLLOWUP = "Continue this step."
+
+
+class Wire:
+    """The utility provider, recorded where the call leaves — card and all.
+
+    Recording `mind._utility` sees a goal step before `prompts.utility` fuses
+    her card on, so it cannot tell a follow-up that dropped the card from one
+    that did not. This sits on the provider. `force` answers the opening call
+    of the first step whose system message holds `marker`, once: a hand is
+    then certain, and every round after it is the real model's.
+    """
+
+    def __init__(self, rig: Rig, *, marker: str = "", force: str = ""):
+        self.provider = rig.mind.brain.state.utility
+        self.original = self.provider.complete
+        self.sent: list[list[dict]] = []
+        self.replies: list[str] = []
+        self.marker, self.force = marker, force
+
+    def arm(self, marker: str, force: str) -> None:
+        self.marker, self.force = marker, force
+
+    async def complete(self, messages, **kw) -> str:
+        self.sent.append([dict(m) for m in messages])
+        system = messages[0].get("content", "") if messages else ""
+        if self.force and self.marker in system and FOLLOWUP not in system:
+            reply, self.force = self.force, ""
+        else:
+            reply = await self.original(messages, **kw)
+        self.replies.append(reply)
+        return reply
+
+    def __enter__(self) -> "Wire":
+        self.provider.complete = self.complete
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self.provider.complete = self.original
+
+    def followups(self, since: int = 0) -> list[list[dict]]:
+        return [m for m in self.sent[since:] if FOLLOWUP in m[0].get("content", "")]
+
+
+def _card_line(rig: Rig) -> str:
+    """A line every card closes with and nothing else says.
+
+    Not a line of the card's own text: "who you are to her" is USER.md, which a
+    chat turn in an earlier scenario rewrites in the background, and the call
+    then carries a different card than the one read before it."""
+    from yurios.app.core.assemble import SOUL_PREAMBLE_NOTE
+    want(bool(rig.mind._soul_text()), "she has no card to look for")
+    return SOUL_PREAMBLE_NOTE.split(" — ", 1)[0]
+
+
+async def scenario_goal_followup(rig: Rig) -> str:
+    """A goal step can finish on a round after a hand (SPEC §22.4).
+
+    Every round after the first sends the short prompt. If that prompt loses
+    the step's instructions, the round that ends the step is never told how to
+    say a goal is finished, and no goal that used a hand closes. The opening
+    call is answered with a `read_note`; everything after it is the model.
+    """
+    for other in rig.open_goals():
+        rig.mind.goals.set_state(other.id, "abandoned")
+    notes = rig.rt.cfg.vault_dir / "workspace" / "notes"
+    notes.mkdir(parents=True, exist_ok=True)
+    (notes / "kettle.md").write_text(
+        "# Kettles\n\nTimed this morning: the blue kettle boiled in three "
+        "minutes, the steel one in four and a half.\n", encoding="utf-8")
+    goal = rig.goal("read notes/kettle.md and write which kettle boils faster, "
+                    "in one line, to notes/kettle-answer.md — that is the whole goal")
+    card = _card_line(rig)
+    with Wire(rig, marker="advancing one of your own goals",
+              force='think the timings are in my note\n'
+                    'use read_note {"path": "notes/kettle.md"}') as wire:
+        await rig.tick_until(
+            lambda t: rig.mind.goals.get(goal.id).state in ("done", "abandoned"),
+            limit=4)
+    steps = [m for m in wire.sent
+             if "advancing one of your own goals" in m[0]["content"].lower()]
+    want(bool(steps), "no goal-step prompt reached the model")
+    want(card in steps[0][0]["content"], "the opening call did not carry her card")
+    later = wire.followups()
+    want(bool(later), "no follow-up round — the forced read_note did not chain")
+    for m in later:
+        want(card not in m[0]["content"], "a follow-up carried her card again")
+        want(rig.mind.DONE_MARK in m[0]["content"],
+             "a follow-up was not told how to finish the goal")
+        want(goal.text[:40] in m[1]["content"], "a follow-up lost the goal")
+        want("THE SITUATION RIGHT NOW" not in m[1]["content"],
+             "a follow-up resent the situation")
+    answer = notes / "kettle-answer.md"
+    state = rig.mind.goals.get(goal.id).state
+    want(state == "done",
+         f"the goal is {state!r} after its steps. Desk: {rig.desk(goal)[-400:]!r}")
+    size = max(len(m[0]["content"]) + len(m[1]["content"]) for m in later)
+    return (f"{len(later)} follow-up round(s), largest {size} chars vs "
+            f"{len(steps[0][0]['content']) + len(steps[0][1]['content'])} opening; "
+            f"goal done; answer file "
+            + (repr(answer.read_text(encoding='utf-8').strip()[:80])
+               if answer.is_file() else "not written"))
+
+
+async def scenario_night(rig: Rig) -> str:
+    """A night job keeps its instructions after a hand (SPEC §22.4, §21.2).
+
+    The diary and the stock-take each ship four hands, and each is read
+    against its prompt: the takeaway line, the JSON object. Each one's opening
+    call is answered with a `read_note`, so the answer it files is written on a
+    follow-up, by the model, from the short prompt.
+    """
+    from yurios.mind.dreamjobs.builtins import DIARY_TAKEAWAY, STRATEGY_OUTPUT
+    mind = rig.mind
+    day = datetime.date.fromtimestamp(rig.clock.now()).isoformat()
+    notes = rig.rt.cfg.vault_dir / "workspace" / "notes"
+    notes.mkdir(parents=True, exist_ok=True)
+    (notes / "harbour.md").write_text(
+        "# Harbour\n\nThe fishing boats come in around six. The gulls go quiet "
+        "when the lamp comes on. I want to draw the red crane.\n", encoding="utf-8")
+    await mind.journal.write("walked down to the harbour and wrote notes/harbour.md "
+                             "about the boats and the red crane")
+    await mind.journal.write("they said they'd like to see a sketch of the crane")
+    for other in rig.open_goals():
+        rig.mind.goals.set_state(other.id, "abandoned")
+    rig.goal("sketch the red crane at the harbour from notes/harbour.md")
+    card = _card_line(rig)
+    force = 'use read_note {"path": "notes/harbour.md"}'
+    out: list[str] = []
+    compact = bool(rig.mind.cfg.mind_compact_followups)
+    with Wire(rig) as wire:
+        for name, rule in (("diary", DIARY_TAKEAWAY[:40]),
+                           ("strategy", STRATEGY_OUTPUT.splitlines()[0])):
+            since = len(wire.sent)
+            wire.arm("## YOUR HANDS", force)
+            report = await mind.dream_now(only=name, day=day)
+            job = next((j for j in report.jobs if j.name == name), None)
+            want(job is not None and not job.failed,
+                 f"the {name} job did not run cleanly: {report.as_dict()['jobs']!r}")
+            want(not wire.force, f"the {name} job was never offered its hands")
+            opening = wire.sent[since]
+            want(card in opening[0]["content"],
+                 f"the {name} job's opening call did not carry her card")
+            want(len(wire.sent) - since >= 2,
+                 f"the {name} job made one call — the forced read_note did not chain")
+            later = wire.followups(since)
+            want(bool(later) == compact,
+                 f"the {name} job's later rounds were "
+                 f"{'not ' if compact else ''}the short prompt")
+            for m in later:
+                want(card not in m[0]["content"], f"a {name} follow-up carried her card")
+                want(rule in m[0]["content"],
+                     f"a {name} follow-up lost the job's instructions ({rule!r})")
+                want(m[1]["content"].startswith(opening[1]["content"][:200]),
+                     f"a {name} follow-up lost the job's input")
+            if name == "strategy":
+                last = wire.replies[-1].lstrip()
+                want(last.startswith(("{", "```")),
+                     "the stock-take's answer after a hand did not open with its "
+                     f"JSON object: {last[:160]!r}")
+            out.append(f"{name}: {len(wire.sent) - since - 1} later round(s)"
+                       f"{' (short)' if compact else ' (full resend)'}, {job.result}")
+    diary = rig.rt.cfg.vault_dir / "workspace" / "diary" / f"{day}.md"
+    want(diary.is_file(), "the diary job wrote no entry")
+    entry = diary.read_text(encoding="utf-8")
+    want("use read_note" not in entry and FOLLOWUP not in entry,
+         f"the diary entry is plumbing, not writing: {entry[:300]!r}")
+    strategy = next(o for o in out if o.startswith("strategy"))
+    want("could not read" not in strategy,
+         "the stock-take's answer after a hand was not readable JSON")
+    return "; ".join(out)
+
+
 async def _quiet_heartbeat(rig: Rig) -> None:
     """`set_mind_enabled(True)` starts the loop's own task; take it back out,
     the way `Rig.start` does, so every tick is still one the scenario asked for."""
@@ -1183,6 +1362,8 @@ SCENARIOS = {
     "signals": scenario_signals,
     "stranded": scenario_stranded,
     "goalhands": scenario_goal_hands,
+    "goalfollowup": scenario_goal_followup,
+    "night": scenario_night,
 }
 
 

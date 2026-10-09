@@ -763,6 +763,7 @@ PAGES: list[dict] = [
          {"title": "Her character in the mind's calls", "advanced": True, "fields": [
              ("MIND_SOUL_IN_PROMPTS", "Character card in mind prompts"),
              ("MIND_SOUL_CACHE_S", "Soul cache (s)"),
+             ("MIND_COMPACT_FOLLOWUPS", "Card only on a step's first call"),
          ]},
      ]},
     {"id": "hands", "title": "Hands", "icon": "tool",

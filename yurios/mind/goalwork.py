@@ -248,6 +248,24 @@ def held_picture(goal: Goal) -> str:
     return f"WHAT CAME BACK FOR THIS\n\nThe picture you took for this: {what}\n\n{where}"
 
 
+def anchor(loop, goal: Goal) -> str:
+    """What a later round of a step keeps of `context` (SPEC §22.4).
+
+    The goal, the exchange that made it and her plan for it: what the step is
+    about. The situation, the desk, the facts and the recall are what the
+    first call already looked at, and they are most of the cost.
+    """
+    parts: list[str] = [f"THE GOAL\n\n{goal.text}",
+                        f"Its desk file: {desk_path(loop, goal)}"]
+    about = str(goal.meta.get("about") or "").strip()
+    if about:
+        parts.append(f"WHERE THIS CAME FROM\n\nThey said: “{about}”")
+    plan = plan_of(goal)
+    if plan:
+        parts.append("YOUR PLAN FOR THIS\n\n" + plan)
+    return "\n\n".join(parts)
+
+
 async def context(loop, goal: Goal) -> str:
     """Everything the *conversational* prompt would have given her, minus
     the conversation (SPEC §7.1, §34.3, §19.2).
@@ -693,6 +711,7 @@ async def prepare(loop, goal: Goal, offer) -> tuple[dict, dict, list[str]]:
         worked = await handwork.work(
             loop, messages, offer=hands, ask=ask, goal_id=goal.id,
             stop_on_dispatch=True, cap=handwork.goal_cap(loop),
+            anchor=anchor(loop, goal),
             on_reach=lambda reach: notes.append(journal_reach(loop, goal, reach)))
 
     intent = worked.answer
@@ -915,6 +934,7 @@ async def goal_work(loop, goal: Goal,
         worked = await handwork.work(
             loop, messages, offer=step_offer(offer), ask=ask, goal_id=goal.id,
             stop_on_dispatch=True, cap=handwork.goal_cap(loop),
+            anchor=anchor(loop, goal),
             on_reach=lambda reach: notes.append(journal_reach(loop, goal, reach)))
 
     intent = worked.answer

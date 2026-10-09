@@ -348,7 +348,7 @@ async def test_the_selfie_job_is_not_offered_her_hands(rig, cfg):
     offered: list[str] = []
 
     class Hands(_FakeHands):
-        async def run(self, messages, ask, *, cap=None):
+        async def run(self, messages, ask, *, cap=None, preamble=""):
             offered.append(messages[0]["content"][:40])
             return await ask(messages)
 
@@ -370,7 +370,7 @@ class _CapHands:
     def offer(self):
         return self._offer
 
-    async def run(self, messages, ask, *, cap=None):
+    async def run(self, messages, ask, *, cap=None, preamble=""):
         self.caps.append(cap)
         return await ask(messages)
 
@@ -1277,7 +1277,7 @@ class _FakeHands:
     def offer(self):
         return self._offer
 
-    async def run(self, messages, ask, *, cap=None):
+    async def run(self, messages, ask, *, cap=None, preamble=""):
         return await ask(messages)
 
     async def use(self, tool, args):

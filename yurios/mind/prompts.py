@@ -21,12 +21,18 @@ naming its type means importing `MindLoop`, and `tests/test_layering.py` reads a
 from __future__ import annotations
 
 import logging
+from contextvars import ContextVar
 
 from yurios.app.core.assemble import soul_preamble
 from yurios.kernel import correlate
 from yurios.world.vram import PATIENT_WAIT_S
 
 log = logging.getLogger("mind.prompts")
+
+#: Set while a later round of a chained step is asked (SPEC §22.4,
+#: mind/handwork.py): that round already opens with a one-line reminder of
+#: who she is, so `utility` leaves the card off it.
+FOLLOWUP: ContextVar[bool] = ContextVar("mind_compact_followup", default=False)
 
 
 def goal_history(goal) -> str:
@@ -146,7 +152,9 @@ async def utility(loop, messages: list[dict], *, soul: bool = False,
     utility = loop.brain.state.utility
     if utility is None:
         return ""
-    if soul:
+    # A follow-up round already carries the one-line reminder (§22.4). Fusing
+    # the card again here is the resend `MIND_COMPACT_FOLLOWUPS` exists to stop.
+    if soul and not FOLLOWUP.get():
         preamble = soul_text(loop)
         if preamble:
             messages = with_soul(messages, preamble)

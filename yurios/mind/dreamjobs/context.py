@@ -245,7 +245,7 @@ class DreamHands(Protocol):
 
     async def run(self, messages: list[dict],
                   ask: Callable[[list[dict]], Awaitable[str]], *,
-                  cap: int | None = None) -> str: ...
+                  cap: int | None = None, preamble: str = "") -> str: ...
 
     async def use(self, tool: str, args: dict) -> Any: ...
 
@@ -352,6 +352,7 @@ class DreamContext:
         # `Exchange` below records the fused text, which is the point: the debug
         # page has to show the prompt that was actually sent, or the transcript
         # is a description of a different call.
+        preamble = ""
         if self.soul != "off" and self.soul_text is not None:
             try:
                 preamble = self.soul_text()
@@ -372,7 +373,7 @@ class DreamContext:
                     and not self.dry_run and self.max_hands != 0):
                 out = await self.hands.run(
                     messages, lambda msgs: utility(msgs, **params),
-                    cap=self.max_hands)
+                    cap=self.max_hands, preamble=preamble)
             else:
                 out = await utility(messages, **params)
             system = messages[0]["content"]   # …as sent, hands block and all

@@ -22,12 +22,13 @@ notice are the same whichever job reached.
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import Awaitable, Callable
 
 from yurios.kernel import correlate
 
-from . import acts
+from . import acts, prompts
 from .goals import goal_shape_refused
 from .hands import (FILE_GOAL, START_DONT_AWAIT, TELL, Hands, Intent, Offer, bounded,
                     parse_intent, stamp_contract)
@@ -149,6 +150,101 @@ async def dispatch(loop, tool: str, args: dict, *, goal_id: str = "",
     return Reach(tool, args, verdict, result, dispatched=dispatched)
 
 
+#: How much of the step's opening message a follow-up keeps when the caller
+#: names no anchor of its own (SPEC §22.4) — its head, never a bare heading.
+ANCHOR_CHARS = 1500
+
+#: An earlier hand as a follow-up repeats it: her call and its result, each
+#: cut to this. The newest result goes back whole (SPEC §22.4).
+EARLIER_CHARS = 300
+
+#: What a later round is told above the step's own instructions. The name
+#: sentence goes in front when her card is on; `off` sends this alone.
+_FOLLOWUP_TASK = (
+    "Continue this step. You already looked at the situation; what you have "
+    "done so far in it and what just came back are below.")
+
+
+def followup_system(loop, instructions: str) -> str:
+    """The system message of a later round (SPEC §22.4): a one-line reminder
+    of who she is, then the step's own instructions, every word of them.
+
+    The instructions are what her answer is read against — the finished mark
+    of a goal step, a night job's JSON — so a round that dropped them was a
+    round that could not finish. Only the card stays behind. A follow-up
+    that fused it again would spend it on every hand, which is the cost this
+    switch exists to stop. `MIND_SOUL_IN_PROMPTS=off` sends no name: a house
+    that turned the card off does not get it back on round two.
+    """
+    mode = str(getattr(loop.cfg, "mind_soul_in_prompts", "full") or "full").lower()
+    name = (getattr(loop.cfg, "companion_name", "") or "").strip()
+    head = _FOLLOWUP_TASK
+    if mode != "off":
+        head = (f"You are {name}. Continue as yourself. " if name
+                else "Continue as yourself. ") + head
+    instructions = instructions.strip()
+    return f"{head}\n\n{instructions}" if instructions else head
+
+
+#: The count `_returned` puts at the end of a result. An earlier result
+#: repeated in a follow-up loses it: "2 hands left" is no longer true.
+_COUNT = re.compile(r"\s*(?:You have \d+ hands? left|Your hands are spent) "
+                    r"for this step\b.*?(?=\)\)\s*$)", re.S)
+
+
+def _cut(text: str, limit: int, *, tail: bool = False) -> str:
+    text = text.strip()
+    if len(text) <= limit:
+        return text
+    return "…" + text[-limit:].lstrip() if tail else text[:limit].rstrip() + "…"
+
+
+def compact_followup(loop, messages: list[dict], *, anchor: str | None = None,
+                     preamble: str = "") -> list[dict]:
+    """What a later round of this step is asked (SPEC §22.4).
+
+    The step's instructions, without her card. The anchor the caller named —
+    what the step is *about* — or the head of its opening message. Every
+    earlier hand, cut short, so she knows what she has already read. Her
+    previous answer and the newest result, whole. The rest of the opening
+    message — the situation, the desk, the facts, the recall — stays on the
+    first call.
+
+    `preamble` is the card when the caller fused it into the system message
+    itself (a night job, dreamjobs/context.py); it is cut off the front.
+    """
+    system = (messages[0].get("content") or "") \
+        if messages and messages[0].get("role") == "system" else ""
+    card = preamble.strip()
+    if card and system.startswith(card):
+        system = system[len(card):]
+    turns = [m for m in messages if m.get("role") in ("user", "assistant")]
+    original = (turns[0].get("content") or "") \
+        if turns and turns[0].get("role") == "user" else ""
+    later = turns[1:] if original else turns
+    pairs = [(later[i].get("content") or "", later[i + 1].get("content") or "")
+             for i in range(0, len(later) - 1, 2)]
+    if anchor is None:
+        anchor = _cut(original, ANCHOR_CHARS)
+    parts: list[str] = []
+    if anchor.strip():
+        parts.append(anchor.strip())
+    earlier, last = pairs[:-1], (pairs[-1] if pairs else ("", ""))
+    if earlier:
+        parts.append("WHAT YOU HAVE ALREADY DONE IN THIS STEP (cut short)\n\n"
+                     + "\n".join(f"- you: {_cut(said, EARLIER_CHARS, tail=True)}"
+                                 f"\n  back: {_cut(_COUNT.sub('', back), EARLIER_CHARS)}"
+                                 for said, back in earlier))
+    if last[0].strip():
+        parts.append("WHAT YOU JUST SAID\n\n" + last[0].strip())
+    if last[1].strip():
+        parts.append(last[1].strip())
+    return [
+        {"role": "system", "content": followup_system(loop, system)},
+        {"role": "user", "content": "\n\n".join(parts)},
+    ]
+
+
 def _returned(reach: Reach, *, left: int) -> str:
     """A result, and how many hands the step has left after it.
 
@@ -169,7 +265,8 @@ async def work(loop, messages: list[dict], *, offer: Offer,
                goal_id: str = "", stop_on_dispatch: bool = False,
                on_reach: Callable[[Reach], None] | None = None,
                cap: int | None = None,
-               file_goal: Callable[[dict], tuple[str, str]] | None = None
+               file_goal: Callable[[dict], tuple[str, str]] | None = None,
+               anchor: str | None = None, preamble: str = ""
                ) -> Worked:
     """Ask; while she answers with a `use` line, run it and ask again.
 
@@ -177,14 +274,33 @@ async def work(loop, messages: list[dict], *, offer: Offer,
     night job keeps its transcript. `stop_on_dispatch` ends the step on work
     that finishes off-tick: a goal then waits for its `task_completion` rather
     than reasoning about a photo that does not exist yet.
+
+    `anchor` is what a later round keeps of the opening message — what the
+    step is about — and `preamble` the card a caller fused into the system
+    message itself; both are `compact_followup`'s (SPEC §22.4).
     """
     limit = max(0, int(cap if cap is not None
                        else getattr(loop.cfg, "tool_max_calls_per_turn", 1)))
     messages = list(messages)
     done = Worked(Intent("think"))
     rewords = 0     # refused goals she wrote again for free (§22.1d)
+    # Later rounds of this same step send the short prompt (§22.4). With the
+    # switch off, every round resends the transcript accumulated below.
+    compact = bool(getattr(loop.cfg, "mind_compact_followups", True))
     while True:
-        reply = await ask(messages)
+        outbound = messages
+        followup = compact and any(m.get("role") == "assistant" for m in messages)
+        if followup:
+            outbound = compact_followup(loop, messages, anchor=anchor,
+                                        preamble=preamble)
+        # `prompts.utility` reads this and leaves the card off. A context
+        # variable rather than a loop attribute, so another task's call made
+        # while this one waits on the model does not lose its card.
+        token = prompts.FOLLOWUP.set(followup)
+        try:
+            reply = await ask(outbound)
+        finally:
+            prompts.FOLLOWUP.reset(token)
         intent = parse_intent(reply, allowed=offer.tools)
         if intent.kind != "use" or len(done.reaches) - rewords >= limit:
             # Past the cap a `use` line is dropped, not run — her reasoning
@@ -270,13 +386,17 @@ class LoopHands:
 
     async def run(self, messages: list[dict],
                   ask: Callable[[list[dict]], Awaitable[str]], *,
-                  cap: int | None = None) -> str:
+                  cap: int | None = None, preamble: str = "") -> str:
         """One job's call, with her hands offered before she answers.
 
         With none offered it is exactly the call it was. The answer comes back
         as she wrote it, minus any `use` line and any native call markup. The
         hands block is added to `messages` in place, so the job's transcript
         records the prompt that was actually sent.
+
+        A later round keeps the job's whole input, which is what its answer
+        is written from, and leaves `preamble` — the card the job fused onto
+        its system message — behind (SPEC §22.4).
         """
         offer = self.offer()
         if not offer:
@@ -291,7 +411,10 @@ class LoopHands:
             catalog += "\n\n" + offer.waiting()
         messages[0]["content"] = (messages[0].get("content") or "") + "\n\n" + \
             HANDS_BEFORE_ANSWER.format(cap=cap, catalog=catalog)
-        worked = await work(self.loop, messages, offer=offer, ask=ask, cap=cap)
+        anchor = next((m.get("content") or "" for m in messages
+                       if m.get("role") == "user"), "")
+        worked = await work(self.loop, messages, offer=offer, ask=ask, cap=cap,
+                            anchor=anchor, preamble=preamble)
         return worked.answer.text
 
     async def use(self, tool: str, args: dict) -> Reach:

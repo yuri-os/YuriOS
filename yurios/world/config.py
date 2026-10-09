@@ -252,6 +252,11 @@ class Config(VoiceConfig):
     # capability being offered cautiously — it is a defect, and a defect fix that
     # ships switched off ships the defect.
     mind_soul_in_prompts: str = "full"          # full | brief | off
+    # Later rounds of one chained step (a goal, free time, a handed document,
+    # a night job's hands) leave her card and the step's situation behind and
+    # keep its instructions, what it is about, and the hands so far (§22.4).
+    # False resends the whole step, preamble included, on every round.
+    mind_compact_followups: bool = True
     # How long a rendered preamble is reused. SoulLoader re-reads the whole soul
     # directory per call by design (§5) — right for a turn, wasteful for a night
     # of ten jobs. Invalidated by soul/ mtime regardless, so an approved

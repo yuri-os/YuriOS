@@ -7,6 +7,7 @@ import subprocess
 
 import pytest
 
+from yurios.app import vaultgit
 from yurios.mind.selfedit import SelfEdit, SoulShapeError
 from yurios.mind.vaultio import ConstitutionReadOnly, MindVault
 from yurios.kernel.clock import VirtualClock
@@ -20,7 +21,7 @@ def rig(tmp_path):
     (vault_dir / "soul").mkdir(parents=True)
     (vault_dir / "soul" / "CONSTITUTION.md").write_text("# who she is\n")
     (vault_dir / "soul" / "PERSONA.md").write_text("# who she's becoming\n")
-    subprocess.run(["git", "-C", str(vault_dir), "init", "-q"], check=True)
+    vaultgit.ensure_repo(vault_dir)  # with the Vault's own identity, as a real seed has
     vault = MindVault(vault_dir)
     clock = VirtualClock(start=SIM_START.timestamp())
     return SelfEdit(vault, clock), vault

@@ -65,8 +65,16 @@ def installation_elsewhere(_empty_installation, monkeypatch):
     contents in it names its own with YURIOS_ROOT, and the two tests about
     finding the real one set or clear the variable themselves. It is deliberately
     not `tmp_path`: tests assert on what is and isn't in there.
+
+    `cli.main` also *enters* the installation (it has to — see its last lines),
+    and that chdir outlives the test. So the working directory is put back here
+    for every test: monkeypatch restores the one it first saw at teardown. Left to
+    each file's own `stay_put`, one that forgot sent every later test that opens a
+    repo file by a relative path into that empty directory — which tests ran after
+    it on the same worker was all that decided whether the suite was green.
     """
     monkeypatch.setenv("YURIOS_ROOT", str(_empty_installation))
+    monkeypatch.chdir(Path.cwd())
 
 
 @pytest.fixture

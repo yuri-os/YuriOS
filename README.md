@@ -147,6 +147,9 @@ yurios restart                        # load it (starts the daemon if it is stop
 yurios status
 ```
 
+Or, without installing anything but Docker, `docker compose up -d --build` and open the link
+`docker compose logs yurios` prints — see [Installation → Docker](docs/installation.md#docker).
+
 A fresh install selects no model, so she can't talk until you choose one and restart.
 Then open the address shown by `yurios status` (normally `http://localhost:8768`).
 The dashboard offers the same model choice if you open it first; restart after it too.

@@ -1,0 +1,33 @@
+# What `docker build .` (the root Dockerfile) leaves out of its context: her
+# personal state above all — keys in .env, her mind, every character's data —
+# and anything the build makes for itself. Mirrors .gitignore.
+.git
+.env
+.claude
+.venv
+.wvenv
+.yurios
+.live_tests
+.playwright-mcp
+build
+dist
+vault
+data
+traces
+corpus
+tool-logs
+models
+selfies
+uploads
+web/node_modules
+web/dist
+web/live2d/vendor
+desktop-shell/node_modules
+scripts/relationship_bench/out
+**/__pycache__
+**/*.egg-info
+**/.pytest_cache
+.mypy_cache
+.ruff_cache
+.coverage
+.coverage.*

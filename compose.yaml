@@ -1,0 +1,31 @@
+# YuriOS in a container (Dockerfile, docs/installation.md).
+#
+#   docker compose up -d --build
+#   docker compose logs yurios          # the first boot prints the pairing link
+#
+# Her whole installation is the `yurios` volume. `docker compose down` keeps it;
+# only `down -v` deletes it.
+services:
+  yurios:
+    build:
+      context: .
+      args:
+        EXTRAS: voice                   # empty for a text-only image
+    image: yurios:local
+    init: true
+    restart: unless-stopped
+    ports:
+      # This machine only. For a phone on the LAN, drop the 127.0.0.1: and set
+      # YURIOS_URL to the address the phone will use, before the first boot.
+      - "127.0.0.1:8768:8768"
+    environment:
+      YURIOS_URL: http://localhost:8768
+    extra_hosts:
+      # LM Studio or Ollama on this machine is http://host.docker.internal:<port>
+      # from in here (and must listen beyond 127.0.0.1 — see docs/installation.md).
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - yurios:/yurios
+
+volumes:
+  yurios:

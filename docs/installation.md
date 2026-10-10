@@ -180,6 +180,61 @@ yurios doctor                      # what .env selects vs what's installed
 yurios start                       # background daemon → http://localhost:8768
 ```
 
+## Docker
+
+An optional alternative to the script, for a machine you would rather not install Python, Node and
+Torch on. The image is the script's default install — body, local memory, MCP tools and the voice,
+on CPU torch, held to `constraints.txt` — with the frontends prebuilt.
+
+```bash
+cd YuriOS
+docker compose up -d --build       # Dockerfile + compose.yaml
+docker compose logs yurios         # the first boot prints the pairing link — open it once
+```
+
+**The owner token.** Inside a container she has to bind every interface (`HOST=0.0.0.0`), and a
+non-loopback bind needs an `OWNER_TOKEN` — even for a browser on the same machine, because from in
+there it no longer looks like loopback. So the first boot generates one into `.env` and prints a
+`/auth?token=…` link; opening it signs that browser in with a cookie. To print it again:
+`docker compose exec yurios yurios pair --url http://localhost:8768`.
+
+**Where she lives.** The code is in `/opt/yurios`; the installation — `.env`, `data/` (every
+character's Vault, traces and photos), `.yurios/`, and the embedder's and voice's downloaded weights —
+is the `yurios` volume mounted at `/yurios`. Rebuilding the image or `docker compose down` keeps it;
+`docker compose down -v` deletes her. Every CLI command works through `exec`:
+
+```bash
+docker compose exec yurios yurios status
+docker compose exec yurios yurios configure       # then: docker compose restart
+docker compose exec yurios yurios character list
+```
+
+**Reaching a model on this machine.** From the container, `localhost` is the container, so the
+first boot writes `LMSTUDIO_BASE_URL=http://host.docker.internal:1234/v1` and
+`OLLAMA_BASE_URL=http://host.docker.internal:11434` into `.env` (compose maps the name to the host).
+The server has to listen beyond `127.0.0.1` — LM Studio's *Serve on Local Network*, or
+`OLLAMA_HOST=0.0.0.0` — and then choosing the model is all that is left:
+
+```bash
+docker compose exec yurios yurios settings CHAT_MODEL=lm_studio/<model id>
+docker compose restart
+```
+
+A hosted model needs only its key in `.env`.
+
+**From a phone.** `compose.yaml` publishes the port on `127.0.0.1` only. For the LAN, change it to
+`"8768:8768"` and set `YURIOS_URL` to the address the phone will use *before the first boot* (it is
+what the pairing link is built from; afterwards, pass it to `yurios pair --url` instead).
+
+**Build options.** `EXTRAS` picks the optional dependencies, as in the manual setup: `voice` by
+default, empty for a text-only image about 2 GB smaller, or a list (`voice,llm`).
+
+**What does not come along.** The native window (`--window`) and the tray need a desktop session.
+The image is CPU-only: selfies on a local checkpoint (`forge-local`) and the CUDA voice want the
+native install. House settings' **Restart** button needs `yurios start`'s supervisor, which a
+container replaces — use `docker compose restart`. `HOST` is fixed by the image, so changing it in
+House settings has no effect there; the published port is what decides who can reach her.
+
 ## Optional extras
 
 The base install includes the local sentence-transformer embedder. Every other heavy backend is a

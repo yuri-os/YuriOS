@@ -81,6 +81,7 @@ name of the variable holding it. The same fields are on the switchboard's profil
 | `LMSTUDIO_BASE_URL` | `http://localhost:1234/v1` | any OpenAI-compatible endpoint |
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | routes `ollama/…` and lists your pulled models |
 | `OPENROUTER_API_KEY` | *(empty)* | needed for `openrouter/…` routes and hosted selfies |
+| `LMSTUDIO_API_KEY` | *(empty)* | only for an LM Studio server with *Require API key* on; sent to `LMSTUDIO_BASE_URL` alone |
 | `LMSTUDIO_PRELOAD` | `true` | load + pin her models at boot; stops LM Studio's JIT eviction thrash |
 | `LMSTUDIO_LOAD_TIMEOUT_S` | `600` | only has to cover a cold load off disk |
 | `CONTEXT_LENGTH` | `32768` in `.env.example`, `0` in code | her context window in tokens; `0` = the provider's default |

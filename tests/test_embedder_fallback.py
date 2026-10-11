@@ -11,7 +11,7 @@ from yurios.app.providers import lmstudio, sentence_tf
 
 def test_unavailable_lmstudio_embeddings_fall_back_to_sentence_transformers(monkeypatch):
     class UnavailableLMStudioEmbedder:
-        def __init__(self, *args):
+        def __init__(self, *args, **kwargs):
             self.args = args
 
         def embed(self, texts):
@@ -39,7 +39,7 @@ def test_unavailable_lmstudio_embeddings_fall_back_to_sentence_transformers(monk
 
 def test_available_lmstudio_embeddings_keep_the_configured_backend(monkeypatch):
     class WorkingLMStudioEmbedder:
-        def __init__(self, *args):
+        def __init__(self, *args, **kwargs):
             self.args = args
 
         def embed(self, texts):

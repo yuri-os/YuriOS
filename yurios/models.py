@@ -193,7 +193,7 @@ def probe_model(cfg, model: str, *, timeout: float = 3.0) -> ModelProbe:
     id_field = ""
     if model.startswith("lm_studio/"):
         url = f"{cfg.lmstudio_base_url.rstrip('/')}/models"
-        key = cfg.connection_api_key
+        key = cfg.lmstudio_api_key
         wanted = model.removeprefix("lm_studio/")
         listing, id_field = "data", "id"
     elif model.startswith("ollama/"):
@@ -214,7 +214,11 @@ def probe_model(cfg, model: str, *, timeout: float = 3.0) -> ModelProbe:
         with httpx.Client(timeout=timeout, follow_redirects=False) as client:
             response = client.get(url, headers=headers)
         if response.status_code in (401, 403):
-            return ModelProbe(False, f"HTTP {response.status_code}: authentication rejected")
+            # LM Studio answers this when "Require API key" is on, and an empty
+            # key is the usual reason — so name the setting that fixes it.
+            hint = (" — LM Studio requires an API key: set LMSTUDIO_API_KEY"
+                    if model.startswith("lm_studio/") else "")
+            return ModelProbe(False, f"HTTP {response.status_code}: authentication rejected{hint}")
         if response.status_code != 200:
             return ModelProbe(False, f"HTTP {response.status_code} from model endpoint")
         if not listing:

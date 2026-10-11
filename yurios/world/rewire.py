@@ -34,8 +34,8 @@ log = logging.getLogger("world.rewire")
 # order the settings screen shows them. Every one is a Config field name.
 BRAIN_FIELDS: tuple[str, ...] = (
     "chat_model", "utility_model",
-    "lmstudio_base_url", "ollama_base_url", "openrouter_api_key", "connection_api_key",
-    "chat_thinking", "chat_reasoning_effort", "utility_thinking", "utility_max_tokens",
+    "lmstudio_base_url", "lmstudio_api_key", "ollama_base_url", "openrouter_api_key",
+    "connection_api_key", "chat_thinking", "chat_reasoning_effort", "utility_thinking", "utility_max_tokens",
     "temperature", "max_reply_tokens", "context_length",
 )
 
@@ -44,8 +44,8 @@ BRAIN_FIELDS: tuple[str, ...] = (
 # `max_reply_tokens`) or by the loader (`context_length`), and are live the moment
 # they land on the Config.
 _PROVIDER_FIELDS = frozenset({
-    "chat_model", "utility_model", "lmstudio_base_url", "ollama_base_url",
-    "openrouter_api_key", "connection_api_key", "chat_thinking", "chat_reasoning_effort",
+    "chat_model", "utility_model", "lmstudio_base_url", "lmstudio_api_key",
+    "ollama_base_url", "openrouter_api_key", "connection_api_key", "chat_thinking", "chat_reasoning_effort",
     "utility_thinking", "utility_max_tokens",
 })
 

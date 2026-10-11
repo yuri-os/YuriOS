@@ -266,7 +266,8 @@ def probe_context_window(rt, cfg: Config) -> str:
         return f"{short_tokens(cfg.context_length)} ctx" if cfg.context_length else ""
     from yurios.app.providers.lmstudio import probe_context
     found = probe_context(cfg.lmstudio_base_url,
-                          cfg.chat_model.split("/", 1)[1])
+                          cfg.chat_model.split("/", 1)[1],
+                          api_key=cfg.lmstudio_api_key)
     # A window smaller than CONTEXT_LENGTH is news, not a fault: someone
     # loaded that model in LM Studio themselves and we run in what they
     # loaded (providers/lmstudio.ensure_resident — reloading 16 GB of

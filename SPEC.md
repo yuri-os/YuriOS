@@ -332,7 +332,13 @@ hosted are a one-line change with no code change:
 |---|---|---|
 | `openrouter/<id>` (or a bare `<id>`) | hosted OpenRouter | `OPENROUTER_API_KEY` |
 | `ollama/<model>` | local Ollama | — |
-| `lm_studio/<model>` | local LM Studio (OpenAI-compatible) | `LMSTUDIO_BASE_URL` |
+| `lm_studio/<model>` | local LM Studio (OpenAI-compatible) | `LMSTUDIO_BASE_URL`, `LMSTUDIO_API_KEY` |
+
+`LMSTUDIO_API_KEY` is for an LM Studio server with "Require API key" on. When set it **MUST** be
+sent as a bearer token on every request to `LMSTUDIO_BASE_URL` — the chat and utility routes, the
+model listing, the context probe, loads and unloads (§3.1), embeddings, and the reachability check
+that decides the GGUF fallback — because each of those is best-effort, and a 401 it was never given
+the key to avoid reads exactly like a server that is not there. It pairs with that url alone (§31.2).
 
 **Attribution.** Every *billed* OpenRouter request — the chat/utility models here, her camera
 in §7.6 — **MUST** carry the app-attribution headers from `yurios/attribution.py`
@@ -3340,7 +3346,9 @@ changes; a runtime does not know it has neighbours.
   endpoint re-points the LM Studio or Ollama base url her models actually route to, and its
   `api_key_env` names the variable her custom-server key is read from. The endpoint and key
   **MUST** be applied as one provider rebuild. The host's OpenRouter key **MUST NEVER** be sent to
-  a local/custom endpoint; a key-only profile may select a hosted OpenRouter credential. Keys are
+  a local/custom endpoint, and the host's `LMSTUDIO_API_KEY` **MUST NEVER** be sent to any url but
+  the host's `LMSTUDIO_BASE_URL`: a profile that re-points her LM Studio elsewhere brings its own
+  key or none, and a profile's key for Ollama never reaches an LM Studio; a key-only profile may select a hosted OpenRouter credential. Keys are
   read from the environment at resolution time and **MUST NOT** be written to the registry.
   An inherited endpoint that is verbatim the host's url for the *other* local provider is
   ignored — the seeded `default` profile carries whichever provider the host's own model uses

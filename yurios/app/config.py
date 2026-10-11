@@ -27,6 +27,12 @@ class Config(BaseSettings):
     # Base url for a local LM Studio server (used only for lm_studio/… model ids;
     # OpenAI-compatible, so this is its /v1 endpoint).
     lmstudio_base_url: str = "http://localhost:1234/v1"
+    # The key LM Studio asks for when its server has "Require API key" on, sent as
+    # a bearer token on every call to *that* url — chat, the model list, the
+    # context probe, loads and unloads, embeddings (SPEC §2.4). It pairs with
+    # LMSTUDIO_BASE_URL and nothing else: a connection profile that re-points her
+    # LM Studio somewhere else brings that server's key or none (§31.2).
+    lmstudio_api_key: str = ""
     # Load the lm_studio/… chat model and embedder at boot and pin them there, so
     # LM Studio's JIT loader stops evicting one to serve the other every turn
     # (providers/lmstudio.ensure_resident). Off = the old behaviour, one reload per

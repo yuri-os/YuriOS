@@ -946,6 +946,66 @@ def test_openrouter_key_is_never_sent_to_a_custom_endpoint(tmp_path):
     assert provider.api_key is None
 
 
+def _lms_house(tmp_path, **extra):
+    return Config(data_dir=tmp_path, _env_file=None, gguf_fallback=False,
+                  lmstudio_base_url="http://lms:1234/v1", lmstudio_api_key="sk-lms",
+                  **extra)
+
+
+def test_the_house_lm_studio_key_rides_with_the_house_url(tmp_path):
+    """No profile, or the seeded one naming the house's own url: same server,
+    so the same key — which is what makes a keyed LM Studio work at all."""
+    her = record(tmp_path, "yuri")
+    her.models.chat = "lm_studio/local"
+    from yurios.app.main import build_chat_model
+
+    for profile in (None, ConnectionProfile(name="default", endpoint="http://lms:1234/v1/")):
+        cfg = config_for_character(_lms_house(tmp_path), her, profile, environ={})
+        assert cfg.lmstudio_api_key == "sk-lms"
+        assert build_chat_model(cfg).api_key == "sk-lms"
+
+
+def test_the_house_lm_studio_key_never_follows_her_elsewhere(tmp_path):
+    her = record(tmp_path, "yuri")
+    her.models.chat = "lm_studio/local"
+    elsewhere = ConnectionProfile(name="default", endpoint="http://gpu.lan:1234/v1")
+    cfg = config_for_character(_lms_house(tmp_path), her, elsewhere, environ={})
+
+    from yurios.app.main import build_chat_model
+    assert cfg.lmstudio_base_url == "http://gpu.lan:1234/v1"
+    assert cfg.lmstudio_api_key == ""
+    assert build_chat_model(cfg).api_key is None
+
+
+def test_a_profile_brings_its_own_lm_studio_key(tmp_path):
+    her = record(tmp_path, "yuri")
+    her.models.chat = "lm_studio/local"
+    hers = ConnectionProfile(name="default", endpoint="http://gpu.lan:1234/v1",
+                             api_key_env="YURIOS_MODEL_API_KEY_GPU")
+    cfg = config_for_character(_lms_house(tmp_path), her, hers,
+                               environ={"YURIOS_MODEL_API_KEY_GPU": "sk-gpu"})
+
+    from yurios.app.main import build_chat_model
+    assert cfg.lmstudio_api_key == "sk-gpu"
+    assert build_chat_model(cfg).api_key == "sk-gpu"
+
+
+def test_an_ollama_profile_key_does_not_reach_her_lm_studio(tmp_path):
+    """The profile re-points the server her chat model routes to; her utility
+    model on the house LM Studio keeps the house's key, not Ollama's."""
+    her = record(tmp_path, "yuri")
+    her.models.chat = "ollama/llama3"
+    her.models.utility = "lm_studio/local"
+    ollama = ConnectionProfile(name="default", endpoint="http://gpu.lan:11434",
+                               api_key_env="YURIOS_MODEL_API_KEY_OLLAMA")
+    cfg = config_for_character(_lms_house(tmp_path), her, ollama,
+                               environ={"YURIOS_MODEL_API_KEY_OLLAMA": "sk-ollama"})
+
+    from yurios.app.main import build_chat_model, build_utility_model
+    assert build_chat_model(cfg).api_key == "sk-ollama"
+    assert build_utility_model(cfg).api_key == "sk-lms"
+
+
 def test_an_endpoint_for_the_other_server_is_not_forced_on_her(tmp_path):
     """The seeded `default` profile carries whichever provider the host's own
     model uses — a character who moves to the other one inherits the host's url

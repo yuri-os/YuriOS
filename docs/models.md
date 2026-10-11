@@ -53,6 +53,21 @@ EMBED_MODEL=text-embedding-nomic-embed-text-v1.5
 EMBED_DIM=768
 ```
 
+**A server that requires a key.** With *Require API key* on in LM Studio's server settings, set
+the key it gave you — in House settings → Models → Local model servers, with `yurios configure`
+(it asks), or in `.env`:
+
+```ini
+LMSTUDIO_API_KEY=sk-lm-…
+```
+
+Every call to `LMSTUDIO_BASE_URL` carries it — chat, the model list, preloading, the context probe,
+embeddings — and nothing else does: a [connection profile](characters.md#connection-profiles)
+that points a character's LM Studio at another server brings that server's key, or none. Without
+it each call is a 401, which YuriOS can't tell from a server that isn't running: no preload, a
+context window of `CONTEXT_LENGTH` rather than the loaded one, and — with the direct GGUF runtime
+installed — her turns moved to llama.cpp.
+
 **Why an uncensored model:** she's a companion, not an assistant. A refusal-trained model plays
 her badly — it breaks character to decline, which is the one thing a person in the room never
 does. Any model works; this is a recommendation about *voice*, not a requirement.
@@ -170,6 +185,7 @@ endpoint at `LMSTUDIO_BASE_URL`", not "the LM Studio application":
 CHAT_MODEL=lm_studio/<model-id-that-server-serves>
 LMSTUDIO_BASE_URL=http://<host>:<port>/v1
 LMSTUDIO_PRELOAD=false               # the pin/evict API is LM Studio's own
+LMSTUDIO_API_KEY=…                   # if it wants a bearer token
 ```
 
 Turn `LMSTUDIO_PRELOAD` off for a non-LM-Studio server: the preload path speaks LM Studio's model

@@ -217,6 +217,7 @@ The server has to listen beyond `127.0.0.1` — LM Studio's *Serve on Local Netw
 
 ```bash
 docker compose exec yurios yurios settings CHAT_MODEL=lm_studio/<model id>
+#   …and LMSTUDIO_API_KEY=<key> too, if LM Studio has Require API key on
 docker compose restart
 ```
 

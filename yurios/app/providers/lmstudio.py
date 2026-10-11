@@ -9,6 +9,10 @@ EMBED_MODEL + EMBED_DIM to match. A local chat model routes through LiteLLM
 
 `ensure_resident()` is the other half: it pins both models in memory at boot so
 they stop evicting each other every turn (see its docstring).
+
+Every call here takes `api_key` — LMSTUDIO_API_KEY, for a server with "Require
+API key" on. Without it each of them is a 401, which looks exactly like a server
+that is not there: no pinning, no context probe, and an embedder that falls back.
 """
 from __future__ import annotations
 
@@ -24,10 +28,12 @@ log = logging.getLogger("mvw.lmstudio")
 class LMStudioEmbedder:
     def __init__(self, model_name: str = "text-embedding-nomic-embed-text-v1.5",
                  dim: int = 768, base_url: str = "http://localhost:1234/v1", *,
+                 api_key: str = "",
                  transport: httpx.BaseTransport | None = None):
         self.model_name = model_name
         self.dim = dim
         self.base_url = base_url.rstrip("/")
+        self._headers = auth_headers(api_key)
         self._http = PooledClient(timeout=60, transport=transport)
 
     def embed(self, texts: list[str]) -> list[list[float]]:
@@ -37,7 +43,8 @@ class LMStudioEmbedder:
         if not texts:
             return []
         r = self._http.client().post(f"{self.base_url}/embeddings",
-                                     json={"model": self.model_name, "input": texts})
+                                     json={"model": self.model_name, "input": texts},
+                                     headers=self._headers)
         r.raise_for_status()
         # OpenAI shape: {"data": [{"index": i, "embedding": [...]}, ...]}.
         # Sort by index — the server does not guarantee input order.
@@ -75,6 +82,13 @@ class LMStudioEmbedder:
 
 _LOAD_TIMEOUT_S = 600.0   # a cold 20 GB model off a slow disk is legitimately slow
 _QUERY_TIMEOUT_S = 10.0
+
+
+def auth_headers(api_key: str) -> dict[str, str]:
+    """The bearer header LM Studio wants when its server requires a key; none
+    when it doesn't (an unrequired key is ignored by the server, but there is no
+    reason to send one)."""
+    return {"Authorization": f"Bearer {api_key}"} if api_key else {}
 
 
 def _api_root(base_url: str) -> str:
@@ -120,7 +134,7 @@ def _instance_ctx(inst: dict) -> int:
     return 0
 
 
-def probe_context(base_url: str, model_id: str, *,
+def probe_context(base_url: str, model_id: str, *, api_key: str = "",
                   transport: httpx.BaseTransport | None = None) -> dict:
     """What context window `model_id` is actually running in, if LM Studio says.
 
@@ -137,7 +151,8 @@ def probe_context(base_url: str, model_id: str, *,
     out = {"loaded": 0, "max": 0}
     root = _api_root(base_url)
     try:
-        with httpx.Client(timeout=_QUERY_TIMEOUT_S, transport=transport) as client:
+        with httpx.Client(timeout=_QUERY_TIMEOUT_S, transport=transport,
+                          headers=auth_headers(api_key)) as client:
             r = client.get(f"{root}/api/v1/models")
             r.raise_for_status()
             catalog = r.json()["models"]
@@ -159,7 +174,7 @@ def probe_context(base_url: str, model_id: str, *,
 
 def ensure_resident(base_url: str, model_ids: list[str], *,
                     context_length: int = 0,
-                    timeout: float = _LOAD_TIMEOUT_S,
+                    timeout: float = _LOAD_TIMEOUT_S, api_key: str = "",
                     transport: httpx.BaseTransport | None = None) -> list[str]:
     """Pin `model_ids` in LM Studio's memory, with no idle TTL. Never raises.
 
@@ -181,7 +196,8 @@ def ensure_resident(base_url: str, model_ids: list[str], *,
     wanted = list(dict.fromkeys(model_ids))   # chat and utility are often the same
     resident: list[str] = []
     try:
-        with httpx.Client(timeout=_QUERY_TIMEOUT_S, transport=transport) as client:
+        with httpx.Client(timeout=_QUERY_TIMEOUT_S, transport=transport,
+                          headers=auth_headers(api_key)) as client:
             r = client.get(f"{root}/api/v1/models")
             r.raise_for_status()
             catalog = r.json()["models"]
@@ -227,7 +243,8 @@ def ensure_resident(base_url: str, model_ids: list[str], *,
             resident.append(key)
             continue
         try:
-            with httpx.Client(timeout=timeout, transport=transport) as client:
+            with httpx.Client(timeout=timeout, transport=transport,
+                              headers=auth_headers(api_key)) as client:
                 for inst in instances:
                     log.info("LM Studio: dropping the TTL'd instance of %s", key)
                     client.post(f"{root}/api/v1/models/unload",
@@ -256,7 +273,8 @@ def ensure_resident(base_url: str, model_ids: list[str], *,
             # later. This is the only place that knows the load was OURS, so it
             # is the only place the shortfall is worth a warning.
             if want > 0:
-                got = probe_context(base_url, key, transport=transport)["loaded"]
+                got = probe_context(base_url, key, api_key=api_key,
+                                    transport=transport)["loaded"]
                 if 0 < got < want:
                     log.warning("LM Studio loaded %s in a %d-token window, not "
                                 "the CONTEXT_LENGTH=%d it was asked for — that "
@@ -269,7 +287,7 @@ def ensure_resident(base_url: str, model_ids: list[str], *,
     return resident
 
 
-def evict(base_url: str, model_ids: list[str], *,
+def evict(base_url: str, model_ids: list[str], *, api_key: str = "",
           transport: httpx.BaseTransport | None = None) -> list[str]:
     """Unload every loaded instance of `model_ids` — the mirror of
     `ensure_resident()`, for lending the GPU to something else for a while
@@ -289,7 +307,8 @@ def evict(base_url: str, model_ids: list[str], *,
     wanted = list(dict.fromkeys(model_ids))
     evicted: list[str] = []
     try:
-        with httpx.Client(timeout=_QUERY_TIMEOUT_S, transport=transport) as client:
+        with httpx.Client(timeout=_QUERY_TIMEOUT_S, transport=transport,
+                          headers=auth_headers(api_key)) as client:
             r = client.get(f"{root}/api/v1/models")
             r.raise_for_status()
             catalog = r.json()["models"]
@@ -309,7 +328,8 @@ def evict(base_url: str, model_ids: list[str], *,
             log.info("LM Studio: %s is not loaded — nothing to evict", key)
             continue
         try:
-            with httpx.Client(timeout=_QUERY_TIMEOUT_S, transport=transport) as client:
+            with httpx.Client(timeout=_QUERY_TIMEOUT_S, transport=transport,
+                              headers=auth_headers(api_key)) as client:
                 for inst in instances:
                     client.post(f"{root}/api/v1/models/unload",
                                 json={"instance_id": inst["id"]}).raise_for_status()

@@ -394,7 +394,18 @@ def command_configure(args) -> int:
             base = args.base_url or (interactive and _prompt(
                 "LM Studio base URL", cfg.lmstudio_base_url)) or cfg.lmstudio_base_url
             connection["LMSTUDIO_BASE_URL"] = str(base)
-            cfg = cfg.model_copy(update={"lmstudio_base_url": str(base)})
+            # Only a server with "Require API key" on wants one; Enter skips it.
+            key = args.api_key
+            if key is None and interactive:
+                entered = getpass.getpass(
+                    "LM Studio API key, if its server requires one "
+                    "(Enter to keep the configured one, or for none): ")
+                key = entered or cfg.lmstudio_api_key
+            key = key if key is not None else cfg.lmstudio_api_key
+            if key:
+                connection["LMSTUDIO_API_KEY"] = key
+            cfg = cfg.model_copy(update={"lmstudio_base_url": str(base),
+                                         "lmstudio_api_key": key})
         elif provider == "ollama":
             base = args.base_url or (interactive and _prompt(
                 "Ollama base URL", cfg.ollama_base_url)) or cfg.ollama_base_url
@@ -1318,7 +1329,8 @@ def main(argv: list[str] | None = None) -> int:
     configure.add_argument("--provider", choices=tuple(_PROVIDER_PREFIXES),
                            help="connection to configure; interactive mode offers all providers")
     configure.add_argument("--base-url", help="LM Studio or Ollama endpoint URL")
-    configure.add_argument("--api-key", help="OpenRouter API key (saved in .env)")
+    configure.add_argument("--api-key", help="OpenRouter API key, or LM Studio's with "
+                                             "--provider lmstudio (saved in .env)")
     configure.add_argument("--clear-character-models", action="store_true",
                            help="clear every character's own model settings so they "
                                 "use the configured one")

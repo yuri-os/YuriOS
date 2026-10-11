@@ -84,7 +84,8 @@ def _default_embedder(cfg: Config, *, wait: bool = True):
     if cfg.embed_backend == "lm_studio":
         # same local LM Studio server as the chat model — one process, no Ollama
         from yurios.app.providers.lmstudio import LMStudioEmbedder
-        embedder = LMStudioEmbedder(cfg.embed_model, cfg.embed_dim, cfg.lmstudio_base_url)
+        embedder = LMStudioEmbedder(cfg.embed_model, cfg.embed_dim, cfg.lmstudio_base_url,
+                                    api_key=cfg.lmstudio_api_key)
         try:
             # Construction only records the endpoint; verify it before opening the
             # index so a disconnected default server can use the local fallback.
@@ -140,7 +141,8 @@ def _preload_lmstudio(cfg: Config, *, chat: bool, embed: bool) -> list[str]:
     from yurios.app.providers.lmstudio import ensure_resident
     return ensure_resident(cfg.lmstudio_base_url, ids,
                            context_length=cfg.context_length,
-                           timeout=cfg.lmstudio_load_timeout_s)
+                           timeout=cfg.lmstudio_load_timeout_s,
+                           api_key=cfg.lmstudio_api_key)
 
 
 def model_api_base(cfg: Config, model: str) -> str:
@@ -158,7 +160,13 @@ def model_api_base(cfg: Config, model: str) -> str:
 
 
 def model_api_key(cfg: Config, model: str) -> str:
-    """Credential for this route, kept paired with the endpoint it authenticates."""
+    """Credential for this route, kept paired with the endpoint it authenticates.
+
+    LM Studio's is its own field, because it pairs with LMSTUDIO_BASE_URL alone
+    (SPEC §2.4, §31.2): the host has already swapped in a profile's key, or
+    blanked the house one, wherever a profile re-points that url."""
+    if model.startswith("lm_studio/"):
+        return cfg.lmstudio_api_key
     return cfg.connection_api_key if model_api_base(cfg, model) else cfg.openrouter_api_key
 
 
@@ -167,10 +175,15 @@ def _lmstudio_available(cfg: Config) -> bool:
 
     This deliberately checks only the server, not whether a particular model is
     already loaded: LM Studio's normal JIT/preload flow owns model residency. A
-    dead server is the case where the direct GGUF fallback is useful.
+    dead server is the case where the direct GGUF fallback is useful. A server
+    that wants a key it was not given answers 401, and is very much alive — so
+    the key goes on this check too, or a keyed LM Studio reads as down and her
+    turns quietly move to llama.cpp.
     """
+    from yurios.app.providers.lmstudio import auth_headers
+
     try:
-        with httpx.Client(timeout=2.0) as client:
+        with httpx.Client(timeout=2.0, headers=auth_headers(cfg.lmstudio_api_key)) as client:
             response = client.get(f"{cfg.lmstudio_base_url.rstrip('/')}/models")
             response.raise_for_status()
         return True

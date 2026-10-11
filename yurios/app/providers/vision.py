@@ -76,7 +76,7 @@ async def _lmstudio(cfg, name: str, *, transport=None) -> bool | None:
     from yurios.app.providers.lmstudio import _api_root, _resolve_key
 
     root = _api_root(cfg.lmstudio_base_url)
-    headers = _bearer(cfg.connection_api_key)
+    headers = _bearer(cfg.lmstudio_api_key)
     try:
         catalog = (await _get(f"{root}/api/v1/models", headers=headers,
                               transport=transport))["models"]

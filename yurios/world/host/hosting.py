@@ -285,6 +285,15 @@ def _apply_connection(update: dict[str, Any], base: Config, record: CharacterRec
         # substitute the house OpenRouter key when the profile key is absent.
         if key_env:
             update["connection_api_key"] = env.get(key_env, "").strip()
+        # LMSTUDIO_API_KEY is the house url's key and travels nowhere else, so
+        # her `lmstudio_api_key` always belongs to her `lmstudio_base_url`: the
+        # profile's key when it names one, else the house's only while the url
+        # is still the house's.
+        if field == "lmstudio_base_url":
+            if key_env:
+                update["lmstudio_api_key"] = update["connection_api_key"]
+            elif endpoint.rstrip("/") != base.lmstudio_base_url.rstrip("/"):
+                update["lmstudio_api_key"] = ""
     elif profile and not profile.endpoint and key_env:
         # A key-only profile is an explicit hosted-OpenRouter credential grant.
         update["openrouter_api_key"] = (

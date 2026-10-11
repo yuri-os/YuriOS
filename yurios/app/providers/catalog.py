@@ -45,8 +45,8 @@ async def provider_models(cfg, provider: str) -> dict[str, Any]:
     try:
         if provider in ("lmstudio", "lm_studio"):
             base = cfg.lmstudio_base_url.rstrip("/")
-            headers = ({"Authorization": f"Bearer {cfg.connection_api_key}"}
-                       if cfg.connection_api_key else None)
+            headers = ({"Authorization": f"Bearer {cfg.lmstudio_api_key}"}
+                       if cfg.lmstudio_api_key else None)
             data = await _fetch_json(f"{base}/models", headers)
             ids = [item.get("id", "") for item in data.get("data", [])]
         elif provider == "ollama":

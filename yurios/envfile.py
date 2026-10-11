@@ -80,6 +80,9 @@ CURATED: list[dict] = [
         {"key": "LMSTUDIO_BASE_URL", "attr": "lmstudio_base_url", "type": "text",
          "suggest": ["http://localhost:1234/v1"],
          "help": "OpenAI-compatible endpoint for lm_studio/… ids (chat + embeddings)"},
+        {"key": "LMSTUDIO_API_KEY", "attr": "lmstudio_api_key", "type": "password",
+         "help": "only when LM Studio's server has Require API key on — sent to "
+                 "LMSTUDIO_BASE_URL and nowhere else"},
         {"key": "OLLAMA_BASE_URL", "attr": "ollama_base_url", "type": "text",
          "suggest": ["http://localhost:11434"],
          "help": "local Ollama server — routes ollama/… ids and lists your pulled models"},
@@ -669,6 +672,7 @@ PAGES: list[dict] = [
          ]},
          {"title": "Local model servers", "fields": [
              ("LMSTUDIO_BASE_URL", "LM Studio address"),
+             ("LMSTUDIO_API_KEY", "LM Studio API key"),
              ("LMSTUDIO_PRELOAD", "Keep LM Studio models loaded"),
              ("LMSTUDIO_LOAD_TIMEOUT_S", "LM Studio load timeout (s)"),
              ("OLLAMA_BASE_URL", "Ollama address"),

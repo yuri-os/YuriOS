@@ -236,6 +236,27 @@ def test_configure_openrouter_saves_the_prompted_key(tmp_path, monkeypatch):
     assert "OPENROUTER_API_KEY=secret" in saved
 
 
+def test_configure_lmstudio_checks_and_saves_its_key(tmp_path, monkeypatch):
+    """A server with Require API key on refuses the check without it, so the key
+    has to be in hand before the model is validated — and is saved beside the url."""
+    from argparse import Namespace
+
+    from yurios import cli
+
+    monkeypatch.setattr(cli, "_root", lambda: tmp_path)
+    monkeypatch.setattr(cli, "validate_model", lambda cfg, model: (
+        ModelCheck(cfg.lmstudio_api_key == "lms-key", "connection verified")))
+    args = Namespace(model="qwen3.8-27b", provider="lmstudio",
+                     base_url="http://lms:1234/v1", api_key="lms-key")
+
+    assert cli.command_configure(args) == 0
+    saved = (tmp_path / ".env").read_text(encoding="utf-8")
+    assert "CHAT_MODEL=lm_studio/qwen3.8-27b" in saved
+    assert "LMSTUDIO_BASE_URL=http://lms:1234/v1" in saved
+    assert "LMSTUDIO_API_KEY=lms-key" in saved
+    assert "OPENROUTER_API_KEY=lms-key" not in saved
+
+
 def test_configure_openrouter_selfies_prompts_for_and_saves_its_key(tmp_path, monkeypatch):
     from yurios import cli
 
@@ -756,7 +777,10 @@ def test_model_probe_uses_selected_local_endpoint_and_key(cfg, monkeypatch):
     monkeypatch.setattr(httpx, "Client", lambda **kw: (
         timeouts.append(kw["timeout"]) or
         client(transport=httpx.MockTransport(answer), **kw)))
+    # each local server with its own key: LM Studio's pairs with its url
+    # alone (SPEC §2.4), Ollama's arrives with a connection profile
     local = cfg.model_copy(update={"lmstudio_base_url": "http://gpu:1234/v1",
+                                   "lmstudio_api_key": "lms-key",
                                    "ollama_base_url": "http://ollama:11434",
                                    "connection_api_key": "private-key"})
 
@@ -764,8 +788,8 @@ def test_model_probe_uses_selected_local_endpoint_and_key(cfg, monkeypatch):
     assert probe_model(local, "ollama/qwen3").ok is True
     assert [str(request.url) for request in seen] == [
         "http://gpu:1234/v1/models", "http://ollama:11434/api/tags"]
-    assert all(request.headers["Authorization"] == "Bearer private-key"
-               for request in seen)
+    assert [request.headers["Authorization"] for request in seen] == [
+        "Bearer lms-key", "Bearer private-key"]
     assert timeouts == [3.0, 3.0]
 
 
@@ -865,7 +889,7 @@ def test_ollama_probe_treats_an_untagged_name_as_latest(cfg, monkeypatch):
 
 
 def test_configure_validates_with_the_same_probe_as_doctor(cfg, monkeypatch):
-    """One probe, two callers: configure sends the connection key the way chat
+    """One probe, two callers: configure sends LM Studio's key the way chat
     and doctor do, accepts a route it cannot probe, and refuses an OpenRouter
     id with no key to check."""
     seen = []
@@ -877,7 +901,7 @@ def test_configure_validates_with_the_same_probe_as_doctor(cfg, monkeypatch):
     client = httpx.Client
     monkeypatch.setattr(httpx, "Client", lambda **kw: client(
         transport=httpx.MockTransport(answer), **kw))
-    keyed = cfg.model_copy(update={"connection_api_key": "private-key",
+    keyed = cfg.model_copy(update={"lmstudio_api_key": "private-key",
                                    "openrouter_api_key": ""})
 
     check = validate_model(keyed, "lm_studio/gemma-4")

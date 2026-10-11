@@ -620,7 +620,8 @@ class LLMParker:
                      ids, self._gguf_resident(), before, self.floor)
             self.gate.close(self)    # usually already shut by the lab; idempotent
             if ids:
-                evict(cfg.lmstudio_base_url, ids)
+                evict(cfg.lmstudio_base_url, ids,
+                      api_key=getattr(cfg, "lmstudio_api_key", ""))
             # Also runs with nothing resident: it drops the in-process load
             # gate for the whole render window, so no turn or mind tick can
             # start loading her brain onto the card the render is filling.
@@ -638,7 +639,8 @@ class LLMParker:
                         ensure_resident(
                             cfg.lmstudio_base_url, ids,
                             context_length=getattr(cfg, "context_length", 0),
-                            timeout=getattr(cfg, "lmstudio_load_timeout_s", 600.0))
+                            timeout=getattr(cfg, "lmstudio_load_timeout_s", 600.0),
+                            api_key=getattr(cfg, "lmstudio_api_key", ""))
                 finally:
                     try:
                         gguf.unpark(handles)

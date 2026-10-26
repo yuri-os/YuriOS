@@ -3145,6 +3145,10 @@ and `privacy.py` is the only module in the export path permitted to read `os.env
 module that can see a secret cannot emit one and the module that emits cannot see. A passage
 present in both her soul and a private surface is the honest hard case (she learned it, you
 approved it at the §23 gate) and fails **closed** pending one human acknowledgement.
+The dashboard's Export PNG action **MUST** show these passages and offer explicit
+confirmation when review is required. It **MUST NOT** download an error response as a
+card or acknowledge a review automatically; other failures **MUST** remain visible
+in the drawer. Confirmation applies only to that export of that character.
 
 A card starts the relationship at zero: `USER.md` arrives empty, `memory/`,
 `goals.md`, `corpus/` and `traces/` are empty, and the new Vault's history begins at one commit
@@ -3273,6 +3277,9 @@ changes; a runtime does not know it has neighbours.
   `chara` (V2) and a `ccv3` (V3) chunk built from `card.json` — identity, persona, scenario, lore.
   It **MUST NOT** carry `USER.md`, relationship memory, the corpus, traces, tool audit, selfies
   or any credential. Sharing her is sharing who she is, not who you are.
+  Export framing **MUST** default to the selected image's original dimensions and pixels
+  (after orientation), without adding borders, resizing or cropping. The studio and API
+  **MAY** offer explicit padding or cropping to a 512 × 768 canvas.
 - §30.6 **A foreign card is re-filed on the way in, and may be re-filed again by a model.**
   Every card site lays a character out differently and there is no schema to parse, so the
   importer **MUST** make a mechanical best effort and the studio **MUST** offer a better one.

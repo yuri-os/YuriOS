@@ -107,6 +107,8 @@ def test_the_one_click_export_goes_through_the_pipeline(node):
     assert response.headers["content-type"] == "image/png"
     assert 'filename="card-person.png"' in response.headers["content-disposition"]
     assert preferred(response.content)["name"] == "Card Person"
+    with Image.open(io.BytesIO(response.content)) as exported:
+        assert exported.size == (5, 4)
 
 
 def test_configured_export_honours_its_options(node):
@@ -119,6 +121,8 @@ def test_configured_export_honours_its_options(node):
     assert response.status_code == 200
     assert "yurios" not in data["tags"]
     assert "soul" not in data["extensions"]["yurios"]
+    with Image.open(io.BytesIO(response.content)) as exported:
+        assert exported.size == (5, 4)
 
 
 def test_a_refusal_is_a_422_with_something_to_act_on(node):

@@ -27,7 +27,7 @@ const state = {
   setting: { setting: "", derived: false, exists: false },
   settingBusy: false,
   settingError: "",
-  options: { spec: "v3", include_soul: true, image: "portrait", fit: "contain",
+  options: { spec: "v3", include_soul: true, image: "portrait", fit: "none",
              attribution: true, timestamps: true, acknowledged: false },
   preview: null,
   unlocked: new Set(),
@@ -300,7 +300,7 @@ function imageControl() {
   wrap.append(drop);
 
   const fits = element("div", { className: "seg" });
-  for (const [value, label] of [["contain", "Fit"], ["cover", "Crop"], ["none", "As-is"]]) {
+  for (const [value, label] of [["none", "Original"], ["contain", "Pad"], ["cover", "Crop"]]) {
     const button = element("button", {
       className: state.options.fit === value ? "on" : "",
       attrs: { type: "button" }, text: label,

@@ -314,7 +314,9 @@ paragraph, an identity that is still a wall). One card tells you nothing; thirty
 
 ## Exporting a character
 
-The studio's **Export PNG** button, or `GET /api/characters/<id>/export` for the defaults.
+Use **Export PNG** in the dashboard drawer or the studio, or
+`GET /api/characters/<id>/export` for the defaults. The dashboard shows any passages
+that need your review before sharing, then downloads the PNG after you confirm.
 You get a card carrying both a V2 (`chara`) and a V3 (`ccv3`) chunk, so it opens anywhere cards
 open, plus a `yurios` block so it re-imports here with full fidelity — see
 [the card format](card-format.md).
@@ -349,7 +351,7 @@ merely warned would ship silently.
 | Carry her soul files | on | the verbatim SOUL in the `yurios` block — off makes a re-import lossy |
 | Credit YuriOS in the notes | on | a paragraph in `creator_notes` and a `yurios` tag; never her persona |
 | Include dates | on | off writes `0` for both timestamps — a modification date is a disclosure |
-| Face | her portrait | or any selfie, or an upload; framed to 512×768 |
+| Face | her portrait | or any selfie, or an upload; original dimensions by default, with optional padding or cropping to 512×768 |
 
 ## Loop switches
 

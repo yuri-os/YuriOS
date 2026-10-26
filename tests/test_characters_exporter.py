@@ -323,6 +323,24 @@ def test_exporter_accepts_a_jpeg_upload_and_emits_a_png_card(tmp_path):
     assert result.privacy.image["size"] == [32, 48]
 
 
+@pytest.mark.parametrize("size", [(512, 512), (768, 512), (512, 1024)])
+def test_default_export_preserves_portrait_pixels_without_borders(tmp_path, size):
+    record = make(tmp_path)
+    portrait = Image.new("RGBA", size, (110, 65, 150, 200))
+    # Different edges expose cropping, padding and resampling, even when the
+    # added border would otherwise match the portrait's background.
+    portrait.paste((255, 0, 0, 255), (0, 0, size[0], 1))
+    portrait.paste((0, 255, 0, 128), (0, size[1] - 1, size[0], size[1]))
+    portrait.save(record.paths.portrait)
+
+    result = build_export(record)
+
+    with Image.open(io.BytesIO(result.png)) as exported:
+        assert exported.size == portrait.size
+        assert exported.convert("RGBA").tobytes() == portrait.tobytes()
+    assert preferred(result.png)["name"] == "Card Person"
+
+
 def test_fit_modes_frame_to_the_card_canvas(tmp_path):
     record = make(tmp_path)
     for mode, expected in (("contain", (512, 768)), ("cover", (512, 768))):

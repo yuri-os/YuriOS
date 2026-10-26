@@ -115,7 +115,7 @@ class ExportOptions:
     include_soul: bool = True           # the verbatim soul payload
     image: str = "portrait"             # "portrait" | "selfie:<name>" | "upload"
     image_bytes: bytes | None = None
-    fit: str = "contain"                # "contain" | "cover" | "none"
+    fit: str = "none"                   # "contain" | "cover" | "none"
     attribution: bool = True            # the creator_notes footer — never the persona
     timestamps: bool = True             # False writes 0, per the V3 privacy allowance
     filename: str | None = None

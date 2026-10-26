@@ -184,9 +184,10 @@
            ungated and works on a parked character. -->
       <a id="drawer-mind" class="button button-quiet" href="#"><svg><use href="#i-mind"></use></svg>Debug mind</a>
       <a id="drawer-studio" class="button button-quiet" href="#"><svg><use href="#i-card"></use></svg>Edit in studio</a>
-      <a id="drawer-export" class="button button-quiet" href="#" download><svg><use href="#i-download"></use></svg>Export PNG</a>
+      <button id="drawer-export" class="button button-quiet" type="button"><svg><use href="#i-download"></use></svg><span>Export PNG</span></button>
       <button id="profile-open" class="button button-quiet" type="button"><svg><use href="#i-tune"></use></svg>Settings</button>
     </div>
+    <div id="export-error" class="form-error" role="alert"></div>
     <nav id="detail-tabs" class="detail-tabs" aria-label="Character details">
       <button type="button" role="tab" aria-selected="true" data-tab="journal">Journal</button>
       <button type="button" role="tab" aria-selected="false" data-tab="log">Log</button>
@@ -198,6 +199,22 @@
       <button id="archive-open" class="danger-link" type="button"><svg><use href="#i-archive"></use></svg>Archive</button>
     </footer>
   </aside>
+
+  <dialog id="export-dialog" class="modal" aria-labelledby="export-review-title">
+    <div class="modal-card">
+      <header class="modal-head">
+        <div><p class="eyebrow">Before you share her</p><h2 id="export-review-title">Passages she learned from you</h2></div>
+        <button class="icon-button modal-close" type="button" aria-label="Close export review"><svg><use href="#i-close"></use></svg></button>
+      </header>
+      <p id="export-review-copy" class="form-note"></p>
+      <ul id="export-review-list"></ul>
+      <footer class="modal-actions">
+        <button class="button button-quiet modal-close" type="button">Cancel</button>
+        <a id="export-review-studio" class="button button-quiet" href="#">Edit in studio</a>
+        <button id="export-review-confirm" class="button button-primary" type="button">I've read them — export</button>
+      </footer>
+    </div>
+  </dialog>
 
   <dialog id="import-dialog" class="modal">
     <form id="import-form" class="modal-card">

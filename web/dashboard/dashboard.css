@@ -397,6 +397,9 @@ h1, h2, p { margin-top: 0; }
 .form-note { margin: 15px 0 0; color: var(--dim); font: 9px/1.55 var(--font-mono); }
 .form-error { min-height: 16px; margin-top: 10px; color: var(--red); font: 9px/1.5 var(--font-mono); }
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; padding-top: 20px; border-top: 1px solid var(--rule); }
+#export-dialog .modal-actions { flex-wrap: wrap; }
+#export-review-list { padding-left: 20px; max-height: 40vh; overflow: auto; overflow-wrap: anywhere; font-size: 13px; line-height: 1.6; }
+#export-review-list code { color: var(--dim); font-size: 10px; }
 /* a way out of this panel into another, not an action on this form — it sits
    on the far side of the footer so it reads apart from cancel/save */
 .modal-aside { margin-right: auto; }

@@ -95,7 +95,7 @@ def register(app: FastAPI, host: CharacterHost, require) -> None:
                 include_soul=bool(body.get("include_soul", True)),
                 image=str(body.get("image", "portrait")),
                 image_bytes=image_bytes,
-                fit=str(body.get("fit", "contain")),
+                fit=str(body.get("fit", "none")),
                 attribution=bool(body.get("attribution", True)),
                 timestamps=bool(body.get("timestamps", True)),
                 filename=body.get("filename") or None,

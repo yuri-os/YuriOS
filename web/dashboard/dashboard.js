@@ -1,6 +1,7 @@
 import { $, $$, element, errorMessage, setBusy, showToast } from "../shared/dom.js";
 import { charactersApi } from "./api.js";
 import { request } from "../shared/http.js";
+import { ApiError, studioApi } from "../studio/api.js";
 import {
   changedFields,
   contextEntries,
@@ -46,6 +47,9 @@ const elements = {
   brainDialog: $("#brain-dialog"),
   archiveDialog: $("#archive-dialog"),
   toastRegion: $("#toast-region"),
+  exportButton: $("#drawer-export"),
+  exportError: $("#export-error"),
+  exportDialog: $("#export-dialog"),
 };
 
 const state = {
@@ -60,6 +64,8 @@ const state = {
   // user was trying to open when it got in the way
   reviewId: null,
   pendingRoom: null,
+  exporting: false,
+  exportReviewId: null,
   // the diary's own place in the book: which day list page, or which day's
   // page is open — reset whenever a different character's drawer opens
   journal: { view: "days", page: 0, day: null },
@@ -347,7 +353,6 @@ function syncDrawer() {
   $("#drawer-live2d").href = where.live2d;
   $("#drawer-text").href = where.text;
   $("#drawer-mind").href = where.mind;
-  $("#drawer-export").href = `/api/characters/${encodeURIComponent(character.id)}/export`;
   $("#drawer-studio").href = studio;
   // Her rooms open either way — they are worth a look before you decide — but
   // while she is parked they open onto nothing, and this says why (SPEC §28).
@@ -369,6 +374,7 @@ function openDrawer(id) {
   if (state.selectedId !== id) state.journal = { view: "days", page: 0, day: null };
   state.selectedId = id;
   elements.approveError.textContent = "";      // last character's start failure
+  elements.exportError.textContent = "";
   syncDrawer();
   elements.drawer.classList.add("open");
   elements.drawer.setAttribute("aria-hidden", "false");
@@ -385,6 +391,40 @@ function closeDrawer() {
   elements.shade.hidden = true;
   document.body.style.overflow = "";
   state.selectedId = null;
+}
+
+async function exportCharacter(id, acknowledged = false) {
+  if (!id || state.exporting) return;
+  state.exporting = true;
+  elements.exportError.textContent = "";
+  setBusy(elements.exportButton, true, "Exporting…");
+  try {
+    const result = await studioApi.exportCard(id, { fit: "none", acknowledged });
+    const url = URL.createObjectURL(result.blob);
+    const anchor = element("a", { attrs: { href: url, download: result.filename } });
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    toast(`${result.filename} — download started.`);
+  } catch (error) {
+    if (error instanceof ApiError && error.code === "review_required") {
+      state.exportReviewId = id;
+      $("#export-review-copy").textContent = error.message;
+      $("#export-review-list").replaceChildren(...error.overlaps.map((overlap) =>
+        element("li", {}, element("code", { text: overlap.surface }),
+          element("p", { text: `…${overlap.excerpt}…` }))));
+      $("#export-review-studio").href = `/studio/?character=${encodeURIComponent(id)}`;
+      openModal(elements.exportDialog);
+    } else {
+      const message = `Export failed: ${errorMessage(error)}`;
+      if (state.selectedId === id) elements.exportError.textContent = message;
+      toast(message, "error");
+    }
+  } finally {
+    state.exporting = false;
+    setBusy(elements.exportButton, false, "Exporting…");
+  }
 }
 
 function selectTab(tab) {
@@ -1006,6 +1046,14 @@ function wireEvents() {
   elements.listView.addEventListener("click", () => setView("list"));
   elements.refresh.addEventListener("click", () => loadCharacters({ quiet: true }));
   $("#drawer-close").addEventListener("click", closeDrawer);
+  elements.exportButton.addEventListener("click", () => exportCharacter(state.selectedId));
+  $("#export-review-confirm").addEventListener("click", () => {
+    const id = state.exportReviewId;
+    state.exportReviewId = null;
+    closeModal(elements.exportDialog);
+    exportCharacter(id, true);
+  });
+  elements.exportDialog.addEventListener("close", () => { state.exportReviewId = null; });
   elements.shade.addEventListener("click", closeDrawer);
   $("#detail-tabs").addEventListener("click", (event) => {
     const tab = event.target.closest("[data-tab]")?.dataset.tab;

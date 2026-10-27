@@ -308,13 +308,13 @@ reliably goes wrong when you point her at an instance you already run.
 
 | Key | Default | |
 |---|---|---|
-| `SELFIE_BACKEND` | `off` | `openrouter` · `diffusers` · `krea2` · `mock` · `off`. New installs leave her camera off. |
+| `SELFIE_BACKEND` | `off` | `openrouter` · `diffusers` · `krea2` · `anima` · `mock` · `off`. New installs leave her camera off. |
 | `SELFIE_MODEL` | `bytedance-seed/seedream-4.5` | the hosted route's model |
 | `SELFIE_TEMPLATES_EXTRA` | *(empty)* | your own template overlay yaml |
 | `SELFIE_TEMPLATES` | *(empty)* | a library that **replaces** the shipped one (a character runtime points this at her own `selfie.yaml`) |
 | `SELFIE_LOCAL_MODEL` | *(empty)* | path to a `.safetensors` checkpoint |
 | `SELFIE_LOCAL_DEVICE` | `cuda` | |
-| `SELFIE_LOCAL_STEPS` / `_CFG` | `30` / `5.0` | SDXL sampling |
+| `SELFIE_LOCAL_STEPS` / `_CFG` | `30` / `5.0` | SDXL and Anima sampling |
 | `SELFIE_LOCAL_HIRES` / `_SCALE` / `_DENOISE` | `true` / `1.5` / `0.35` | the second pass |
 | `SELFIE_LOCAL_CPU_OFFLOAD` | `false` | ~2× slower, much less VRAM |
 | `SELFIE_KREA2_STEPS` / `_CFG` | `0` / `-1` | `0`/`-1` = read it off the checkpoint |

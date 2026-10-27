@@ -1,6 +1,8 @@
 import { ApiError, studioApi } from "./api.js";
 import { BUDGETS, SECTIONS, description, equal, normalise, problems, tokens } from "./draft.js";
 import { createOptimizer } from "./optimize.js";
+import { EVERY_MODEL, archTarget, assemble, cellOf, inherited, modelTarget,
+         parseTarget, resolve, usedTargets, withField } from "./wording.js";
 
 const $ = (selector, root = document) => root.querySelector(selector);
 
@@ -21,6 +23,16 @@ const state = {
   bookError: "",
   bookSaving: false,
   bookResetArmed: false,
+  // How her camera words a picture (forge/prompts.py): every layer, as the
+  // server sent it, edited in place. `wordingScope` is which editable layer the
+  // fields write to; `wordingTarget` which cell — every model, one
+  // architecture, one model. `wordingDirty` holds the scopes awaiting a save.
+  wording: null,
+  wordingError: "",
+  wordingScope: "her",
+  wordingTarget: null,
+  wordingDirty: new Set(),
+  wordingResetArmed: false,
   // Where she is — a Vault file like the library above, arriving with the card
   // draft and saved on its own. `derived` is whether it is still the machine's
   // reading of her card, or yours.
@@ -315,8 +327,257 @@ function imageControl() {
   return wrap;
 }
 
-/* Her selfie library (SPEC §7.6) — the one part of this page that edits a file
-   the *camera* reads rather than the card. It saves on its own debounce, to its
+/* How her camera words a picture (SPEC §7.6, forge/prompts.py) — prefix,
+   postfix and negatives, for every model, one kind of model or one checkpoint,
+   in her layer or the house's. Like the library below it this is a file the
+   camera reads, not the card, and saves on its own debounce; unlike the
+   library it is read per render, so a save reaches her next shot with no
+   restart. It rebuilds only itself — never the whole form — because the form
+   rebuild would tear out the box being typed into. */
+let wordingNode = null;
+
+const ARCH_SHORT = { sdxl: "SDXL", krea2: "Krea 2", anima: "Anima",
+                     openrouter: "hosted", mock: "mock" };
+
+function wordingLayer(scope) {
+  return state.wording?.layers.find((layer) => layer.name === scope) || null;
+}
+
+function cameraLabel(camera) {
+  if (!camera?.architecture) return "her camera is off";
+  const kind = ARCH_SHORT[camera.architecture] || camera.architecture;
+  return camera.model ? `${kind} · ${camera.model}` : kind;
+}
+
+function refreshWording() {
+  const old = wordingNode;              // selfieWordingControl() reassigns it
+  if (!old) return;
+  old.replaceWith(selfieWordingControl());
+}
+
+function selfieWordingControl() {
+  const wrap = element("div", { className: "field field-wording" });
+  wordingNode = wrap;
+  if (!state.id) {
+    wrap.append(element("p", { className: "form-note",
+      text: "Create her first — her camera's wording is a file that lives beside her." }));
+    return wrap;
+  }
+  if (!state.wording) {
+    wrap.append(element("p", { className: "form-note",
+      text: state.wordingError || "Reading her camera's wording…" }));
+    return wrap;
+  }
+
+  const w = state.wording;
+  const scope = state.wordingScope;
+  const layer = wordingLayer(scope);
+  const target = state.wordingTarget || EVERY_MODEL;
+  const used = usedTargets(w.layers);
+
+  const head = element("div", { className: "field-head" },
+    element("span", { className: "field-label", text: "Prompt wording" }));
+  const scopes = element("div", { className: "seg" });
+  for (const [value, label] of [["her", "Her"], ["house", "Every character"]]) {
+    const button = element("button", { className: scope === value ? "on" : "",
+      attrs: { type: "button" }, text: label });
+    button.addEventListener("click", () => {
+      state.wordingScope = value;
+      state.wordingResetArmed = false;
+      refreshWording();
+    });
+    scopes.append(button);
+  }
+  head.append(scopes);
+  if (layer && !isEmptyProfile(layer.profile)) {
+    const reset = element("button", {
+      className: `button button-quiet book-reset${state.wordingResetArmed ? " armed" : ""}`,
+      attrs: { type: "button" },
+    }, icon("back"), element("span", { text: state.wordingResetArmed
+      ? "Clear all of it — sure?"
+      : scope === "her" ? "Clear her wording" : "Clear the house wording" }));
+    reset.addEventListener("click", () => {
+      if (!state.wordingResetArmed) {
+        state.wordingResetArmed = true;
+        refreshWording();
+        return;
+      }
+      resetSelfieWording(scope);
+    });
+    head.append(reset);
+  }
+  wrap.append(head);
+  wrap.append(element("small", { className: "field-hint", text: scope === "her"
+    ? "How her camera asks for a picture. Set it for every model, one kind of model or one checkpoint — the narrowest setting wins, and anything here beats the house's. An empty field inherits."
+    : `Every character inherits this, unless her own wording says otherwise. Saved to ${w.paths.house}.` }));
+
+  wrap.append(targetPicker(target, used));
+
+  const fields = element("div", { className: "wording-fields" });
+  const from = inherited(w.layers, scope, target, w.models);
+  const cell = cellOf(layer?.profile, target);
+  for (const field of w.fields) {
+    const own = (cell[field.key] || "").trim();
+    const note = element("span", { className: `wording-source${own ? " own" : ""}`,
+      text: own ? "set here" : from[field.key].source
+        ? `inherits · ${from[field.key].source}` : "nothing set" });
+    const box = element("textarea", { attrs: { rows: field.key.endsWith("negative") ? 3 : 2,
+      placeholder: from[field.key].value || "(empty)" } });
+    box.value = cell[field.key] || "";
+    box.addEventListener("input", () => {
+      const index = state.wording.layers.findIndex((l) => l.name === scope);
+      if (index < 0) return;
+      state.wording.layers[index].profile = withField(
+        state.wording.layers[index].profile, target, field.key, box.value);
+      const set = box.value.trim() !== "";
+      note.textContent = set ? "set here" : from[field.key].source
+        ? `inherits · ${from[field.key].source}` : "nothing set";
+      note.classList.toggle("own", set);
+      state.wordingResetArmed = false;
+      state.wordingDirty.add(scope);
+      renderWordingPreview();
+      scheduleWordingSave();
+    });
+    fields.append(element("label", { className: "field field-textarea" },
+      element("span", { className: "field-head" },
+        element("span", { className: "field-label", text: field.label }), note),
+      element("small", { className: "field-hint", text: field.hint }), box));
+  }
+  wrap.append(fields);
+  wrap.append(element("div", { className: "wording-preview", attrs: { id: "wording-preview" } }));
+  renderWordingPreview(wrap.querySelector(".wording-preview"));
+  return wrap;
+}
+
+function isEmptyProfile(profile) {
+  return !profile || (!Object.keys(profile.default || {}).length
+    && !Object.keys(profile.architectures || {}).length
+    && !Object.keys(profile.models || {}).length);
+}
+
+function targetPicker(target, used) {
+  const w = state.wording;
+  const mark = (value, text) => (used.has(value) ? `● ${text}` : text);
+  const select = element("select", { attrs: { "aria-label": "Which models this wording is for" } });
+  const option = (value, text) => {
+    const node = element("option", { attrs: { value }, text });
+    if (value === target) node.selected = true;
+    return node;
+  };
+  select.append(option(EVERY_MODEL, mark(EVERY_MODEL, "Every model")));
+  const kinds = element("optgroup", { attrs: { label: "One kind of model" } });
+  for (const arch of w.architectures) {
+    const value = archTarget(arch.key);
+    const here = arch.key === w.camera.architecture ? " · her camera's kind" : "";
+    kinds.append(option(value, mark(value, `${arch.label}${here}`)));
+  }
+  select.append(kinds);
+  const models = element("optgroup", { attrs: { label: "One model" } });
+  const listed = new Set();
+  for (const model of w.models) {
+    const value = modelTarget(model.key);
+    listed.add(model.key);
+    const kind = ARCH_SHORT[model.architecture] || "unknown kind";
+    const here = model.key === w.camera.model ? " · her camera" : "";
+    models.append(option(value, mark(value, `${model.key} (${kind})${here}`)));
+  }
+  // A model typed in below that nothing lists yet still needs to be selectable.
+  const { kind, key } = parseTarget(target);
+  if (kind === "model" && !listed.has(key)) {
+    models.append(option(target, `${key} (new)`));
+  }
+  select.append(models);
+  select.addEventListener("change", () => {
+    state.wordingTarget = select.value;
+    state.wordingResetArmed = false;
+    refreshWording();
+  });
+
+  const other = element("input", { attrs: { type: "text",
+    placeholder: "another model — a checkpoint file name or a hosted model id" } });
+  other.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    const name = other.value.trim();
+    if (!name) return;
+    state.wordingTarget = modelTarget(name);
+    refreshWording();
+  });
+  return element("div", { className: "wording-picker" },
+    element("span", { className: "field-label", text: "For" }), select, other);
+}
+
+/* What her camera sends right now, with whatever is in the boxes — the scene
+   left as a marker, because the library below picks that per shot. */
+function renderWordingPreview(node = document.getElementById("wording-preview")) {
+  if (!node || !state.wording) return;
+  const w = state.wording;
+  const camera = w.camera;
+  const resolved = resolve(w.layers, camera.architecture || "", camera.model || "");
+  const prompt = assemble(resolved, w.identity, w.negative_extra);
+  const sources = w.fields.filter((f) => resolved[f.key].source).map((f) =>
+    element("li", {}, element("strong", { text: f.label }), ` ← ${resolved[f.key].source}`));
+  node.replaceChildren(
+    element("p", { className: "field-label", text: `What her camera sends now — ${cameraLabel(camera)}` }),
+    element("p", { className: "wording-prompt", text: prompt.positive }),
+    element("p", { className: "field-label", text: "Negative" }),
+    element("p", { className: "wording-prompt negative", text: prompt.negative || "(none)" }),
+    element("ul", { className: "wording-sources" }, ...sources));
+}
+
+const scheduleWordingSave = debounce(async () => {
+  if (!state.id || !state.wording) return;
+  const scopes = [...state.wordingDirty];
+  state.wordingDirty.clear();
+  setSaveState("saving her camera's wording", true);
+  try {
+    for (const scope of scopes) {
+      const layer = wordingLayer(scope);
+      if (!layer) continue;
+      // The reply is the server's whole view; only what the page cannot know
+      // is taken from it. The layers stay the page's own — a reply to an older
+      // save must not overwrite what was typed while it was in flight.
+      const payload = await studioApi.saveSelfiePrompts(state.id, scope, layer.profile);
+      state.wording.models = payload.models;
+      state.wording.camera = payload.camera;
+    }
+    setSaveState("saved");
+    notice("");
+  } catch (error) {
+    for (const scope of scopes) state.wordingDirty.add(scope);
+    setSaveState("wording not saved");
+    notice(error.message || "Could not save her camera's wording.");
+  }
+}, 1200);
+
+async function resetSelfieWording(scope) {
+  try {
+    state.wording = await studioApi.resetSelfiePrompts(state.id, scope);
+    state.wordingDirty.delete(scope);
+    state.wordingResetArmed = false;
+    refreshWording();
+    toast(scope === "her" ? "Her wording is gone — she inherits the house's."
+                          : "The house wording is gone — back to the shipped register.");
+  } catch (error) {
+    toast(error.message || "Could not clear that wording.", "error");
+  }
+}
+
+async function loadSelfieWording() {
+  try {
+    state.wording = await studioApi.selfiePrompts(state.id);
+    const camera = state.wording.camera;
+    // Open on her camera's own model: the setting someone came here to change.
+    state.wordingTarget ||= camera.model ? modelTarget(camera.model)
+      : camera.architecture ? archTarget(camera.architecture) : EVERY_MODEL;
+  } catch (error) {
+    state.wordingError = error.message || "Could not read her camera's wording.";
+  }
+  refreshWording();
+}
+
+/* Her selfie library (SPEC §7.6) — with the wording above, the part of this
+   page that edits files the *camera* reads rather than the card. It saves on its own debounce, to its
    own endpoint, because writing it restarts her runtime: the forge builds the
    book once at start, and the `take_selfie` description is built from the same
    book, so a saved row nobody restarted for is a page describing scenes she
@@ -576,6 +837,7 @@ function renderForm() {
       else if (field.type === "lorebook") grid.append(lorebookControl());
       else if (field.type === "image") grid.append(imageControl());
       else if (field.type === "selfiebook") grid.append(selfieBookControl());
+      else if (field.type === "selfiewording") grid.append(selfieWordingControl());
       else if (field.type === "setting") grid.append(settingControl());
       else if (field.type === "export") grid.append(exportControl());
       else grid.append(fieldControl(field));
@@ -1000,6 +1262,7 @@ async function boot() {
       setSaveState("saved");
       loadSelfieBook();                  // off the critical path — the form
                                          // renders without it and fills in
+      loadSelfieWording();
     } else {
       const payload = await studioApi.template();
       state.draft = normalise(payload.draft);

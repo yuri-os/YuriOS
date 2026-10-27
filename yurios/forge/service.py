@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import time
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, Optional
 
@@ -24,6 +25,7 @@ import yaml
 from . import provenance as _prov
 from .backends import ImageBackend, make_backend
 from .character import Character
+from .prompts import PromptSources
 from .templates import SelfieBook
 from .types import EditRequest, GenRequest, ImageResult
 
@@ -37,12 +39,16 @@ class ImageForge:
         *,
         out_dir: str | Path = "out",
         provenance_mode: str = "strip",
+        wording: Optional[PromptSources] = None,
     ) -> None:
         self.character = character
         self.book = book
         self.backend = backend
         self.out_dir = Path(out_dir)
         self.provenance_mode = provenance_mode
+        # Where the prefix/postfix/negatives come from, per model. None keeps
+        # whatever `character` was loaded with (a bare forge, the tests).
+        self.wording = wording
 
     # ---- construction ----
 
@@ -65,6 +71,15 @@ class ImageForge:
             out_dir=rel(cfg.get("out_dir", "out")),
             provenance_mode=cfg.get("provenance", "strip"),
         )
+
+    def dressed(self) -> Character:
+        """Her character, worded for the camera holding the card right now —
+        resolved per render, so a studio edit reaches the next shot."""
+        if self.wording is None:
+            return self.character
+        resolved = self.wording.resolve(self.backend)
+        return replace(self.character,
+                       **{key: entry["value"] for key, entry in resolved.items()})
 
     # ---- live backend swap ----
 
@@ -90,7 +105,7 @@ class ImageForge:
         **over: Any,
     ) -> ImageResult:
         """Assemble register + identity + scene, render, stamp, save."""
-        positive, negative = self.character.assemble(
+        positive, negative = self.dressed().assemble(
             scene_prompt, include_character=include_character, negative_extra=negative_extra)
         req = GenRequest(
             prompt=positive, negative_prompt=negative,

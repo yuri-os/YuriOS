@@ -36,6 +36,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from yurios.forge import ImageForge
+    from yurios.forge.prompts import PromptSources
 
 import asyncio
 import logging
@@ -183,8 +184,8 @@ def _identity(cfg):
 
 def build_forge(cfg) -> tuple["ImageForge", str]:
     """The forge behind the lab, from config. Returns (forge, status) where
-    status is what /api/health reports: "openrouter" | "diffusers" | "mock" |
-    "<backend> (unavailable — why)".
+    status is what /api/health reports: "openrouter" | "diffusers" | "krea2" |
+    "anima" | "mock" | "<backend> (unavailable — why)".
 
     A backend that can't run at boot stays the backend (SPEC §7.6): the lab asks
     it again before every shot, so mounting the drive or setting the key brings
@@ -217,20 +218,19 @@ def build_forge(cfg) -> tuple["ImageForge", str]:
                 "one is set; no placeholder is sent in its place. Set "
                 "OPENROUTER_API_KEY in .env to give her a real camera.")
             status = "openrouter (unavailable — no key)"
-    elif name in ("diffusers", "krea2"):
-        # One knob, two architectures: SELFIE_LOCAL_MODEL may be an SDXL UNet
-        # or a Krea 2 transformer, and they need entirely different loaders.
+    elif name in ("diffusers", "krea2", "anima"):
+        # One knob, three architectures: SELFIE_LOCAL_MODEL may be an SDXL UNet,
+        # a Krea 2 transformer or an Anima one, and each needs its own loader.
         # The checkpoint says which it is (its safetensors header, read without
         # torch), so the user doesn't have to — an explicit SELFIE_BACKEND=krea2
-        # still wins, for a file whose header is unhelpful.
-        from yurios.forge.backends.sniff import sniff_local_checkpoint_architecture
-        if name == "diffusers":
-            arch = sniff_local_checkpoint_architecture(cfg.selfie_local_model)
-            if arch == "krea2":
-                log.info("selfies: %s is a Krea 2 checkpoint — using the krea2 "
-                         "backend (SELFIE_BACKEND=diffusers picks the loader "
-                         "from the file).", Path(cfg.selfie_local_model).name)
-                name = status = "krea2"
+        # or =anima still wins, for a file whose header is unhelpful.
+        routed = _local_backend(cfg)
+        if routed != name:
+            log.info("selfies: %s is %s checkpoint — using the %s backend "
+                     "(SELFIE_BACKEND=diffusers picks the loader from the "
+                     "file).", Path(cfg.selfie_local_model).name,
+                     "a Krea 2" if routed == "krea2" else "an Anima", routed)
+            name = status = routed
 
         if name == "krea2":
             # shared=True: one checkpoint, one pipeline, however many
@@ -243,6 +243,17 @@ def build_forge(cfg) -> tuple["ImageForge", str]:
                 cpu_offload=cfg.selfie_local_cpu_offload)
             hint = ("Fix: pip install -e \".[forge-krea2]\" and point "
                     "SELFIE_LOCAL_MODEL in .env at a Krea 2 .safetensors "
+                    "checkpoint (see .env.example).")
+        elif name == "anima":
+            # Anima's sampling numbers are SDXL's own (~30 steps, guidance
+            # 4–5), so it shares those two knobs; the hires pass is SDXL's.
+            backend = make_backend(
+                "anima", shared=True, model_path=cfg.selfie_local_model,
+                device=cfg.selfie_local_device, steps=cfg.selfie_local_steps,
+                cfg=cfg.selfie_local_cfg,
+                cpu_offload=cfg.selfie_local_cpu_offload)
+            hint = ("Fix: pip install -e \".[forge-local]\" and point "
+                    "SELFIE_LOCAL_MODEL in .env at an Anima .safetensors "
                     "checkpoint (see .env.example).")
         else:
             backend = make_backend(
@@ -267,8 +278,71 @@ def build_forge(cfg) -> tuple["ImageForge", str]:
         backend = make_backend(name)
 
     return (ImageForge(character, book, backend,
-                       out_dir=cfg.selfie_dir, provenance_mode="strip"),
+                       out_dir=cfg.selfie_dir, provenance_mode="strip",
+                       wording=wording_for(cfg)),
             status)
+
+
+def _local_backend(cfg) -> str:
+    """Which local backend SELFIE_BACKEND names for this checkpoint: an
+    explicit krea2/anima as written, `diffusers` re-routed by the file's own
+    header (forge/backends/sniff.py) — cheap, no torch."""
+    name = cfg.selfie_backend
+    if name != "diffusers":
+        return name
+    from yurios.forge.backends.sniff import sniff_local_checkpoint_architecture
+    arch = sniff_local_checkpoint_architecture(cfg.selfie_local_model)
+    return arch if arch in ("krea2", "anima") else name
+
+
+def camera_identity(cfg) -> tuple[str, str]:
+    """(architecture, model) the camera `build_forge` would build for `cfg`,
+    without building it — the keys her per-model wording is matched against
+    (forge/prompts.py `camera_of`). ("", "") when her camera is off."""
+    name = cfg.selfie_backend
+    if name == "openrouter":
+        return "openrouter", cfg.selfie_model
+    if name in ("diffusers", "krea2", "anima"):
+        routed = _local_backend(cfg)
+        model = Path(cfg.selfie_local_model).name if cfg.selfie_local_model else ""
+        return ("sdxl" if routed == "diffusers" else routed), model
+    if name == "mock":
+        return "mock", ""
+    return "", ""
+
+
+def local_checkpoints(cfg, *, limit: int = 200) -> list[tuple[str, str]]:
+    """(file name, architecture) for the checkpoints beside SELFIE_LOCAL_MODEL —
+    the models on this machine her wording can be set for. Headers only."""
+    from yurios.forge.backends.sniff import sniff_local_checkpoint_architecture
+    if not cfg.selfie_local_model:
+        return []
+    folder = Path(cfg.selfie_local_model).parent
+    try:
+        files = sorted(folder.glob("*.safetensors"))[:limit]
+    except OSError:
+        return []
+    out = []
+    for f in files:
+        arch = sniff_local_checkpoint_architecture(f)
+        out.append((f.name, "" if arch == "unknown" else arch))
+    return out
+
+
+def wording_for(cfg) -> "PromptSources":
+    """Where this camera's prefix, postfix and negatives come from (SPEC §7.6):
+    the shipped register, the house's file under DATA_DIR, her appearance file
+    and her own file beside it — read per render, by forge/prompts.py."""
+    from yurios.forge.character import REGISTER_PATH
+    from yurios.forge.prompts import CHARACTER_FILE, HOUSE_FILE, PromptSources
+
+    appearance = Path(cfg.selfie_character) if cfg.selfie_character else None
+    return PromptSources(
+        register=REGISTER_PATH,
+        house=Path(cfg.data_dir) / HOUSE_FILE,
+        # The bare install's house character, as `_identity` loads her.
+        appearance=appearance or FORGE_DIR / "characters" / "yuri.yaml",
+        character=appearance.parent / CHARACTER_FILE if appearance else None)
 
 
 class SelfieLab:

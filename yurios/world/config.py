@@ -161,6 +161,10 @@ class Config(VoiceConfig):
     # guidance 0.0 for a turbo/TDM export, 28 at 4.5 for a base one.
     selfie_krea2_steps: int = 0
     selfie_krea2_cfg: float = -1.0
+    # Anima checkpoints (the Cosmos diffusion transformer) are detected the same
+    # way and loaded by the anima backend. Their sampling is SDXL's own — ~30
+    # steps at guidance 4–5 — so they use SELFIE_LOCAL_STEPS / _CFG above; the
+    # hires pass is SDXL-only.
     # When a local render is requested and free VRAM won't hold the resident
     # pipeline, park her LLM for the render's duration: LM Studio models are
     # evicted and re-pinned via the boot path's ensure_resident; direct gguf/

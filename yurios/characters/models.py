@@ -159,6 +159,10 @@ class CharacterPaths:
     # shipped book rather than merging over it (characters/selfiebook.py). Absent
     # for every character who has never opened the studio's Selfies section.
     selfie_templates: Path
+    # How her camera words a picture, per model — prefix, postfix, negatives
+    # (forge/prompts.py). Hers beats the house's; absent until the studio's
+    # Selfies section writes her a setting of her own.
+    selfie_prompts: Path
     # Where she is — the standing place her situation block puts her in (§2.5).
     # Derived from her card at import (characters/setting.py) and hand-editable
     # after. Inside the Vault, because it is world state and travels with her.
@@ -180,6 +184,7 @@ class CharacterPaths:
             uploads=root / "uploads",
             appearance=root / "appearance.yaml",
             selfie_templates=root / "selfie.yaml",
+            selfie_prompts=root / "selfie-prompts.yaml",
             setting=root / "vault" / "world" / "setting.md",
         )
 

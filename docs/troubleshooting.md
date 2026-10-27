@@ -196,6 +196,7 @@ restart.
 | `openrouter (unavailable — no key)` | `SELFIE_BACKEND=openrouter` with no `OPENROUTER_API_KEY` |
 | `diffusers (unavailable — …)` | missing `.[forge-local]`, or `SELFIE_LOCAL_MODEL` doesn't point at a checkpoint |
 | `krea2 (unavailable — …)` | missing `.[forge-krea2]`, or no Hugging Face access to the gated `krea/Krea-2-Raw` |
+| `anima (unavailable — …)` | missing `.[forge-local]`, or `SELFIE_LOCAL_MODEL` doesn't point at a checkpoint |
 
 **Renders take ~70 s** — the pipeline is being CPU-offloaded because VRAM is full. Turn on
 `SELFIE_LLM_PARK` (the default) to lend the LLM's VRAM for the render's duration; it drops to

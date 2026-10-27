@@ -10,27 +10,14 @@ is tested as pure string rules, which is exactly what it is.
 """
 from __future__ import annotations
 
-import json
-import struct
-
 import pytest
 from PIL import Image
 
+from tests.support.checkpoints import write_safetensors_header
 from yurios.forge.backends.krea2 import Krea2Backend, rename_key
 from yurios.forge.backends.sniff import sniff_local_checkpoint_architecture
 from yurios.forge.types import GenRequest
 from yurios.world.selfies import build_forge
-
-
-def write_safetensors_header(path, keys, metadata=None):
-    """A real safetensors header (8-byte length + JSON) with no tensor data —
-    which is all the sniffing and the metadata reads ever look at."""
-    header = {k: {"dtype": "F32", "shape": [1], "data_offsets": [0, 4]} for k in keys}
-    if metadata is not None:
-        header["__metadata__"] = metadata
-    blob = json.dumps(header).encode()
-    path.write_bytes(struct.pack("<Q", len(blob)) + blob + b"\x00" * 4)
-    return path
 
 
 class _Out:

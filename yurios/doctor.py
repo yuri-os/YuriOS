@@ -77,23 +77,29 @@ def collect(cfg) -> list[Check]:
                   "gpt_sovits": "soundfile"}.get(cfg.tts_backend, "")
     tts_extra = {"kokoro": "tts", "qwen3_tts": "tts-qwen",
                  "gpt_sovits": "tts-sovits"}.get(cfg.tts_backend, "tts")
-    # The local camera is one knob over two architectures: SELFIE_BACKEND=
-    # diffusers renders a Krea 2 checkpoint through the krea2 backend, which
-    # needs a different extra. Read it off the file, the same way build_forge
-    # does — cheap (a safetensors header), and no torch import.
+    # The local camera is one knob over three architectures: SELFIE_BACKEND=
+    # diffusers renders a Krea 2 checkpoint through the krea2 backend (which
+    # needs a different extra) and an Anima one through the anima backend.
+    # Read it off the file, the same way build_forge does — cheap (a
+    # safetensors header), and no torch import.
     selfie_backend = getattr(cfg, "selfie_backend", "off")
     selfie_shown = selfie_backend
-    if selfie_backend in ("diffusers", "krea2"):
+    if selfie_backend in ("diffusers", "krea2", "anima"):
         from yurios.forge.backends.sniff import sniff_local_checkpoint_architecture
         arch = sniff_local_checkpoint_architecture(getattr(cfg, "selfie_local_model", ""))
-        if selfie_backend == "diffusers" and arch == "krea2":
-            selfie_backend = "krea2"
-            selfie_shown = "diffusers → krea2 (from the checkpoint)"
+        if selfie_backend == "diffusers" and arch in ("krea2", "anima"):
+            selfie_backend = arch
+            selfie_shown = f"diffusers → {arch} (from the checkpoint)"
     if selfie_backend == "krea2":
         selfie_module, selfie_extra = "comfy_kitchen", "forge-krea2"
         selfie_note = ("in-process Krea 2 (INT4); also needs CUDA torch, a "
                        "checkpoint at SELFIE_LOCAL_MODEL, and HF access to "
                        "the gated krea/Krea-2-Raw for its text encoder/VAE")
+    elif selfie_backend == "anima":
+        selfie_module, selfie_extra = "diffusers", "forge-local"
+        selfie_note = ("in-process Anima; also needs CUDA torch, a checkpoint "
+                       "at SELFIE_LOCAL_MODEL, and a one-off ~1.5 GB fetch of "
+                       "its text encoder/VAE from Hugging Face")
     elif selfie_backend == "diffusers":
         selfie_module, selfie_extra = "diffusers", "forge-local"
         selfie_note = ("in-process SDXL; also needs CUDA torch and a "

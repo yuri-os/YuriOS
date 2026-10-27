@@ -48,3 +48,30 @@ character_negative: >-
 # 2:3 portrait, the aspect the canon art uses.
 width: 832
 height: 1216
+
+# The same register, worded for a model family that wants it said differently
+# (forge/prompts.py). An entry here beats the fields above for that camera only;
+# the house's data/selfie-prompts.yaml and each character's own file can narrow
+# it further, down to one checkpoint. Keys are sniff.py's architecture names.
+architectures:
+  # Anima (a Cosmos DiT with a Qwen3 text encoder). Its card's own quality tags,
+  # score_* included, then the house style in prose — Qwen3 reads sentences. The
+  # negatives are tags, not the prose above: a language-model encoder reads "eyes
+  # are properly structured" in a NEGATIVE prompt as exactly what to avoid. No
+  # rating tag (safe / sensitive / …): which register renders is the template
+  # tier's business, not the register's.
+  anima:
+    quality_preamble: >-
+      masterpiece, best quality, score_7, newest, highres, very aesthetic, anime key
+      visual. High-end 2.5D semi-realistic anime art — halfway between anime
+      illustration and a polished 3D render, the register of a premium collectible
+      character card or anime key visual: soft airbrushed cel shading, dreamy
+      volumetric lighting, rich saturated color, fine painterly detail, creamy bokeh
+      depth of field. Not photorealistic, not a flat cartoon.
+    base_negative: >-
+      worst quality, low quality, score_1, score_2, score_3, lowres, blurry, jpeg
+      artifacts, artist name, signature, watermark, logo, text, ui
+    character_negative: >-
+      bad anatomy, bad hands, extra fingers, missing fingers, fused fingers, extra
+      limbs, missing limbs, blank eyes, empty eyes, asymmetric eyes, cross-eyed,
+      deformed eyes, extra pupils

@@ -78,6 +78,14 @@ export const studioApi = Object.freeze({
     method: "PUT", body: JSON.stringify({ book }),
   }),
   resetSelfieBook: (id) => request(at(id, "/selfie-templates"), { method: "DELETE" }),
+  // How her camera words a picture, per model. Two editable scopes — hers and
+  // the house's — each saved whole; read per render, so no restart follows.
+  selfiePrompts: (id) => request(at(id, "/selfie-prompts")),
+  saveSelfiePrompts: (id, scope, profile) => request(at(id, "/selfie-prompts"), {
+    method: "PUT", body: JSON.stringify({ scope, profile }),
+  }),
+  resetSelfiePrompts: (id, scope) => request(
+    at(id, `/selfie-prompts?scope=${encodeURIComponent(scope)}`), { method: "DELETE" }),
   setPortrait: (id, body) => request(at(id, "/portrait"), {
     method: "POST", body: JSON.stringify(body),
   }),

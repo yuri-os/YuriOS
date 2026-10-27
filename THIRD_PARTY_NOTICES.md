@@ -32,3 +32,11 @@ and neither is redistributed here:
   under Krea's own licence (accept it on that page, then `huggingface-cli
   login`). Krea 2 weights — including any community quantization of them —
   carry that licence and its distribution restrictions. Review it before use.
+
+It also loads a user-supplied **Anima** checkpoint (detected from the file,
+rendered by the `anima` backend). Its text encoder, tokenizers and VAE are
+fetched at first render from
+[`circlestone-labs/Anima-Base-v1.0-Diffusers`](https://huggingface.co/circlestone-labs/Anima-Base-v1.0-Diffusers)
+and are not redistributed here. Anima weights carry CircleStone Labs' own
+licence, which limits the model to non-commercial use — review it on
+[the model card](https://huggingface.co/circlestone-labs/Anima) before use.

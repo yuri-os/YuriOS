@@ -2,9 +2,10 @@
 
 The source registry also carries `comfyui` / `replicate` (hosted-GPU paths).
 This build vendors the GPU-free pair (`mock` needs nothing, `openrouter` needs
-a key) plus two local-first cameras (→ ch. 11), each loading a single-file
-checkpoint in-process on your own GPU: `diffusers` (an SDXL UNet) and `krea2`
-(a Krea 2 diffusion transformer, kept in INT4). Which of the two a given
+a key) plus three local-first cameras (→ ch. 11), each loading a single-file
+checkpoint in-process on your own GPU: `diffusers` (an SDXL UNet), `krea2`
+(a Krea 2 diffusion transformer, kept in INT4) and `anima` (an Anima / Cosmos
+diffusion transformer). Which of them a given
 checkpoint needs is read off the file itself — see `sniff.py`, and
 `world/selfies.py`'s `build_forge`. Add a provider by writing one
 ``ImageBackend`` and registering it here — nothing else changes.
@@ -38,11 +39,17 @@ def _krea2(**opts: Any) -> ImageBackend:
     return Krea2Backend(**opts)
 
 
+def _anima(**opts: Any) -> ImageBackend:
+    from .anima import AnimaBackend
+    return AnimaBackend(**opts)
+
+
 REGISTRY: Dict[str, Callable[..., ImageBackend]] = {
     "mock": _mock,
     "openrouter": _openrouter,
     "diffusers": _diffusers,
     "krea2": _krea2,
+    "anima": _anima,
 }
 
 

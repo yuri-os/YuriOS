@@ -1014,20 +1014,38 @@ to every new subscriber before its first live event. Malformed JSON is logged an
   seam — dropped if she's busy, because the photo itself already landed. The default backends are
   GPU-free: `openrouter` (default `bytedance-seed/seedream-4.5`; point `SELFIE_MODEL` at
   `sourceful/riverflow-v2.5-pro` for the brand-art register) or `mock` (deterministic
-  placeholders; the tests). Two opt-in backends render locally instead, each on a user-supplied
-  single-file checkpoint that is never shipped: `diffusers` (an SDXL UNet) and `krea2` (a Krea 2
-  diffusion transformer, kept in INT4 and never dequantized — at bf16 it fits no consumer card).
-  Which of the two a given checkpoint needs **MUST** be read off the file itself
+  placeholders; the tests). Three opt-in backends render locally instead, each on a user-supplied
+  single-file checkpoint that is never shipped: `diffusers` (an SDXL UNet), `krea2` (a Krea 2
+  diffusion transformer, kept in INT4 and never dequantized — at bf16 it fits no consumer card)
+  and `anima` (an Anima checkpoint: the Cosmos Predict2 diffusion transformer and its text
+  adapter, in bf16). Which of them a given checkpoint needs **MUST** be read off the file itself
   (`forge/backends/sniff.py`), so `SELFIE_BACKEND=diffusers` names *the local camera*, not one
-  architecture. Any backend that cannot run — `openrouter` with no key, a local one missing deps,
-  its checkpoint, or (krea2) access to the gated companion repo its text encoder and VAE come
-  from — **MUST** say so with one loud WARNING at boot and report `<backend> (unavailable — why)`
+  architecture. The two transformer checkpoints carry no text encoder or VAE; those come once from
+  a companion Hugging Face repo (gated for krea2, public for anima), and the companion's own
+  copies of the weights the checkpoint *does* carry **MUST NOT** be fetched. Any backend that
+  cannot run — `openrouter` with no key, a local one missing deps, its checkpoint, or (krea2)
+  access to the gated companion repo its text encoder and VAE come from — **MUST** say so with one loud WARNING at boot and report `<backend> (unavailable — why)`
   as its status, and **MUST NOT** be replaced by `mock`: a placeholder delivered as her photo is a
   picture she did not take. `mock` renders only when `SELFIE_BACKEND` names it. The lab **MUST**
   ask the backend whether it can run before every shot, and before any park, so a drive mounted
   or a key set after boot brings the camera back without a restart; a shot it cannot take fails
   like any other render. A failed render **MUST** become a quiet chat message, never a crash and
   never silence — one refused for an unavailable camera names why.
+
+  **How the camera words a picture** (`forge/prompts.py`): every prompt is prefix, who she is, the
+  scene and a postfix; every negative is the base negative plus, with a person in frame, the
+  anatomy guard and her own. Those four "how" fields — prefix, postfix, negative, person negative —
+  **MUST** be settable for every model, for one architecture (`sdxl`, `krea2`, `anima`,
+  `openrouter`, `mock`) and for one model (a checkpoint's file name, or a hosted model id), so two
+  checkpoints of one family can be worded differently. They resolve through four layers, each
+  winning outright over the ones before it — the shipped register, the house's
+  `DATA_DIR/selfie-prompts.yaml`, her `appearance.yaml`, her own `selfie-prompts.yaml` — and within
+  a layer the narrowest cell that sets a field wins. An empty field **MUST** mean "inherit", never a
+  value, and an appearance field that only restates the shipped register is not an override. The
+  wording **MUST** be resolved per render against the backend actually holding the card, so an
+  edit reaches the next shot without a restart; a file that will not parse costs its own wording
+  and a WARNING, never the shot. The studio's Selfies section edits her layer and the house's,
+  showing for each field which layer and cell it comes from and the prompt her camera sends now.
 
   The same lab is reachable from owner HTTP without going through a hand: `POST /api/selfie` and
   `POST /api/picture` (and the per-character forms under `/api/characters/<id>/…`) start a render

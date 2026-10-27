@@ -21,7 +21,7 @@ never a crash, and never silence about a promise she made.
 ## Choosing a backend
 
 ```ini
-SELFIE_BACKEND=off                # openrouter | diffusers | krea2 | mock | off
+SELFIE_BACKEND=off                # openrouter | diffusers | krea2 | anima | mock | off
 ```
 
 | Backend | Where it renders | Needs |
@@ -30,6 +30,7 @@ SELFIE_BACKEND=off                # openrouter | diffusers | krea2 | mock | off
 | `openrouter` | hosted — the GPU stays free for her voice | `OPENROUTER_API_KEY` |
 | `diffusers` | **your** GPU, in-process: an SDXL checkpoint | `.[forge-local]` + a checkpoint |
 | `krea2` | **your** GPU, in-process: a Krea 2 transformer, INT4 | `.[forge-krea2]` + a checkpoint + HF access |
+| `anima` | **your** GPU, in-process: an Anima transformer, bf16 | `.[forge-local]` + a checkpoint |
 | `mock` | deterministic placeholder cards | nothing — keyless, offline. Only when this name is set |
 
 With `SELFIE_BACKEND=off` neither tool is advertised to the model: no hand, rather than a dead one.
@@ -114,6 +115,60 @@ bf16, which fits nothing), so the INT4 file runs as-is at ~6.4 GB resident — s
 than unpacking it. Sampling differs from SDXL's, which is why it gets its own two knobs — roughly
 8 steps at guidance 0.0 for a turbo/TDM export, 28 at 4.5 for a base one. Set them only to
 override what the checkpoint says.
+
+## Prompt wording — prefix, postfix, negatives, per model
+
+Every prompt her camera sends is **prefix + who she is + the scene + postfix**, and every negative
+is **the base negative + (with her in frame) the anatomy guard + her own**. Different models want
+those words said differently — SDXL bases answer to booru quality tags, Anima to its own `score_*`
+tags and a tag-shaped negative, a hosted model to plain prose — so all four can be set:
+
+- for **every model**, for **one kind of model** (`sdxl`, `krea2`, `anima`, `openrouter`, `mock`),
+  or for **one model** — a checkpoint's file name, or a hosted model id — so two checkpoints of the
+  same family can differ;
+- by **the house** (every character inherits it) or by **her** (beats the house's, everywhere).
+
+Edit them in the studio: her page → **Selfies** → **Prompt wording**. Pick *Her* or *Every
+character*, pick what it's for (her camera's own model is preselected), and type. Each field says
+where its current value comes from, an empty one inherits, and the box underneath shows the full
+prompt her camera sends right now. It applies to her next shot — no restart.
+
+On disk it's YAML, and hand-editable:
+
+```yaml
+# data/selfie-prompts.yaml (the house) — or data/characters/<id>/selfie-prompts.yaml (hers)
+quality_postfix: "…"                  # every model
+architectures:
+  anima:
+    quality_preamble: "masterpiece, best quality, score_7, …"
+models:
+  anidreamTruehentai_v10.safetensors:
+    base_negative: "worst quality, low quality, score_1, …"
+```
+
+Precedence: the shipped register (`forge/characters/_register.yaml`, which already words Anima its
+own way) < the house file < her `appearance.yaml` < her own file. Within one of those, the narrowest
+setting wins. A file with a typo is skipped with a warning; the shot still renders.
+
+## Anima (`anima`)
+
+Same knob again. An **Anima** checkpoint (Civitai lists its base model as "Anima") is a ~2 B
+Cosmos diffusion transformer with a Qwen3 text encoder — not SDXL, so the SDXL loader can't read
+it. `SELFIE_BACKEND=diffusers` reads the header and routes it to the anima backend;
+`SELFIE_BACKEND=anima` forces it.
+
+Nothing to install beyond `.[forge-local]`. The checkpoint holds the transformer and its text
+adapter only; the text encoder, tokenizers and VAE (~1.5 GB) are fetched once from the public
+[`circlestone-labs/Anima-Base-v1.0-Diffusers`](https://huggingface.co/circlestone-labs/Anima-Base-v1.0-Diffusers)
+repo and cached — its own transformer and adapter weights are skipped, because yours replace them.
+
+Sampling is SDXL's own, so it shares `SELFIE_LOCAL_STEPS` / `SELFIE_LOCAL_CFG`: the model card
+recommends 30–50 steps at guidance 4–5 (a Turbo export: ~10 steps at 1.0). The hires pass is
+SDXL-only. ~5.3 GB resident, ~9.3 GB at peak for a selfie-sized render.
+
+The shipped register words Anima its own way — its card's quality tags (`score_7` …) and a
+tag-shaped negative — with no rating tag; add `safe` / `sensitive` to its prefix under
+[Prompt wording](#prompt-wording--prefix-postfix-negatives-per-model) if you want one.
 
 ### VRAM lending
 

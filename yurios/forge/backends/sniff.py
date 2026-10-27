@@ -1,8 +1,8 @@
 """Cheap checkpoint-architecture detection — no torch, no diffusers.
 
 A `.safetensors` file's header (an 8-byte length prefix + a JSON tensor index)
-is all it takes to tell an SDXL checkpoint from a Krea 2 one: read it, don't
-load it. This is what lets `SELFIE_BACKEND=diffusers` pick the right backend
+is all it takes to tell an SDXL checkpoint from a Krea 2 or an Anima one: read
+it, don't load it. This is what lets `SELFIE_BACKEND=diffusers` pick the right backend
 (→ ch. 26) for whatever checkpoint `SELFIE_LOCAL_MODEL` actually points at,
 before anything heavy gets imported.
 """
@@ -15,6 +15,11 @@ from pathlib import Path
 # Krea 2 exports (this repo's DaSiWa-quantized ones, at least) carry these
 # top-level key prefixes; no other family in this build's lineup does.
 _KREA2_PREFIXES = ("blocks.", "txtfusion.", "first.", "tproj.", "tmlp.")
+
+# Anima's text adapter, under whatever wrapper the export put round it. Nothing
+# else carries one — and it must be looked for before the SDXL rule below,
+# because an Anima file shares SDXL's `model.diffusion_model.` prefix.
+_ANIMA_MARKER = "llm_adapter."
 
 # A real header is JSON in the low megabytes. Anything claiming more is a file
 # that isn't safetensors at all — and since the length is the first 8 bytes of
@@ -41,8 +46,8 @@ def read_safetensors_header(path: str | Path) -> dict:
 
 
 def sniff_local_checkpoint_architecture(path: str | Path) -> str:
-    """"sdxl" | "krea2" | "unknown" — "unknown" for anything that isn't
-    recognizably either (caller decides how to fall back)."""
+    """"sdxl" | "krea2" | "anima" | "unknown" — "unknown" for anything that
+    isn't recognizably one of them (caller decides how to fall back)."""
     header = read_safetensors_header(path)
     if not header:
         return "unknown"
@@ -51,10 +56,14 @@ def sniff_local_checkpoint_architecture(path: str | Path) -> str:
     arch = meta.get("modelspec.architecture", "")
     if arch.startswith("krea"):
         return "krea2"
+    if arch.startswith("anima"):
+        return "anima"
     if arch:                                     # any other declared architecture
         return "sdxl" if "xl" in arch.lower() else "unknown"
 
     keys = [k for k in header if k != "__metadata__"]
+    if any(_ANIMA_MARKER in k for k in keys):
+        return "anima"
     if any(k.startswith(_KREA2_PREFIXES) for k in keys):
         return "krea2"
     if any(k.startswith(("model.diffusion_model.", "conditioner.", "first_stage_model."))

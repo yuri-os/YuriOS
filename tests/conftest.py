@@ -95,6 +95,9 @@ def cfg(tmp_path) -> Config:
         corpus_dir=tmp_path / "corpus", trace_dir=tmp_path / "traces",
         tool_log_dir=tmp_path / "tool-logs",
         upload_dir=tmp_path / "uploads",
+        # The house's own files (selfie-prompts.yaml among them) live here; the
+        # default `./data` would read the developer's real ones.
+        data_dir=tmp_path / "data",
         # Whether her model can be shown a picture (§35) is a question you
         # answer by asking the provider, and the suite is offline — so it is
         # answered here with the documented override instead, which short-

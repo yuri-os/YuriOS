@@ -8,10 +8,12 @@ brand art (→ ch. 26, "one source of truth").
 
 Prompt assembly follows ``artworks/generate.py`` exactly:
 
-    positive = quality_preamble + identity + scene
+    positive = quality_preamble + identity + scene + quality_postfix
     negative = base_negative + (character_negative if a person is in frame)
 
-so on-demand selfies stay on-register with the batch-generated canon set.
+so on-demand selfies stay on-register with the batch-generated canon set. The
+four "how" fields can also be set per architecture and per model, by the house
+and by her; forge/prompts.py resolves them for the camera at render time.
 """
 
 from __future__ import annotations
@@ -31,6 +33,8 @@ class Character:
     name: str
     # The locked register preamble (D-011: 2.5D semi-realistic anime). {AAA}
     quality_preamble: str = ""
+    # Closes every prompt, after the scene — what a model wants said last.
+    quality_postfix: str = ""
     # Who she is, visually — the {YURI} block: face, build, hair, signature marks.
     identity: str = ""
     # Negatives every render gets (no text/watermark/UI…).
@@ -100,6 +104,7 @@ class Character:
         return cls(
             name=d.get("name", base.name),
             quality_preamble=d.get("quality_preamble", base.quality_preamble),
+            quality_postfix=d.get("quality_postfix", base.quality_postfix),
             identity=d.get("identity", base.identity),
             base_negative=d.get("base_negative", base.base_negative),
             character_negative=d.get("character_negative", base.character_negative),
@@ -131,6 +136,7 @@ class Character:
                 parts.append(self.trigger)          # LoRA path uses the token
             parts.append(self.identity)
         parts.append(scene_prompt)
+        parts.append(self.quality_postfix)
         positive = " ".join(p.strip() for p in parts if p and p.strip())
 
         neg = [self.base_negative]

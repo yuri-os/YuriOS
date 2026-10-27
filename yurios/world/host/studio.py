@@ -24,6 +24,7 @@ from fastapi.responses import (FileResponse, JSONResponse, Response, StreamingRe
 
 from yurios.characters import (
     CharacterImporter,
+    CharacterRecord,
 )
 from yurios.characters import selfiebook
 from yurios.characters import studio as studio_model
@@ -391,6 +392,85 @@ def register(app: FastAPI, host: CharacterHost, require) -> None:
         Path(record.paths.selfie_templates).unlink(missing_ok=True)
         await _reload_camera(character_id)
         return {"book": selfiebook.shipped(), "source": "shipped"}
+
+    # How her camera words a picture (§7.6) — prefix, postfix and negatives, for
+    # every model, one architecture or one checkpoint (forge/prompts.py). Two of
+    # the four layers are editable here: hers, and the house's, which every
+    # character inherits. Both are read per render, so a save needs no restart.
+    def _wording_cfg(record: CharacterRecord):
+        return base.model_copy(update={"selfie_character": str(record.paths.appearance)})
+
+    def _wording(record: CharacterRecord) -> dict[str, Any]:
+        from yurios.forge import prompts
+        from yurios.world.selfies import (_identity, camera_identity,
+                                          local_checkpoints, wording_for)
+
+        cfg = _wording_cfg(record)
+        sources = wording_for(cfg)
+        layers = sources.layers()
+        character = _identity(cfg)
+        arch, model = camera_identity(cfg)
+        models = dict(local_checkpoints(cfg))
+        if arch == "openrouter" and model:
+            models.setdefault(model, "openrouter")
+        for name, profile in layers:
+            if name in ("house", "her"):
+                for key in profile.models:
+                    models.setdefault(key, "")
+        return {
+            "fields": [{"key": k, "label": label, "hint": hint}
+                       for k, label, hint in prompts.FIELDS],
+            "architectures": [{"key": k, "label": label}
+                              for k, label in prompts.ARCHITECTURES],
+            "camera": {"architecture": arch, "model": model},
+            "models": [{"key": k, "architecture": a} for k, a in sorted(models.items())],
+            "layers": [{"name": name, "profile": profile.to_dict(),
+                        "editable": name in ("house", "her")}
+                       for name, profile in layers],
+            # Who she is and her own guard: not wording, but the preview needs
+            # them to show the whole prompt her camera sends.
+            "identity": character.identity,
+            "negative_extra": character.character_negative_extra,
+            "effective": prompts.resolve(layers, arch, model),
+            "paths": {"house": str(sources.house), "her": str(sources.character)},
+        }
+
+    def _wording_path(record: CharacterRecord, scope: str) -> Path:
+        from yurios.world.selfies import wording_for
+
+        sources = wording_for(_wording_cfg(record))
+        path = {"house": sources.house, "her": sources.character}.get(scope)
+        if path is None:
+            raise HTTPException(400, "scope must be 'her' or 'house'")
+        return path
+
+    @app.get("/api/characters/{character_id}/selfie-prompts")
+    async def selfie_prompts(character_id: str):
+        return await asyncio.to_thread(_wording, require(character_id))
+
+    @app.put("/api/characters/{character_id}/selfie-prompts")
+    async def save_selfie_prompts(character_id: str, request: Request):
+        from yurios.forge import prompts
+
+        record = require(character_id)
+        body = await request.json()
+        if not isinstance(body, Mapping):
+            raise HTTPException(400, "send {scope, profile}")
+        path = _wording_path(record, str(body.get("scope") or ""))
+        try:
+            profile = prompts.parse(body.get("profile"), strict=True)
+            prompts.write(path, profile)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        except OSError as exc:
+            raise HTTPException(500, f"could not write {path.name}: {exc}") from exc
+        return await asyncio.to_thread(_wording, record)
+
+    @app.delete("/api/characters/{character_id}/selfie-prompts")
+    async def reset_selfie_prompts(character_id: str, scope: str = ""):
+        record = require(character_id)
+        _wording_path(record, scope).unlink(missing_ok=True)
+        return await asyncio.to_thread(_wording, record)
 
     @app.post("/api/characters/{character_id}/portrait")
     async def set_portrait(character_id: str, request: Request):

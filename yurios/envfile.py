@@ -389,7 +389,8 @@ ENRICHED = {"MIND_TOOL_ALLOWLIST": _hands_field,
             "SEARCH_BACKEND": _choice("off", "searxng", "fake"),
             "SEARCH_SAFESEARCH": _choice("0", "1", "2"),
             "CHAT_IMAGE_INPUT": _choice("auto", "on", "off"),
-            "SELFIE_BACKEND": _choice("off", "openrouter", "diffusers", "krea2", "mock"),
+            "SELFIE_BACKEND": _choice("off", "openrouter", "diffusers", "krea2", "anima",
+                              "mock"),
             "MIND_SOUL_IN_PROMPTS": _choice("full", "brief", "off"),
             "NOTIFY_BACKEND": _choice("auto", "shell", "libnotify", "off"),
             "DESKTOP_BODY": _choice("vrm", "live2d"),
@@ -399,7 +400,7 @@ ENRICHED = {"MIND_TOOL_ALLOWLIST": _hands_field,
 #: A derived knob that only means something under one setting of another — the
 #: same `relevant_if` the curated voice fields carry, so the panel hides the
 #: SearXNG address while search is off rather than asking you to fill it in.
-_LOCAL_CAMERA = {"SELFIE_BACKEND": ["diffusers", "krea2"]}
+_LOCAL_CAMERA = {"SELFIE_BACKEND": ["diffusers", "krea2", "anima"]}
 RELEVANT: dict[str, dict[str, list[str]]] = {
     "SEARXNG_URL": {"SEARCH_BACKEND": ["searxng"]},
     "SEARCH_LANGUAGE": {"SEARCH_BACKEND": ["searxng"]},
@@ -409,9 +410,10 @@ RELEVANT: dict[str, dict[str, list[str]]] = {
         "SELFIE_LOCAL_MODEL", "SELFIE_LOCAL_DEVICE", "SELFIE_LOCAL_CPU_OFFLOAD",
         "SELFIE_KREA2_STEPS", "SELFIE_KREA2_CFG", "SELFIE_LLM_PARK",
         "SELFIE_WARM_HEADROOM_GIB", "SELFIE_UNLOAD_AFTER_S")},
+    **{key: {"SELFIE_BACKEND": ["diffusers", "anima"]} for key in (
+        "SELFIE_LOCAL_STEPS", "SELFIE_LOCAL_CFG")},
     **{key: {"SELFIE_BACKEND": ["diffusers"]} for key in (
-        "SELFIE_LOCAL_STEPS", "SELFIE_LOCAL_CFG", "SELFIE_LOCAL_HIRES",
-        "SELFIE_LOCAL_HIRES_SCALE", "SELFIE_LOCAL_HIRES_DENOISE")},
+        "SELFIE_LOCAL_HIRES", "SELFIE_LOCAL_HIRES_SCALE", "SELFIE_LOCAL_HIRES_DENOISE")},
     "NOTIFY_BACKEND": {"NOTIFY_ENABLED": ["true"]},
 }
 
@@ -424,7 +426,7 @@ HELP: dict[str, str] = {
     "GGUF_REPO": "Hugging Face repo to download a gguf/… model from when its id "
                  "can't name one — blank derives it from the id",
     "SELFIE_LOCAL_MODEL": "path to the .safetensors checkpoint — SDXL (Illustrious "
-                          "family) or a Krea 2 export",
+                          "family), a Krea 2 export or an Anima one",
     "MIND_TOOL_COOLDOWN_S": "per-hand overrides of the repeat cooldown, "
                             "e.g. web_search=3600,research=604800",
 }

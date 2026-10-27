@@ -3,13 +3,13 @@
 The image / selfie service behind `take_selfie`: a swappable-backend `ImageForge`
 (→ book ch. 26). First-party YuriOS code, maintained here.
 
-Shipped backends are **`mock`** (needs nothing), **`openrouter`** (needs a key), and two
+Shipped backends are **`mock`** (needs nothing), **`openrouter`** (needs a key), and three
 local cameras that load a single-file checkpoint in-process on your own GPU:
-**`diffusers`** (an SDXL UNet) and **`krea2`** (a Krea 2 diffusion transformer, kept in
-INT4 and never dequantized). The default pair stays GPU-free by construction, because the
+**`diffusers`** (an SDXL UNet), **`krea2`** (a Krea 2 diffusion transformer, kept in
+INT4 and never dequantized) and **`anima`** (an Anima / Cosmos diffusion transformer). The default pair stays GPU-free by construction, because the
 voice stack already owns the local compute budget; the local pair is opt-in by extra
 (`.[forge-local]` / `.[forge-krea2]`) and by a user-supplied checkpoint that is never
-shipped. Which of the two a given checkpoint needs is read off its safetensors header
+shipped. Which of them a given checkpoint needs is read off its safetensors header
 (`backends/sniff.py`), so `SELFIE_BACKEND=diffusers` names *the local camera*, not one
 architecture.
 
@@ -33,5 +33,7 @@ User-facing docs: [`docs/selfies.md`](../../docs/selfies.md).
 - `characters/yuri.yaml` carries no `trigger`/`lora` block. The `Character` schema still
   reads one, but no shipped backend applies it — the local cameras render from the base
   checkpoint only — and a stray trigger token would pollute the hosted prompt.
-- `backends/__init__.py` registers `mock`, `openrouter`, `diffusers` and `krea2` (see the
+- `prompts.py` is how the camera words a picture: prefix, postfix and negatives for every
+  model, one architecture or one checkpoint, layered shipped < house < her (SPEC §7.6).
+- `backends/__init__.py` registers `mock`, `openrouter`, `diffusers`, `krea2` and `anima` (see the
   file header).

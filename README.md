@@ -34,7 +34,7 @@ read, so "what did you do while I was gone?" is a page you open, not a vibe.
 | **[A mind](docs/mind.md)** | SENSE → APPRAISE → DECIDE → ACT → REFLECT → REGULATE, forever. Activity states, a budget governor, salience gates, a DREAM pipeline that consolidates and keeps a diary, a desk and skills she writes herself, goals with provenance, gated self-edits |
 | **[Hands](docs/tools.md)** | Tools over real MCP — timer, music, `take_selfie`, `show_picture`, and the web hands `web_search` / `read_page` / `research` — behind an allowlist, rate limits and a JSONL audit of every call |
 | **[A shelf](docs/mind.md)** | Drop a document in and she reads it — in notes if it's long. What she is reading, what it will cost in model calls, and a stop button that loses nothing, all on the inner-life tab |
-| **[A camera](docs/selfies.md)** | Selfies through a hosted route, or on your own GPU with an SDXL or Krea 2 checkpoint, from a composable template library |
+| **[A camera](docs/selfies.md)** | Selfies through a hosted route, or on your own GPU with an SDXL, Krea 2 or Anima checkpoint, from a composable template library |
 | **[Eyes](docs/models.md#can-she-see-pictures)** | Show her something: attach, paste or drop a picture in any room — or send one to her Telegram — whenever the model she runs on can take one. She keeps her voice on a picture turn, and the photo is asked about, not stored in her memory |
 | **[A house](docs/characters.md)** | Multiple companions, each with her own Vault, memory, models, bot and journal. Import SillyTavern V2/V3 cards; export her as one |
 | **[Any medium](docs/channels.md)** | The web page, a terminal client, Telegram. One conversation, one event bus, thin views |

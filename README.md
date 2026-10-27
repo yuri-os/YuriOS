@@ -176,6 +176,8 @@ resume if interrupted. A finished file's header is checked before **Use for her 
 `SELFIE_LOCAL_MODEL` to it. SFW only by default; **Include NSFW** shows the rest. See
 [Selfies → Choosing a checkpoint from Civitai](docs/selfies.md#choosing-a-checkpoint-from-civitai).
 
+![The Checkpoints page: once a Civitai API key is in, Civitai's checkpoints for every family her camera loads, each card with its status and a Download button.](docs/img/checkpoints.png)
+
 ```bash
 yurios settings                       # the common knobs, and whatever you have changed
 yurios settings --all                 # every one of them

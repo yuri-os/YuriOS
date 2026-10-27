@@ -150,6 +150,59 @@ def test_a_version_listed_twice_is_filed_under_the_first_listing():
     assert [c["source"] for c in cards] == ["top"]
 
 
+def with_files(model, *metas):
+    """`model` with its version's files given these (fp, primary) pairs."""
+    for f, (fp, primary) in zip(model["modelVersions"][0]["files"], metas):
+        f.update(metadata={"fp": fp}, primary=primary)
+    return model
+
+
+def test_a_version_with_several_files_recommends_the_one_her_camera_runs_in():
+    gb = 1048576
+    # the creator's primary is the fp32; the camera computes SDXL in fp16
+    sdxl = civitai.classify(with_files(listed(30, "Iv", "NoobAI", [
+        ("iv_fp32.safetensors", 12.92 * gb), ("iv_fp16.safetensors", 6.46 * gb)]),
+        ("fp32", True), ("fp16", False)), FAM["NoobAI"])
+    assert sdxl["file"] == "iv_fp16.safetensors"
+    assert [(v["file"], v["recommended"], v["loads"]) for v in sdxl["variants"]] == [
+        ("iv_fp16.safetensors", True, True), ("iv_fp32.safetensors", False, True)]
+    assert "fp16" in sdxl["variants"][0]["note"]
+    assert "twice the download" in sdxl["variants"][1]["note"]
+    assert sdxl["variants"][1]["download_url"]
+    # an fp32 2B Anima is twice the size and still the 2B model
+    anima = civitai.classify(with_files(listed(31, "A", "Anima", [
+        ("a_fp32.safetensors", 7.8 * gb), ("a_bf16.safetensors", 3.9 * gb)]),
+        ("fp32", True), ("bf16", False)), FAM["Anima"])
+    assert (anima["file"], anima["status"]) == ("a_bf16.safetensors", "best")
+    assert [v["loads"] for v in anima["variants"]] == [True, True]
+    # a Krea 2 version's INT8 is listed, and says it won't load
+    krea = civitai.classify(listed(32, "K", "Krea 2", [
+        ("k_int8.safetensors", 12 * gb), ("k_int4_convrot.safetensors", 7 * gb)]), FAM["Krea 2"])
+    assert [(v["file"], v["loads"]) for v in krea["variants"]] == [
+        ("k_int4_convrot.safetensors", True), ("k_int8.safetensors", False)]
+    assert "INT4" in krea["variants"][1]["note"]
+
+
+def test_two_downloads_never_share_a_file_and_count_each_others_space(tmp_path, monkeypatch):
+    downloads = civitai.Downloads()
+    running = civitai.Job(version_id=1, file="big.safetensors", folder=tmp_path,
+                          url="https://civitai.com/api/download/models/1", total=900,
+                          state="downloading")
+    downloads.jobs[running.file] = running
+    card = {"version_id": 2, "file": "big.safetensors", "size_bytes": 200,
+            "download_url": "https://civitai.com/api/download/models/2"}
+    with pytest.raises(ValueError, match="another listing"):
+        downloads.start(card, tmp_path, "k")
+    # 1000 free, 900 of it the running download's still to write: 200 more won't fit
+    monkeypatch.setattr(civitai.shutil, "disk_usage",
+                        lambda _: SimpleNamespace(total=2000, used=1000, free=1000))
+    job = downloads.start({**card, "file": "small.safetensors"}, tmp_path, "k")
+    deadline = time.monotonic() + 5
+    while job.active and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert job.state == "failed" and "already running" in job.error
+
+
 def test_a_searched_model_is_filed_under_a_family_the_camera_loads_or_says_why_not():
     both = listed(20, "Both", "Flux.1 D", [("flux.safetensors", 1)])
     both["modelVersions"].append({**listed(20, "Both", "Illustrious", [("ill.safetensors", 1)])
@@ -199,9 +252,10 @@ def civitai_listing(request: httpx.Request) -> httpx.Response:
             gem, listed(4, "Fluxy", "Flux.1 D", [("fluxy.safetensors", 1)])]})
     base = request.url.params.get("baseModels")
     if base == "Illustrious" and request.url.params.get("period") is None:
-        return httpx.Response(200, json={"items": [
-            listed(1, "Ready one", "Illustrious", [("ready.safetensors", 1)]),
-        ]})
+        ready = listed(1, "Ready one", "Illustrious", [("ready.safetensors", 1),
+                                                       ("ready_fp32.safetensors", 2)])
+        ready["modelVersions"][0]["files"][1]["metadata"] = {"fp": "fp32"}
+        return httpx.Response(200, json={"items": [ready]})
     if base == "Anima" and request.url.params.get("period") is None:
         return httpx.Response(200, json={"items": [
             listed(2, "Too big", "Anima", [("big.safetensors", 5.4 * 1048576)], nsfw=True),
@@ -371,3 +425,23 @@ def test_a_search_civitai_doesnt_answer_says_so(board, monkeypatch):
     answer = board.client.post("/api/house/checkpoints/search", json={"query": "anything"})
     assert answer.status_code == 502 and "503" in answer.json()["detail"]
     assert board.client.get("/api/house/checkpoints").json()["catalog"] is None
+
+
+def test_another_file_of_a_version_downloads_beside_the_recommended_one(board):
+    board.client.post("/api/house/checkpoints/refresh")
+    board.client.put("/api/house/civitai-key", json={"key": "secret-key"})
+    card = next(m for m in board.client.get("/api/house/checkpoints").json()["catalog"]["models"]
+                if m["version_id"] == 10)
+    assert [(v["file"], v["recommended"]) for v in card["variants"]] == [
+        ("ready.safetensors", True), ("ready_fp32.safetensors", False)]
+    assert board.client.post("/api/house/checkpoints/downloads", json={
+        "version_id": 10, "file": "elsewhere.safetensors"}).status_code == 404
+    for name in ("ready_fp32.safetensors", None):            # None: the recommended one
+        body = {"version_id": 10, **({"file": name} if name else {})}
+        assert board.client.post("/api/house/checkpoints/downloads", json=body).status_code == 200
+    for name in ("ready_fp32.safetensors", "ready.safetensors"):
+        deadline = time.monotonic() + 10
+        while not (board.folder / name).is_file() and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert (board.folder / name).read_bytes() == board.payload
+    assert board.client.delete("/api/house/checkpoints/downloads/ready.safetensors").status_code == 404

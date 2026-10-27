@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-  ago, bytes, cardState, matchesQuery, needsLookUp, normalizeQuery, previews, progressLine,
-  supportIssueUrl, unlistedFiles, visibleCards,
+  ago, asVariant, bytes, cardState, chosenVariant, matchesQuery, needsLookUp, normalizeQuery,
+  previews, progressLine, supportIssueUrl, unlistedFiles, variantLabel, variantsOf, visibleCards,
 } from '../settings/checkpoint-list.js';
 import { parseRoute } from '../settings/model.js';
 
@@ -24,12 +24,12 @@ describe('where a card stands', () => {
     const c = card(1);
     expect(cardState(c, {})).toBe('available');
     expect(cardState(c, { partial: { 'm1.safetensors': 10 } })).toBe('paused');
-    expect(cardState(c, { downloads: [{ version_id: 1, state: 'failed' }],
+    expect(cardState(c, { downloads: [{ version_id: 1, file: 'm1.safetensors', state: 'failed' }],
       partial: { 'm1.safetensors': 10 } })).toBe('failed');
     expect(cardState(c, { files: [{ file: 'm1.safetensors' }],
-      downloads: [{ version_id: 1, state: 'done' }] })).toBe('downloaded');
+      downloads: [{ version_id: 1, file: 'm1.safetensors', state: 'done' }] })).toBe('downloaded');
     expect(cardState(c, { files: [{ file: 'm1.safetensors' }],
-      downloads: [{ version_id: 1, state: 'downloading' }] })).toBe('downloading');
+      downloads: [{ version_id: 1, file: 'm1.safetensors', state: 'downloading' }] })).toBe('downloading');
   });
 });
 
@@ -126,5 +126,43 @@ describe('the search', () => {
     expect(needsLookUp(cards, 'zz')).toBe(false);                // too short to ask by itself
     expect(needsLookUp(cards, 'pony realism')).toBe(true);
     expect(needsLookUp(cards, 'Pony  Realism', new Set(['pony realism']))).toBe(false);
+  });
+});
+
+describe('a version that comes as several files', () => {
+  const fp16 = { file: 'iv_fp16.safetensors', size_bytes: 6.46e9, precision: 'fp16', size: 'full',
+    recommended: true, loads: true, note: 'Best match: her camera runs SDXL in fp16.' };
+  const fp32 = { file: 'iv_fp32.safetensors', size_bytes: 12.92e9, precision: 'fp32', size: 'full',
+    recommended: false, loads: true, note: '' };
+  const c = card(7, { file: fp16.file, variants: [fp16, fp32] });
+
+  it('opens on the best match, or on the file already here, or on the one you picked', () => {
+    expect(chosenVariant(c, {}).file).toBe(fp16.file);
+    expect(chosenVariant(c, { files: [{ file: fp32.file }] }).file).toBe(fp32.file);
+    expect(chosenVariant(c, { partial: { [fp32.file]: 9 } }).file).toBe(fp32.file);
+    expect(chosenVariant(c, {}, fp32.file).file).toBe(fp32.file);
+    expect(chosenVariant(c, {}, 'gone.safetensors').file).toBe(fp16.file);
+  });
+
+  it('tracks each file on its own', () => {
+    const local = { downloads: [{ version_id: 7, file: fp32.file, state: 'downloading' }] };
+    expect(cardState(asVariant(c, fp32), local)).toBe('downloading');
+    expect(cardState(asVariant(c, fp16), local)).toBe('available');
+  });
+
+  it('counts as downloaded, and as listed, whichever file is here', () => {
+    const local = { files: [{ file: fp32.file }] };
+    expect(visibleCards([c], { downloaded: true }, local)).toHaveLength(1);
+    expect(unlistedFiles([{ file: fp32.file }], [c])).toEqual([]);
+  });
+
+  it('labels a file by precision, size and weight', () => {
+    expect(variantLabel(fp32)).toBe('fp32 · 13 GB');
+    expect(variantLabel({ ...fp16, size: 'pruned' })).toBe('fp16 · pruned · 6.5 GB');
+  });
+
+  it('treats a card cached before files were listed as its one file', () => {
+    expect(variantsOf(card(8, { status: 'no' }))).toMatchObject([{ file: 'm8.safetensors',
+      recommended: true, loads: false }]);
   });
 });

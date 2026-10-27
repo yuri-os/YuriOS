@@ -16,9 +16,10 @@ page's side of it — where the key and the folder come from, and the routes:
   something is downloading. A poll and not the `EventHub`: the hub is a
   character's, a download belongs to the house, and the boot panel set the
   precedent for a house page with no stream of its own (world/boot.py).
-- `POST /api/house/checkpoints/downloads` — fetch one listed version. The file,
-  size and address come from the cached catalog, never from the request.
-- `DELETE /api/house/checkpoints/downloads/{version_id}` — stop one and drop its
+- `POST /api/house/checkpoints/downloads` — fetch one file of a listed version:
+  the recommended one, or another of its variants by name. The file, size and
+  address come from the cached catalog, never from the request.
+- `DELETE /api/house/checkpoints/downloads/{file}` — stop one and drop its
   partial file.
 - `POST /api/house/checkpoints/use` — check one file's header and point
   `SELFIE_LOCAL_MODEL` at it, and `SELFIE_BACKEND` at `diffusers` (which routes
@@ -73,7 +74,8 @@ def register(app: FastAPI, host: CharacterHost, require) -> None:  # noqa: ARG00
         if catalog is None:
             return None
         age = time.time() - float(catalog.get("fetched_at") or 0)
-        return {**catalog, "stale": age > civitai.CATALOG_TTL_S}
+        return {**catalog, "stale": age > civitai.CATALOG_TTL_S
+                or catalog.get("schema") != civitai.CATALOG_SCHEMA}
 
     @app.get("/api/house/checkpoints")
     async def checkpoints(request: Request):
@@ -158,25 +160,32 @@ def register(app: FastAPI, host: CharacterHost, require) -> None:  # noqa: ARG00
                      if m.get("version_id") == version_id), None)
         if card is None:
             raise HTTPException(404, "that version is not in the cached list — refresh it")
-        if card.get("status") == "no":
-            raise HTTPException(422, "this build can't load that checkpoint yet")
+        variants = civitai.variants_of(card)
+        want = (payload or {}).get("file") or variants[0]["file"]
+        variant = next((v for v in variants if v["file"] == want), None)
+        if variant is None:
+            raise HTTPException(404, f"{want} is not one of that version's files")
+        if not variant.get("loads"):
+            raise HTTPException(422, "this build can't load that file yet")
         key = api_key()
         if not key:
             raise HTTPException(409, "add your Civitai API key first")
+        fetch = {**card, "file": variant["file"], "size_bytes": variant["size_bytes"],
+                 "download_url": variant["download_url"]}
         try:
-            job = downloads.start(card, folder(), key)
+            job = downloads.start(fetch, folder(), key)
         except FileExistsError:
             raise HTTPException(409, f"{card['file']} is already in the folder") from None
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
         return job.as_dict()
 
-    @app.delete("/api/house/checkpoints/downloads/{version_id}")
-    async def cancel(version_id: int, request: Request):
+    @app.delete("/api/house/checkpoints/downloads/{file}")
+    async def cancel(file: str, request: Request):
         _require_local(request)
-        if not downloads.cancel(version_id):
-            raise HTTPException(404, "nothing is downloading for that version")
-        return {"cancelled": version_id}
+        if not downloads.cancel(file):
+            raise HTTPException(404, f"{file} isn't downloading")
+        return {"cancelled": file}
 
     @app.post("/api/house/checkpoints/use")
     async def use(request: Request):

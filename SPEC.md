@@ -1623,6 +1623,15 @@ what is saved but waiting for a restart.
 - §11.3.3 **The house scene overlay.** `SELFIE_TEMPLATES_EXTRA` is edited the same way: the YAML is
   checked with `selfiebook.parse_text` and written **verbatim**, comments kept, creating
   `data/selfie-extra.yaml` and naming it when nothing is named yet.
+- §11.5.7 **Variants.** A version often carries its weights more than once — fp16 and fp32, full and
+  pruned, a Krea 2 INT4 beside its INT8. A card lists every weights file of its version, each judged
+  as §11.5.2 judges the card, and **recommends** one: the best status, then the precision its
+  backend computes in on a GPU (SDXL fp16, Anima bf16; a wider file is cast down, so it makes the
+  same pictures for a bigger download), then the creator's primary, then the smaller file. The
+  card's status, note, file and size are the recommended file's. The page opens a card on that
+  file — or on one already on this machine or downloading — and the others are a click away; a
+  file that won't load says why and offers no download. A cached list from before files were
+  listed is stale, so the page fetches a fresh one.
 - Every route here is owner-or-loopback, like the panel beside it (§11): each writes a file the
   server executes or reads at boot, or ends the server.
 
@@ -1677,9 +1686,12 @@ Pictures in the rail and linked from the top of it) is where that file comes fro
   cached list, never from the request, and lands in `SELFIE_CHECKPOINT_DIR`: blank means the folder
   `SELFIE_LOCAL_MODEL` is in, else `./models/checkpoints`. It streams on a daemon thread, never the
   event loop (the host is one process holding every character's room), into `<file>.part`, which is renamed
-  only when complete. It **MUST** refuse before starting when the disk can't hold the rest, resumes a
-  `.part` with a range request, keeps the `.part` when the server stops, and deletes it when you
-  cancel. Progress is polled while something downloads, and only then: the house has no event bus
+  only when complete. Downloads are told apart by file name, never by version, so two files of one
+  version run side by side and two downloads **MUST NOT** write one `.part`: a second listing that
+  names a file already downloading is refused. It **MUST** refuse before starting when the disk
+  can't hold the rest *plus what the downloads already running into that folder have still to
+  write*, resumes a `.part` with a range request, keeps the `.part` when the server stops, and
+  deletes it when you cancel. Progress is polled while something downloads, and only then: the house has no event bus
   of its own (§10's `EventHub` is a character's), as with the boot panel.
 - §11.5.5 **Use for her camera.** Writes `SELFIE_LOCAL_MODEL` to the checked file and, when
   `SELFIE_BACKEND` names something that can't render it, `diffusers`, which routes by the file's

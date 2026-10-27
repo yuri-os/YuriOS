@@ -84,6 +84,15 @@ The page shows SFW models and PG/PG-13 previews by default. **Include NSFW** sho
 **Downloaded** narrows the list to what is already on this machine, and **On this machine** lists
 every checkpoint in the folder with its check, including ones you fetched yourself.
 
+Many versions come as more than one file: an fp16 and an fp32, a full and a pruned. A card shows
+each one as a button with its precision and size, and marks the best match ★. That's the file
+already in the precision her camera computes in (fp16 for SDXL, bf16 for Anima). A wider file is
+cast down when it loads, so it makes the same pictures for a bigger download. The page recommends
+it but doesn't insist: press another file's button and download that instead. Files that are
+already here are ticked ✓. A file this build can't load, such as a Krea 2 INT8 beside its INT4,
+says why and has no Download button. Several downloads, including two files of one model, run side
+by side. Each one checks there is room for itself on top of what the others still have to write.
+
 The search box above the filters narrows the list as you type, matching the name, version,
 creator or file. When nothing in the list matches, a pause in typing asks Civitai. Press Enter, or
 **Search Civitai for …**, to ask even when something does match. What Civitai finds joins the

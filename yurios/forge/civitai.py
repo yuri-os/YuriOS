@@ -16,6 +16,10 @@ checkpoints and says neither. This module is the part of House settings'
 - **Search.** What the lists don't carry is one search away (`search`): its
   hits join the cached catalog (`merge_search`) remembering the words that
   found them, and survive the next refresh (`carry_searches`).
+- **Variants.** A version often carries its weights more than once — fp16 and
+  fp32, full and pruned. Every file is listed; the one already in the
+  precision its backend computes in is recommended (`_rank`), and the others
+  can be fetched instead.
 - **Downloads.** A file is fetched on a daemon thread, not the event loop — the
   host is one process holding every character's room, and a 7 GB stream is
   minutes of I/O — into `<name>.part`, resumed from where it stopped if the
@@ -49,6 +53,9 @@ API = "https://civitai.com/api/v1"
 SITE = "https://civitai.com"
 #: How old a cached catalog may be before the page fetches a fresh one.
 CATALOG_TTL_S = 24 * 3600
+#: The cached catalog's shape. 2 lists every file of a card's version; a cache
+#: of any other shape counts as stale, so the page fetches a fresh one.
+CATALOG_SCHEMA = 2
 #: Parallel listing calls — enough to finish in seconds, few enough to be polite.
 FETCH_CONCURRENCY = 4
 CHUNK = 1 << 20
@@ -105,6 +112,12 @@ _VPRED = re.compile(r"v-?pred", re.I)
 _KREA_INT4 = re.compile(r"int4|convrot", re.I)
 _KREA_OTHER = re.compile(r"w4a8|w6a8|nf4|nvfp4|int8|fp8|q\d|gguf", re.I)
 _SVDQUANT = re.compile(r"svdquant|nunchaku", re.I)
+#: What each backend computes in on a GPU, best match first: a file already in
+#: it makes the same pictures as a wider one for half the download (the SDXL
+#: backend loads in fp16, anima in bf16; krea2's INT4 layers have no choice).
+_PRECISION = {"diffusers": ("fp16", "bf16", "fp32"), "anima": ("bf16", "fp16", "fp32")}
+_RUNS_ON = {"diffusers": "SDXL", "anima": "Anima"}
+_STATUS_RANK = {"best": 0, "works": 0, "caution": 1, "likely": 2, "no": 3}
 
 
 class CatalogError(RuntimeError):
@@ -142,58 +155,101 @@ def _images(version: dict) -> list[dict]:
     return out
 
 
+def _is_krea_int4(name: str) -> bool:
+    return bool(_KREA_INT4.search(name)) and not _KREA_OTHER.search(name)
+
+
+def _judge(model: dict, version: dict, family: Family, f: dict) -> tuple[str, str]:
+    """What this family's backend would do with one file of a version."""
+    name = f["name"]
+    if family.backend == "krea2":
+        if not _is_krea_int4(name):
+            return "no", ("Not an INT4 file. The krea2 backend reads only INT4 ConvRot "
+                          "W4A4.")
+        words = f"{model.get('name', '')} {version.get('name', '')} {name}"
+        if _SVDQUANT.search(words):
+            return "no", ("SVDQuant (Nunchaku) INT4, a different packing from ConvRot "
+                          "W4A4. The krea2 backend can't read it.")
+        if "convrot" in words.lower() or "dasiwa" in name.lower():
+            return "best", ("INT4 ConvRot, the layout the krea2 backend runs. Needs the "
+                            ".[forge-krea2] extra and access to the gated krea/Krea-2-Raw "
+                            "repo on Hugging Face.")
+        return "likely", ("An INT4 file. The krea2 backend runs only ConvRot W4A4; the "
+                          "layout is checked once it's downloaded.")
+    if family.backend == "anima":
+        # the 2B transformer is ~4 GB at 16 bits: twice that in fp32 is still 2B
+        wide = 2 if (f.get("metadata") or {}).get("fp") == "fp32" else 1
+        size_gb = (f.get("sizeKB") or 0) / 1048576 / wide
+        if size_gb > 4.5 or re.search(r"2\.9b|3\.8b", f"{version.get('name', '')} {name}", re.I):
+            return "no", ("Not the 2B Anima. The anima backend builds the 2B model and "
+                          "loads it strictly, so larger variants won't fit.")
+        return "best", ("2B Anima. Loads as-is; its text encoder and VAE are fetched once "
+                        "from Hugging Face.")
+    if _VPRED.search(f"{version.get('name', '')} {name}"):
+        return "caution", ("V-prediction. The SDXL backend samples it as epsilon, so "
+                           "pictures may come out grey or washed out.")
+    return _NOTES[family.base_model]
+
+
+def _rank(family: Family, f: dict, status: str) -> tuple:
+    """How good a match one file is (SPEC §11.5.7), smallest first: what the backend does with
+    it, then whether it is already in the precision the backend computes in,
+    then the creator's own pick, then the smaller download."""
+    runs = _PRECISION.get(family.backend, ())
+    fp = (f.get("metadata") or {}).get("fp") or ""
+    return (_STATUS_RANK.get(status, 9), runs.index(fp) if fp in runs else len(runs),
+            not f.get("primary"), f.get("sizeKB") or 0)
+
+
+def _variant(f: dict, status: str, note: str, *, recommended: bool, backend: str,
+             pick: dict) -> dict:
+    """One file of a version as the page offers it, with the one-line reason it
+    is (or isn't) the best match."""
+    meta = f.get("metadata") or {}
+    fp = meta.get("fp") or ""
+    runs = _PRECISION.get(backend, ())
+    machine = _RUNS_ON.get(backend, "")
+    if status == "no":
+        why = note
+    elif recommended:
+        why = f"Best match: her camera runs {machine} in {runs[0]}." \
+            if runs and fp == runs[0] else "Best match."
+    elif fp == "fp32" and runs and (pick.get("metadata") or {}).get("fp") in runs[:2]:
+        why = (f"Her camera runs {machine} in {runs[0]}, so fp32 makes the same pictures "
+               f"for twice the download.")
+    else:
+        why = ""
+    return {"file": f["name"], "size_bytes": int((f.get("sizeKB") or 0) * 1024),
+            "precision": fp, "size": meta.get("size") or "", "type": f.get("type") or "Model",
+            "download_url": f.get("downloadUrl") or "", "recommended": recommended,
+            "loads": status != "no", "note": why}
+
+
 def classify(model: dict, family: Family) -> Optional[dict]:
-    """One listed model as a card: the version and file her camera would use,
-    and what this build will do with it. None when no version of it has a file
-    this family's backend could even be pointed at."""
+    """One listed model as a card: the version her camera would use, every
+    weights file of it (`variants`, the best match first and recommended), and
+    what this build will do with that best match. None when no version of it
+    has a file this family's backend could even be pointed at."""
     for version in model.get("modelVersions") or []:
         if version.get("baseModel") != family.base_model:
             continue
         files = _model_files(version)
-        if family.backend == "krea2":
-            pick = next((f for f in files if _KREA_INT4.search(f["name"])
-                         and not _KREA_OTHER.search(f["name"])), None)
-            if pick is None:
-                continue                 # an INT8/FP8/NVFP4/GGUF-only version
-            words = f"{model.get('name', '')} {version.get('name', '')} {pick['name']}"
-            if _SVDQUANT.search(words):
-                status, note = "no", ("SVDQuant (Nunchaku) INT4, a different packing from "
-                                      "ConvRot W4A4. The krea2 backend can't read it.")
-            elif "convrot" in words.lower() or "dasiwa" in pick["name"].lower():
-                status, note = "best", ("INT4 ConvRot, the layout the krea2 backend runs. "
-                                        "Needs the .[forge-krea2] extra and access to the "
-                                        "gated krea/Krea-2-Raw repo on Hugging Face.")
-            else:
-                status, note = "likely", ("An INT4 file. The krea2 backend runs only ConvRot "
-                                          "W4A4; the layout is checked once it's downloaded.")
-        elif family.backend == "anima":
-            pick = _primary(files)
-            if pick is None:
-                return None
-            size_gb = (pick.get("sizeKB") or 0) / 1048576
-            big = size_gb > 4.5 or re.search(r"2\.9b|3\.8b", f"{version.get('name', '')} "
-                                             f"{pick['name']}", re.I)
-            status, note = (("no", "Not the 2B Anima. The anima backend builds the 2B model "
-                                   "and loads it strictly, so larger variants won't fit.")
-                            if big else
-                            ("best", "2B Anima. Loads as-is; its text encoder and VAE are "
-                                     "fetched once from Hugging Face."))
-        else:
-            pick = _primary(files)
-            if pick is None:
-                return None
-            if _VPRED.search(f"{version.get('name', '')} {pick['name']}"):
-                status, note = "caution", ("V-prediction. The SDXL backend samples it as "
-                                           "epsilon, so pictures may come out grey or "
-                                           "washed out.")
-            else:
-                status, note = _NOTES[family.base_model]
-        return _card(model, version, pick, family.label, family.base_model, status, note)
+        if family.backend == "krea2" and not any(_is_krea_int4(f["name"]) for f in files):
+            continue                     # an INT8/FP8/NVFP4/GGUF-only version
+        if not files:
+            return None
+        judged = sorted(((f, *_judge(model, version, family, f)) for f in files),
+                        key=lambda j: _rank(family, j[0], j[1]))
+        pick, status, note = judged[0]
+        variants = [_variant(f, s, n, recommended=f is pick, backend=family.backend, pick=pick)
+                    for f, s, n in judged]
+        return _card(model, version, pick, variants, family.label, family.base_model,
+                     status, note)
     return None
 
 
-def _card(model: dict, version: dict, pick: dict, family: str, base_model: str,
-          status: str, note: str) -> dict:
+def _card(model: dict, version: dict, pick: dict, variants: list[dict], family: str,
+          base_model: str, status: str, note: str) -> dict:
     meta = pick.get("metadata") or {}
     stats = model.get("stats") or {}
     return {
@@ -211,11 +267,23 @@ def _card(model: dict, version: dict, pick: dict, family: str, base_model: str,
         "size_bytes": int((pick.get("sizeKB") or 0) * 1024),
         "precision": meta.get("fp") or "",
         "download_url": pick.get("downloadUrl") or "",
+        "variants": variants,
         "nsfw": bool(model.get("nsfw")),
         "published": str(version.get("publishedAt") or "")[:10],
         "url": f"{SITE}/models/{model.get('id')}?modelVersionId={version.get('id')}",
         "images": _images(version),
     }
+
+
+def variants_of(card: dict) -> list[dict]:
+    """A card's files, the recommended one first. A card cached before files
+    were listed (CATALOG_SCHEMA 1) has only its own."""
+    if card.get("variants"):
+        return list(card["variants"])
+    return [{"file": card.get("file") or "", "size_bytes": card.get("size_bytes") or 0,
+             "precision": card.get("precision") or "", "size": "", "type": "Model",
+             "download_url": card.get("download_url") or "", "recommended": True,
+             "loads": card.get("status") != "no", "note": ""}]
 
 
 def classify_any(model: dict) -> Optional[dict]:
@@ -238,12 +306,15 @@ def classify_any(model: dict) -> Optional[dict]:
         base = str(version.get("baseModel") or "")
         family = _BY_BASE.get(base)
         if family is not None:            # a Krea 2 model with no INT4 file
-            return _card(model, version, pick, family.label, base, "no",
-                         f"None of its files is in a format the {family.backend} backend "
-                         f"reads (it runs only INT4 ConvRot W4A4).")
-        return _card(model, version, pick, OTHER_FAMILY, base or "unknown", "no",
-                     f"Built on {base or 'a base model Civitai does not name'}, which her "
-                     f"local camera doesn't load yet.")
+            label, base_model = family.label, base
+            note = (f"None of its files is in a format the {family.backend} backend reads "
+                    f"(it runs only INT4 ConvRot W4A4).")
+        else:
+            label, base_model = OTHER_FAMILY, base or "unknown"
+            note = (f"Built on {base or 'a base model Civitai does not name'}, which her "
+                    f"local camera doesn't load yet.")
+        variants = [_variant(pick, "no", note, recommended=True, backend="", pick=pick)]
+        return _card(model, version, pick, variants, label, base_model, "no", note)
     return None
 
 
@@ -293,7 +364,7 @@ async def fetch_catalog(api_key: str = "", *, now: Optional[float] = None) -> di
             listings.append((family, source, result))
     if not listings:
         raise CatalogError(errors[0] if errors else "no answer from Civitai")
-    return {"fetched_at": time.time() if now is None else now,
+    return {"fetched_at": time.time() if now is None else now, "schema": CATALOG_SCHEMA,
             "models": build_catalog(listings), "errors": errors}
 
 
@@ -342,7 +413,8 @@ def merge_search(catalog: Optional[dict], found: list[dict], query: str) -> tupl
     cards were new. A model already listed keeps its card and remembers the
     query, so the page can show it for that search even when its name doesn't
     contain the words; a new one joins as `source: "search"`."""
-    catalog = dict(catalog or {"fetched_at": 0, "models": [], "errors": []})
+    catalog = dict(catalog or {"fetched_at": 0, "schema": CATALOG_SCHEMA, "models": [],
+                               "errors": []})
     models = [dict(m) for m in catalog.get("models") or []]
     by_model = {m.get("id"): m for m in models}
     added = 0
@@ -487,18 +559,17 @@ class Job:
 
 
 class Downloads:
-    """Every download this process has started, by Civitai version id."""
+    """Every download this process has started, by file name — the one thing
+    two downloads must never share, since it is the `.part` both would write.
+    Two files of one version (its fp16 and its fp32) are two downloads."""
 
     def __init__(self) -> None:
-        self.jobs: dict[int, Job] = {}
+        self.jobs: dict[str, Job] = {}
         self._lock = threading.Lock()
 
     def snapshot(self) -> list[dict]:
         with self._lock:
             return [job.as_dict() for job in self.jobs.values()]
-
-    def get(self, version_id: int) -> Optional[Job]:
-        return self.jobs.get(version_id)
 
     def start(self, card: dict, folder: Path, api_key: str) -> Job:
         """Begin fetching one card's file into `folder`. Raises ValueError for
@@ -514,18 +585,20 @@ class Downloads:
             raise FileExistsError(name)
         version_id = int(card["version_id"])
         with self._lock:
-            running = self.jobs.get(version_id)
+            running = self.jobs.get(name)
             if running and running.active:
+                if running.version_id != version_id:
+                    raise ValueError(f"{name} is already downloading for another listing")
                 return running
             job = Job(version_id=version_id, file=name, folder=Path(folder), url=url,
                       total=int(card.get("size_bytes") or 0))
-            self.jobs[version_id] = job
+            self.jobs[name] = job
         threading.Thread(target=self._run, args=(job, api_key), daemon=True,
                          name=f"civitai-{version_id}").start()
         return job
 
-    def cancel(self, version_id: int) -> bool:
-        job = self.jobs.get(version_id)
+    def cancel(self, file: str) -> bool:
+        job = self.jobs.get(file)
         if job is None or not job.active:
             return False
         job.discard = True
@@ -537,6 +610,13 @@ class Downloads:
         for job in list(self.jobs.values()):
             job.cancel.set()
 
+    def _promised(self, job: Job) -> int:
+        """What the other downloads into the same folder have still to write:
+        free space they will fill, which this one can't count on."""
+        with self._lock:
+            return sum(max(0, other.total - other.done) for other in self.jobs.values()
+                       if other is not job and other.active and other.folder == job.folder)
+
     # -- the worker thread --
 
     def _run(self, job: Job, api_key: str) -> None:
@@ -546,9 +626,11 @@ class Downloads:
             job.folder.mkdir(parents=True, exist_ok=True)
             have = part.stat().st_size if part.exists() else 0
             free = shutil.disk_usage(job.folder).free
-            if job.total and job.total - have > free:
-                raise _Refused(f"needs {_gb(job.total - have)} free in {job.folder}, "
-                               f"and there is {_gb(free)}")
+            promised = self._promised(job)
+            if job.total and job.total - have > free - promised:
+                raise _Refused(f"needs {_gb(job.total - have)} free in {job.folder}, and "
+                               f"there is {_gb(free)}" + (f", {_gb(promised)} of it still to be "
+                               f"written by the downloads already running" if promised else ""))
             self._stream(job, part, have, api_key)
             if job.cancel.is_set():
                 job.state = "cancelled"

@@ -15,10 +15,30 @@ export const STATUS_LABELS = Object.freeze({
   best: "Ready", works: "Loads", likely: "Check", caution: "Check", no: "Not supported",
 });
 
-/** Where one card stands on this machine:
+/** A card's files, the recommended one first — its fp16 and fp32, its full
+ *  and pruned. A card cached before files were listed has only its own. */
+export function variantsOf(card) {
+  if (card.variants?.length) return card.variants;
+  return [{ file: card.file, size_bytes: card.size_bytes, precision: card.precision, size: "",
+    download_url: card.download_url, recommended: true, loads: card.status !== "no", note: "" }];
+}
+
+/** The card as one of its files: what a state, a download and Use act on. */
+export function asVariant(card, variant) {
+  return { ...card, file: variant.file, size_bytes: variant.size_bytes,
+    precision: variant.precision, variant };
+}
+
+/** "fp16 · pruned · 6.5 GB" */
+export function variantLabel(variant) {
+  return [variant.precision || "file", variant.size === "pruned" ? "pruned" : "",
+    bytes(variant.size_bytes)].filter(Boolean).join(" · ");
+}
+
+/** Where one card's file stands on this machine:
  *  downloading | downloaded | paused (a .part to resume) | failed | available. */
 export function cardState(card, { files = [], partial = {}, downloads = [] } = {}) {
-  const job = downloads.find((d) => d.version_id === card.version_id);
+  const job = downloads.find((d) => d.file === card.file);
   if (job && (job.state === "queued" || job.state === "downloading")) return "downloading";
   if (files.some((f) => f.file === card.file)) return "downloaded";
   if (job && job.state === "failed") return "failed";
@@ -27,6 +47,17 @@ export function cardState(card, { files = [], partial = {}, downloads = [] } = {
 }
 
 const ON_DISK = new Set(["downloaded", "downloading", "paused"]);
+const STATE_RANK = ["downloading", "downloaded", "failed", "paused", "available"];
+
+/** The file a card opens on: the one `picked` names, else one already on this
+ *  machine or on its way, else the recommended one. */
+export function chosenVariant(card, local = {}, picked = "") {
+  const variants = variantsOf(card);
+  const named = variants.find((v) => v.file === picked);
+  if (named) return named;
+  const rank = (v) => STATE_RANK.indexOf(cardState(asVariant(card, v), local));
+  return variants.reduce((best, v) => (rank(v) < rank(best) ? v : best), variants[0]);
+}
 
 /** Typing this much, with nothing in the list matching, asks Civitai. */
 export const LOOKUP_MIN = 3;
@@ -66,7 +97,8 @@ export function visibleCards(cards, { family = "all", status = "all", nsfw = fal
     if (family !== "all" && card.family !== family) return false;
     if (status === "best" && card.status !== "best") return false;
     if (status === "usable" && !["best", "works"].includes(card.status)) return false;
-    if (downloaded && !ON_DISK.has(cardState(card, local))) return false;
+    if (downloaded && !variantsOf(card).some((v) => ON_DISK.has(cardState(asVariant(card, v), local))))
+      return false;
     return true;
   };
   return cards.filter(keep).sort((a, b) => (a.status === "no") - (b.status === "no")
@@ -81,7 +113,7 @@ export function previews(card, nsfw, n = 2) {
 /** The files in the folder no listed card accounts for — a model you fetched
  *  yourself, or one that has since dropped out of the top. */
 export function unlistedFiles(files, cards) {
-  const listed = new Set(cards.map((c) => c.file));
+  const listed = new Set(cards.flatMap((c) => variantsOf(c).map((v) => v.file)));
   return files.filter((f) => !listed.has(f.file));
 }
 

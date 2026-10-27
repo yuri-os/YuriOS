@@ -2,7 +2,9 @@
  *
  * Her local camera reads one .safetensors file. This page is where that file
  * comes from: the most-downloaded checkpoints of every family the camera can
- * load, each saying whether this build will load it, a download that runs on
+ * load, each saying whether this build will load it — and, where a version
+ * comes as several files (fp16 and fp32, full and pruned), which one is the best
+ * match, with the others a click away — a download that runs on
  * the server while you do something else, and the button that points
  * SELFIE_LOCAL_MODEL at the file once it has landed and its header checks out.
  *
@@ -13,8 +15,9 @@
  * asks Civitai for what it doesn't carry — the answer joins the cache.
  */
 import {
-  STATUS_LABELS, ago, bytes, cardState, count, matchesQuery, needsLookUp, normalizeQuery, percent,
-  previews, progressLine, supportIssueUrl, unlistedFiles, visibleCards,
+  STATUS_LABELS, ago, asVariant, bytes, cardState, chosenVariant, count, matchesQuery, needsLookUp,
+  normalizeQuery, percent, previews, progressLine, supportIssueUrl, unlistedFiles, variantLabel,
+  variantsOf, visibleCards,
 } from "./checkpoint-list.js";
 import { api, button, confirmButton, el, section, status } from "./ui.js";
 
@@ -94,12 +97,12 @@ export async function renderCheckpoints(container, ctx) {
       while (here() && data.downloads.some((d) => d.state === "queued" || d.state === "downloading")) {
         await pause(POLL_MS);
         if (!here()) return;
-        const before = new Map(data.downloads.map((d) => [d.version_id, d.state]));
+        const before = new Map(data.downloads.map((d) => [d.file, d.state]));
         const { downloads } = await api("/api/house/checkpoints/downloads");
         data.downloads = downloads;
         // a job that just finished has a file (and a verdict) the folder scan
         // should show: draw the whole page again; otherwise just the bars
-        if (downloads.some((d) => before.get(d.version_id) !== d.state)) await reload();
+        if (downloads.some((d) => before.get(d.file) !== d.state)) await reload();
         else for (const d of downloads) cardViews.get(d.version_id)?.refresh();
       }
     } catch (_) {
@@ -109,21 +112,21 @@ export async function renderCheckpoints(container, ctx) {
     }
   }
 
-  async function startDownload(card, note) {
+  async function startDownload(view, note) {
     try {
       const job = await api("/api/house/checkpoints/downloads", { method: "POST",
-        body: { version_id: card.version_id } });
-      data.downloads = [...data.downloads.filter((d) => d.version_id !== job.version_id), job];
-      cardViews.get(card.version_id)?.refresh();
+        body: { version_id: view.version_id, file: view.file } });
+      data.downloads = [...data.downloads.filter((d) => d.file !== job.file), job];
+      cardViews.get(view.version_id)?.refresh();
       poll();
     } catch (error) {
       note.say(error.message, "error");
     }
   }
 
-  async function cancelDownload(card, note) {
+  async function cancelDownload(view, note) {
     try {
-      await api(`/api/house/checkpoints/downloads/${card.version_id}`, { method: "DELETE" });
+      await api(`/api/house/checkpoints/downloads/${encodeURIComponent(view.file)}`, { method: "DELETE" });
     } catch (error) {
       note.say(error.message, "error");
     }
@@ -142,10 +145,13 @@ export async function renderCheckpoints(container, ctx) {
   // -- one card ----------------------------------------------------------------
 
   const cardViews = new Map();
+  const picked = new Map();      // version id → the file you chose on its card, this visit
 
-  function actions(card, note) {
-    const state = cardState(card, local());
-    const job = data.downloads.find((d) => d.version_id === card.version_id);
+  /** What a card's foot offers for one of its files. `view` is the card as
+   *  that file (asVariant). */
+  function actions(card, view, note) {
+    const state = cardState(view, local());
+    const job = data.downloads.find((d) => d.file === view.file);
     if (card.status === "no") {
       return [el("p", { className: "ck-unsupported" }, "Not supported yet. ",
         el("a", { className: "text-link", href: supportIssueUrl(card), target: "_blank",
@@ -156,27 +162,49 @@ export async function renderCheckpoints(container, ctx) {
       return [bar, el("div", { className: "ck-row" },
         el("span", { className: "ck-progress", textContent: job.state === "queued"
           ? "starting…" : progressLine(job) }),
-        confirmButton("Cancel", "Cancel and delete?", () => cancelDownload(card, note)))];
+        confirmButton("Cancel", "Cancel and delete?", () => cancelDownload(view, note)))];
     }
     if (state === "downloaded") {
-      const found = fileVerdict(card.file);
-      const using = data.current.file === card.file && data.current.in_folder;
+      const found = fileVerdict(view.file);
+      const using = data.current.file === view.file && data.current.in_folder;
       return [verdictChip(found), el("div", { className: "ck-row" },
         using ? el("span", { className: "ck-using", textContent: data.current.pending
           ? "Set for her camera · waits for a restart" : "Her camera uses this" })
-          : button("Use for her camera", () => useFile(card.file, note), "settings-save"),
+          : button("Use for her camera", () => useFile(view.file, note), "settings-save"),
       )];
+    }
+    if (!view.variant.loads) {
+      return [el("p", { className: "ck-unsupported", textContent: "This file won't load. "
+        + "Pick another one above." })];
     }
     const noKey = !data.key_configured;
     const go = button(state === "paused" ? "Resume download" : state === "failed" ? "Try again"
-      : "Download", () => { go.disabled = true; startDownload(card, note); }, "settings-save");
+      : "Download", () => { go.disabled = true; startDownload(view, note); }, "settings-save");
     go.disabled = noKey;
     if (noKey) go.title = "Add your Civitai API key above first";
-    const said = state === "paused" ? `${bytes(data.local.partial[card.file])} already here`
-      : state === "failed" ? job.error : bytes(card.size_bytes);
+    const said = state === "paused" ? `${bytes(data.local.partial[view.file])} already here`
+      : state === "failed" ? job.error : bytes(view.size_bytes);
     return [el("div", { className: "ck-row" },
       el("span", { className: `ck-progress${state === "failed" ? " error" : ""}`, textContent: said }),
       go)];
+  }
+
+  /** The files of a version, side by side: the best match marked, each one
+   *  saying whether it is here already. */
+  function variantPills(card, chosen, onPick) {
+    const variants = variantsOf(card);
+    if (variants.length < 2) return null;
+    return el("div", { className: "ck-pills ck-variants", role: "group", ariaLabel: "Files" },
+      ...variants.map((v) => {
+        const here = ["downloaded", "downloading", "paused"].includes(cardState(asVariant(card, v), local()));
+        const b = el("button", { type: "button", className: `ck-pill${v.loads ? "" : " is-off"}`,
+          title: [v.recommended ? "Best match" : "", v.note, v.file].filter(Boolean).join("\n") },
+        variantLabel(v), v.recommended ? el("span", { className: "ck-best", textContent: " ★" }) : null,
+        here ? el("span", { className: "ck-here", textContent: " ✓" }) : null);
+        b.setAttribute("aria-pressed", String(v.file === chosen.file));
+        b.addEventListener("click", () => onPick(v));
+        return b;
+      }));
   }
 
   function cardNode(card) {
@@ -188,7 +216,17 @@ export async function renderCheckpoints(container, ctx) {
           : "no preview" })]));
     const note = status("ck-note-line");
     const foot = el("div", { className: "ck-actions" });
-    const refresh = () => foot.replaceChildren(...actions(card, note).filter(Boolean), note.node);
+    const several = variantsOf(card).length > 1;
+    const refresh = () => {
+      const chosen = chosenVariant(card, local(), picked.get(card.version_id));
+      const view = asVariant(card, chosen);
+      foot.replaceChildren(...[
+        variantPills(card, chosen, (v) => { picked.set(card.version_id, v.file); note.say(""); refresh(); }),
+        several && chosen.note ? el("p", { className: `ck-variant-note${chosen.loads ? "" : " error"}`,
+          textContent: chosen.note }) : null,
+        el("code", { className: "ck-file", textContent: view.file, title: view.file }),
+        ...actions(card, view, note), note.node].filter(Boolean));
+    };
     refresh();
     cardViews.set(card.version_id, { refresh });
     const tags = el("div", { className: "ck-tags" },
@@ -205,10 +243,10 @@ export async function renderCheckpoints(container, ctx) {
           rel: "noopener", textContent: card.name })),
         el("div", { className: "ck-sub", textContent: [card.version, card.creator].filter(Boolean).join(" · ") }),
         tags,
+        // with several files, each pill carries its own size and precision
         el("div", { className: "ck-stats", textContent: [`↓ ${count(card.downloads)}`,
-          bytes(card.size_bytes), card.precision].filter(Boolean).join(" · ") }),
+          ...(several ? [] : [bytes(card.size_bytes), card.precision])].filter(Boolean).join(" · ") }),
         el("p", { className: "ck-note", textContent: card.note }),
-        el("code", { className: "ck-file", textContent: card.file, title: card.file }),
         foot));
   }
 

@@ -77,7 +77,7 @@ as well. For the first few days, watch the numbers on the inner-life tab.
 | [Characters](characters.md) | The switchboard, importing and writing cards in the studio, per-character storage, connection profiles, migration |
 | [Bodies](bodies.md) | The VRM stage, the sanctuary room, Live2D, the transparent desktop window |
 | [Voice](voice.md) | Ears, voice and turn-taking: faster-whisper, kokoro, Qwen3-TTS, GPT-SoVITS, silero |
-| [Selfies](selfies.md) | Her camera: OpenRouter, local SDXL, Krea 2, Anima, the template library, provenance |
+| [Selfies](selfies.md) | Her camera: OpenRouter, local SDXL, Krea 2, Anima, choosing and downloading a checkpoint from Civitai, the template library, provenance |
 | [Tools](tools.md) | Every built-in and third-party MCP call, the guard, the audit log |
 | [The mind](mind.md) | The tick loop, activity states, the two gates, goals, DREAM, her hands in the loop, the shelf, self-edits, the debug page |
 | [Channels](channels.md) | The web page, the terminal client, Telegram, and what's planned |

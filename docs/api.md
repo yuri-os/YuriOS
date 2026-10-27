@@ -83,6 +83,14 @@ Websockets follow the same shape: `/ws/voice` and `/ws/characters/<id>/voice`.
 | `DELETE /api/characters/{id}/purge` | permanently delete using `{"challenge":"…"}` in the JSON body; no query secret |
 | `GET /api/onboarding` | local or owner-authenticated first-run model state: `{configured, model, recommendations, download}` |
 | `POST /api/onboarding` | local or owner-authenticated model choice: `{"model": "…"}`; saves the house selection, starts a GGUF download when applicable, and returns `restart_required: true` |
+| `GET /api/house/checkpoints` | the Checkpoints page: `{key_configured, folder, current, backend, catalog, local, downloads, families}`. `catalog` is the cached Civitai list (`null` before the first fetch, `stale` after a day); each card carries `status`, `note` and `variants` (every weights file, the recommended one first). Never calls Civitai |
+| `POST /api/house/checkpoints/refresh` | list Civitai again and cache it, keeping what searches found; 502 if Civitai can't be listed |
+| `POST /api/house/checkpoints/search` | `{"query": "…"}` → `{query, found, added, catalog}`; asks Civitai and folds the answer into the cache |
+| `PUT /api/house/civitai-key` | `{"key": "…"}` writes `CIVITAI_API_KEY` to `.env`; `{"key": null}` removes it |
+| `GET /api/house/checkpoints/downloads` | `{downloads: [{version_id, file, total, done, state, error, verdict, speed}]}`, polled while one runs |
+| `POST /api/house/checkpoints/downloads` | `{"version_id": n, "file"?: "…"}` — fetch the recommended file of a cached version, or another of its `variants`; the address and size come from the cache, never the request |
+| `DELETE /api/house/checkpoints/downloads/{file}` | stop one and delete its `.part` |
+| `POST /api/house/checkpoints/use` | `{"file": "…"}` — check the file's header and set `SELFIE_LOCAL_MODEL` (and `SELFIE_BACKEND=diffusers` if needed); `restart_required: true` |
 
 A character summary looks like:
 

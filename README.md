@@ -34,7 +34,7 @@ read, so "what did you do while I was gone?" is a page you open, not a vibe.
 | **[A mind](docs/mind.md)** | SENSE → APPRAISE → DECIDE → ACT → REFLECT → REGULATE, forever. Activity states, a budget governor, salience gates, a DREAM pipeline that consolidates and keeps a diary, a desk and skills she writes herself, goals with provenance, gated self-edits |
 | **[Hands](docs/tools.md)** | Tools over real MCP — timer, music, `take_selfie`, `show_picture`, and the web hands `web_search` / `read_page` / `research` — behind an allowlist, rate limits and a JSONL audit of every call |
 | **[A shelf](docs/mind.md)** | Drop a document in and she reads it — in notes if it's long. What she is reading, what it will cost in model calls, and a stop button that loses nothing, all on the inner-life tab |
-| **[A camera](docs/selfies.md)** | Selfies through a hosted route, or on your own GPU with an SDXL, Krea 2 or Anima checkpoint, from a composable template library |
+| **[A camera](docs/selfies.md)** | Selfies through a hosted route, or on your own GPU with an SDXL, Krea 2 or Anima checkpoint, from a composable template library. [Pictures → Checkpoints](docs/selfies.md#choosing-a-checkpoint-from-civitai) lists, searches and downloads Civitai checkpoints, says which ones this build will load, recommends the best-match file, and points her camera at it |
 | **[Eyes](docs/models.md#can-she-see-pictures)** | Show her something: attach, paste or drop a picture in any room — or send one to her Telegram — whenever the model she runs on can take one. She keeps her voice on a picture turn, and the photo is asked about, not stored in her memory |
 | **[A house](docs/characters.md)** | Multiple companions, each with her own Vault, memory, models, bot and journal. Import SillyTavern V2/V3 cards; export her as one |
 | **[Any medium](docs/channels.md)** | The web page, a terminal client, Telegram. One conversation, one event bus, thin views |
@@ -160,9 +160,21 @@ Mind, Hands, Web, Pictures, Voice, Room & body, Channels, Access, System) with a
 search across all of them — and the gear in every room opens the same table as a
 dialog. Both are the table `yurios settings` prints. The same page has a **Restart**
 button for applying saves (when started with `yurios start`), editors for the files
-`.env` only points at (third-party MCP servers, the house selfie-scene overlay), and a
+`.env` only points at (third-party MCP servers, the house selfie-scene overlay), a
+**Checkpoints** page under Pictures for finding her camera a model on Civitai (below), and a
 page per character for her own model and switches, her night jobs and her selfie
 scenes — each importable and exportable as files.
+
+**Checkpoints** (House settings → Pictures → Checkpoints) is where her local camera's model comes
+from. It lists Civitai's most-downloaded checkpoints for every family the camera can load. Each
+card says what this build will do with it: *Ready*, *Loads*, *Check*, or *Not supported*, with a
+prefilled GitHub issue for the last. A search box filters that cached list and asks Civitai for
+anything it doesn't carry. Where a version comes as several files (fp16 and fp32, full and
+pruned), the card recommends the one her camera computes in and lets you pick another. Paste your
+Civitai API key once (it goes into `.env`). Downloads run on the server with live progress and
+resume if interrupted. A finished file's header is checked before **Use for her camera** sets
+`SELFIE_LOCAL_MODEL` to it. SFW only by default; **Include NSFW** shows the rest. See
+[Selfies → Choosing a checkpoint from Civitai](docs/selfies.md#choosing-a-checkpoint-from-civitai).
 
 ```bash
 yurios settings                       # the common knobs, and whatever you have changed

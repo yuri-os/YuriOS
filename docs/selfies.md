@@ -113,7 +113,9 @@ Then get a checkpoint. The reference pick is an Illustrious-lineage SDXL `.safet
 Civitai — a [Pie Model](https://civitai.com/models/1593793/pie-models) (Lemon = general anime,
 Nutella = sharp linework, Blueberry = semi-realistic). ~7 GB; a free Civitai account may be
 required; the model's own license applies. Any Illustrious-family base works, and swapping models
-later is swapping one path. **LoRA is not wired in this build** — base checkpoint only.
+later is swapping one path. **LoRA is not wired in this build** — base checkpoint only. The
+easiest way is the [Checkpoints page](#choosing-a-checkpoint-from-civitai). It downloads the file
+and sets the two lines below for you.
 
 ```ini
 SELFIE_BACKEND=diffusers

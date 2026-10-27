@@ -239,6 +239,22 @@ trips the warm-headroom test, so the pipeline would otherwise stay in VRAM until
 `SELFIE_UNLOAD_AFTER_S` (default 3600) drops it after that many seconds of no renders; 0 drops
 it after every shot, and a negative value keeps it loaded.
 
+## A Checkpoints download fails
+
+The card says why, and **Try again** (or **Resume download** for a `.part` that survived a
+restart) picks up from where it stopped.
+
+| The card says | Cause |
+|---|---|
+| `Civitai refused the download: check your API key…` | no `CIVITAI_API_KEY`, a wrong one, or a model that wants you signed in or its terms accepted on civitai.com first |
+| `Civitai sent a web page instead of the file…` | the key is missing or wrong, and Civitai answered with its login page |
+| `needs … free in …, and there is …` | not enough disk for the rest of the file, counting what the downloads already running still have to write. Free space, or set `SELFIE_CHECKPOINT_DIR` to a bigger drive |
+| `… is already downloading for another listing` | two cards name the same file; wait for the first |
+| `the download stopped at … of …` | the connection dropped; press it again to resume |
+
+The list itself is cached in `DATA_DIR/civitai/catalog.json`. A failed **Refresh list** keeps the
+last good one, and `Some lists didn't load: …` names the families Civitai didn't answer for.
+
 ## She never says anything on her own
 
 That's the default, and it's the conservative half of the design: most ticks end in REST, and the

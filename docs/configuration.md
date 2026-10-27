@@ -312,7 +312,9 @@ reliably goes wrong when you point her at an instance you already run.
 | `SELFIE_MODEL` | `bytedance-seed/seedream-4.5` | the hosted route's model |
 | `SELFIE_TEMPLATES_EXTRA` | *(empty)* | your own template overlay yaml |
 | `SELFIE_TEMPLATES` | *(empty)* | a library that **replaces** the shipped one (a character runtime points this at her own `selfie.yaml`) |
-| `SELFIE_LOCAL_MODEL` | *(empty)* | path to a `.safetensors` checkpoint |
+| `SELFIE_LOCAL_MODEL` | *(empty)* | path to a `.safetensors` checkpoint — **Use for her camera** on the Checkpoints page sets it |
+| `SELFIE_CHECKPOINT_DIR` | *(empty)* | where the Checkpoints page downloads to; blank = the folder `SELFIE_LOCAL_MODEL` is in, else `./models/checkpoints`. Read on every download, no restart |
+| `CIVITAI_API_KEY` | *(empty)* | for Checkpoints-page downloads (most Civitai checkpoints need one); saved from the page, read on every call, sent only to Civitai |
 | `SELFIE_LOCAL_DEVICE` | `cuda` | |
 | `SELFIE_LOCAL_STEPS` / `_CFG` | `30` / `5.0` | SDXL and Anima sampling |
 | `SELFIE_LOCAL_HIRES` / `_SCALE` / `_DENOISE` | `true` / `1.5` / `0.35` | the second pass |

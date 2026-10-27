@@ -61,7 +61,8 @@ async def provider_models(cfg, provider: str) -> dict[str, Any]:
             base = cfg.openai_compatible_base_url.rstrip("/")
             if not base:
                 return {"models": [],
-                        "error": "set OPENAI_COMPATIBLE_BASE_URL first — or type the id"}
+                        "error": "save the OpenAI-compatible server address "
+                                 "(OPENAI_COMPATIBLE_BASE_URL) first — or type the id"}
             headers = ({"Authorization": f"Bearer {cfg.openai_compatible_api_key}"}
                        if cfg.openai_compatible_api_key else None)
             data = await _fetch_json(f"{base}/models", headers)

@@ -3491,6 +3491,11 @@ changes; a runtime does not know it has neighbours.
   `Cache-Control: no-cache`, for the same reason as the portrait route (§32.4): the hashed
   `/assets/*` beside it change URL when they change, but these names survive every rebuild, and
   a browser's heuristic freshness would otherwise serve yesterday's page until a hard refresh.
+  The unhashed scripts and stylesheets those pages load by name (`/shared/…`, `/js/…`, served
+  raw so the raw Live2D client runs the same file) are `no-cache` too, and every page the host
+  serves — the raw Live2D entry included — **MUST** reference them stamped with their content
+  (`?v=<hash>`): `no-cache` cannot recall a copy a browser already holds, a new address can, and
+  nobody is expected to know to hard-reload.
 - §32.2 **State is the truth, not a guess.** A character's reported state is `attention` when she
   is under review, else her mind's activity state when a runtime is up, else the host's own
   `offline` / `starting` / `ready` / `failed`. A failed character reports her error. The board

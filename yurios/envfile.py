@@ -73,6 +73,14 @@ CURATED: list[dict] = [
         # openrouter/… route below (and it's what the model browse authenticates with).
         {"key": "OPENROUTER_API_KEY", "attr": "openrouter_api_key", "type": "password",
          "help": "needed for openrouter/… models — set this first (openrouter.ai/keys)"},
+        {"key": "OPENAI_COMPATIBLE_BASE_URL", "attr": "openai_compatible_base_url",
+         "type": "text",
+         "help": "any other OpenAI-compatible server or gateway, ending in /v1 — "
+                 "pick OpenAI-compatible in a model picker below; save this first "
+                 "and browse lists what it serves"},
+        {"key": "OPENAI_COMPATIBLE_API_KEY", "attr": "openai_compatible_api_key",
+         "type": "password",
+         "help": "that server's key — sent to OPENAI_COMPATIBLE_BASE_URL and nowhere else"},
         {"key": "CHAT_MODEL", "attr": "chat_model", "type": "model",
          "help": "her reply voice — pick a provider, then type a model or browse what's loaded"},
         {"key": "UTILITY_MODEL", "attr": "utility_model", "type": "model",
@@ -86,13 +94,6 @@ CURATED: list[dict] = [
         {"key": "OLLAMA_BASE_URL", "attr": "ollama_base_url", "type": "text",
          "suggest": ["http://localhost:11434"],
          "help": "local Ollama server — routes ollama/… ids and lists your pulled models"},
-        {"key": "OPENAI_COMPATIBLE_BASE_URL", "attr": "openai_compatible_base_url",
-         "type": "text",
-         "help": "any other OpenAI-compatible server or gateway (ending in /v1) — "
-                 "routes openai_compatible/… ids"},
-        {"key": "OPENAI_COMPATIBLE_API_KEY", "attr": "openai_compatible_api_key",
-         "type": "password",
-         "help": "that server's key — sent to OPENAI_COMPATIBLE_BASE_URL and nowhere else"},
         {"key": "CONTEXT_LENGTH", "attr": "context_length", "type": "number",
          "min": "0",
          "help": "her context window in tokens — 0 = the provider's default. "
@@ -667,6 +668,10 @@ PAGES: list[dict] = [
      "sections": [
          {"title": "Her models", "fields": [
              ("OPENROUTER_API_KEY", "OpenRouter API key"),
+             # beside the pickers: "OpenAI-compatible" there means nothing
+             # until this address (and its key) is saved
+             ("OPENAI_COMPATIBLE_BASE_URL", "OpenAI-compatible server address"),
+             ("OPENAI_COMPATIBLE_API_KEY", "OpenAI-compatible API key"),
              ("CHAT_MODEL", "Chat model"),
              ("UTILITY_MODEL", "Utility model"),
              ("UTILITY_ENABLED", "Background utility work"),
@@ -686,10 +691,6 @@ PAGES: list[dict] = [
              ("LMSTUDIO_PRELOAD", "Keep LM Studio models loaded"),
              ("LMSTUDIO_LOAD_TIMEOUT_S", "LM Studio load timeout (s)"),
              ("OLLAMA_BASE_URL", "Ollama address"),
-         ]},
-         {"title": "OpenAI-compatible server", "fields": [
-             ("OPENAI_COMPATIBLE_BASE_URL", "Server address"),
-             ("OPENAI_COMPATIBLE_API_KEY", "Server API key"),
          ]},
          {"title": "Built-in GGUF runner — gguf/… models", "advanced": True, "fields": [
              ("GGUF_FALLBACK", "Fall back to GGUF when LM Studio is away"),

@@ -51,7 +51,7 @@ from yurios.app.conversation import ConversationLog
 from yurios.app.corpus import CorpusLogger, UnratableLine
 from ..kernel.clock import Clock
 from .config import Config
-from . import runtime
+from . import raw_assets, runtime
 from .context import ContextMeter
 from ..kernel.hub import EventHub
 from .inbox import Inbox
@@ -1349,6 +1349,13 @@ def create_app(cfg: Config | None = None, *, brain=None, chat_model=None,
     # .env) and the re-aimed rig registry in routes/live2d.py.
     app.include_router(b2_settings.router)
     app.include_router(live2d.router)
+
+    # Its entry page, ahead of the mount: served raw, it is the one page Vite
+    # never sees, so its /shared/ and /js/ references are stamped here (SPEC §32.1)
+    @app.get("/live2d/", include_in_schema=False)
+    async def live2d_page():
+        return raw_assets.page(WEB_DIR / "live2d" / "index.html", WEB_DIR)
+
     app.mount("/live2d", StaticFiles(directory=WEB_DIR / "live2d", html=True),
               name="live2d")
     # Her body + animations are large binaries kept out of the Vite bundle

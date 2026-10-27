@@ -10,9 +10,10 @@ from __future__ import annotations
 import logging
 
 from fastapi import FastAPI, Request
-from fastapi.responses import (FileResponse, JSONResponse, RedirectResponse)
+from fastapi.responses import JSONResponse, RedirectResponse
 
-from ..main import DIST_DIR
+from .. import raw_assets
+from ..main import DIST_DIR, WEB_DIR
 from .hosting import (CharacterHost)
 
 log = logging.getLogger("world.host")
@@ -23,10 +24,11 @@ def _html(path):
 
     `Cache-Control: no-cache` (SPEC §32.1, revalidate every load) so a rebuild is not stuck
     behind yesterday's index until a hard refresh — the same rule as unhashed
-    `/js/` and `/shared/` on the character app (`world/main.py`).
+    `/js/` and `/shared/` on the character app (`world/main.py`) — and those
+    unhashed scripts are stamped with their content on the way out
+    (`raw_assets`), so a copy a browser already held cannot outlive an edit.
     """
-    return FileResponse(path, media_type="text/html",
-                        headers={"Cache-Control": "no-cache"})
+    return raw_assets.page(path, WEB_DIR)
 
 
 def _entry(*parts: str):

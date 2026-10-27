@@ -23,7 +23,7 @@ from starlette.staticfiles import StaticFiles
 from yurios.characters import CharacterRecord, CharacterRegistry
 
 from ..config import Config
-from ..main import DIST_DIR, WEB_DIR
+from ..main import DIST_DIR, WEB_DIR, _RawAssetNoCache
 from . import brains, checkpoints, house, modules, pages, studio, switchboard
 from . import debug as debug_routes
 from .hosting import CharacterBusy, CharacterHost, _RuntimeDispatcher, _turn_away
@@ -121,6 +121,10 @@ def create_host_app(base: Config, registry: CharacterRegistry | None = None, *,
     # falls through to the primary character — which, on the node this panel
     # exists to rescue, is not there.
     app.mount("/shared", StaticFiles(directory=WEB_DIR / "shared"), name="host-shared")
+    # …served by its unhashed name, so it has to be revalidated the way a character
+    # app's raw scripts are: without it a browser keeps yesterday's picker after
+    # the file changes, and a provider added to it never appears.
+    app.add_middleware(_RawAssetNoCache)
     app.mount("/dashboard", StaticFiles(directory=DIST_DIR / "dashboard", html=True,
                                          check_dir=False), name="dashboard")
     # The studio selects its character by query parameter (`/studio/?character=…`)

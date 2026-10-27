@@ -267,6 +267,19 @@ def test_primary_prefers_running_autostart_character(tmp_path, monkeypatch):
         assert client.get("/api/health").json() == {"character": "Yuri"}
 
 
+def test_the_boards_own_settings_script_is_revalidated(tmp_path):
+    """/shared/settings.js keeps its name across edits: cached blind, the house
+    settings page went on drawing a provider list from before the last change."""
+    registry = CharacterRegistry(tmp_path)
+    registry.add(record(tmp_path, enabled=False))
+    app = create_host_app(Config(data_dir=tmp_path), registry)
+
+    with TestClient(app) as client:
+        response = client.get("/shared/settings.js")
+        assert response.status_code == 200
+        assert response.headers["cache-control"] == "no-cache"
+
+
 def test_portrait_is_revalidated_not_cached_blind(tmp_path):
     """Her face changes behind one stable URL, so the browser has to ask."""
     registry = CharacterRegistry(tmp_path)

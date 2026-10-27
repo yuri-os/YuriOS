@@ -167,7 +167,32 @@ async def list_models(request: Request, provider: str = ""):
     the studio's optimize dialog asks the same question of the same servers."""
     _require_local(request)
     cfg = _config(request)
-    return await provider_models(_key_config(request, cfg), provider)
+    return await provider_models(_as_saved(cfg, _key_config(request, cfg)), provider)
+
+
+# A server's address and its key, as the picker should browse them: the panel's
+# job is to save an address and then pick from what is there, so a value saved a
+# moment ago beats the one the process booted with. Each pair moves together —
+# a freshly saved address never borrows the key a connection profile brought for
+# somewhere else (SPEC §31.2); a key the file leaves out is the house's own.
+_SERVERS = (
+    (("LMSTUDIO_BASE_URL", "lmstudio_base_url"), ("LMSTUDIO_API_KEY", "lmstudio_api_key")),
+    (("OPENAI_COMPATIBLE_BASE_URL", "openai_compatible_base_url"),
+     ("OPENAI_COMPATIBLE_API_KEY", "openai_compatible_api_key")),
+    (("OLLAMA_BASE_URL", "ollama_base_url"),),
+    (("OPENROUTER_API_KEY", "openrouter_api_key"),),
+)
+
+
+def _as_saved(house, cfg):
+    stored = _stored_values()
+    update: dict[str, str] = {}
+    for pair in _SERVERS:
+        saved = {attr: stored.get(key, str(getattr(house, attr, "") or ""))
+                 for key, attr in pair}
+        if any(saved[attr] != str(getattr(house, attr, "") or "") for _, attr in pair):
+            update.update(saved)
+    return cfg.model_copy(update=update) if update else cfg
 
 
 @router.get("/api/settings")

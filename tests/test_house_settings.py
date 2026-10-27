@@ -218,3 +218,49 @@ def test_a_scene_library_exports_as_yaml_and_parses_back_into_rows(board):
                              json={"text": "tool_hint: only words\n"}).status_code == 422
     assert board.client.post("/api/selfie-templates/parse",
                              json={"text": "scenes: [not, a, mapping]\n"}).status_code == 422
+
+
+# --- the model picker ----------------------------------------------------------------
+
+def test_the_picker_browses_a_gateway_saved_a_moment_ago(board, monkeypatch):
+    """Save an address, then browse it: the listing reads what the panel saved,
+    not what the process booted with, and the key rides with its own address."""
+    from yurios.app.providers import catalog
+
+    asked = []
+
+    async def fetch(url, headers=None):
+        asked.append((url, headers))
+        return {"data": [{"id": "venice-uncensored"}]}
+
+    monkeypatch.setattr(catalog, "_fetch_json", fetch)
+    before = board.client.get("/api/models", params={"provider": "openai_compatible"}).json()
+    assert before["models"] == [] and "OPENAI_COMPATIBLE_BASE_URL" in before["error"]
+
+    board.env.write_text("OPENAI_COMPATIBLE_BASE_URL=https://gw.example/v1\n"
+                         "OPENAI_COMPATIBLE_API_KEY=gw-key\n", encoding="utf-8")
+    after = board.client.get("/api/models", params={"provider": "openai_compatible"}).json()
+    assert after == {"models": ["venice-uncensored"]}
+    assert asked == [("https://gw.example/v1/models", {"Authorization": "Bearer gw-key"})]
+
+
+def test_a_saved_address_never_borrows_the_booted_key(board, monkeypatch):
+    """The house booted pointing at one server with its key; a new address saved
+    without a key is browsed keyless, not with the old server's key."""
+    from yurios.app.providers import catalog
+
+    asked = []
+
+    async def fetch(url, headers=None):
+        asked.append((url, headers))
+        return {"data": []}
+
+    monkeypatch.setattr(catalog, "_fetch_json", fetch)
+    booted = board.app.state.host.base
+    board.app.state.host.base = booted.model_copy(update={
+        "openai_compatible_base_url": "https://old.example/v1",
+        "openai_compatible_api_key": "old-key"})
+    board.env.write_text("OPENAI_COMPATIBLE_BASE_URL=https://new.example/v1\n"
+                         "OPENAI_COMPATIBLE_API_KEY=\n", encoding="utf-8")
+    board.client.get("/api/models", params={"provider": "openai_compatible"})
+    assert asked == [("https://new.example/v1/models", None)]

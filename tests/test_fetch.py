@@ -108,6 +108,26 @@ async def test_a_redirect_into_the_private_range_is_caught_on_the_second_hop():
 
 # ---------------------------------------------------------------- the fetch
 
+async def test_a_fetch_does_not_name_the_app_to_the_site():
+    """Every page she reads is a request to somebody's server; nothing on it may
+    say which app sent her (SPEC §7.7)."""
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, text=PAGE, headers={"content-type": "text/html"})
+
+    async def resolve(host, port):
+        return ["93.184.216.34"]
+
+    await HttpFetcher(transport=httpx.MockTransport(handler),
+                      resolve=resolve).fetch("http://good.example/")
+    agent = seen[0].headers.get("user-agent", "")
+    assert agent.startswith("python-httpx/")
+    assert "yurios" not in agent.lower() and "companion" not in agent.lower()
+    assert "referer" not in seen[0].headers
+
+
 def html_response(body=PAGE, ctype="text/html; charset=utf-8", status=200):
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(status, text=body, headers={"content-type": ctype})

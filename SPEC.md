@@ -1127,7 +1127,9 @@ to every new subscriber before its first live event. Malformed JSON is logged an
   someone listed". `url` is the first tool
   argument authored by a language model rather than by a person, and the local network it would
   otherwise reach includes her own control surface (§11.4). Redirects **MUST** therefore be followed
-  by hand. Non-text responses and bodies past `FETCH_MAX_BYTES` **MUST** be refused.
+  by hand. Non-text responses and bodies past `FETCH_MAX_BYTES` **MUST** be refused. A fetch
+  **MUST NOT** name the app to the site it reads: no YuriOS `User-Agent` and no referer, only the
+  HTTP client's default, as for model requests (§3.1).
   Extraction **MUST** remove navigation, related-content, sharing and comment widgets identified
   by their tags, roles, or CSS identifiers, even when a site renders them as ordinary containers,
   while retaining the article body. A large HTML shell with too little readable body after

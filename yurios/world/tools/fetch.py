@@ -289,11 +289,11 @@ class HttpFetcher:
         transport = self._transport if self._transport is not None else pinned
         # A proxy would resolve the target again and defeat the validated IP
         # binding. Explicit transports remain supported for deterministic tests.
+        # No user-agent of our own: every site she reads would otherwise learn
+        # which app sent her (SPEC §7.7), so httpx's default goes out instead.
         async with httpx.AsyncClient(transport=transport, trust_env=False,
                                      timeout=self._timeout,
-                                     follow_redirects=False,
-                                     headers={"user-agent": "YuriOS/0.2 (+companion)"}
-                                     ) as client:
+                                     follow_redirects=False) as client:
             for _ in range(MAX_REDIRECTS + 1):
                 addresses = await _validated_addresses(url, self._resolve)
                 if pinned is not None:

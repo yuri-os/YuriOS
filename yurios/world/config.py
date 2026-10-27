@@ -147,6 +147,12 @@ class Config(VoiceConfig):
     # 30 steps / CFG 5 / hires fix on. ~7 GB fp16 resident; cpu_offload trades
     # speed for headroom. Missing deps or checkpoint degrade to mock, loudly.
     selfie_local_model: str = ""                # path to the .safetensors checkpoint
+    # House settings' Checkpoints page (SPEC §11.5): where it downloads to — blank
+    # is the folder SELFIE_LOCAL_MODEL is in, else ./models/checkpoints — and
+    # the Civitai key it lists and downloads with. Both are read from .env
+    # when used, so neither waits for a restart.
+    selfie_checkpoint_dir: str = ""
+    civitai_api_key: str = ""
     selfie_local_device: str = "cuda"           # cuda | mps (either = this machine's GPU) | cpu
     selfie_local_steps: int = 30
     selfie_local_cfg: float = 5.0

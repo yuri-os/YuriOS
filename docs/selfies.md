@@ -56,6 +56,34 @@ Any OpenRouter image route works — the backend asks for `["image"]` modalities
 with `["image","text"]`, so no per-vendor registry is needed. Requests carry the project's
 attribution headers, so selfie spend lands on the same app page as the chat path.
 
+## Choosing a checkpoint from Civitai
+
+**House settings → Pictures → Checkpoints** does the finding and fetching for you. It lists
+Civitai's most-downloaded checkpoints, of all time and of this week, for every family her camera
+can load (SDXL Illustrious, NoobAI, Pony and 1.0, Anima, Krea 2 and Krea 2 Turbo). Each card says
+what this build will do with it:
+
+| Status | Meaning |
+|---|---|
+| Ready | loads as-is |
+| Loads | works, but her prompt wording isn't tuned for it (Pony, plain SDXL) |
+| Check | loads with a caveat (an SDXL v-prediction model), or a Krea 2 INT4 file whose layout is checked once it's downloaded |
+| Not supported | this build can't load it yet; the card links to a prefilled GitHub issue to ask for it |
+
+1. Paste your Civitai API key (civitai.com → Account settings → API keys) into the page. It is
+   saved to `.env` as `CIVITAI_API_KEY` and works at once, with no restart.
+2. Press **Download** on a card. The file streams on the server into `SELFIE_CHECKPOINT_DIR`
+   (blank means the folder `SELFIE_LOCAL_MODEL` is already in, else `./models/checkpoints`). You
+   can leave the page. A download the server was stopped in the middle of resumes where it left
+   off.
+3. When it lands, its header is checked: the right Krea 2 layout, the 2B Anima, no surprises. Press
+   **Use for her camera**, then restart. That sets `SELFIE_LOCAL_MODEL`, and `SELFIE_BACKEND` to
+   `diffusers` if it named something that can't render the file.
+
+The page shows SFW models and PG/PG-13 previews by default. **Include NSFW** shows the rest.
+**Downloaded** narrows the list to what is already on this machine, and **On this machine** lists
+every checkpoint in the folder with its check, including ones you fetched yourself.
+
 ## Local SDXL (`diffusers`)
 
 Her own camera, on your own GPU, with no third party. The model is loaded **in-process** — there's

@@ -18,6 +18,15 @@ export const ADDON_PAGES = Object.freeze([
       + "library — the house-wide register. Kept exactly as you write it." },
 ]);
 
+/** Pages that belong under a house page and are not `.env` rows: drawn in the
+ *  rail beneath their parent, and linked from the top of it. */
+export const SUB_PAGES = Object.freeze([
+  { id: "checkpoints", parent: "pictures", title: "Checkpoints", icon: "download",
+    note: "Checkpoints for her local camera, from Civitai: the most downloaded for every "
+      + "family it can load, each saying whether this build loads it. Downloads run on "
+      + "the server; pick the one her camera uses when it lands." },
+]);
+
 export const CHARACTER_TABS = Object.freeze([
   { id: "settings", title: "Settings" },
   { id: "jobs", title: "Night jobs" },
@@ -37,7 +46,7 @@ export function parseRoute(hash, pages = [], characters = []) {
     return { page: "character", character: id, tab, key: "" };
   }
   const known = page === "overview" || pages.some((p) => p.id === page)
-    || ADDON_PAGES.some((p) => p.id === page);
+    || ADDON_PAGES.some((p) => p.id === page) || SUB_PAGES.some((p) => p.id === page);
   return { page: known ? page : "overview", key: known ? key : "" };
 }
 

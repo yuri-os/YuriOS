@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import json
 import struct
+import re
+from dataclasses import dataclass
 from pathlib import Path
 
 # Krea 2 exports (this repo's DaSiWa-quantized ones, at least) carry these
@@ -48,7 +50,10 @@ def read_safetensors_header(path: str | Path) -> dict:
 def sniff_local_checkpoint_architecture(path: str | Path) -> str:
     """"sdxl" | "krea2" | "anima" | "unknown" — "unknown" for anything that
     isn't recognizably one of them (caller decides how to fall back)."""
-    header = read_safetensors_header(path)
+    return _architecture(read_safetensors_header(path))
+
+
+def _architecture(header: dict) -> str:
     if not header:
         return "unknown"
 
@@ -70,3 +75,76 @@ def sniff_local_checkpoint_architecture(path: str | Path) -> str:
            for k in keys):
         return "sdxl"
     return "unknown"
+
+
+# --- will this build actually load it? -------------------------------------------
+#
+# The architecture says which backend gets the file; it does not say the backend
+# can read it. Each local backend reads one shape of its family and refuses the
+# rest at load time — after a minute of moving weights, in a log line. These are
+# the same refusals, read off the header before a byte of tensor data moves.
+
+#: The one Krea 2 weight layout krea2.py runs (comfy-kitchen's INT4 ConvRot).
+KREA2_LAYOUT = "convrot_w4a4"
+#: The Anima-Base 2B transformer anima.py builds and loads with strict=True:
+#: 28 blocks, 2048 wide. The 2.9B / 3.8B variants are other shapes.
+ANIMA_BLOCKS = 28
+ANIMA_WIDTH = 2048
+_ANIMA_BLOCK = re.compile(r"^model\.diffusion_model\.blocks\.(\d+)\.")
+_ANIMA_PROBE = "model.diffusion_model.blocks.0.adaln_modulation_mlp.1.weight"
+
+
+@dataclass(frozen=True)
+class Verdict:
+    """What a checkpoint is and whether this build can render with it.
+
+    `status` is "ok" (loads as-is), "warn" (loads, but expect a problem the
+    note names) or "unsupported" (this build would refuse it)."""
+    architecture: str
+    status: str
+    note: str
+
+    @property
+    def usable(self) -> bool:
+        return self.status != "unsupported"
+
+
+def verify_local_checkpoint(path: str | Path) -> Verdict:
+    """Read one header and say whether the backend its architecture routes to
+    would load the file. Never raises; never loads tensor data."""
+    header = read_safetensors_header(path)
+    arch = _architecture(header)
+    keys = [k for k in header if k != "__metadata__"]
+    if arch == "unknown":
+        return Verdict(arch, "unsupported",
+                       "not a checkpoint this build recognizes (SDXL, Krea 2 or Anima)"
+                       if header else "unreadable: not a .safetensors file, or incomplete")
+    if arch == "krea2":
+        meta = header.get("__metadata__", {}) or {}
+        try:
+            layers = json.loads(meta.get("_quantization_metadata", "{}")).get("layers", {})
+        except (TypeError, ValueError):
+            layers = {}
+        layouts = {str((spec or {}).get("format", "")) for spec in layers.values()}
+        if layouts == {KREA2_LAYOUT}:
+            return Verdict(arch, "ok", "Krea 2, INT4 ConvRot W4A4")
+        found = ", ".join(sorted(layouts - {""})) or "not quantized"
+        return Verdict(arch, "unsupported",
+                       f"Krea 2 stored as {found}; the krea2 backend runs only "
+                       f"INT4 ConvRot W4A4 files")
+    if arch == "anima":
+        blocks = {int(m.group(1)) for k in keys for m in [_ANIMA_BLOCK.match(k)] if m}
+        probe = header.get(_ANIMA_PROBE) or {}
+        shape = probe.get("shape") if isinstance(probe, dict) else None
+        width = shape[1] if isinstance(shape, list) and len(shape) == 2 else 0
+        if len(blocks) == ANIMA_BLOCKS and width == ANIMA_WIDTH:
+            return Verdict(arch, "ok", "Anima 2B")
+        return Verdict(arch, "unsupported",
+                       f"an Anima variant with {len(blocks)} blocks at width {width or '?'}; "
+                       f"the anima backend builds the 2B model "
+                       f"({ANIMA_BLOCKS} blocks at {ANIMA_WIDTH})")
+    if "v_pred" in keys:
+        return Verdict(arch, "warn",
+                       "SDXL with v-prediction; the SDXL backend samples it as "
+                       "epsilon, so pictures may come out grey or washed out")
+    return Verdict(arch, "ok", "SDXL")

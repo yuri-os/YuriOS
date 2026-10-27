@@ -28,8 +28,9 @@
  */
 import { renderMcp, renderOverlay } from "./addons.js";
 import { characterSettings, renderJobs, renderScenes } from "./character.js";
+import { renderCheckpoints } from "./checkpoints.js";
 import {
-  ADDON_PAGES, CHARACTER_TABS, changedFromDefault, glance, indexFields, parseRoute,
+  ADDON_PAGES, CHARACTER_TABS, SUB_PAGES, changedFromDefault, glance, indexFields, parseRoute,
   pendingRestart, shown,
 } from "./model.js";
 import { api, el, icon } from "./ui.js";
@@ -112,6 +113,11 @@ function pagePanel(page, form) {
   // only shown while searching, when every page is on screen at once
   panel.append(el("h2", { className: "page-label" },
     el("a", { href: `#/${page.id}`, textContent: page.title })));
+  for (const sub of SUB_PAGES.filter((s) => s.parent === page.id)) {
+    panel.append(el("a", { className: "sub-link", href: `#/${sub.id}` },
+      icon(sub.icon), el("span", {}, el("strong", { textContent: sub.title }),
+        el("small", { textContent: sub.note })), icon("next")));
+  }
   for (const section of page.sections) panel.append(sectionPanel(section, form));
   return panel;
 }
@@ -228,8 +234,14 @@ function railItem(href, iconName, title, dataset) {
 }
 
 function drawRail() {
-  nodes.railPages.replaceChildren(...state.data.pages.map((page) =>
-    railItem(`#/${page.id}`, icon(page.icon || "dots"), page.title, { page: page.id })));
+  nodes.railPages.replaceChildren(...state.data.pages.flatMap((page) => [
+    railItem(`#/${page.id}`, icon(page.icon || "dots"), page.title, { page: page.id }),
+    ...SUB_PAGES.filter((sub) => sub.parent === page.id).map((sub) => {
+      const item = railItem(`#/${sub.id}`, icon(sub.icon), sub.title, { page: sub.id });
+      item.classList.add("rail-sub");
+      return item;
+    }),
+  ]));
   nodes.railAddons.replaceChildren(...ADDON_PAGES.map((page) =>
     railItem(`#/${page.id}`, icon(page.icon), page.title, { page: page.id })));
   nodes.railCharacters.replaceChildren(...state.characters.map((c) => {
@@ -331,7 +343,8 @@ function applyView() {
   } else {
     page = state.route.page === "overview" ? OVERVIEW
       : state.data.pages.find((p) => p.id === state.route.page)
-        || ADDON_PAGES.find((p) => p.id === state.route.page);
+        || ADDON_PAGES.find((p) => p.id === state.route.page)
+        || SUB_PAGES.find((p) => p.id === state.route.page);
   }
   nodes.title.textContent = page.title;
   nodes.note.textContent = page.note;
@@ -398,6 +411,7 @@ function renderExtra() {
   const { page } = state.route;
   if (page === "mcp") return renderMcp(nodes.extra, ctx);
   if (page === "overlay") return renderOverlay(nodes.extra, ctx);
+  if (page === "checkpoints") return renderCheckpoints(nodes.extra, ctx);
   if (page === "character") return renderCharacter();
   return null;
 }

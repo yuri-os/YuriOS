@@ -1647,6 +1647,45 @@ Below the house pages the rail lists every character on the node. Her page has t
   character's library the same two ways, go back to the shipped one, or edit the whole file as YAML.
   The studio still edits it row by row; both write through the same PUT.
 
+### §11.5 — Checkpoints from Civitai, for her local camera
+
+Her local camera reads one `.safetensors` file (§7.6, `SELFIE_LOCAL_MODEL`), and each local backend
+reads only some files of its family. **Pictures → Checkpoints** (`#/checkpoints`, a page under
+Pictures in the rail and linked from the top of it) is where that file comes from
+(`forge/civitai.py`, `world/host/checkpoints.py`, `web/settings/checkpoints.js`).
+
+- §11.5.1 **One header decides whether a file loads.** `sniff.verify_local_checkpoint` reads a
+  file's header and answers what its backend would do with it: SDXL loads (a `v_pred` tensor loads
+  with a warning, because the SDXL backend samples epsilon); Krea 2 loads only when every quantized
+  layer is `convrot_w4a4`; Anima loads only at the 2B shape the backend builds strictly (28 blocks,
+  width 2048); anything else is unsupported. It **MUST NOT** load tensor data. The page shows this
+  verdict for every file in the folder, and **Use** **MUST** refuse a file it calls unsupported.
+- §11.5.2 **The list.** For each base model the camera can load (Illustrious, NoobAI, Anima, Krea 2,
+  Krea 2 Turbo, Pony, SDXL 1.0), the most-downloaded checkpoints of all time and of this week, each
+  with the version and file the camera would use and a status: *Ready*, *Loads* (works, but the
+  prompt wording isn't tuned for it), *Check* (a caveat, or a Krea 2 INT4 file whose layout the
+  listing doesn't name) or *Not supported*. NSFW models are fetched; the page shows them only when
+  **Include NSFW** is on, and while it is off a card shows only PG and PG-13 previews. The answer is
+  cached in `DATA_DIR/civitai/catalog.json`: opening the page **MUST NOT** call Civitai; a missing
+  or day-old list is refreshed once per visit, and **Refresh list** asks again. Every card links to
+  its Civitai page. A card this build can't load still shows, says so, and links to a prefilled
+  GitHub issue asking for support instead of offering a download.
+- §11.5.3 **The key.** `CIVITAI_API_KEY` is written to `.env` from the page (null removes it) and
+  read from the file when used, like `SELFIE_CHECKPOINT_DIR`, so neither waits for a restart. It
+  **MUST NOT** be logged or sent anywhere but Civitai.
+- §11.5.4 **Downloads run on the server.** A download takes the file, size and address from the
+  cached list, never from the request, and lands in `SELFIE_CHECKPOINT_DIR`: blank means the folder
+  `SELFIE_LOCAL_MODEL` is in, else `./models/checkpoints`. It streams on a daemon thread, never the
+  event loop (the host is one process holding every character's room), into `<file>.part`, which is renamed
+  only when complete. It **MUST** refuse before starting when the disk can't hold the rest, resumes a
+  `.part` with a range request, keeps the `.part` when the server stops, and deletes it when you
+  cancel. Progress is polled while something downloads, and only then: the house has no event bus
+  of its own (§10's `EventHub` is a character's), as with the boot panel.
+- §11.5.5 **Use for her camera.** Writes `SELFIE_LOCAL_MODEL` to the checked file and, when
+  `SELFIE_BACKEND` names something that can't render it, `diffusers`, which routes by the file's
+  header. Like any `.env` edit, it applies on the next restart, and the page says so.
+- Every route here is owner-or-loopback: they write `.env`, use someone's bandwidth and fill a disk.
+
 ## §12 — Omissions → superseded by §26
 
 ## §13 — Tests → superseded by §27

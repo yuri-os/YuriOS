@@ -407,7 +407,8 @@ RELEVANT: dict[str, dict[str, list[str]]] = {
     "SEARCH_SAFESEARCH": {"SEARCH_BACKEND": ["searxng"]},
     "SELFIE_MODEL": {"SELFIE_BACKEND": ["openrouter"]},
     **{key: _LOCAL_CAMERA for key in (
-        "SELFIE_LOCAL_MODEL", "SELFIE_LOCAL_DEVICE", "SELFIE_LOCAL_CPU_OFFLOAD",
+        "SELFIE_LOCAL_MODEL", "SELFIE_CHECKPOINT_DIR", "CIVITAI_API_KEY",
+        "SELFIE_LOCAL_DEVICE", "SELFIE_LOCAL_CPU_OFFLOAD",
         "SELFIE_KREA2_STEPS", "SELFIE_KREA2_CFG", "SELFIE_LLM_PARK",
         "SELFIE_WARM_HEADROOM_GIB", "SELFIE_UNLOAD_AFTER_S")},
     **{key: {"SELFIE_BACKEND": ["diffusers", "anima"]} for key in (
@@ -843,6 +844,8 @@ PAGES: list[dict] = [
          ]},
          {"title": "Local renderer", "fields": [
              ("SELFIE_LOCAL_MODEL", "Checkpoint file"),
+             ("SELFIE_CHECKPOINT_DIR", "Checkpoint download folder"),
+             ("CIVITAI_API_KEY", "Civitai API key"),
              ("SELFIE_LOCAL_DEVICE", "Device"),
              ("SELFIE_LOCAL_STEPS", "Steps"),
              ("SELFIE_LOCAL_CFG", "Guidance"),

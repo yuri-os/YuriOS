@@ -21,8 +21,8 @@ import importlib.util
 import os
 import sys
 from pathlib import Path
+from urllib.parse import urlsplit
 
-from yurios import attribution
 
 # Backends that need nothing installed: they either use the core deps (httpx to a
 # server you run) or they ARE the no-dep path. Listed so the table can say "ok"
@@ -251,7 +251,7 @@ def mcp_api_mismatch() -> str:
 # imported because that module imports litellm, and running the doctor has to stay
 # free (tests/test_doctor.py pins this against the real router).
 _LOCAL_PREFIXES = ("ollama/", "lm_studio/", "gguf/")
-_OTHER_HOSTS = ("openai/", "anthropic/")
+_OTHER_HOSTS = ("openai/", "anthropic/", "openai_compatible/")
 
 
 def _hosted_on_openrouter(model: str) -> bool:
@@ -280,19 +280,21 @@ def network_lines(cfg) -> list[str]:
     if getattr(cfg, "selfie_backend", "") == "openrouter":
         hosted.append("selfies")
 
+    gateway = [seam for seam, model in (("chat", cfg.chat_model),
+                                        ("utility", cfg.utility_model))
+               if model.startswith("openai_compatible/")]
+
     lines = ["\nWhat leaves the machine\n"]
     if hosted:
-        # The composite user-agent of whichever path is actually hosted — the chat
-        # seam posts through litellm, the camera through the standard library.
-        client = (attribution.client_token("litellm") if len(hosted) > 1
-                  or "selfies" not in hosted else attribution.URLLIB_CLIENT)
-        lines.append(f"   OpenRouter        {', '.join(hosted)} — billed to "
-                     f"{attribution.APP_TITLE} at {attribution.APP_URL}")
-        lines.append(f"   sent as           {attribution.user_agent(client)}  "
-                     f"(app page: openrouter.ai/apps?url={attribution.APP_URL})")
+        lines.append(f"   OpenRouter        {', '.join(hosted)} — billed to your "
+                     "key, no app attribution sent")
     else:
-        lines.append("   OpenRouter        nothing hosted selected — every model "
-                     "is on your own machine")
+        lines.append("   OpenRouter        nothing hosted selected")
+    if gateway:
+        host = urlsplit(getattr(cfg, "openai_compatible_base_url", "") or "").hostname
+        lines.append(f"   gateway           {', '.join(gateway)} — to "
+                     f"{host or 'OPENAI_COMPATIBLE_BASE_URL (unset)'}, "
+                     "no app attribution sent")
     cost_map = os.environ.get("LITELLM_LOCAL_MODEL_COST_MAP", "")
     lines.append("   litellm prices    " + (
         "the copy in the wheel — no fetch at start"

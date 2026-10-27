@@ -35,9 +35,11 @@ class ModelCheck:
 #: `doctor._LOCAL_PREFIXES` is the same tuple, kept there so the doctor does
 #: not import this module.
 LOCAL_MODEL_PREFIXES = ("ollama/", "lm_studio/", "gguf/")
-#: Hosted routes LiteLLM reaches directly rather than through OpenRouter.
+#: Routes LiteLLM reaches directly rather than through OpenRouter. An
+#: `openai_compatible/` gateway counts here whether it is hosted or not: it is
+#: nothing this machine loads, pins or parks.
 #: `doctor._OTHER_HOSTS` is the same tuple, for the same reason.
-OTHER_HOSTED_PREFIXES = ("openai/", "anthropic/")
+OTHER_HOSTED_PREFIXES = ("openai/", "anthropic/", "openai_compatible/")
 
 
 def model_is_local(model: str) -> bool:
@@ -201,6 +203,13 @@ def probe_model(cfg, model: str, *, timeout: float = 3.0) -> ModelProbe:
         key = cfg.connection_api_key
         wanted = model.removeprefix("ollama/")
         listing, id_field = "models", "name"
+    elif model.startswith("openai_compatible/"):
+        if not cfg.openai_compatible_base_url:
+            return ModelProbe(False, "OPENAI_COMPATIBLE_BASE_URL is not configured")
+        url = f"{cfg.openai_compatible_base_url.rstrip('/')}/models"
+        key = cfg.openai_compatible_api_key
+        wanted = model.removeprefix("openai_compatible/")
+        listing, id_field = "data", "id"
     elif hosted_on_openrouter(model):
         if not cfg.openrouter_api_key:
             return ModelProbe(False, "OPENROUTER_API_KEY is not configured")

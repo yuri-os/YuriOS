@@ -69,6 +69,7 @@
   const PROVIDERS = [
     { id: "lmstudio", label: "LM Studio", prefix: "lm_studio/" },
     { id: "ollama", label: "Ollama", prefix: "ollama/" },
+    { id: "openai_compatible", label: "OpenAI-compatible", prefix: "openai_compatible/" },
     { id: "openrouter", label: "OpenRouter", prefix: "openrouter/" },
     { id: "custom", label: "Custom", prefix: "" },
   ];
@@ -84,7 +85,8 @@
 
   function joinModel(providerId, model) {
     const m = (model || "").trim();
-    const p = PROVIDERS.find((x) => x.id === providerId) || PROVIDERS[3];
+    const p = PROVIDERS.find((x) => x.id === providerId)
+      || PROVIDERS.find((x) => x.id === "custom");
     if (p.id === "custom" || !p.prefix) return m;
     return m.startsWith(p.prefix) ? m : p.prefix + m;   // don't double a pasted prefix
   }

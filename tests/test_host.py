@@ -977,6 +977,46 @@ def test_the_house_lm_studio_key_never_follows_her_elsewhere(tmp_path):
     assert build_chat_model(cfg).api_key is None
 
 
+def _gateway_house(tmp_path):
+    return Config(data_dir=tmp_path, _env_file=None,
+                  openai_compatible_base_url="https://gw.example/v1",
+                  openai_compatible_api_key="sk-gw")
+
+
+def test_the_house_gateway_key_rides_with_the_house_url(tmp_path):
+    her = record(tmp_path, "yuri")
+    her.models.chat = "openai_compatible/some-model"
+    from yurios.app.main import build_chat_model
+
+    for profile in (None, ConnectionProfile(name="default", endpoint="https://gw.example/v1/")):
+        cfg = config_for_character(_gateway_house(tmp_path), her, profile, environ={})
+        assert cfg.openai_compatible_api_key == "sk-gw"
+        provider = build_chat_model(cfg)
+        assert provider.api_key == "sk-gw"
+        assert provider.model == "hosted_vllm/some-model"
+
+
+def test_the_house_gateway_key_never_follows_her_elsewhere(tmp_path):
+    """A profile pointing her at another gateway brings that gateway's key or
+    none — and none is the placeholder, not the house key and not some other
+    variable LiteLLM would go looking for."""
+    her = record(tmp_path, "yuri")
+    her.models.chat = "openai_compatible/some-model"
+    elsewhere = ConnectionProfile(name="default", endpoint="https://other.example/v1")
+    cfg = config_for_character(_gateway_house(tmp_path), her, elsewhere, environ={})
+
+    from yurios.app.main import build_chat_model
+    assert cfg.openai_compatible_base_url == "https://other.example/v1"
+    assert cfg.openai_compatible_api_key == ""
+    assert build_chat_model(cfg).api_key == "none"
+
+    hers = ConnectionProfile(name="default", endpoint="https://other.example/v1",
+                             api_key_env="YURIOS_MODEL_API_KEY_OTHER")
+    cfg = config_for_character(_gateway_house(tmp_path), her, hers,
+                               environ={"YURIOS_MODEL_API_KEY_OTHER": "sk-other"})
+    assert build_chat_model(cfg).api_key == "sk-other"
+
+
 def test_a_profile_brings_its_own_lm_studio_key(tmp_path):
     her = record(tmp_path, "yuri")
     her.models.chat = "lm_studio/local"

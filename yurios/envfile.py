@@ -86,6 +86,13 @@ CURATED: list[dict] = [
         {"key": "OLLAMA_BASE_URL", "attr": "ollama_base_url", "type": "text",
          "suggest": ["http://localhost:11434"],
          "help": "local Ollama server — routes ollama/… ids and lists your pulled models"},
+        {"key": "OPENAI_COMPATIBLE_BASE_URL", "attr": "openai_compatible_base_url",
+         "type": "text",
+         "help": "any other OpenAI-compatible server or gateway (ending in /v1) — "
+                 "routes openai_compatible/… ids"},
+        {"key": "OPENAI_COMPATIBLE_API_KEY", "attr": "openai_compatible_api_key",
+         "type": "password",
+         "help": "that server's key — sent to OPENAI_COMPATIBLE_BASE_URL and nowhere else"},
         {"key": "CONTEXT_LENGTH", "attr": "context_length", "type": "number",
          "min": "0",
          "help": "her context window in tokens — 0 = the provider's default. "
@@ -679,6 +686,10 @@ PAGES: list[dict] = [
              ("LMSTUDIO_PRELOAD", "Keep LM Studio models loaded"),
              ("LMSTUDIO_LOAD_TIMEOUT_S", "LM Studio load timeout (s)"),
              ("OLLAMA_BASE_URL", "Ollama address"),
+         ]},
+         {"title": "OpenAI-compatible server", "fields": [
+             ("OPENAI_COMPATIBLE_BASE_URL", "Server address"),
+             ("OPENAI_COMPATIBLE_API_KEY", "Server API key"),
          ]},
          {"title": "Built-in GGUF runner — gguf/… models", "advanced": True, "fields": [
              ("GGUF_FALLBACK", "Fall back to GGUF when LM Studio is away"),

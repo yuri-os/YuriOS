@@ -22,6 +22,7 @@ import { detailMessage } from "../shared/http.js";
 const PROVIDERS = [
   { id: "lmstudio", label: "LM Studio", prefix: "lm_studio/" },
   { id: "ollama", label: "Ollama", prefix: "ollama/" },
+  { id: "openai_compatible", label: "OpenAI-compatible", prefix: "openai_compatible/" },
   { id: "openrouter", label: "OpenRouter", prefix: "openrouter/" },
   { id: "custom", label: "Custom", prefix: "" },
 ];

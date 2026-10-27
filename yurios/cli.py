@@ -25,6 +25,7 @@ from yurios.world.config import Config
 _PROVIDER_PREFIXES = {
     "lmstudio": "lm_studio/",
     "ollama": "ollama/",
+    "openai_compatible": "openai_compatible/",
     "openrouter": "openrouter/",
 }
 _SELFIE_BACKENDS = ("openrouter", "diffusers", "off")
@@ -239,6 +240,7 @@ def _interactive_choice() -> str:
         print(f"  {index}. {item['label']} [{item['hardware']}]")
     print("  l. LM Studio")
     print("  o. Ollama")
+    print("  g. Another OpenAI-compatible server or gateway")
     print("  r. OpenRouter")
     print("  c. Enter another LiteLLM model id")
     print("  n. NONE (leave YuriOS without an LLM)")
@@ -370,6 +372,8 @@ def command_configure(args) -> int:
             provider = "lmstudio"
         elif choice == "o":
             provider = "ollama"
+        elif choice == "g":
+            provider = "openai_compatible"
         elif choice == "r":
             provider = "openrouter"
         elif choice == "c":
@@ -381,6 +385,7 @@ def command_configure(args) -> int:
     if provider in _PROVIDER_PREFIXES:
         if not model:
             label = {"lmstudio": "LM Studio model id", "ollama": "Ollama model name",
+                     "openai_compatible": "Model id, as the server names it",
                      "openrouter": "OpenRouter model id"}[provider]
             if not interactive:
                 print(f"--model is required with --provider {provider}", file=sys.stderr)
@@ -411,6 +416,25 @@ def command_configure(args) -> int:
                 "Ollama base URL", cfg.ollama_base_url)) or cfg.ollama_base_url
             connection["OLLAMA_BASE_URL"] = str(base)
             cfg = cfg.model_copy(update={"ollama_base_url": str(base)})
+        elif provider == "openai_compatible":
+            base = args.base_url or (interactive and _prompt(
+                "Server base URL (ending in /v1)", cfg.openai_compatible_base_url)) \
+                or cfg.openai_compatible_base_url
+            if not base:
+                print("--base-url is required with --provider openai_compatible",
+                      file=sys.stderr)
+                return 2
+            connection["OPENAI_COMPATIBLE_BASE_URL"] = str(base)
+            key = args.api_key
+            if key is None and interactive:
+                entered = getpass.getpass(
+                    "Its API key (Enter to keep the configured one, or for none): ")
+                key = entered or cfg.openai_compatible_api_key
+            key = key if key is not None else cfg.openai_compatible_api_key
+            if key:
+                connection["OPENAI_COMPATIBLE_API_KEY"] = key
+            cfg = cfg.model_copy(update={"openai_compatible_base_url": str(base),
+                                         "openai_compatible_api_key": key})
         else:
             key = args.api_key
             if key is None and interactive:
@@ -1328,9 +1352,11 @@ def main(argv: list[str] | None = None) -> int:
     configure.add_argument("--model", help="model id, or NONE")
     configure.add_argument("--provider", choices=tuple(_PROVIDER_PREFIXES),
                            help="connection to configure; interactive mode offers all providers")
-    configure.add_argument("--base-url", help="LM Studio or Ollama endpoint URL")
-    configure.add_argument("--api-key", help="OpenRouter API key, or LM Studio's with "
-                                             "--provider lmstudio (saved in .env)")
+    configure.add_argument("--base-url", help="LM Studio, Ollama or OpenAI-compatible "
+                                              "endpoint URL")
+    configure.add_argument("--api-key", help="OpenRouter API key, or the server's with "
+                                             "--provider lmstudio / openai_compatible "
+                                             "(saved in .env)")
     configure.add_argument("--clear-character-models", action="store_true",
                            help="clear every character's own model settings so they "
                                 "use the configured one")

@@ -308,22 +308,37 @@ def test_the_doctor_agrees_with_the_real_router_about_what_is_hosted():
     assert _OTHER_HOSTS == OTHER_HOSTED_PREFIXES
 
     for model in ("gemma-4", "openrouter/z-ai/glm-5", "lm_studio/gemma-4",
-                  "ollama/qwen3", "openai/gpt-5.2", "anthropic/claude-opus-4"):
+                  "ollama/qwen3", "openai/gpt-5.2", "anthropic/claude-opus-4",
+                  "openai_compatible/venice-uncensored"):
         assert _hosted_on_openrouter(model) == _route(model).startswith("openrouter/"), \
             f"the doctor and the router disagree about {model!r}"
         assert hosted_on_openrouter(model) == _route(model).startswith("openrouter/"), \
             f"the connection probe and the router disagree about {model!r}"
 
 
-def test_the_hosted_lines_name_the_app_and_the_client(cfg):
+def test_the_hosted_lines_say_what_goes_and_that_nothing_names_the_app(cfg):
     from yurios.doctor import network_lines
 
     cfg = cfg.model_copy(update={"chat_model": "openrouter/z-ai/glm-5",
                                  "selfie_backend": "openrouter"})
     body = "\n".join(network_lines(cfg))
     assert "chat, selfies" in body
-    assert "https://yurios.org" in body
-    assert "YuriOS/" in body and "litellm/" in body     # the composite user-agent
+    assert "no app attribution sent" in body
+    assert "yurios.org" not in body and "YuriOS/" not in body
+
+
+def test_a_gateway_is_named_by_its_host(cfg):
+    """It is not OpenRouter and not this machine — it is somebody's server, and
+    the doctor names which one her conversation goes to."""
+    from yurios.doctor import network_lines
+
+    cfg = cfg.model_copy(update={
+        "chat_model": "openai_compatible/venice-uncensored",
+        "utility_model": "lm_studio/gemma-4",
+        "openai_compatible_base_url": "https://api.venice.ai/api/v1"})
+    body = "\n".join(network_lines(cfg))
+    assert "nothing hosted selected" in body
+    assert "gateway           chat — to api.venice.ai" in body
 
 
 def test_an_all_local_config_says_so(cfg):

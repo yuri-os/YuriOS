@@ -22,6 +22,7 @@ import httpx
 PROVIDERS: tuple[tuple[str, str, str], ...] = (
     ("lmstudio", "LM Studio", "lm_studio/"),
     ("ollama", "Ollama", "ollama/"),
+    ("openai_compatible", "OpenAI-compatible", "openai_compatible/"),
     ("openrouter", "OpenRouter", "openrouter/"),
     ("custom", "Custom", ""),
 )
@@ -37,9 +38,10 @@ async def _fetch_json(url: str, headers: dict | None = None) -> dict:
 async def provider_models(cfg, provider: str) -> dict[str, Any]:
     """`{"models": [...]}`, or `{"models": [], "error": "..."}`.
 
-    lm_studio and ollama are asked directly on the base url this config points
-    at; openrouter is asked for its public catalogue, with the key attached when
-    one is set so private/BYOK models show up too.
+    lm_studio, ollama and an OpenAI-compatible gateway are asked directly on the
+    base url this config points at; openrouter is asked for its public
+    catalogue, with the key attached when one is set so private/BYOK models
+    show up too.
     """
     provider = (provider or "").strip().lower()
     try:
@@ -55,6 +57,15 @@ async def provider_models(cfg, provider: str) -> dict[str, Any]:
                        if cfg.connection_api_key else None)
             data = await _fetch_json(f"{base}/api/tags", headers)
             ids = [item.get("name", "") for item in data.get("models", [])]
+        elif provider == "openai_compatible":
+            base = cfg.openai_compatible_base_url.rstrip("/")
+            if not base:
+                return {"models": [],
+                        "error": "set OPENAI_COMPATIBLE_BASE_URL first — or type the id"}
+            headers = ({"Authorization": f"Bearer {cfg.openai_compatible_api_key}"}
+                       if cfg.openai_compatible_api_key else None)
+            data = await _fetch_json(f"{base}/models", headers)
+            ids = [item.get("id", "") for item in data.get("data", [])]
         elif provider == "openrouter":
             headers = ({"Authorization": f"Bearer {cfg.openrouter_api_key}"}
                        if cfg.openrouter_api_key else None)

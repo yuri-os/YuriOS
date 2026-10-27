@@ -6,12 +6,17 @@ every frontier and open-weights model, so swapping the reply voice is a
 llama.cpp server) by the same one-line change (→ ch. 13). The model id's PREFIX
 picks the route:
 
-    ollama/<model>       → local Ollama
-    lm_studio/<model>    → local LM Studio server (OpenAI-compatible, :1234/v1)
-    openrouter/<model>   → hosted OpenRouter
-    <model>  (no prefix) → assumed OpenRouter (the openrouter/ prefix is added)
+    ollama/<model>             → local Ollama
+    lm_studio/<model>          → local LM Studio server (OpenAI-compatible, :1234/v1)
+    openai_compatible/<model>  → any other OpenAI-compatible server or gateway
+    openrouter/<model>         → hosted OpenRouter
+    <model>  (no prefix)       → assumed OpenRouter (the openrouter/ prefix is added)
 
-For lm_studio/… the server's base url is passed as `api_base` (LMSTUDIO_BASE_URL).
+For lm_studio/… and openai_compatible/… the server's base url is passed as
+`api_base` (LMSTUDIO_BASE_URL, OPENAI_COMPATIBLE_BASE_URL).
+
+No route names the app (SPEC §3.1): nothing here sends attribution headers, and
+the ones LiteLLM would send on our behalf are blanked (`_NO_ATTRIBUTION`).
 """
 from __future__ import annotations
 
@@ -21,7 +26,6 @@ from typing import AsyncIterator
 
 import litellm
 
-from yurios import attribution
 from yurios.app.providers.admission import inference_admission
 from yurios.app.providers.usage import (StreamTally, chunk_prompt_tokens,
                                         chunk_text)
@@ -36,28 +40,53 @@ log = logging.getLogger("app.providers")
 litellm.suppress_debug_info = True
 
 
+#: Our route for any OpenAI-compatible server, and the LiteLLM provider that
+#: carries it. `hosted_vllm` is LiteLLM's plain-httpx OpenAI client: measured on
+#: 1.98, its requests carry no `x-stainless-*` headers (the OpenAI SDK's OS, CPU
+#: and Python-version report, which `openai/` and `custom_openai/` send) and it
+#: never falls back to an `OPENAI_API_KEY` in the environment — `openai/` with a
+#: custom api_base and no key sends that key to whatever server it was given.
+COMPATIBLE_PREFIX = "openai_compatible/"
+_COMPATIBLE_LITELLM = "hosted_vllm/"
+
+#: What a keyless gateway is sent. LiteLLM fills an empty key from
+#: HOSTED_VLLM_API_KEY, so an empty one cannot stay empty: it would hand that
+#: variable — a credential for some other server — to this one.
+_NO_KEY = "none"
+
+
 def _route(model: str) -> str:
-    """Prefix for LiteLLM's OpenRouter routing, unless the caller already routed
-    it somewhere explicit (local `ollama/…` / `lm_studio/…`, or a full path)."""
+    """The id LiteLLM routes on: OpenRouter's unless the caller already routed
+    it somewhere explicit (local `ollama/…` / `lm_studio/…`, or a full path),
+    and our `openai_compatible/` spelled as the LiteLLM provider that serves it."""
+    if model.startswith(COMPATIBLE_PREFIX):
+        return _COMPATIBLE_LITELLM + model.removeprefix(COMPATIBLE_PREFIX)
     if model.startswith(
             ("openrouter/", "ollama/", "lm_studio/", "openai/", "anthropic/")):
         return model
     return f"openrouter/{model}"
 
 
-# OpenRouter attributes each request to an app by its headers: HTTP-Referer (the
-# identity, and the clickable link) plus the title shown beside it. Left unset,
-# LiteLLM sends its own defaults and the usage shows up as "liteLLM" on *its* app
-# page, not ours — attribution.py holds the identity both OpenRouter callers share.
-# The library actually holding the socket, for the composite user-agent.
-_CLIENT = attribution.client_token("litellm")
+def _route_key(model: str, api_key: str) -> str | None:
+    """The key LiteLLM is handed for this (already routed) id; see `_NO_KEY`."""
+    if model.startswith(_COMPATIBLE_LITELLM):
+        return api_key or _NO_KEY
+    return api_key or None
 
 
-def _attribution(model: str) -> dict:
-    """`extra_headers` naming this app to OpenRouter — only for openrouter/… ids;
-    local routes (ollama / lm_studio) don't want them, so send nothing there."""
+# LiteLLM writes `HTTP-Referer: https://litellm.ai` and `X-Title: liteLLM` onto
+# every openrouter/… request, which files her usage on LiteLLM's app page. It
+# merges caller headers over its own and refuses a None value, so the only way
+# to take them off is to send them empty — an empty referer attributes the call
+# to no one (SPEC §3.1).
+_NO_ATTRIBUTION = {"HTTP-Referer": "", "X-Title": ""}
+
+
+def _headers(model: str) -> dict:
+    """`extra_headers` for this route: blanks over LiteLLM's OpenRouter defaults,
+    nothing at all anywhere else."""
     if model.startswith("openrouter/"):
-        return {"extra_headers": attribution.headers(client=_CLIENT)}
+        return {"extra_headers": dict(_NO_ATTRIBUTION)}
     return {}
 
 
@@ -78,9 +107,15 @@ _OPENROUTER_NO_THINK_BODY = {"reasoning": {"enabled": False}}
 
 
 def _thinking_off(model: str, messages: list[dict]) -> tuple[list[dict], dict]:
-    """(messages, body) that turn a reasoning pass off for this route."""
+    """(messages, body) that turn a reasoning pass off for this route.
+
+    An OpenAI-compatible gateway gets the OpenAI switch and nothing in the
+    prompt: what model it serves is anyone's guess, and `/no_think` would sit in
+    her system message as text for that model to read (SPEC §2.4)."""
     if model.startswith("openrouter/"):
         return messages, dict(_OPENROUTER_NO_THINK_BODY)
+    if model.startswith(_COMPATIBLE_LITELLM):
+        return messages, dict(_NO_THINK_BODY)
     return _no_think_messages(messages), dict(_NO_THINK_BODY)
 
 
@@ -135,8 +170,9 @@ def _thought_lost(answer: str, meta: dict, call: dict) -> bool:
 # server's own prompt_tokens. It is an allowlist and not a default because a
 # provider that rejects an unknown parameter fails the whole request — which
 # would cost her voice for the sake of a number — and Ollama is exactly that
-# kind of maybe. Only sent when something is actually reading the count, so a
-# meter-less brain (Build #1, the desktop) puts nothing new on the wire.
+# kind of maybe. So is an openai_compatible/ gateway, which could be anything,
+# so it is left off. Only sent when something is actually reading the count, so
+# a meter-less brain (Build #1, the desktop) puts nothing new on the wire.
 _USAGE_ROUTES = ("lm_studio/", "openrouter/", "openai/")
 
 
@@ -179,7 +215,7 @@ class LiteLLMChatModel:
                  reasoning_effort: str = "", meter=None):
         self.model = _route(model)
         self.api_base = api_base or None
-        self.api_key = api_key or None
+        self.api_key = _route_key(self.model, api_key)
         self.temperature = temperature
         self.thinking = thinking
         self.reasoning_effort = reasoning_effort
@@ -210,7 +246,7 @@ class LiteLLMChatModel:
                 temperature=params.get("temperature", self.temperature),
                 max_tokens=max_tokens,
                 stream=True,
-                **_attribution(self.model),
+                **_headers(self.model),
                 **_ask_for_usage(self.model, self.meter),
                 **extra,
             )
@@ -241,7 +277,7 @@ class LiteLLMUtilityModel:
                  max_tokens: int = 2048, thinking: bool = True, api_base: str = ""):
         self.model = _route(model)
         self.api_base = api_base or None
-        self.api_key = api_key or None
+        self.api_key = _route_key(self.model, api_key)
         self.max_tokens = max_tokens
         self.thinking = thinking
         #: Has this model shown a reasoning pass? None until a call says, then
@@ -331,7 +367,7 @@ class LiteLLMUtilityModel:
             api_base=self.api_base,
             temperature=params.get("temperature", 0.2),
             max_tokens=params.get("max_tokens", self.max_tokens),
-            **_attribution(self.model),
+            **_headers(self.model),
             **extra,
         )
         async with inference_admission():

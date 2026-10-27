@@ -19,6 +19,7 @@ CHAT_MODEL=lm_studio/HauhauCS/Gemma-4-E4B-Uncensored-HauhauCS-Aggressive
 | `lm_studio/…` | a local LM Studio server (OpenAI-compatible) | `LMSTUDIO_BASE_URL` (default `http://localhost:1234/v1`) |
 | `gguf/owner/repo` | a local GGUF through llama.cpp | `GGUF_*` |
 | `ollama/…` | a local Ollama server | `OLLAMA_BASE_URL` (default `http://localhost:11434`) |
+| `openai_compatible/…` | any other OpenAI-compatible server or gateway | `OPENAI_COMPATIBLE_BASE_URL`, `OPENAI_COMPATIBLE_API_KEY` |
 | `openrouter/…` | hosted OpenRouter | `OPENROUTER_API_KEY` |
 | `openai/…`, `anthropic/…` | their LiteLLM routes | that provider's own env vars |
 | *(no prefix)* | assumed OpenRouter — the prefix is added for you | `OPENROUTER_API_KEY` |
@@ -157,8 +158,9 @@ CHAT_MODEL=openrouter/<vendor>/<model>
 UTILITY_MODEL=openrouter/<vendor>/<model>
 ```
 
-Requests carry YuriOS's app-attribution headers so the spend lands on the project's OpenRouter app
-page rather than nowhere; local routes send no such headers. Note that a hosted chat model means
+No route sends app-attribution headers: nothing on a request names YuriOS, and LiteLLM's own
+`HTTP-Referer`/`X-Title` defaults are sent blank, so the spend is billed to your key and filed
+under no app. Note that a hosted chat model means
 her conversation leaves your machine — the local routes above are the default for a reason.
 
 Embeddings never go to OpenRouter: YuriOS has no OpenRouter embedding backend. Keep
@@ -166,9 +168,8 @@ Embeddings never go to OpenRouter: YuriOS has no OpenRouter embedding backend. K
 
 ## Other providers and servers
 
-YuriOS passes `openai/…` and `anthropic/…` model ids through to LiteLLM. Other OpenAI-compatible
-servers use the `lm_studio/` route, whose name describes the protocol rather than requiring the LM
-Studio application:
+YuriOS passes `openai/…` and `anthropic/…` model ids through to LiteLLM, and has a route of its
+own for every other OpenAI-compatible server:
 
 **Supported named LiteLLM providers.** Use the prefix and set its environment variable:
 
@@ -177,19 +178,24 @@ CHAT_MODEL=openai/gpt-4o-mini        # OPENAI_API_KEY in the environment
 CHAT_MODEL=anthropic/claude-…        # ANTHROPIC_API_KEY
 ```
 
-**Any OpenAI-compatible server** (vLLM, llama.cpp's server, LocalAI, text-generation-webui,
-a proxy). Point the LM Studio route at it — the `lm_studio/` prefix means "OpenAI-compatible
-endpoint at `LMSTUDIO_BASE_URL`", not "the LM Studio application":
+**Any OpenAI-compatible server or gateway** (Venice, Orca, vLLM, llama.cpp's server, LocalAI,
+a proxy). Use the `openai_compatible/` route:
 
 ```ini
-CHAT_MODEL=lm_studio/<model-id-that-server-serves>
-LMSTUDIO_BASE_URL=http://<host>:<port>/v1
-LMSTUDIO_PRELOAD=false               # the pin/evict API is LM Studio's own
-LMSTUDIO_API_KEY=…                   # if it wants a bearer token
+CHAT_MODEL=openai_compatible/<model-id-that-server-serves>
+UTILITY_MODEL=openai_compatible/<model-id>
+OPENAI_COMPATIBLE_BASE_URL=https://<host>/v1
+OPENAI_COMPATIBLE_API_KEY=…          # if it wants a bearer token
 ```
 
-Turn `LMSTUDIO_PRELOAD` off for a non-LM-Studio server: the preload path speaks LM Studio's model
-management API, which other servers don't implement. The chat path itself is plain OpenAI.
+It is plain OpenAI chat completions and nothing else — no LM Studio preload, no GGUF fallback,
+no context probe — and its key goes to `OPENAI_COMPATIBLE_BASE_URL` alone. A server with no key
+is sent a fixed placeholder, never some other key from your environment. Settings → *browse*
+lists what the server's `/models` serves. Two things it cannot learn from a plain OpenAI server:
+whether the model sees pictures (set `CHAT_IMAGE_INPUT=on` if it does), and the exact prompt
+size, so the context gauge estimates. Thinking-off sends `reasoning_effort: "none"` and puts
+nothing in her prompt. `yurios configure --provider openai_compatible --base-url … --api-key …`
+saves all of it.
 Additional LiteLLM provider prefixes are not currently passed through unchanged.
 
 ## Embeddings

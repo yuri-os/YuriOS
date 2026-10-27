@@ -275,7 +275,8 @@ def _apply_connection(update: dict[str, Any], base: Config, record: CharacterRec
         update.get("chat_model", base.chat_model),
         update.get("utility_model", base.utility_model),
         profile_endpoint=profile.endpoint if profile else "",
-        lmstudio_url=base.lmstudio_base_url, ollama_url=base.ollama_base_url)
+        lmstudio_url=base.lmstudio_base_url, ollama_url=base.ollama_base_url,
+        compatible_url=base.openai_compatible_base_url)
     if field:
         update[field] = endpoint
     update["connection_api_key"] = ""
@@ -294,6 +295,12 @@ def _apply_connection(update: dict[str, Any], base: Config, record: CharacterRec
                 update["lmstudio_api_key"] = update["connection_api_key"]
             elif endpoint.rstrip("/") != base.lmstudio_base_url.rstrip("/"):
                 update["lmstudio_api_key"] = ""
+        # OPENAI_COMPATIBLE_API_KEY follows the same rule against its own url.
+        elif field == "openai_compatible_base_url":
+            if key_env:
+                update["openai_compatible_api_key"] = update["connection_api_key"]
+            elif endpoint.rstrip("/") != base.openai_compatible_base_url.rstrip("/"):
+                update["openai_compatible_api_key"] = ""
     elif profile and not profile.endpoint and key_env:
         # A key-only profile is an explicit hosted-OpenRouter credential grant.
         update["openrouter_api_key"] = (
@@ -489,7 +496,9 @@ class CharacterHost:
         if not self.connections.list():
             model = base.chat_model
             endpoint = (base.lmstudio_base_url if model.startswith("lm_studio/")
-                        else base.ollama_base_url if model.startswith("ollama/") else "")
+                        else base.ollama_base_url if model.startswith("ollama/")
+                        else base.openai_compatible_base_url
+                        if model.startswith("openai_compatible/") else "")
             self.connections.upsert(ConnectionProfile(
                 name="legacy-default", endpoint=endpoint,
                 api_key_env="" if endpoint else "OPENROUTER_API_KEY"))

@@ -333,6 +333,7 @@ hosted are a one-line change with no code change:
 | `openrouter/<id>` (or a bare `<id>`) | hosted OpenRouter | `OPENROUTER_API_KEY` |
 | `ollama/<model>` | local Ollama | — |
 | `lm_studio/<model>` | local LM Studio (OpenAI-compatible) | `LMSTUDIO_BASE_URL`, `LMSTUDIO_API_KEY` |
+| `openai_compatible/<model>` | any other OpenAI-compatible server or gateway | `OPENAI_COMPATIBLE_BASE_URL`, `OPENAI_COMPATIBLE_API_KEY` |
 
 `LMSTUDIO_API_KEY` is for an LM Studio server with "Require API key" on. When set it **MUST** be
 sent as a bearer token on every request to `LMSTUDIO_BASE_URL` — the chat and utility routes, the
@@ -340,19 +341,29 @@ model listing, the context probe, loads and unloads (§3.1), embeddings, and the
 that decides the GGUF fallback — because each of those is best-effort, and a 401 it was never given
 the key to avoid reads exactly like a server that is not there. It pairs with that url alone (§31.2).
 
-**Attribution.** Every *billed* OpenRouter request — the chat/utility models here, her camera
-in §7.6 — **MUST** carry the app-attribution headers from `yurios/attribution.py`
-(`HTTP-Referer`, `X-OpenRouter-Title`, and its legacy `X-Title` spelling, which overrides the
-`liteLLM` default LiteLLM would otherwise send). OpenRouter keys the app page on the referer
-URL, so all callers **MUST** send the same one or the usage splits in two; local routes send
-none. Reads that cost nothing (the model listing behind the settings page) need no headers.
-The same headers carry a composite `User-Agent` — `YuriOS/<version> <client>/<version>` —
-which affects no attribution and exists so a provider's logs name her, not just her plumbing.
-`yurios doctor` prints what a given `.env` actually puts on the wire.
+`openai_compatible/<model>` is the route for every OpenAI-compatible server that is not LM Studio
+— a hosted gateway, vLLM, a proxy. It **MUST** speak plain OpenAI `/v1/chat/completions` and
+nothing else: none of LM Studio's behaviour (preload and pinning, the GGUF fallback, the context
+probe) applies to it, and `<model>` is sent as the server names it. Its requests **MUST NOT**
+carry the OpenAI SDK's `x-stainless-*` platform headers, so it rides LiteLLM's plain-httpx
+`hosted_vllm/` provider rather than `openai/`. `OPENAI_COMPATIBLE_API_KEY` pairs with
+`OPENAI_COMPATIBLE_BASE_URL` alone, as `LMSTUDIO_API_KEY` does (§31.2), and the route **MUST
+NEVER** fall back to another credential in the environment (`OPENAI_API_KEY`,
+`HOSTED_VLLM_API_KEY`): with no key configured it sends a fixed placeholder. A gateway publishes
+no capability listing, so its image input is off unless `CHAT_IMAGE_INPUT=on` (§35).
+
+**No attribution.** No model request — on any route, the chat/utility models here or her
+camera in §7.6 — **MUST** carry headers that name the app or file its usage under one: no
+`HTTP-Referer`, no `X-OpenRouter-Title`/`X-Title`, no `X-OpenRouter-Categories`, no YuriOS
+`User-Agent`. LiteLLM writes its own `HTTP-Referer: https://litellm.ai` and `X-Title: liteLLM`
+onto every `openrouter/` request and accepts no way to remove them, so that route **MUST** send
+both empty, which attributes the call to no one. The `User-Agent` is whatever the HTTP client
+sends by default. `yurios doctor` prints what a given `.env` actually puts on the wire.
 With `--probe-model`, it **MUST** also make a timeout-bound, read-only request to
 the house's selected chat and enabled utility model connections. LM Studio and
 Ollama probes **MUST** use their configured endpoint and connection key and report
-whether the selected model is listed; OpenRouter probes **MUST** use an authenticated
+whether the selected model is listed, and an `openai_compatible/` probe does the same against
+`OPENAI_COMPATIBLE_BASE_URL`'s `/models` with its own key; OpenRouter probes **MUST** use an authenticated
 key endpoint, since its public model listing cannot verify a key. A failed requested
 probe **MUST** make doctor exit nonzero, while the default command **MUST NOT** probe
 model connections. Unset and in-process GGUF models have no HTTP endpoint to probe.
@@ -451,7 +462,8 @@ rewritten and never applied — with a `/no_think` system-token fallback. Both a
 non-reasoning model. On an `openrouter/` route thinking-off **MUST** instead send OpenRouter's
 native `reasoning: {"enabled": false}` body and **MUST NOT** append the `/no_think` token: the
 token is a Qwen idiom, and on a hosted route it would sit in her system message as text for
-the model to read. The utility path **MUST** strip a leading `<think>…</think>` before
+the model to read. An `openai_compatible/` route sends the `reasoning_effort: "none"` body and
+likewise **MUST NOT** append the token, since what model a gateway serves is unknown. The utility path **MUST** strip a leading `<think>…</think>` before
 parsing its JSON, and **MUST** budget enough tokens (`UTILITY_MAX_TOKENS`) that a reasoning
 pass does not truncate the answer to an empty string and silently lose the fact.
 When reply reasoning is enabled, `CHAT_REASONING_EFFORT` **MAY** request a provider effort
@@ -3430,12 +3442,14 @@ changes; a runtime does not know it has neighbours.
   **A named profile is the only custom connection grant**: a character record may select a
   profile but **MUST NOT** select an endpoint or environment variable directly. Character API
   writes carrying `endpoint` or `api_key_env` are rejected before any mutation. The profile's
-  endpoint re-points the LM Studio or Ollama base url her models actually route to, and its
+  endpoint re-points the LM Studio, Ollama or OpenAI-compatible base url her models actually
+  route to, and its
   `api_key_env` names the variable her custom-server key is read from. The endpoint and key
   **MUST** be applied as one provider rebuild. The host's OpenRouter key **MUST NEVER** be sent to
   a local/custom endpoint, and the host's `LMSTUDIO_API_KEY` **MUST NEVER** be sent to any url but
-  the host's `LMSTUDIO_BASE_URL`: a profile that re-points her LM Studio elsewhere brings its own
-  key or none, and a profile's key for Ollama never reaches an LM Studio; a key-only profile may select a hosted OpenRouter credential. Keys are
+  the host's `LMSTUDIO_BASE_URL` — nor the host's `OPENAI_COMPATIBLE_API_KEY` to any url but the
+  host's `OPENAI_COMPATIBLE_BASE_URL`: a profile that re-points her LM Studio or gateway elsewhere
+  brings its own key or none, and a profile's key for Ollama never reaches an LM Studio; a key-only profile may select a hosted OpenRouter credential. Keys are
   read from the environment at resolution time and **MUST NOT** be written to the registry.
   An inherited endpoint that is verbatim the host's url for the *other* local provider is
   ignored — the seeded `default` profile carries whichever provider the host's own model uses

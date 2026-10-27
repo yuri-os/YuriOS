@@ -78,8 +78,10 @@ name of the variable holding it. The same fields are on the switchboard's profil
 |---|---|---|
 | `CHAT_MODEL` | `NONE` | her reply voice; select a model through onboarding or `yurios configure` |
 | `UTILITY_MODEL` | `NONE` | summaries, extraction, DREAM — the configurator normally sets it to the selected chat model |
-| `LMSTUDIO_BASE_URL` | `http://localhost:1234/v1` | any OpenAI-compatible endpoint |
+| `LMSTUDIO_BASE_URL` | `http://localhost:1234/v1` | the LM Studio server behind `lm_studio/…` |
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | routes `ollama/…` and lists your pulled models |
+| `OPENAI_COMPATIBLE_BASE_URL` | *(empty)* | any other OpenAI-compatible server or gateway, for `openai_compatible/…` |
+| `OPENAI_COMPATIBLE_API_KEY` | *(empty)* | that server's key; sent to `OPENAI_COMPATIBLE_BASE_URL` alone |
 | `OPENROUTER_API_KEY` | *(empty)* | needed for `openrouter/…` routes and hosted selfies |
 | `LMSTUDIO_API_KEY` | *(empty)* | only for an LM Studio server with *Require API key* on; sent to `LMSTUDIO_BASE_URL` alone |
 | `LMSTUDIO_PRELOAD` | `true` | load + pin her models at boot; stops LM Studio's JIT eviction thrash |

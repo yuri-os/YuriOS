@@ -257,6 +257,25 @@ def test_configure_lmstudio_checks_and_saves_its_key(tmp_path, monkeypatch):
     assert "OPENROUTER_API_KEY=lms-key" not in saved
 
 
+def test_configure_a_gateway_saves_its_own_url_and_key(tmp_path, monkeypatch):
+    from argparse import Namespace
+
+    from yurios import cli
+
+    monkeypatch.setattr(cli, "_root", lambda: tmp_path)
+    monkeypatch.setattr(cli, "validate_model", lambda cfg, model: (
+        ModelCheck(cfg.openai_compatible_api_key == "gw-key", "connection verified")))
+    args = Namespace(model="venice-uncensored", provider="openai_compatible",
+                     base_url="https://gw.example/v1", api_key="gw-key")
+
+    assert cli.command_configure(args) == 0
+    saved = (tmp_path / ".env").read_text(encoding="utf-8")
+    assert "CHAT_MODEL=openai_compatible/venice-uncensored" in saved
+    assert "OPENAI_COMPATIBLE_BASE_URL=https://gw.example/v1" in saved
+    assert "OPENAI_COMPATIBLE_API_KEY=gw-key" in saved
+    assert "LMSTUDIO" not in saved and "OPENROUTER_API_KEY=gw-key" not in saved
+
+
 def test_configure_openrouter_selfies_prompts_for_and_saves_its_key(tmp_path, monkeypatch):
     from yurios import cli
 
@@ -791,6 +810,32 @@ def test_model_probe_uses_selected_local_endpoint_and_key(cfg, monkeypatch):
     assert [request.headers["Authorization"] for request in seen] == [
         "Bearer lms-key", "Bearer private-key"]
     assert timeouts == [3.0, 3.0]
+
+
+def test_a_gateway_probe_lists_models_on_its_own_url_with_its_own_key(cfg, monkeypatch):
+    from yurios.models import probe_model
+
+    seen = []
+
+    def answer(request):
+        seen.append(request)
+        return httpx.Response(200, json={"data": [{"id": "venice-uncensored"}]})
+
+    client = httpx.Client
+    monkeypatch.setattr(httpx, "Client", lambda **kw: client(
+        transport=httpx.MockTransport(answer), **kw))
+    gateway = cfg.model_copy(update={"openai_compatible_base_url": "https://gw.example/v1/",
+                                     "openai_compatible_api_key": "gw-key",
+                                     "lmstudio_api_key": "lms-key"})
+
+    assert probe_model(gateway, "openai_compatible/venice-uncensored").ok is True
+    assert probe_model(gateway, "openai_compatible/absent").ok is False
+    assert [str(request.url) for request in seen] == ["https://gw.example/v1/models"] * 2
+    assert {request.headers["Authorization"] for request in seen} == {"Bearer gw-key"}
+
+    unset = cfg.model_copy(update={"openai_compatible_base_url": ""})
+    probe = probe_model(unset, "openai_compatible/venice-uncensored")
+    assert probe.ok is False and "OPENAI_COMPATIBLE_BASE_URL" in probe.detail
 
 
 def test_model_probe_reports_missing_model_and_auth_rejection(cfg, monkeypatch):

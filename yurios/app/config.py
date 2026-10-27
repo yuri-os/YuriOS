@@ -15,7 +15,8 @@ class Config(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     # model access (via LiteLLM — the router seam, §3.1). The model id's PREFIX
-    # picks the route (openrouter/… hosted; ollama/…, lm_studio/…, or gguf/… local);
+    # picks the route (openrouter/… hosted; ollama/…, lm_studio/…, or gguf/… local;
+    # openai_compatible/… any other OpenAI-compatible server);
     # a bare id is assumed OpenRouter. The openrouter/ prefix is added in the provider.
     openrouter_api_key: str = ""
     # Runtime-only credential selected together with a host-owned connection
@@ -33,6 +34,13 @@ class Config(BaseSettings):
     # LMSTUDIO_BASE_URL and nothing else: a connection profile that re-points her
     # LM Studio somewhere else brings that server's key or none (§31.2).
     lmstudio_api_key: str = ""
+    # Any other server that speaks OpenAI's /v1/chat/completions — a hosted
+    # gateway (Venice, Orca, …), vLLM, a proxy — for openai_compatible/… ids.
+    # Plain OpenAI and nothing else: none of the LM Studio behaviour above (no
+    # preload, no GGUF fallback, no context probe) applies to it. The key pairs
+    # with OPENAI_COMPATIBLE_BASE_URL and nothing else, as LM Studio's does (§31.2).
+    openai_compatible_base_url: str = ""
+    openai_compatible_api_key: str = ""
     # Load the lm_studio/… chat model and embedder at boot and pin them there, so
     # LM Studio's JIT loader stops evicting one to serve the other every turn
     # (providers/lmstudio.ensure_resident). Off = the old behaviour, one reload per

@@ -53,8 +53,8 @@ SELFIE_MODEL=bytedance-seed/seedream-4.5     # the cheap everyday one
 ```
 
 Any OpenRouter image route works — the backend asks for `["image"]` modalities and retries once
-with `["image","text"]`, so no per-vendor registry is needed. Requests carry the project's
-attribution headers, so selfie spend lands on the same app page as the chat path.
+with `["image","text"]`, so no per-vendor registry is needed. Requests carry no app-attribution
+headers, so the spend is billed to your key and filed under no app.
 
 ## Choosing a checkpoint from Civitai
 

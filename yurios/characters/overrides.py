@@ -58,18 +58,22 @@ def endpoint_field(model: str) -> str | None:
         return "lmstudio_base_url"
     if model.startswith("ollama/"):
         return "ollama_base_url"
+    if model.startswith("openai_compatible/"):
+        return "openai_compatible_base_url"
     return None
 
 
 def resolve_endpoint(chat: str, utility: str, *, profile_endpoint: str | None,
                      lmstudio_url: str,
-                     ollama_url: str) -> tuple[str | None, str]:
+                     ollama_url: str,
+                     compatible_url: str = "") -> tuple[str | None, str]:
     """Which base url her models actually reach, as (config field, url).
 
-    An endpoint names one server, so it re-points whichever local provider her
-    models route to — her chat model's, or her utility model's when only that one
-    is local — and answers (None, "") when neither routes anywhere local, which
-    is the `gguf/…` and hosted cases both. It is also dropped when it is verbatim
+    An endpoint names one server, so it re-points whichever server-backed
+    provider her models route to (LM Studio, Ollama, an OpenAI-compatible
+    gateway) — her chat model's, or her utility model's when only that one has
+    a server — and answers (None, "") when neither does, which is the `gguf/…`
+    and OpenRouter cases both. It is also dropped when it is verbatim
     one of the house's *other* server's urls: the `default` profile is seeded
     from whichever provider the host's own model used (§31.1), so a character who
     moves to the other one would otherwise inherit an endpoint naming the wrong
@@ -81,7 +85,9 @@ def resolve_endpoint(chat: str, utility: str, *, profile_endpoint: str | None,
     field = endpoint_field(chat) or endpoint_field(utility)
     if not field:
         return None, ""
-    house = {lmstudio_url: "lmstudio_base_url", ollama_url: "ollama_base_url"}
+    house = {url: name for url, name in (
+        (lmstudio_url, "lmstudio_base_url"), (ollama_url, "ollama_base_url"),
+        (compatible_url, "openai_compatible_base_url")) if url}
     if house.get(endpoint, field) != field:
         return None, ""
     return field, endpoint
@@ -154,7 +160,8 @@ def describe_record(cfg: Any, record: CharacterRecord,
         chat, utility,
         profile_endpoint=profile.endpoint if profile else "",
         lmstudio_url=getattr(cfg, "lmstudio_base_url", ""),
-        ollama_url=getattr(cfg, "ollama_base_url", ""))
+        ollama_url=getattr(cfg, "ollama_base_url", ""),
+        compatible_url=getattr(cfg, "openai_compatible_base_url", ""))
 
     held: list[Override] = []
     for key, store in OVERRIDE_KEYS:

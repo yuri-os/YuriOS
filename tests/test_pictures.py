@@ -104,6 +104,19 @@ async def test_openrouter_input_modalities_decide(cfg):
     assert can is True
 
 
+async def test_a_gateway_asks_nobody_and_says_how_to_turn_it_on(cfg):
+    """A plain OpenAI server lists ids and nothing about what they see, and
+    LiteLLM's map has never heard of a gateway's — so no request, and a reason
+    that names the override."""
+    cfg = cfg.model_copy(update={"chat_model": "openai_compatible/some-vl",
+                                 "chat_image_input": "auto"})
+    asked = []
+    can, why = await probe(cfg, transport=transport(
+        lambda r: asked.append(r) or httpx.Response(500)))
+    assert can is False and asked == []
+    assert "CHAT_IMAGE_INPUT=on" in why
+
+
 async def test_a_bare_model_id_is_an_openrouter_one(cfg):
     """The route rule the provider seam already uses (providers/openrouter.py):
     no prefix means OpenRouter, and the probe must not read `qwen` as a route."""

@@ -151,11 +151,15 @@ def model_api_base(cfg: Config, model: str) -> str:
     Local ids carry no key; they need their server's base url instead — the
     LM Studio /v1 endpoint, or the Ollama root (so a non-default OLLAMA_BASE_URL
     follows through to chat routing, not just the settings-panel model list).
-    A hosted route answers with "" and rides the api key."""
+    A hosted route answers with "" and rides the api key. An
+    openai_compatible/… gateway is the exception that is both: a base url of
+    its own, and a key that belongs to that url alone."""
     if model.startswith("lm_studio/"):
         return cfg.lmstudio_base_url
     if model.startswith("ollama/"):
         return cfg.ollama_base_url
+    if model.startswith("openai_compatible/"):
+        return cfg.openai_compatible_base_url
     return ""
 
 
@@ -164,9 +168,12 @@ def model_api_key(cfg: Config, model: str) -> str:
 
     LM Studio's is its own field, because it pairs with LMSTUDIO_BASE_URL alone
     (SPEC §2.4, §31.2): the host has already swapped in a profile's key, or
-    blanked the house one, wherever a profile re-points that url."""
+    blanked the house one, wherever a profile re-points that url. The
+    openai_compatible/ key is paired with its url the same way."""
     if model.startswith("lm_studio/"):
         return cfg.lmstudio_api_key
+    if model.startswith("openai_compatible/"):
+        return cfg.openai_compatible_api_key
     return cfg.connection_api_key if model_api_base(cfg, model) else cfg.openrouter_api_key
 
 

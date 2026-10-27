@@ -39,7 +39,8 @@ log = logging.getLogger("mvw.vision")
 
 #: Model-id prefixes that name a route rather than a vendor — LiteLLM's, and
 #: the same tuple `providers/openrouter.py` routes on.
-_ROUTES = ("lm_studio", "ollama", "openrouter", "gguf", "openai", "anthropic")
+_ROUTES = ("lm_studio", "ollama", "openrouter", "gguf", "openai", "anthropic",
+           "openai_compatible")
 
 #: Short: this runs at boot, in front of everything else waiting to start, and a
 #: model picker that hangs for ten seconds is worse than one that says "no".
@@ -186,6 +187,12 @@ async def probe(cfg, model: str = "", *, transport=None) -> tuple[bool, str]:
     elif route == "openrouter":
         live = await _openrouter(cfg, name, transport=transport)
         where = "OpenRouter"
+    elif route == "openai_compatible":
+        # Plain OpenAI's /v1/models names a model and nothing about what it
+        # sees, and LiteLLM's map has never heard of a gateway's ids — so this
+        # route has no answer of its own. CHAT_IMAGE_INPUT=on is the way in.
+        return False, ("OpenAI-compatible gateway: no capability listing — "
+                       "set CHAT_IMAGE_INPUT=on if the model sees")
     elif route == "gguf":
         # llama.cpp in-process (providers/gguf.py) loads weights alone — no
         # projector, so no eyes, whatever the model could do elsewhere.

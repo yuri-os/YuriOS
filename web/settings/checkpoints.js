@@ -9,16 +9,18 @@
  * The decisions are checkpoint-list.js's; this draws them. The list is the
  * server's cache — opening the page costs nothing, and a missing or day-old list
  * is refreshed once, in the background of the visit. Progress is polled while
- * something downloads, and only then.
+ * something downloads, and only then. The search box filters that list, and
+ * asks Civitai for what it doesn't carry — the answer joins the cache.
  */
 import {
-  STATUS_LABELS, ago, bytes, cardState, count, percent, previews, progressLine,
-  supportIssueUrl, unlistedFiles, visibleCards,
+  STATUS_LABELS, ago, bytes, cardState, count, matchesQuery, needsLookUp, normalizeQuery, percent,
+  previews, progressLine, supportIssueUrl, unlistedFiles, visibleCards,
 } from "./checkpoint-list.js";
 import { api, button, confirmButton, el, section, status } from "./ui.js";
 
 const FILTER_KEY = "yurios.checkpoints.filters";
 const POLL_MS = 1000;
+const LOOKUP_DELAY_MS = 700;   // a pause in typing before an unmatched search asks Civitai
 let visit = 0;                 // a newer visit retires the older one's poll
 
 function loadFilters() {
@@ -193,6 +195,7 @@ export async function renderCheckpoints(container, ctx) {
       el("span", { className: `ck-status s-${card.status}`, textContent: STATUS_LABELS[card.status] || card.status }),
       card.nsfw ? el("span", { className: "ck-tag nsfw", textContent: "NSFW" }) : null,
       card.source === "week" ? el("span", { className: "ck-tag", textContent: "this week" }) : null,
+      card.source === "search" ? el("span", { className: "ck-tag", textContent: "from a search" }) : null,
       card.published ? el("span", { className: "ck-tag", textContent: card.published }) : null);
     return el("article", { className: `ck-card${card.status === "no" ? " is-unsupported" : ""}` },
       el("a", { href: card.url, target: "_blank", rel: "noopener", className: "ck-print-link",
@@ -284,6 +287,64 @@ export async function renderCheckpoints(container, ctx) {
     return section("On this machine", [table, note.node], { count: `${rows.length} in the folder` });
   }
 
+  // -- search ------------------------------------------------------------------
+  // The box filters the cached list as you type. When nothing in it answers,
+  // a pause asks Civitai; Enter, or the link under the box, asks any time.
+  // Whatever Civitai finds joins the cached list, so the next visit has it.
+
+  let query = "";
+  let searching = "";            // the search Civitai is being asked right now
+  let searchNote = null;         // { query, text, tone }: how the last one went
+  const asked = new Set();       // searches already sent this visit
+  let lookTimer = 0;
+  const searchBox = el("input", { className: "set-input ck-search", type: "search",
+    autocomplete: "off", spellcheck: false,
+    placeholder: "Search the list, or Civitai when it isn't here" });
+  searchBox.setAttribute("aria-label", "Search checkpoints");
+  searchBox.addEventListener("input", () => {
+    query = searchBox.value;
+    drawResults();
+    clearTimeout(lookTimer);
+    lookTimer = setTimeout(() => {
+      if (here() && needsLookUp(data.catalog?.models || [], query, asked)) lookUp(query);
+    }, LOOKUP_DELAY_MS);
+  });
+  searchBox.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    clearTimeout(lookTimer);
+    lookUp(query);
+  });
+
+  async function lookUp(text) {
+    const q = normalizeQuery(text);
+    if (q.length < 2 || searching === q) return;
+    asked.add(q);
+    searching = q;
+    drawResults();
+    try {
+      const answer = await api("/api/house/checkpoints/search", { method: "POST", body: { query: q } });
+      if (!here()) return;
+      data.catalog = answer.catalog;
+      searchNote = { query: q, tone: "", text: !answer.found ? `Civitai has no checkpoint matching “${q}”.`
+        : `Civitai found ${answer.found} for “${q}”: ${answer.added
+          ? `${answer.added} new, now in the list` : "all of them already in the list"}.` };
+    } catch (error) {
+      searchNote = { query: q, tone: "error", text: `Couldn't search Civitai: ${error.message}` };
+    } finally {
+      if (searching === q) searching = "";
+      // the whole page: a new family may have joined the pills, and a file in
+      // the folder may now be listed
+      if (here()) draw();
+    }
+  }
+
+  // -- the list ----------------------------------------------------------------
+
+  let listNode = null;
+  let resultsNode = null;
+  let countNode = null;
+
   function listSection() {
     const catalog = data.catalog;
     const cards = catalog?.models || [];
@@ -291,8 +352,43 @@ export async function renderCheckpoints(container, ctx) {
     const set = (patch) => { Object.assign(filters, patch); saveFilters(filters); drawList(); };
     const refreshButton = button(refreshing ? "Refreshing…" : "Refresh list", () => refresh());
     refreshButton.disabled = refreshing;
-    const meta = catalog ? `fetched ${ago(catalog.fetched_at)}` : "not fetched yet";
-    const shown = visibleCards(cards, filters, local());
+    const hiddenNsfw = filters.nsfw ? 0 : cards.filter((c) => c.nsfw).length;
+    resultsNode = el("div", { className: "ck-results" });
+    const node = section("Civitai", [
+      el("div", { className: "ck-toolbar" },
+        searchBox,
+        pills(families.map((f) => [f, f === "all" ? "All families" : f.replace("SDXL · ", "")]),
+          filters.family, (family) => set({ family })),
+        el("div", { className: "ck-toolbar-row" },
+          pills([["all", "Any status"], ["usable", "Ready + Loads"], ["best", "Ready"]],
+            filters.status, (s) => set({ status: s })),
+          pills([[false, "SFW only"], [true, "Include NSFW"]], filters.nsfw, (nsfw) => set({ nsfw })),
+          pills([[false, "Everything"], [true, "Downloaded"]], filters.downloaded,
+            (downloaded) => set({ downloaded })))),
+      refreshError && cards.length ? el("p", { className: "sec-text warn", textContent: refreshError }) : null,
+      catalog?.errors?.length ? el("p", { className: "sec-text warn", textContent:
+        `Some lists didn't load: ${catalog.errors.join("; ")}` }) : null,
+      resultsNode,
+      el("p", { className: "sec-text ck-legal" }, `Per base model: the 16 most downloaded of all time `
+        + `(60 for Krea 2, where most files are formats the camera can't read) and the 12 most `
+        + `downloaded this week, plus whatever a search found.${hiddenNsfw ? ` ${hiddenNsfw} NSFW `
+        + `models hidden.` : ""} Each model's own licence applies.`),
+      el("div", { className: "ck-gap" }),
+    ], { count: "…", actions: [refreshButton] });
+    countNode = node.querySelector(".sec-count");
+    drawResults();
+    return node;
+  }
+
+  /** The cards, and the line under the search box: everything a keystroke
+   *  changes, so typing never rebuilds the box it is typing into. */
+  function drawResults() {
+    if (!resultsNode) return;
+    const catalog = data.catalog;
+    const cards = catalog?.models || [];
+    const q = normalizeQuery(query);
+    const shown = visibleCards(cards, { ...filters, query: q }, local());
+    const matched = q ? cards.filter((c) => matchesQuery(c, q)).length : 0;
     cardViews.clear();
 
     const groups = new Map();
@@ -305,46 +401,46 @@ export async function renderCheckpoints(container, ctx) {
         el("span", { className: "sec-count", textContent: String(groups.get(family).length) })),
       el("div", { className: "ck-grid" }, ...groups.get(family).map(cardNode))));
 
+    let line = null;
+    if (q) {
+      const said = searching === q ? { text: `Searching Civitai for “${q}”…`, tone: "" }
+        : searchNote?.query === q ? searchNote : null;
+      const hidden = matched - shown.length;
+      const ask = searching === q ? null : button(`Search Civitai for “${q}”`, () => lookUp(q), "ck-ask");
+      line = el("p", { className: "sec-text ck-search-line" },
+        said ? el("span", { className: said.tone, textContent: said.text }) : null,
+        hidden > 0 ? el("span", { className: "muted", textContent:
+          `${hidden} more ${hidden === 1 ? "match is" : "match"} hidden by the filters.` }) : null,
+        ask);
+    }
     const empty = !cards.length
       ? el("p", { className: refreshError ? "placeholder error" : "placeholder",
         textContent: refreshError || (refreshing ? "Listing Civitai…" : "No list yet.") })
-      : !shown.length ? el("p", { className: "placeholder", textContent: filters.downloaded
-        ? "None of the listed checkpoints is on this machine yet." : "Nothing matches these filters." })
-        : null;
-    const hiddenNsfw = filters.nsfw ? 0 : cards.filter((c) => c.nsfw).length;
-    return section("Civitai", [
-      el("div", { className: "ck-toolbar" },
-        pills(families.map((f) => [f, f === "all" ? "All families" : f.replace("SDXL · ", "")]),
-          filters.family, (family) => set({ family })),
-        el("div", { className: "ck-toolbar-row" },
-          pills([["all", "Any status"], ["usable", "Ready + Loads"], ["best", "Ready"]],
-            filters.status, (s) => set({ status: s })),
-          pills([[false, "SFW only"], [true, "Include NSFW"]], filters.nsfw, (nsfw) => set({ nsfw })),
-          pills([[false, "Everything"], [true, "Downloaded"]], filters.downloaded,
-            (downloaded) => set({ downloaded })))),
-      refreshError && cards.length ? el("p", { className: "sec-text warn", textContent: refreshError }) : null,
-      catalog?.errors?.length ? el("p", { className: "sec-text warn", textContent:
-        `Some lists didn't load: ${catalog.errors.join("; ")}` }) : null,
-      empty, ...blocks,
-      el("p", { className: "sec-text ck-legal" }, `Per base model: the 16 most downloaded of all time `
-        + `(60 for Krea 2, where most files are formats the camera can't read) and the 12 most `
-        + `downloaded this week.${hiddenNsfw ? ` ${hiddenNsfw} NSFW models hidden.` : ""} `
-        + `Each model's own licence applies.`),
-      el("div", { className: "ck-gap" }),
-    ], { count: `${shown.length} of ${cards.length} · ${meta}`, actions: [refreshButton] });
+      : shown.length ? null
+        : el("p", { className: "placeholder", textContent: q ? (matched ? "Every match is hidden by "
+          + "the filters." : searching === q ? "Nothing in the list yet — asking Civitai…"
+          : `Nothing in the list matches “${q}”.`)
+          : filters.downloaded ? "None of the listed checkpoints is on this machine yet."
+            : "Nothing matches these filters." });
+    resultsNode.replaceChildren(...[line, empty, ...blocks].filter(Boolean));
+    const meta = catalog?.fetched_at ? `fetched ${ago(catalog.fetched_at)}` : "not fetched yet";
+    if (countNode) countNode.textContent = `${shown.length} of ${cards.length} · ${meta}`;
   }
 
-  let listNode = null;
   function drawList() {
+    const typing = document.activeElement === searchBox;
     const next = listSection();
     if (listNode) listNode.replaceWith(next);
     listNode = next;
+    if (typing) searchBox.focus({ preventScroll: true });
   }
 
   function draw() {
+    const typing = document.activeElement === searchBox;
     listNode = listSection();
     container.replaceChildren(...[cameraSection(), keySection(), localSection(), listNode]
       .filter(Boolean));
+    if (typing) searchBox.focus({ preventScroll: true });
   }
 
   async function refresh() {
@@ -365,6 +461,6 @@ export async function renderCheckpoints(container, ctx) {
   }
 
   draw();
-  if (!data.catalog || data.catalog.stale) refresh();
+  if (!data.catalog?.fetched_at || data.catalog.stale) refresh();
   poll();
 }

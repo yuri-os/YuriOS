@@ -7,7 +7,10 @@ page's side of it — where the key and the folder come from, and the routes:
   (each file's verdict), the downloads in flight, and which file her camera is
   set to. Never fetches: a catalog that is missing or a day old says so, and
   the page asks for a refresh, so opening the page is never fourteen API calls.
-- `POST /api/house/checkpoints/refresh` — list Civitai again and cache it.
+- `POST /api/house/checkpoints/refresh` — list Civitai again and cache it,
+  keeping what earlier searches found.
+- `POST /api/house/checkpoints/search` — ask Civitai for what the cached lists
+  don't carry, and fold the answer into the cache.
 - `PUT  /api/house/civitai-key` — `CIVITAI_API_KEY` into `.env` (null removes it).
 - `GET  /api/house/checkpoints/downloads` — progress, which the page polls while
   something is downloading. A poll and not the `EventHub`: the hub is a
@@ -89,7 +92,7 @@ def register(app: FastAPI, host: CharacterHost, require) -> None:  # noqa: ARG00
             "catalog": catalog_view(await asyncio.to_thread(store.load)),
             "local": local,
             "downloads": downloads.snapshot(),
-            "families": [f.label for f in civitai.FAMILIES],
+            "families": [*(f.label for f in civitai.FAMILIES), civitai.OTHER_FAMILY],
         }
 
     @app.post("/api/house/checkpoints/refresh")
@@ -100,8 +103,27 @@ def register(app: FastAPI, host: CharacterHost, require) -> None:  # noqa: ARG00
                 catalog = await civitai.fetch_catalog(api_key())
             except civitai.CatalogError as exc:
                 raise HTTPException(502, str(exc)) from exc
+            catalog = civitai.carry_searches(await asyncio.to_thread(store.load), catalog)
             await asyncio.to_thread(store.save, catalog)
         return catalog_view(catalog)
+
+    @app.post("/api/house/checkpoints/search")
+    async def search(request: Request):
+        _require_local(request)
+        payload = await request.json()
+        query = civitai.normalize_query((payload or {}).get("query"))
+        if len(query) < civitai.QUERY_MIN:
+            raise HTTPException(422, "type at least two letters to search Civitai")
+        try:
+            found = await civitai.search(query, api_key())
+        except civitai.CatalogError as exc:
+            raise HTTPException(502, str(exc)) from exc
+        async with refreshing:                  # one writer of the cache at a time
+            catalog, added = civitai.merge_search(await asyncio.to_thread(store.load),
+                                                  found, query)
+            await asyncio.to_thread(store.save, catalog)
+        return {"query": query, "found": len(found), "added": added,
+                "catalog": catalog_view(catalog)}
 
     @app.put("/api/house/civitai-key")
     async def save_key(request: Request):

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-  ago, bytes, cardState, previews, progressLine, supportIssueUrl, unlistedFiles, visibleCards,
+  ago, bytes, cardState, matchesQuery, needsLookUp, normalizeQuery, previews, progressLine,
+  supportIssueUrl, unlistedFiles, visibleCards,
 } from '../settings/checkpoint-list.js';
 import { parseRoute } from '../settings/model.js';
 
@@ -91,5 +92,39 @@ describe('a card', () => {
 describe('the route', () => {
   it('is a page of its own under Pictures', () => {
     expect(parseRoute('#/checkpoints', [{ id: 'pictures' }])).toEqual({ page: 'checkpoints', key: '' });
+  });
+});
+
+describe('the search', () => {
+  const cards = [
+    card(1, { name: 'WAI Illustrious SDXL', creator: 'WAI0731', file: 'waiIllustriousSDXL_v170.safetensors' }),
+    card(2, { name: 'AniDream TrueHentai', family: 'Anima', base_model: 'Anima', nsfw: true }),
+    card(3, { name: 'Something else', queries: ['dreamy'] }),
+  ];
+
+  it('is remembered the way the server remembers it', () => {
+    expect(normalizeQuery('  Hidden\t  GEM ')).toBe('hidden gem');
+    expect(normalizeQuery(undefined)).toBe('');
+  });
+
+  it('matches every word anywhere on the card, or what Civitai returned for it', () => {
+    expect(matchesQuery(cards[0], 'wai sdxl')).toBe(true);
+    expect(matchesQuery(cards[0], 'v170')).toBe(true);           // the file name
+    expect(matchesQuery(cards[0], 'wai pony')).toBe(false);
+    expect(matchesQuery(cards[2], 'Dreamy')).toBe(true);         // found by that search
+    expect(matchesQuery(cards[2], 'dream')).toBe(false);
+    expect(matchesQuery(cards[2], '')).toBe(true);
+  });
+
+  it('narrows the list on top of the filters', () => {
+    expect(visibleCards(cards, { query: 'dream' }).map((c) => c.version_id)).toEqual([]);
+    expect(visibleCards(cards, { query: 'dream', nsfw: true }).map((c) => c.version_id)).toEqual([2]);
+  });
+
+  it('asks Civitai only when nothing cached answers, once per search', () => {
+    expect(needsLookUp(cards, 'truehentai')).toBe(false);        // cached, even if NSFW hides it
+    expect(needsLookUp(cards, 'zz')).toBe(false);                // too short to ask by itself
+    expect(needsLookUp(cards, 'pony realism')).toBe(true);
+    expect(needsLookUp(cards, 'Pony  Realism', new Set(['pony realism']))).toBe(false);
   });
 });

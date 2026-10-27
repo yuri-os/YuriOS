@@ -1684,6 +1684,16 @@ Pictures in the rail and linked from the top of it) is where that file comes fro
 - §11.5.5 **Use for her camera.** Writes `SELFIE_LOCAL_MODEL` to the checked file and, when
   `SELFIE_BACKEND` names something that can't render it, `diffusers`, which routes by the file's
   header. Like any `.env` edit, it applies on the next restart, and the page says so.
+- §11.5.6 **Search.** The search box filters the cached list as you type, by name, version, creator,
+  file and family; that **MUST NOT** call Civitai. A search of three or more characters that
+  nothing cached answers asks Civitai after a pause in typing, at most once per search per visit,
+  and Enter asks any time. Civitai is asked twice: once inside the families of §11.5.2, so the
+  words aren't crowded out by base models the camera can't load, and once across every base
+  model, so a search for one of those still finds it, filed under *Other base models* as *Not
+  supported* with the §11.5.2 GitHub link. What it finds joins the cached list as a search result,
+  and a card already listed remembers the search that found it. Both survive **Refresh list**. A
+  searched card downloads under §11.5.4 like any other, because its file and address are now in
+  the cached list.
 - Every route here is owner-or-loopback: they write `.env`, use someone's bandwidth and fill a disk.
 
 ## §12 — Omissions → superseded by §26

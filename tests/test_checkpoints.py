@@ -150,6 +150,36 @@ def test_a_version_listed_twice_is_filed_under_the_first_listing():
     assert [c["source"] for c in cards] == ["top"]
 
 
+def test_a_searched_model_is_filed_under_a_family_the_camera_loads_or_says_why_not():
+    both = listed(20, "Both", "Flux.1 D", [("flux.safetensors", 1)])
+    both["modelVersions"].append({**listed(20, "Both", "Illustrious", [("ill.safetensors", 1)])
+                                  ["modelVersions"][0], "id": 201})
+    assert (civitai.classify_any(both)["family"], civitai.classify_any(both)["file"]) == \
+        ("SDXL · Illustrious", "ill.safetensors")
+    flux = civitai.classify_any(listed(21, "Flux", "Flux.1 D", [("f.safetensors", 1)]))
+    assert (flux["family"], flux["base_model"], flux["status"]) == \
+        (civitai.OTHER_FAMILY, "Flux.1 D", "no")
+    fp8 = civitai.classify_any(listed(22, "Fp8", "Krea 2", [("k_fp8.safetensors", 1)]))
+    assert (fp8["family"], fp8["status"]) == ("Krea 2", "no")
+    assert civitai.classify_any(listed(23, "Gguf", "Flux.1 D", [("f.gguf", 1)])) is None
+
+
+def test_what_a_search_found_joins_the_cache_and_outlives_a_refresh():
+    listed_card = {"id": 1, "version_id": 10, "name": "Top", "source": "top"}
+    found = [{"id": 1, "version_id": 10, "name": "Top"}, {"id": 2, "version_id": 20, "name": "New"}]
+    catalog, added = civitai.merge_search({"fetched_at": 5, "models": [listed_card]}, found, "q")
+    assert added == 1
+    assert [(m["name"], m["source"], m["queries"]) for m in catalog["models"]] == [
+        ("Top", "top", ["q"]), ("New", "search", ["q"])]
+    again, added = civitai.merge_search(catalog, found, "q")
+    assert added == 0 and again["models"][0]["queries"] == ["q"]
+    fresh = civitai.carry_searches(again, {"fetched_at": 9, "models": [
+        {"id": 1, "version_id": 11, "name": "Top", "source": "top"}]})
+    assert [(m["version_id"], m["source"], m["queries"]) for m in fresh["models"]] == [
+        (11, "top", ["q"]), (20, "search", ["q"])]
+    assert civitai.normalize_query("  Hidden\t GEM ") == "hidden gem"
+
+
 # --- the routes ------------------------------------------------------------------
 
 
@@ -160,6 +190,13 @@ def checkpoint_bytes(tmp_path):
 
 
 def civitai_listing(request: httpx.Request) -> httpx.Response:
+    if request.url.params.get("query"):
+        gem = listed(3, "Hidden gem", "Illustrious", [("gem.safetensors", 1)], nsfw=True)
+        if request.url.params.get_list("baseModels"):          # inside the camera's families
+            return httpx.Response(200, json={"items": [
+                listed(1, "Ready one", "Illustrious", [("ready.safetensors", 1)]), gem]})
+        return httpx.Response(200, json={"items": [               # across every base model
+            gem, listed(4, "Fluxy", "Flux.1 D", [("fluxy.safetensors", 1)])]})
     base = request.url.params.get("baseModels")
     if base == "Illustrious" and request.url.params.get("period") is None:
         return httpx.Response(200, json={"items": [
@@ -302,3 +339,35 @@ def test_a_wrong_key_is_a_failed_download_that_says_so(board):
     job = wait_for(board.client, 10, state="failed")
     assert "API key" in job["error"]
     assert not (board.folder / "ready.safetensors").exists()
+
+
+def test_a_search_asks_civitai_and_its_answer_is_cached_and_downloadable(board):
+    board.client.post("/api/house/checkpoints/refresh")
+    assert board.client.post("/api/house/checkpoints/search", json={"query": " x "}).status_code == 422
+    answer = board.client.post("/api/house/checkpoints/search",
+                               json={"query": "  Hidden   GEM "}).json()
+    assert (answer["query"], answer["found"], answer["added"]) == ("hidden gem", 3, 2)
+    cards = {m["name"]: m for m in answer["catalog"]["models"]}
+    assert (cards["Hidden gem"]["source"], cards["Hidden gem"]["status"]) == ("search", "best")
+    assert (cards["Fluxy"]["family"], cards["Fluxy"]["status"]) == (civitai.OTHER_FAMILY, "no")
+    assert (cards["Ready one"]["source"], cards["Ready one"]["queries"]) == ("top", ["hidden gem"])
+    # cached: the page has it without asking again, and a refresh keeps it
+    board.client.post("/api/house/checkpoints/refresh")
+    page = board.client.get("/api/house/checkpoints").json()
+    assert civitai.OTHER_FAMILY in page["families"]
+    kept = {m["name"]: m for m in page["catalog"]["models"]}
+    assert kept["Hidden gem"]["queries"] == ["hidden gem"]
+    # and a searched card downloads like a listed one
+    board.client.put("/api/house/civitai-key", json={"key": "secret-key"})
+    assert board.client.post("/api/house/checkpoints/downloads",
+                             json={"version_id": 30}).status_code == 200
+    wait_for(board.client, 30)
+    assert (board.folder / "gem.safetensors").is_file()
+
+
+def test_a_search_civitai_doesnt_answer_says_so(board, monkeypatch):
+    monkeypatch.setattr(civitai, "ASYNC_TRANSPORT",
+                        httpx.MockTransport(lambda request: httpx.Response(503)))
+    answer = board.client.post("/api/house/checkpoints/search", json={"query": "anything"})
+    assert answer.status_code == 502 and "503" in answer.json()["detail"]
+    assert board.client.get("/api/house/checkpoints").json()["catalog"] is None

@@ -386,6 +386,12 @@ table.grid-table tr:last-child td { border-bottom: 0; }
 
 .ck-toolbar { display: flex; flex-direction: column; gap: 10px; padding: 14px 18px 0; }
 .ck-toolbar-row { display: flex; flex-wrap: wrap; gap: 10px 18px; }
+.sec .ck-search { width: 100%; max-width: 34em; }
+.ck-search-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; font-size: 12px; }
+.ck-search-line .error { color: var(--red); }
+.ck-ask { padding: 0; border: 0; background: none; font: inherit; color: var(--acid); cursor: pointer; }
+.ck-ask:hover { text-decoration: underline; }
+.ck-ask:focus-visible { outline: 2px solid var(--acid-dark); outline-offset: 2px; }
 .ck-pills { display: inline-flex; flex-wrap: wrap; gap: 4px; }
 .ck-pill {
   padding: 5px 11px; border: 1px solid var(--rule); border-radius: 999px; background: var(--ground);

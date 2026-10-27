@@ -84,6 +84,13 @@ The page shows SFW models and PG/PG-13 previews by default. **Include NSFW** sho
 **Downloaded** narrows the list to what is already on this machine, and **On this machine** lists
 every checkpoint in the folder with its check, including ones you fetched yourself.
 
+The search box above the filters narrows the list as you type, matching the name, version,
+creator or file. When nothing in the list matches, a pause in typing asks Civitai. Press Enter, or
+**Search Civitai for …**, to ask even when something does match. What Civitai finds joins the
+cached list tagged *from a search*, stays there after **Refresh list**, and downloads like any
+other card. A model built on a base her camera can't load (Flux, SD 1.5…) still turns up, filed
+under *Other base models* and marked *Not supported*.
+
 ## Local SDXL (`diffusers`)
 
 Her own camera, on your own GPU, with no third party. The model is loaded **in-process** — there's

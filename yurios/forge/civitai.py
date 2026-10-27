@@ -13,6 +13,9 @@ checkpoints and says neither. This module is the part of House settings'
   all. NSFW models are fetched too; whether they are *shown* is the page's
   switch. The answer is cached as one JSON file, because it is fourteen API
   calls and changes by the day, not the minute.
+- **Search.** What the lists don't carry is one search away (`search`): its
+  hits join the cached catalog (`merge_search`) remembering the words that
+  found them, and survive the next refresh (`carry_searches`).
 - **Downloads.** A file is fetched on a daemon thread, not the event loop — the
   host is one process holding every character's room, and a 7 GB stream is
   minutes of I/O — into `<name>.part`, resumed from where it stopped if the
@@ -79,6 +82,14 @@ FAMILIES: tuple[Family, ...] = (
     Family("SDXL 1.0", "SDXL · SDXL 1.0", "diffusers"),
 )
 _BY_BASE = {f.base_model: f for f in FAMILIES}
+#: Where a search files a model built on a base model the camera can't load.
+OTHER_FAMILY = "Other base models"
+#: A search asks for this many inside the camera's families, and this many
+#: across every base model (`search`).
+SEARCH_LIMIT = 40
+SEARCH_OTHER_LIMIT = 20
+QUERY_MIN = 2
+QUERY_MAX = 100
 
 # Notes are what the card says under the name: the backend's own fact, plainly.
 _NOTES = {
@@ -177,28 +188,62 @@ def classify(model: dict, family: Family) -> Optional[dict]:
                                            "washed out.")
             else:
                 status, note = _NOTES[family.base_model]
-        meta = pick.get("metadata") or {}
-        stats = model.get("stats") or {}
-        return {
-            "id": model.get("id"),
-            "version_id": version.get("id"),
-            "name": model.get("name") or "",
-            "version": version.get("name") or "",
-            "creator": (model.get("creator") or {}).get("username") or "",
-            "downloads": int(stats.get("downloadCount") or 0),
-            "family": family.label,
-            "base_model": family.base_model,
-            "status": status,
-            "note": note,
-            "file": pick["name"],
-            "size_bytes": int((pick.get("sizeKB") or 0) * 1024),
-            "precision": meta.get("fp") or "",
-            "download_url": pick.get("downloadUrl") or "",
-            "nsfw": bool(model.get("nsfw")),
-            "published": str(version.get("publishedAt") or "")[:10],
-            "url": f"{SITE}/models/{model.get('id')}?modelVersionId={version.get('id')}",
-            "images": _images(version),
-        }
+        return _card(model, version, pick, family.label, family.base_model, status, note)
+    return None
+
+
+def _card(model: dict, version: dict, pick: dict, family: str, base_model: str,
+          status: str, note: str) -> dict:
+    meta = pick.get("metadata") or {}
+    stats = model.get("stats") or {}
+    return {
+        "id": model.get("id"),
+        "version_id": version.get("id"),
+        "name": model.get("name") or "",
+        "version": version.get("name") or "",
+        "creator": (model.get("creator") or {}).get("username") or "",
+        "downloads": int(stats.get("downloadCount") or 0),
+        "family": family,
+        "base_model": base_model,
+        "status": status,
+        "note": note,
+        "file": pick["name"],
+        "size_bytes": int((pick.get("sizeKB") or 0) * 1024),
+        "precision": meta.get("fp") or "",
+        "download_url": pick.get("downloadUrl") or "",
+        "nsfw": bool(model.get("nsfw")),
+        "published": str(version.get("publishedAt") or "")[:10],
+        "url": f"{SITE}/models/{model.get('id')}?modelVersionId={version.get('id')}",
+        "images": _images(version),
+    }
+
+
+def classify_any(model: dict) -> Optional[dict]:
+    """A model a search found, whatever it is built on: filed under the first
+    family the camera loads a version of it in, or else a card that says why
+    this build can't load it. None only when no version has a weights file."""
+    tried: set[Family] = set()
+    for version in model.get("modelVersions") or []:
+        family = _BY_BASE.get(version.get("baseModel") or "")
+        if family is None or family in tried:
+            continue
+        tried.add(family)
+        card = classify(model, family)
+        if card is not None:
+            return card
+    for version in model.get("modelVersions") or []:
+        pick = _primary(_model_files(version))
+        if pick is None:
+            continue
+        base = str(version.get("baseModel") or "")
+        family = _BY_BASE.get(base)
+        if family is not None:            # a Krea 2 model with no INT4 file
+            return _card(model, version, pick, family.label, base, "no",
+                         f"None of its files is in a format the {family.backend} backend "
+                         f"reads (it runs only INT4 ConvRot W4A4).")
+        return _card(model, version, pick, OTHER_FAMILY, base or "unknown", "no",
+                     f"Built on {base or 'a base model Civitai does not name'}, which her "
+                     f"local camera doesn't load yet.")
     return None
 
 
@@ -250,6 +295,90 @@ async def fetch_catalog(api_key: str = "", *, now: Optional[float] = None) -> di
         raise CatalogError(errors[0] if errors else "no answer from Civitai")
     return {"fetched_at": time.time() if now is None else now,
             "models": build_catalog(listings), "errors": errors}
+
+
+def normalize_query(text: Any) -> str:
+    """A search as the cache remembers it: one space between words, lower
+    case, at most QUERY_MAX characters. checkpoint-list.js's normalizeQuery is
+    the same rule."""
+    return " ".join(str(text or "").split()).lower()[:QUERY_MAX]
+
+
+async def search(query: str, api_key: str = "") -> list[dict]:
+    """Ask Civitai for the checkpoints matching `query`, as cards (SPEC §11.5.6). Two asks:
+    one inside the families the camera loads, so a common word isn't crowded
+    out by base models it can't; and one across every base model, so a search
+    for one of those still finds it and says it won't load. Raises
+    CatalogError when neither answered."""
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+    base = {"types": "Checkpoint", "query": query, "nsfw": "true"}
+    asks = [{**base, "limit": SEARCH_LIMIT, "baseModels": [f.base_model for f in FAMILIES]},
+            {**base, "limit": SEARCH_OTHER_LIMIT}]
+
+    async def one(client: httpx.AsyncClient, params: dict) -> list[dict]:
+        response = await client.get(f"{API}/models", params=params)
+        response.raise_for_status()
+        return list(response.json().get("items") or [])
+
+    async with httpx.AsyncClient(timeout=httpx.Timeout(30.0), headers=headers,
+                                 transport=ASYNC_TRANSPORT) as client:
+        results = await asyncio.gather(*(one(client, p) for p in asks), return_exceptions=True)
+    answered = [r for r in results if not isinstance(r, BaseException)]
+    if not answered:
+        raise CatalogError(_why(next(r for r in results if isinstance(r, BaseException))))
+    cards, seen = [], set()
+    for model in (m for listing in answered for m in listing):
+        if model.get("id") in seen:
+            continue
+        seen.add(model.get("id"))
+        card = classify_any(model)
+        if card is not None:
+            cards.append({**card, "source": "search"})
+    return cards
+
+
+def merge_search(catalog: Optional[dict], found: list[dict], query: str) -> tuple[dict, int]:
+    """Fold what a search found into the cached catalog, and say how many
+    cards were new. A model already listed keeps its card and remembers the
+    query, so the page can show it for that search even when its name doesn't
+    contain the words; a new one joins as `source: "search"`."""
+    catalog = dict(catalog or {"fetched_at": 0, "models": [], "errors": []})
+    models = [dict(m) for m in catalog.get("models") or []]
+    by_model = {m.get("id"): m for m in models}
+    added = 0
+    for card in found:
+        have = by_model.get(card["id"])
+        if have is None:
+            have = {**card, "source": "search", "queries": []}
+            models.append(have)
+            by_model[card["id"]] = have
+            added += 1
+        queries = list(have.get("queries") or [])
+        if query not in queries:
+            have["queries"] = [*queries, query]
+    catalog["models"] = models
+    return catalog, added
+
+
+def carry_searches(old: Optional[dict], new: dict) -> dict:
+    """A refreshed catalog keeps what earlier searches found: their queries
+    move onto the new card for the same model, and a searched model that the
+    fresh lists don't carry stays, as a search result."""
+    if not old:
+        return new
+    models = list(new.get("models") or [])
+    by_model = {m.get("id"): m for m in models}
+    for card in old.get("models") or []:
+        queries = card.get("queries")
+        if not queries:
+            continue
+        fresh = by_model.get(card.get("id"))
+        if fresh is not None:
+            fresh["queries"] = list(queries)
+        else:
+            models.append({**card, "source": "search"})
+            by_model[card.get("id")] = models[-1]
+    return {**new, "models": models}
 
 
 def _why(exc: BaseException) -> str:

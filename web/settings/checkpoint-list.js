@@ -3,8 +3,9 @@
  * The server sends the catalog (each card already sorted into what this build
  * will do with it), the folder's files and the downloads in flight. What is
  * decided here is how those meet: whether a card is on this machine, half on it,
- * downloading or still out there; which cards a filter keeps; which previews a
- * card shows while NSFW is off. Tested in web/tests/checkpoints.test.js. */
+ * downloading or still out there; which cards a filter or a search keeps, and
+ * when a search should go on to ask Civitai; which previews a card shows while
+ * NSFW is off. Tested in web/tests/checkpoints.test.js. */
 
 /** Civitai's PG and PG-13: what a card shows while NSFW is off. */
 export const SFW_IMAGE_LEVEL = 2;
@@ -27,11 +28,40 @@ export function cardState(card, { files = [], partial = {}, downloads = [] } = {
 
 const ON_DISK = new Set(["downloaded", "downloading", "paused"]);
 
-/** The cards a set of filters keeps, most-downloaded first within a family,
- *  with what this build can't load sunk to the end of it. */
+/** Typing this much, with nothing in the list matching, asks Civitai. */
+export const LOOKUP_MIN = 3;
+const QUERY_MAX = 100;
+
+/** A search as the cache remembers it — civitai.normalize_query's rule. */
+export function normalizeQuery(text) {
+  return String(text ?? "").trim().split(/\s+/).filter(Boolean).join(" ").toLowerCase()
+    .slice(0, QUERY_MAX);
+}
+
+/** Whether a card answers a search: every word is in its name, version,
+ *  creator, file or family — or Civitai returned it for exactly this search. */
+export function matchesQuery(card, query) {
+  const q = normalizeQuery(query);
+  if (!q) return true;
+  if ((card.queries || []).includes(q)) return true;
+  const hay = [card.name, card.version, card.creator, card.file, card.family, card.base_model]
+    .join(" ").toLowerCase();
+  return q.split(" ").every((word) => hay.includes(word));
+}
+
+/** Whether a search should go on to Civitai by itself: long enough, not asked
+ *  already, and nothing in the cached list answers it. */
+export function needsLookUp(cards, query, asked = new Set()) {
+  const q = normalizeQuery(query);
+  return q.length >= LOOKUP_MIN && !asked.has(q) && !cards.some((c) => matchesQuery(c, q));
+}
+
+/** The cards a set of filters (and a search) keeps, most-downloaded first
+ *  within a family, with what this build can't load sunk to the end of it. */
 export function visibleCards(cards, { family = "all", status = "all", nsfw = false,
-  downloaded = false } = {}, local = {}) {
+  downloaded = false, query = "" } = {}, local = {}) {
   const keep = (card) => {
+    if (!matchesQuery(card, query)) return false;
     if (!nsfw && card.nsfw) return false;
     if (family !== "all" && card.family !== family) return false;
     if (status === "best" && card.status !== "best") return false;

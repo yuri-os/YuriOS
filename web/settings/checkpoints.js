@@ -212,7 +212,8 @@ export async function renderCheckpoints(container, ctx) {
     const prints = el("div", { className: `ck-prints${shots.length === 1 ? " one" : ""}` },
       ...(shots.length ? shots.map((s) => el("img", { src: s.url, alt: "", loading: "lazy",
         referrerPolicy: "no-referrer", decoding: "async" }))
-        : [el("span", { textContent: card.nsfw && !filters.nsfw ? "previews hidden"
+        // hidden, not missing: an SFW-flagged model's gallery can be all R and up
+        : [el("span", { textContent: !filters.nsfw && card.images?.length ? "previews hidden"
           : "no preview" })]));
     const note = status("ck-note-line");
     const foot = el("div", { className: "ck-actions" });

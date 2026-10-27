@@ -53,15 +53,18 @@ API = "https://civitai.com/api/v1"
 SITE = "https://civitai.com"
 #: How old a cached catalog may be before the page fetches a fresh one.
 CATALOG_TTL_S = 24 * 3600
-#: The cached catalog's shape. 2 lists every file of a card's version; a cache
-#: of any other shape counts as stale, so the page fetches a fresh one.
-CATALOG_SCHEMA = 2
+#: The cached catalog's shape. 2 lists every file of a card's version; 3 keeps
+#: a card's safe previews wherever they fall in its gallery. A cache of any
+#: other shape counts as stale, so the page fetches a fresh one.
+CATALOG_SCHEMA = 3
 #: Parallel listing calls — enough to finish in seconds, few enough to be polite.
 FETCH_CONCURRENCY = 4
 CHUNK = 1 << 20
 #: Civitai's image ratings: 1 PG, 2 PG-13, 4 R, 8 X, 16 XXX, 32 blocked.
 SFW_IMAGE_LEVEL = 2
 IMAGE_WIDTH = 450
+#: Previews a card keeps of each kind, safe (PG, PG-13) and not.
+PREVIEWS_PER_KIND = 3
 
 #: Tests replace this with an httpx.MockTransport; None is the network.
 TRANSPORT: Optional[httpx.BaseTransport] = None
@@ -143,15 +146,21 @@ def _primary(files: list[dict]) -> Optional[dict]:
 
 
 def _images(version: dict) -> list[dict]:
-    out = []
+    """A card's previews, in the gallery's order: the first few safe ones and
+    the first few others. Counted apart, because a gallery that opens on R and
+    X shots often has its one PG shot eighth — and the page shows only safe
+    ones while NSFW is off."""
+    out, kept = [], {True: 0, False: 0}
     for image in version.get("images") or []:
         level = int(image.get("nsfwLevel") or 1)
         if image.get("type", "image") != "image" or level >= 32 or not image.get("url"):
             continue
+        safe = level <= SFW_IMAGE_LEVEL
+        if kept[safe] == PREVIEWS_PER_KIND:
+            continue
+        kept[safe] += 1
         url = str(image["url"]).replace("/original=true/", f"/width={IMAGE_WIDTH}/")
         out.append({"url": url, "nsfw_level": level})
-        if len(out) == 6:
-            break
     return out
 
 

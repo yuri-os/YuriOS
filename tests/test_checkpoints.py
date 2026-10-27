@@ -143,6 +143,16 @@ def test_previews_keep_their_rating_and_shrink_to_a_thumbnail():
         [(1, True), (8, True)]
 
 
+def test_a_safe_preview_deep_in_the_gallery_is_kept():
+    # Realism Illustrious by Stable Yogi v5.5: its one PG shot is the eighth
+    levels = [8, 8, 4, 16, 8, 4, 16, 1, 8, 8]
+    images = [{"url": f"https://image.civitai.com/x/original=true/{n}.jpeg", "nsfwLevel": level,
+               "type": "image"} for n, level in enumerate(levels)]
+    card = civitai.classify(listed(1, "Ill", "Illustrious", [("i.safetensors", 1)],
+                                   images=images), FAM["Illustrious"])
+    assert [i["nsfw_level"] for i in card["images"]] == [8, 8, 4, 1]
+
+
 def test_a_version_listed_twice_is_filed_under_the_first_listing():
     model = listed(1, "Ill", "Illustrious", [("i.safetensors", 1)])
     cards = civitai.build_catalog([(FAM["Illustrious"], "top", [model]),

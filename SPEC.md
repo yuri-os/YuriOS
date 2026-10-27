@@ -1630,8 +1630,8 @@ what is saved but waiting for a restart.
   same pictures for a bigger download), then the creator's primary, then the smaller file. The
   card's status, note, file and size are the recommended file's. The page opens a card on that
   file — or on one already on this machine or downloading — and the others are a click away; a
-  file that won't load says why and offers no download. A cached list from before files were
-  listed is stale, so the page fetches a fresh one.
+  file that won't load says why and offers no download. A cached list of an older shape
+  (`CATALOG_SCHEMA`) is stale, so the page fetches a fresh one.
 - Every route here is owner-or-loopback, like the panel beside it (§11): each writes a file the
   server executes or reads at boot, or ends the server.
 
@@ -1674,8 +1674,9 @@ Pictures in the rail and linked from the top of it) is where that file comes fro
   with the version and file the camera would use and a status: *Ready*, *Loads* (works, but the
   prompt wording isn't tuned for it), *Check* (a caveat, or a Krea 2 INT4 file whose layout the
   listing doesn't name) or *Not supported*. NSFW models are fetched; the page shows them only when
-  **Include NSFW** is on, and while it is off a card shows only PG and PG-13 previews. The answer is
-  cached in `DATA_DIR/civitai/catalog.json`: opening the page **MUST NOT** call Civitai; a missing
+  **Include NSFW** is on, and while it is off a card shows only PG and PG-13 previews. A card keeps
+  its first few safe previews wherever they fall in the version's gallery; when none of them is
+  safe, it says its previews are hidden rather than that it has none. The answer is cached in `DATA_DIR/civitai/catalog.json`: opening the page **MUST NOT** call Civitai; a missing
   or day-old list is refreshed once per visit, and **Refresh list** asks again. Every card links to
   its Civitai page. A card this build can't load still shows, says so, and links to a prefilled
   GitHub issue asking for support instead of offering a download.

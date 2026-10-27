@@ -414,6 +414,7 @@
       div.className = 'msg tool' + (m.background ? ' background' : '')
         + (refused ? ' refused' : '');
       if (m.id) div.dataset.messageId = m.id;
+      if (m.ts) div.dataset.ts = m.ts;
       const said = refused ? ` · ${m.verdict}${m.why ? ` (${m.why})` : ''}` : '';
       div.innerHTML = `<span class="tool-chip" title="${esc(m.tool || '')}">` +
         `<span class="tool-mark" aria-hidden="true">⚙</span>` +
@@ -432,8 +433,50 @@
     // the transcript id on the bubble, so the walk back can find the one line
     // it is anchored on without keeping a second map of the column
     if (m.id) div.dataset.messageId = m.id;
+    if (m.ts) div.dataset.ts = m.ts;
     div.innerHTML = body(m, her, receipt);
     return div;
+  }
+
+  /* Where a committed line goes: after the last one said no later than it, not
+   * merely at the bottom. Lines reach this page by three roads — the opening
+   * backfill, the live stream, a reconnect's catch-up — and they do not arrive
+   * in the order they were said: your line is confirmed the instant you send
+   * it, while the history above it may still be in flight, and a backfill that
+   * outlives the failsafe lands after live lines it predates. Appending put
+   * older lines under newer ones.
+   *
+   * Rows with no `ts` — a line still sending, her draft, the "while you were
+   * away" rule, the walk-back button — are stepped over rather than compared:
+   * they mark a place in the column, not a moment. The common case, a line newer
+   * than everything drawn, still costs one comparison. `ts` is compared as a
+   * string, as merge() does: the host writes one ISO format throughout. */
+  function placeInOrder(div, ts) {
+    if (ts) {
+      let first = null;
+      for (let el = messages.lastElementChild; el; el = el.previousElementSibling) {
+        const at = el.dataset?.ts;
+        if (!at) continue;
+        if (at <= ts) {
+          // after it, and after any still-sending line of yours that follows
+          // it: that one was said later still, it just has no stamp yet
+          let next = el.nextElementSibling;
+          while (next && next.classList.contains('pending') && !next.dataset.ts)
+            next = next.nextElementSibling;
+          messages.insertBefore(div, next);   // null appends; a draft stays below
+          return;
+        }
+        first = el;
+      }
+      if (first) { messages.insertBefore(div, first); return; }
+    }
+    messages.insertBefore(div, draftAnchor());
+  }
+
+  // the bottom of the column: above her draft while one is arriving, since the
+  // draft is the rest of a reply and stays last
+  function draftAnchor() {
+    return draftEl && draftEl.parentNode === messages ? draftEl : null;
   }
 
   function addMsg(m) {
@@ -445,9 +488,7 @@
     if (m.role === 'tool') {
       // Mid-reply, above the words still arriving: the draft is the rest of
       // the reply this call was made for, so it stays and stays last.
-      const chip = paint(document.createElement('div'), m, true);
-      if (draftEl && draftEl.parentNode === messages) messages.insertBefore(chip, draftEl);
-      else messages.appendChild(chip);
+      placeInOrder(paint(document.createElement('div'), m, true), m.ts);
       scroll();
       return;
     }
@@ -462,7 +503,7 @@
       pendingExpiry.delete(m.client_id);
     }
     paint(div, m, her, !her && m.client_id ? 'received' : '');
-    if (!optimistic) messages.appendChild(div);
+    if (!optimistic) placeInOrder(div, m.ts);
     if (optimistic) {
       window.dispatchEvent(new CustomEvent('chat-received', { detail: m }));
     }
@@ -731,13 +772,21 @@
     }
   }
 
+  /* `history` is null when the failsafe gives up waiting: live lines start
+   * drawing, and the opening history — which is still the history — is laid
+   * down whenever it does arrive, in its place rather than dropped. */
+  let historyLaid = false;
+
   function flushBackfill(history, hasMore = false, anchorId = null) {
-    if (backfilled) return;               // the failsafe already fired
+    if (backfilled) {
+      if (history && !historyLaid) layHistory(history, hasMore, anchorId);
+      return;
+    }
     // Optimistic lines must stay after older history even when the user submits
     // before the initial fetch returns.
     const optimistic = [...pending.values()];
     optimistic.forEach((el) => el.remove());
-    history.forEach(addMsg);
+    if (history) history.forEach(addMsg);
     optimistic.forEach((el) => messages?.appendChild(el));
     backfilled = true;
     if (recoveryPending) {
@@ -747,6 +796,12 @@
       queued.forEach(addMsg);             // addMsg dedups by id — an overlap is fine
       queued = [];
     }
+    if (history) layHistory([], hasMore, anchorId);
+  }
+
+  function layHistory(history, hasMore, anchorId) {
+    historyLaid = true;
+    history.forEach(addMsg);              // placed by `ts`, above the live lines
     markWhileYouWereAway();
     // Anchored on the oldest line `/api/history` returned — not the oldest one
     // drawn, which after a restart is an inbox row the archive has no record of
@@ -776,9 +831,9 @@
     }).then((d) => {
       // Recovery keeps the route's generous default on purpose — a long
       // disconnect can miss far more than the opening screenful. But that
-      // window reaches back *behind* the top of the column, and addMsg appends:
-      // without this cut a reconnect would paste the archive under the newest
-      // line, oldest last. Everything from the anchor on is newer than the
+      // window reaches back *behind* the top of the column: without this cut a
+      // reconnect would fill in, above the anchor, the lines the walk-back
+      // button exists to fetch. Everything from the anchor on is newer than the
       // column's top; an anchor the window no longer covers means more than a
       // window's worth arrived, and all of it is newer.
       const all = d.messages || [];
@@ -895,7 +950,7 @@
     });
     // …and a hung fetch must never cost her a live word: give up waiting and
     // show what's arriving, out of order but present.
-    setTimeout(() => flushBackfill([]), 5000);
+    setTimeout(() => flushBackfill(null), 5000);
   }
 
   // …and one for the inner-life tab: while that panel is up the transcript is

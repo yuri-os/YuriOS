@@ -580,6 +580,11 @@ live transcript (another room, Telegram, a restart that seeded it from disk),
 and a browser that reuses an earlier empty snapshot opens the column blank
 until a hard refresh.
 
+The column **MUST** stand in the order its committed lines were said (their `ts`), not the
+order they reached the page: the opening backfill, the live stream and a reconnect's catch-up
+race, and a line you sent is confirmed before the history above it may have loaded. A backfill
+that arrives after the page stopped waiting for it is laid down in its place, not dropped.
+
 **The column survives a restart.** Every committed entry is *also* written to
 `<vault>/state/conversation.jsonl` (`app/conversation.py`) and the ring is seeded from its tail
 at boot, so a daemon that restarted overnight opens onto the end of the last conversation rather

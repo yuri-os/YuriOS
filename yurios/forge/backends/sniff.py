@@ -90,8 +90,20 @@ KREA2_LAYOUT = "convrot_w4a4"
 #: 28 blocks, 2048 wide. The 2.9B / 3.8B variants are other shapes.
 ANIMA_BLOCKS = 28
 ANIMA_WIDTH = 2048
-_ANIMA_BLOCK = re.compile(r"^model\.diffusion_model\.blocks\.(\d+)\.")
-_ANIMA_PROBE = "model.diffusion_model.blocks.0.adaln_modulation_mlp.1.weight"
+#: The wrappers Anima exports put round the model's own names — ComfyUI's
+#: `model.diffusion_model.`, the bare `diffusion_model.`, and the original
+#: release's `net.`. anima.py strips the same ones when it loads, so a prefix
+#: this build reads is one it counts.
+ANIMA_PREFIXES = ("model.diffusion_model.", "diffusion_model.", "net.")
+_ANIMA_BLOCK = re.compile(r"^blocks\.(\d+)\.")
+_ANIMA_PROBE = "blocks.0.adaln_modulation_mlp.1.weight"
+
+
+def _unwrap_anima(key: str) -> str:
+    for prefix in ANIMA_PREFIXES:
+        if key.startswith(prefix):
+            return key[len(prefix):]
+    return key
 
 
 @dataclass(frozen=True)
@@ -133,8 +145,9 @@ def verify_local_checkpoint(path: str | Path) -> Verdict:
                        f"Krea 2 stored as {found}; the krea2 backend runs only "
                        f"INT4 ConvRot W4A4 files")
     if arch == "anima":
-        blocks = {int(m.group(1)) for k in keys for m in [_ANIMA_BLOCK.match(k)] if m}
-        probe = header.get(_ANIMA_PROBE) or {}
+        names = {_unwrap_anima(k): k for k in keys}
+        blocks = {int(m.group(1)) for k in names for m in [_ANIMA_BLOCK.match(k)] if m}
+        probe = header.get(names.get(_ANIMA_PROBE, "")) or {}
         shape = probe.get("shape") if isinstance(probe, dict) else None
         width = shape[1] if isinstance(shape, list) and len(shape) == 2 else 0
         if len(blocks) == ANIMA_BLOCKS and width == ANIMA_WIDTH:

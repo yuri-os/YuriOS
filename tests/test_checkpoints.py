@@ -72,6 +72,17 @@ def test_anima_loads_only_at_the_2b_shape_the_backend_builds(tmp_path):
     assert verdict.status == "unsupported" and "36 blocks" in verdict.note
 
 
+@pytest.mark.parametrize("prefix", ["net.", "diffusion_model."])
+def test_anima_counts_its_blocks_under_every_wrapper_the_backend_strips(tmp_path, prefix):
+    # The original release ships under `net.`; counting only ComfyUI's prefix
+    # called a stock 2B file "0 blocks at width ?".
+    keys = [k.replace("model.diffusion_model.", prefix) for k in anima_keys()]
+    probe = ANIMA_PROBE.replace("model.diffusion_model.", prefix)
+    path = write_safetensors_header(tmp_path / "a.safetensors", keys,
+                                    shapes={probe: [256, 2048]})
+    assert verify_local_checkpoint(path).status == "ok"
+
+
 def test_a_file_that_is_not_a_checkpoint_is_refused(tmp_path):
     junk = tmp_path / "junk.safetensors"
     junk.write_bytes(b"<html>sign in</html>")

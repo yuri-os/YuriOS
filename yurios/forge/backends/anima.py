@@ -39,6 +39,7 @@ from typing import Any, Optional
 
 from ..types import Capabilities, GenRequest, ImageResult
 from .base import ImageBackend
+from .sniff import ANIMA_PREFIXES
 
 log = logging.getLogger("forge.anima")
 
@@ -57,7 +58,9 @@ COMPANION_ALLOW = ["scheduler/*", "tokenizer/*", "t5_tokenizer/*", "text_encoder
 # never touches but a full checkpoint has.
 
 # Exports differ in the wrapper around the model's own names; strip any of them.
-_PREFIXES = ("model.diffusion_model.", "diffusion_model.", "net.")
+# The list is sniff's, so the header check counts blocks under every prefix
+# this loader reads.
+_PREFIXES = ANIMA_PREFIXES
 _ADAPTER = "llm_adapter."
 
 # Applied in order, as substring replacements on a transformer key.

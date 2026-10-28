@@ -10,7 +10,7 @@
 
 </div>
 
-## What It Does
+## What it does
 
 YuriOS gives your companion a browser-based body, voice and text chat, memory, and an
 autonomous inner life. Your data stays on your machine, with no account required.
@@ -34,7 +34,7 @@ read, so "what did you do while I was gone?" is a page you open, not a vibe.
 | **[A mind](docs/mind.md)** | SENSE → APPRAISE → DECIDE → ACT → REFLECT → REGULATE, forever. Activity states, a budget governor, salience gates, a DREAM pipeline that consolidates and keeps a diary, a desk and skills she writes herself, goals with provenance, gated self-edits |
 | **[Hands](docs/tools.md)** | Tools over real MCP — timer, music, `take_selfie`, `show_picture`, and the web hands `web_search` / `read_page` / `research` — behind an allowlist, rate limits and a JSONL audit of every call |
 | **[A shelf](docs/mind.md)** | Drop a document in and she reads it — in notes if it's long. What she is reading, what it will cost in model calls, and a stop button that loses nothing, all on the inner-life tab |
-| **[A camera](docs/selfies.md)** | Selfies through a hosted route, or on your own GPU with an SDXL, Krea 2 or Anima checkpoint, from a composable template library. [Pictures → Checkpoints](docs/selfies.md#choosing-a-checkpoint-from-civitai) lists, searches and downloads Civitai checkpoints, says which ones this build will load, recommends the best-match file, and points her camera at it |
+| **[A camera](docs/selfies.md)** | Selfies through a hosted route, or on your own GPU with an SDXL, Krea 2 or Anima checkpoint, from a composable template library — and a [Checkpoints](#settings) page that finds her one on Civitai |
 | **[Eyes](docs/models.md#can-she-see-pictures)** | Show her something: attach, paste or drop a picture in any room — or send one to her Telegram — whenever the model she runs on can take one. She keeps her voice on a picture turn, and the photo is asked about, not stored in her memory |
 | **[A house](docs/characters.md)** | Multiple companions, each with her own Vault, memory, models, bot and journal. Import SillyTavern V2/V3 cards; export her as one |
 | **[Any medium](docs/channels.md)** | The web page, a terminal client, Telegram. One conversation, one event bus, thin views |
@@ -42,98 +42,64 @@ read, so "what did you do while I was gone?" is a page you open, not a vibe.
 ## The three surfaces
 
 **[The switchboard](docs/characters.md#the-switchboard)** is the front door: one tile per
-companion, her portrait, the rung of the ladder she is actually on — `ENGAGED`, `IDLE`, `DORMANT`,
-`DREAM`, in the mind loop's own words — and her four loop switches on the tile itself (`mind`,
-`utility`, `dream`, `hands`), so one companion can be a fully autonomous mind while the one
-beside her stays reactive-only. Enter her room, leave it again, and she keeps running: her life
-doesn't depend on being looked at.
+companion, her portrait, the rung of the ladder she is actually on — `ENGAGED`, `IDLE`,
+`DORMANT`, `DREAM`, in the mind loop's own words — and her four loop switches (`mind`,
+`utility`, `dream`, `hands`) on the tile itself. One companion can be a fully autonomous mind
+while the one beside her stays reactive-only. Enter her room, leave it again, and she keeps
+running: her life doesn't depend on being looked at.
 
 ![The switchboard: two companions, their states and their mind / utility / dream switches.](docs/img/switchboard.png)
 
 **[The card studio](docs/characters.md#the-card-studio)** is where a companion is written.
-**Import** takes a SillyTavern V2/V3 character card — an ordinary `.PNG` with the card JSON in a
-text chunk — reads the card's own section headers to file that wall of description into identity,
-history, appearance and manner, and then leaves **every** imported card *disabled* until you have
-read what came in, including one that declares itself a YuriOS card: a card off the internet does
-not get a mind, tools and a Telegram bot before you've looked at it.
-**Create character** opens the same page on the shape of a working companion instead of eight
-empty boxes. There you write her against a live per-field prompt budget, give her a face, and edit
-her own [selfie library](docs/selfies.md#a-library-of-her-own) — the scenes, framings and outfits
-her camera is allowed to compose. **Export PNG** takes her back out as one card that opens
-anywhere cards open. What travels is who she is; your name, her memory of you and her journal stay
-on the machine.
+**Import** takes a SillyTavern V2/V3 card — an ordinary `.PNG` with the card JSON in a text
+chunk — and files its wall of description into identity, history, appearance and manner. Every
+imported card arrives *disabled*, even one that declares itself a YuriOS card: a card off the
+internet does not get a mind, tools and a Telegram bot before you've read it. **Create
+character** opens the same page on the shape of a working companion. There you write her
+against a live per-field prompt budget, give her a face, and edit her
+[selfie library](docs/selfies.md#a-library-of-her-own). **Export PNG** takes her back out as one
+card that opens anywhere cards open — who she is travels; your name, her memory of you and her
+journal stay on the machine.
 
 ![The card studio: editing Yuri's identity, with her face, prompt budget and what stays local.](docs/img/card-studio.png)
 
-**[The mind debug page](docs/mind.md#the-mind-debug-page)** is the honest one. The inner-life tab
-tells you what she did, in her words; this tells you *why*, in the machine's — every record she
-left joined into one timeline, with each decision, exchange and reach-out told as a story whose
-links say whether the files record them or only the clock suggests them; whole tick traces with the scores and the runners-up, every
-context window any model was ever handed (self-talk, dreams and reach-outs, not just chat), the
-tool audit with the photo each call produced joined on its correlation id, the Vault's git history
-file by file, her recall index, and what the day cost. It reads files rather than a running mind, so the companion who just crashed is
-the one you can still take apart.
+**[The mind debug page](docs/mind.md#the-mind-debug-page)** is the honest one. The inner-life
+tab tells you what she did, in her words; this tells you *why*, in the machine's. Every record
+she left is joined into one timeline: tick traces with the scores and the runners-up, every
+context window any model was handed (self-talk, dreams and reach-outs, not just chat), the tool
+audit with the photo each call produced, the Vault's git history, her recall index, and what the
+day cost. It reads files rather than a running mind, so the companion who just crashed is the
+one you can still take apart.
 
 ![The mind debug page: the tool-call audit, each call with the photo it produced.](docs/img/mind-debug.png)
 
 ## Experimental — and it can spend
 
-This is a reference implementation of *initiative*, not a hardened product. Much of the
-autonomous half is new and still moving: the tick loop, DREAM, self-edits, the desk, the
-shelf, and above all the web hands. Expect rough edges, expect the shape of it to change
-between releases, and meet it with a local model first.
+This is a reference implementation of *initiative*, not a hardened product. The autonomous
+half — the tick loop, DREAM, self-edits, the desk, the shelf, and above all the web hands — is
+new and still moving. Expect rough edges, and meet it with a local model first.
 
-**The reading is the expensive part.** `research` answers the conversation in
-milliseconds and then keeps going on its own for as long as it takes — searching,
-fetching pages, and reading each one. A long document is a model call per passage plus an
-embedding per chunk: dozens to hundreds of calls, over half an hour, from one sentence you
-said in passing. On a local model that is fan noise. On a metered API it is a bill, and
-nothing in the loop stops to ask you first.
+**The reading is the expensive part.** `research` answers the conversation in milliseconds and
+then keeps going on its own: searching, fetching pages, reading each one. One sentence said in
+passing can become dozens to hundreds of model calls over half an hour. On a local model that is
+fan noise. On a metered API it is a bill, and nothing in the loop stops to ask you first.
 
-What stands between you and that:
-
-- **`SEARCH_BACKEND=off` is the default.** Until you turn it on, the three web hands are
-  not advertised to her at all — she can't call what she can't see.
-- **`MIND_DAILY_TOKENS` is a governor, not a cap.** At pressure ≥ 1.0 she sheds to DORMANT
-  and goal work stops, but it is an *estimate* of spend, it never gates conversation, it
-  does not abort a read already in flight, and it does not stand between a tool call and
-  the run it starts.
-- **The inner-life tab is the meter.** Every run, the document being read right now, its
-  passage and model-call counts, and a stop button that keeps what she has already read.
-- **`RESEARCH_MAX_CALLS=100`** caps estimated model calls admitted to one run; pages that do
-  not fit wait unread on the shelf. `RESEARCH_MAX_PAGES` and `TOOL_RATE_RESEARCH` also bound
-  how far one run and one minute can reach.
-- **`MIND_TOOLS_ENABLED=false` is the default**, and it is the switch that decides whether
-  any of this can happen *without you in the room*. Everything above assumes you said
-  something first. With this off — the shipped state — her background loop thinks and
-  writes to her journal and never reaches for a tool at all. Turning it on is two
-  decisions, not one: the switch, and then `MIND_TOOL_ALLOWLIST`, which names the permitted
-  hands explicitly and is empty even once the switch is true. You do not have to know the
-  names — `yurios settings MIND_TOOL_ALLOWLIST` prints every hand this build has, what each
-  one does and whether its backend is on, and the settings panel renders the same list as
-  tick-boxes. A gentle first setting is her desk alone:
-  `write_note,append_note,read_note,list_notes`.
-
-Once you do turn it on, the numbers that actually stop a runaway night are different from
-the ones above, because they are *preconditions* rather than estimates:
-
-- **`MIND_TOOL_CALLS_PER_DAY` (8) is a cap, not a governor.** It is checked before the call
-  and it refuses. `MIND_TOOL_PRESSURE_CEILING` (0.5) does the same thing with the budget:
-  over it, the expensive hands — `research`, `read_page`, `web_search`, the cameras — are
-  simply not offered.
-- **The same call is refused for hours.** A persistent fingerprint ledger survives restarts,
-  so "she re-dispatched the same research every tick all night" cannot happen.
-- **Her buckets are not your buckets.** The mind gets its own rate limits
-  (`TOOL_RATE_MIND_*`), so a busy night cannot leave your morning request denied.
-- **Nothing she makes this way is sent to you.** It goes on her shelf, in her gallery, or on
-  her desk. Whether you ever hear about it is the same reach-out gate as everything else,
-  with the same quiet hours and the same daily cap.
-- **`tool-logs/calls.jsonl` marks every one of them `mind_tool`.** "What did she do at 4am"
-  is a file you read, not a vibe — and the switchboard's fourth toggle revokes her hands
-  before her next tick, without restarting her.
+- **The web hands are off by default.** Until you set `SEARCH_BACKEND`, they are not advertised
+  to her at all — she can't call what she can't see.
+- **Her hands are on when you're not in the room.** `MIND_TOOLS_ENABLED=true` and
+  `MIND_TOOL_ALLOWLIST=*` ship as the defaults. Before each autonomous call the guard checks the
+  backend, budget pressure, a cooldown, her own rate limits and a hard daily cap
+  (`MIND_TOOL_CALLS_PER_DAY`, 64). Narrow the allowlist — `yurios settings MIND_TOOL_ALLOWLIST`
+  lists every hand — or flip the `hands` switch on her tile to revoke them before her next tick.
+- **`MIND_DAILY_TOKENS` is a governor, not a cap.** It is an estimate that sheds her to
+  `DORMANT`; it never gates conversation and does not abort a read in flight.
+  `RESEARCH_MAX_CALLS` (100) bounds a single run.
+- **The inner-life tab is the meter**: what she's reading, what it costs, and a stop button that
+  keeps what she has read. Every call is in `tool-logs/calls.jsonl`.
 
 If you point her at a paid API — chat, utility or embeddings — set a spend limit with the
-provider as well. For the first few days, watch the numbers on the inner-life tab.
+provider as well. [The documentation](docs/README.md#experimental--and-it-can-spend) has every
+guard and what it does and doesn't stop.
 
 ## Install
 
@@ -147,36 +113,24 @@ yurios restart                        # load it (starts the daemon if it is stop
 yurios status
 ```
 
-Or, without installing anything but Docker, `docker compose up -d --build` and open the link
+Or, with nothing but Docker, `docker compose up -d --build` and open the link
 `docker compose logs yurios` prints — see [Installation → Docker](docs/installation.md#docker).
 
-A fresh install selects no model, so she can't talk until you choose one and restart.
-Then open the address shown by `yurios status` (normally `http://localhost:8768`).
-The dashboard offers the same model choice if you open it first; restart after it too.
+A fresh install selects no model, so she can't talk until you choose one and restart. Then open
+the address `yurios status` shows (normally `http://localhost:8768`). The dashboard offers the
+same model choice if you open it first; restart after it too.
 
-Everything else in `.env` is editable from either surface too: **House settings** on
-the switchboard opens a settings page — every knob sorted into pages (Models, Memory,
-Mind, Hands, Web, Pictures, Voice, Room & body, Channels, Access, System) with a
-search across all of them — and the gear in every room opens the same table as a
-dialog. Both are the table `yurios settings` prints. The same page has a **Restart**
-button for applying saves (when started with `yurios start`), editors for the files
-`.env` only points at (third-party MCP servers, the house selfie-scene overlay), a
-**Checkpoints** page under Pictures for finding her camera a model on Civitai (below), and a
-page per character for her own model and switches, her night jobs and her selfie
-scenes — each importable and exportable as files.
+Use `yurios doctor` if something is not working.
 
-**Checkpoints** (House settings → Pictures → Checkpoints) is where her local camera's model comes
-from. It lists Civitai's most-downloaded checkpoints for every family the camera can load. Each
-card says what this build will do with it: *Ready*, *Loads*, *Check*, or *Not supported*, with a
-prefilled GitHub issue for the last. A search box filters that cached list and asks Civitai for
-anything it doesn't carry. Where a version comes as several files (fp16 and fp32, full and
-pruned), the card recommends the one her camera computes in and lets you pick another. Paste your
-Civitai API key once (it goes into `.env`). Downloads run on the server with live progress and
-resume if interrupted. A finished file's header is checked before **Use for her camera** sets
-`SELFIE_LOCAL_MODEL` to it. SFW only by default; **Include NSFW** shows the rest. See
-[Selfies → Choosing a checkpoint from Civitai](docs/selfies.md#choosing-a-checkpoint-from-civitai).
+## Settings
 
-![The Checkpoints page: once a Civitai API key is in, Civitai's checkpoints for every family her camera loads, each card with its status and a Download button.](docs/img/checkpoints.png)
+Everything in `.env` is editable from the browser as well as the terminal. **House settings** on
+the switchboard sorts every knob into pages — Models, Memory, Mind, Hands, Web, Pictures, Voice,
+Room & body, Channels, Access, System — with a search across all of them and a **Restart** button
+for applying saves (when started with `yurios start`). It also edits the files `.env` only points
+at (third-party MCP servers, the house selfie-scene overlay), and has a page per character for her
+own model, switches, night jobs and selfie scenes. The gear in every room opens the same table as
+a dialog.
 
 ```bash
 yurios settings                       # the common knobs, and whatever you have changed
@@ -186,8 +140,21 @@ yurios character list                 # the house, from the same client
 yurios chat yuri -m "hello"           # one turn, then exit
 ```
 
-To reach her from a phone, bind her to the network and pair the device — the owner
-token is generated, applied and handed over as a QR code, so nothing gets typed:
+**Checkpoints** (House settings → Pictures → Checkpoints) is where her local camera's model comes
+from. It lists Civitai's most-downloaded checkpoints for every family the camera can load, each
+marked *Ready*, *Loads*, *Check* or *Not supported*, and recommends the file her camera computes
+in. Downloads run on the server with live progress, resume if interrupted, and are header-checked
+before **Use for her camera** points `SELFIE_LOCAL_MODEL` at them. It needs a Civitai API key and
+shows SFW only by default — see
+[Selfies → Choosing a checkpoint from Civitai](docs/selfies.md#choosing-a-checkpoint-from-civitai).
+
+![The Checkpoints page: once a Civitai API key is in, Civitai's checkpoints for every family her camera loads, each card with its status and a Download button.](docs/img/checkpoints.png)
+
+## From your phone
+
+Bind her to the network and pair the device. The owner token is generated, applied and handed
+over as a QR code, so nothing gets typed; the same button sits beside `OWNER_TOKEN` in House
+settings.
 
 ```bash
 yurios settings HOST=0.0.0.0
@@ -195,25 +162,19 @@ yurios restart
 yurios pair                           # prints a link and a QR; scan it
 ```
 
-The same button is beside `OWNER_TOKEN` in House settings. For private HTTPS access
-without opening a LAN bind, publish the loopback server with Tailscale Serve:
+For private HTTPS without a LAN bind, publish the loopback server with Tailscale Serve —
+`tailscale serve --bg http://127.0.0.1:8768` — and open House settings through the resulting
+`https://…ts.net` address; its QR keeps that origin (from the terminal,
+`yurios pair --url https://…ts.net`). SSH and authenticated TLS reverse proxies work too — see
+[Configuration → Server](docs/configuration.md#server).
 
-```bash
-tailscale serve --bg http://127.0.0.1:8768
-```
-
-Open House settings through the resulting `https://…ts.net` address; its QR keeps
-that HTTPS origin. For terminal pairing, pass the same address to
-`yurios pair --url https://…ts.net`. SSH and authenticated TLS reverse proxies are
-also supported.
-
-Use `yurios doctor` if something is not working.
-
-## Learn More
+## Learn more
 
 - [Getting started](docs/getting-started.md)
 - [Installation options](docs/installation.md)
 - [Models and connections](docs/models.md)
+- [Configuration](docs/configuration.md) and [the CLI](docs/cli.md)
+- [Troubleshooting](docs/troubleshooting.md)
 - [Full documentation](docs/README.md)
 
 <div align="center">

@@ -477,7 +477,10 @@ OpenAI shape gives it only one way to say so: it answers nothing — `finish_rea
 zero completion tokens — which reaches the caller as a parse failure naming the wrong cause.
 Measured on `openrouter/z-ai/glm-5.2` with the promise-review schema (§22.1a): empty with the
 schema, strict or not, and correct with `json_object` or with no `response_format` at all (on
-the upstream that served it then — see the next paragraph for one where it is not). So
+the upstream that served it then — see the next paragraph for one where it is not). On a
+reasoning route the refusal is not zero tokens: `openai_compatible/deepseek-v4-1-flash` on Venice
+reasons under the schema, writes no content, and counts the thought in `completion_tokens` (3 of
+3), so the token count **MUST NOT** be what decides it — the empty content at `stop` is. So
 an empty answer under a `json_schema` **MUST** be retried once in `json_object` mode before it
 is reported as a failure, and the downgrade **MUST** be visible in the call's metadata. The
 schema is never what holds the shape — every structured utility contract is also stated in the

@@ -122,17 +122,21 @@ def _thinking_off(model: str, messages: list[dict]) -> tuple[list[dict], dict]:
 def _schema_refused(answer: str, meta: dict, call: dict) -> bool:
     """Did this route answer nothing *because* of the JSON Schema we sent?
 
-    The tell is a completion that stopped normally having written not one token:
-    a model that ran out of room says `length`, one that was cut off says so, and
+    The tell is a completion that stopped normally having written no answer: a
+    model that ran out of room says `length`, one that was cut off says so, and
     one that had nothing to say still writes `{"goal": null}`. Empty at `stop` is
     the route declining a schema it cannot serve, in the one way the OpenAI shape
     gives it to decline in. Narrow on purpose — it must never eat a real empty.
+
+    Not "zero completion tokens", which is what glm-5.2 showed: a reasoning
+    route counts its thought there. Venice's deepseek-v4-1-flash thinks a
+    thousand tokens under the schema, writes none of the answer, and reports
+    them all — so the token count kept this retry from ever firing on it.
     """
     fmt = call.get("response_format") or {}
     return (not answer.strip()
             and fmt.get("type") == "json_schema"
-            and meta.get("finish_reason") == "stop"
-            and not meta.get("completion_tokens"))
+            and meta.get("finish_reason") == "stop")
 
 def _thought(answer: str, meta: dict) -> bool:
     """Did this completion carry a reasoning pass?

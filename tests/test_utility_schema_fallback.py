@@ -31,8 +31,12 @@ class FakeRoute:
 
     def __init__(self, *, refuses_schema: bool = True, answer: str = '{"goal": null}',
                  finish_reason: str = "stop", reasoning: int = 90,
-                 format_costs_thought: bool = False, thoughtful: str = ""):
+                 format_costs_thought: bool = False, thoughtful: str = "",
+                 thinks_before_refusing: int = 0):
         self.refuses_schema = refuses_schema
+        #: deepseek-v4-1-flash on Venice: the refusal still reasons, and the
+        #: thought is counted in completion_tokens
+        self.thinks_before_refusing = thinks_before_refusing
         self.answer = answer
         self.finish_reason = finish_reason
         #: reasoning tokens a call reports; 0 is a model that never reasons
@@ -51,7 +55,8 @@ class FakeRoute:
         content = ("" if silent
                    else self.thoughtful if thought and self.thoughtful
                    else self.answer)
-        tokens = 0 if silent else 12
+        refused_thought = self.thinks_before_refusing
+        tokens = (refused_thought + 2 if refused_thought else 0) if silent else 12
 
         class Msg:
             pass
@@ -59,7 +64,8 @@ class FakeRoute:
         msg = Msg()
         msg.content = content
         choice = type("C", (), {"message": msg, "finish_reason": self.finish_reason})()
-        details = type("D", (), {"reasoning_tokens": 0 if silent else thought})()
+        details = type("D", (), {"reasoning_tokens": refused_thought if silent
+                                 else thought})()
         usage = type("U", (), {"prompt_tokens": 40, "completion_tokens": tokens,
                                "total_tokens": 40 + tokens,
                                "completion_tokens_details": details})()
@@ -95,6 +101,20 @@ async def test_a_route_that_answers_nothing_under_a_schema_is_asked_again(route)
     # the retry is the same call in every other respect
     assert fake.calls[1]["messages"] == fake.calls[0]["messages"]
     assert fake.calls[1]["model"] == fake.calls[0]["model"]
+
+
+async def test_a_route_that_thinks_then_answers_nothing_is_asked_again(route):
+    """The refusal on a reasoning route is not zero tokens: the thought is
+    counted. Measured on Venice's deepseek-v4-1-flash, 1,009 completion tokens
+    of which 1,007 reasoning, and no content — so the token count is not what
+    tells a refusal from an answer, the empty content at `stop` is."""
+    fake = route(FakeRoute(thinks_before_refusing=1007))
+    answer, meta = await _complete(response_format=SCHEMA)
+
+    assert answer == '{"goal": null}'
+    assert meta["schema_downgraded"] is True
+    assert len(fake.calls) == 2
+    assert fake.calls[1]["response_format"] == {"type": "json_object"}
 
 
 async def test_a_schema_the_route_serves_costs_one_call(route):

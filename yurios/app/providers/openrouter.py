@@ -138,6 +138,20 @@ def _schema_refused(answer: str, meta: dict, call: dict) -> bool:
             and fmt.get("type") == "json_schema"
             and meta.get("finish_reason") == "stop")
 
+def _format_refused(exc: Exception, call: dict) -> bool:
+    """Did the route reject the call *for* its response format?
+
+    The loud way to not serve one. Venice answers `minimax-m27` with a 400,
+    "response_format is not supported by this model", for any format at all —
+    where glm-5.2 answers nothing and deepseek-v4-1-flash thinks and says
+    nothing (`_schema_refused`). Narrow: a 400 that names the parameter, on a
+    call that sent one, so every other bad request still raises.
+    """
+    return (bool(call.get("response_format"))
+            and isinstance(exc, litellm.BadRequestError)
+            and "response_format" in str(exc))
+
+
 def _thought(answer: str, meta: dict) -> bool:
     """Did this completion carry a reasoning pass?
 
@@ -291,6 +305,9 @@ class LiteLLMUtilityModel:
         #: Learned: sending a response format with thinking on costs this route
         #: its reasoning pass, so thinking calls stop sending one (SPEC §2.4).
         self.format_costs_thought = False
+        #: Learned: this route rejects any response format outright, so no call
+        #: sends one again (SPEC §2.4).
+        self.format_refused = False
 
     async def complete(self, messages: list[dict], **params) -> str:
         text, _meta = await self.complete_detailed(messages, **params)
@@ -355,7 +372,7 @@ class LiteLLMUtilityModel:
         thinking = bool(params.get("thinking", self.thinking))
         dropped = False
         if params.get("response_format") is not None:
-            if thinking and self.format_costs_thought:
+            if self.format_refused or (thinking and self.format_costs_thought):
                 # Already learned on this model: the format would cost the
                 # thought the caller asked for, and the format is not what holds
                 # the shape — the prompt states it and the parser re-checks it.
@@ -375,7 +392,20 @@ class LiteLLMUtilityModel:
             **extra,
         )
         async with inference_admission():
-            answer, meta = await self._complete(call)
+            try:
+                answer, meta = await self._complete(call)
+            except Exception as exc:
+                if not _format_refused(exc, call):
+                    raise
+                # The prompt states the contract and the parser re-checks it,
+                # so the format was never what held the shape; it was only what
+                # kept the call from being made at all.
+                log.info("%s rejects response_format; asking again without it "
+                         "and not sending one again", self.model)
+                self.format_refused = True
+                dropped = True
+                call = {k: v for k, v in call.items() if k != "response_format"}
+                answer, meta = await self._complete(call)
             if _schema_refused(answer, meta, call):
                 # A route that cannot serve this schema answers *nothing* rather
                 # than refusing (SPEC §2.4). Measured on openrouter/z-ai/glm-5.2

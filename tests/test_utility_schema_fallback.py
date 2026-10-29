@@ -13,6 +13,7 @@ costs exactly one call.
 """
 from __future__ import annotations
 
+import litellm
 import pytest
 
 from yurios.app.providers.openrouter import LiteLLMUtilityModel
@@ -242,3 +243,56 @@ async def test_an_inline_think_block_is_a_thought(route):
     model = _model()
     await _complete(model, response_format=SCHEMA)
     assert len(fake.calls) == 1 and model.reasons is True
+
+
+# ---- a route that rejects the format outright (SPEC §2.4) ---------------------
+#
+# Measured on Venice's minimax-m27: any response_format is a 400, "response_format
+# is not supported by this model". Without it the same review answers cleanly.
+
+
+class RejectsFormat(FakeRoute):
+    def __init__(self, **kwargs):
+        super().__init__(refuses_schema=False, **kwargs)
+
+    async def __call__(self, **kwargs):
+        if kwargs.get("response_format"):
+            self.calls.append(kwargs)
+            raise litellm.BadRequestError(
+                message="OpenAIException - response_format is not supported "
+                        "by this model", model="minimax-m27", llm_provider="openai")
+        return await super().__call__(**kwargs)
+
+
+async def test_a_route_that_rejects_the_format_is_asked_again_without_it(route):
+    fake = route(RejectsFormat())
+    model = _model()
+    answer, meta = await _complete(model, response_format=SCHEMA)
+
+    assert answer == '{"goal": null}'
+    assert meta["format_dropped"] is True
+    assert len(fake.calls) == 2 and "response_format" not in fake.calls[1]
+    assert fake.calls[1]["messages"] == fake.calls[0]["messages"]
+    assert model.format_refused is True
+
+
+async def test_once_rejected_the_format_is_never_sent_again(route):
+    """Thinking or not: the route refuses the parameter, not the thought."""
+    fake = route(RejectsFormat())
+    model = _model()
+    model.format_refused = True
+    _answer, meta = await _complete(model, response_format=SCHEMA, thinking=False)
+
+    assert len(fake.calls) == 1 and "response_format" not in fake.calls[0]
+    assert meta["format_dropped"] is True
+
+
+async def test_any_other_bad_request_still_raises(route):
+    async def broken(**kwargs):
+        raise litellm.BadRequestError(message="context length exceeded",
+                                      model="m", llm_provider="openai")
+    route(broken)
+    model = _model()
+    with pytest.raises(litellm.BadRequestError):
+        await _complete(model, response_format=SCHEMA)
+    assert model.format_refused is False

@@ -486,7 +486,11 @@ is reported as a failure, and the downgrade **MUST** be visible in the call's me
 schema is never what holds the shape — every structured utility contract is also stated in the
 prompt and re-checked by its parser — so this gives up enforcement the route was not doing.
 The retry is deliberately narrow: only an *empty* answer, only at `stop`, only where a schema
-was sent, so a model with genuinely nothing to say is never asked twice.
+was sent, so a model with genuinely nothing to say is never asked twice. A route may also refuse
+the format loudly: Venice answers `openai_compatible/minimax-m27` with a 400, "response_format is
+not supported by this model", for any format. A bad request that names `response_format`
+**MUST** be asked again without one, the call's metadata **MUST** record `format_dropped`, and
+that model **MUST NOT** send a format again; any other bad request still raises.
 
 **A format MUST NOT cost a call the thought it asked for.** The quieter failure answers: on
 `openrouter/z-ai/glm-5.2` the Together upstream serves *any* `response_format` — `json_schema`

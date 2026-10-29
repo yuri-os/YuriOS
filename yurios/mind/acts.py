@@ -236,10 +236,13 @@ async def promise_review(loop, offer=None) -> tuple[dict, dict, list[str]]:
         tool_outcomes=(review.get("tool_outcomes")
                        if isinstance(review.get("tool_outcomes"), list) else []))
     try:
+        # No `max_tokens` of its own: the review thinks, and the pass and the
+        # answer must both fit in `UTILITY_MAX_TOKENS` (SPEC §2.4). A 1,200 cap
+        # here was spent entirely on reasoning — `finish_reason="length"`, empty
+        # content — and the same reviews came back empty every hour for days.
         with correlate.scope(kind=correlate.UTILITY):
             raw = await loop._utility(
                 messages, soul=False, thinking=True, reasoning_effort="low",
-                max_tokens=1200,
                 response_format=PROMISE_REVIEW_RESPONSE_FORMAT)
         decision = parse_promise_review(raw, candidate_count=len(candidates))
     except Exception as exc:  # noqa: BLE001 — a malformed review must not kill the tick

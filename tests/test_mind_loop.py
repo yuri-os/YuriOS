@@ -372,6 +372,8 @@ async def test_yuriquant_fragments_become_one_canonical_goal(cfg, seeded_vault):
     assert utility.review_params[0]["thinking"] is True
     assert utility.review_params[0]["reasoning_effort"] == "low"
     assert utility.review_params[0]["response_format"]["type"] == "json_schema"
+    assert "max_tokens" not in utility.review_params[0], \
+        "a thinking call takes the configured budget, not a cap of its own"
 
 
 async def test_promise_review_receives_the_calls_that_actually_ran(

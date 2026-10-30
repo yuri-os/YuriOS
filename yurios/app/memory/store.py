@@ -205,7 +205,7 @@ class FileMemoryStore:
             embedding=vec,
             created_at=record.ts.isoformat(), salience=1.0)
 
-        # 3. partner model — this is where USER.md grows (§6.3)
+        # 3. partner model — this is where USER.md grows (§2.1)
         applied, held = 0, 0
         if self.utility is not None:
             try:
@@ -219,7 +219,7 @@ class FileMemoryStore:
                     self._record_persona_delta(new_md, apply_now)
                 applied, held = len(apply_now), len(quarantined)
                 # transparency sidecar: what the model proposed and how triage
-                # handled it — makes "why did this fact land?" answerable (§6.3)
+                # handled it — makes "why did this fact land?" answerable (§2.1)
                 if self.utility_log is not None:
                     self.utility_log.log(
                         kind="extract", exchange=text, raw_reply=raw,
@@ -287,7 +287,7 @@ class FileMemoryStore:
         return keep
 
     async def evolve_partner(self, *, days_together: int = 0) -> bool:
-        """DREAM rewrite of USER.md (§6.3, §21): one bullet per topic, phase
+        """DREAM rewrite of USER.md (§2.1, §21): one bullet per topic, phase
         from evidence, Who filled if it was still an empty slot. Returns True
         when the file changed.
 

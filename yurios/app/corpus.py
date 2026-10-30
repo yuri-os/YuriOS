@@ -174,7 +174,7 @@ def export(corpus_dir: pathlib.Path, *, fmt: str = "raw",
 
 
 class UtilityLogger:
-    """Transparency sidecar for the utility model (§6.3, → ch. 05, ch. 19).
+    """Transparency sidecar for the utility model (§2.1, → ch. 05, ch. 19).
 
     The utility model quietly decides what enters USER.md and what the summary
     says — decisions about the user's *own* files, made unobserved. This logs

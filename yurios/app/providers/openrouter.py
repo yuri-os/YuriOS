@@ -283,7 +283,7 @@ class LiteLLMChatModel:
 
 
 class LiteLLMUtilityModel:
-    """The cheap model (§3): partner-model fact extraction (§6.3) + summarisation (§7.3).
+    """The cheap model (§2.4): partner-model fact extraction + summarisation (§2.1).
 
     Reasoning models (qwen3, r1, gemma-…-qat, …) are first-class here: their <think>
     block runs before the JSON answer, so the budget must leave room for both

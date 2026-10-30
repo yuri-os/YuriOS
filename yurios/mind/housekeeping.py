@@ -59,7 +59,7 @@ def _note(delta: partner.PersonaDelta) -> str:
 def propose_learned_persona(loop) -> list[str]:
     """Queue a PERSONA.md edit when USER.md learned how they asked her to be.
 
-    USER.md is the runtime's to write (§6.3). PERSONA.md is gated (§23): a
+    USER.md is the runtime's to write (§2.1). PERSONA.md is gated (§23): a
     preference like "Yandere-lite" sitting in the partner model forever is
     how design-for-evolution stayed aspirational. The door is the same
     self-edit queue every other identity write uses — she proposes, you

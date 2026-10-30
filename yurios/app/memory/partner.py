@@ -1,4 +1,4 @@
-"""The partner model — `vault/soul/USER.md` (SPEC §6.3).
+"""The partner model — `vault/soul/USER.md` (SPEC §2.1).
 
 Her theory of *you*: durable, small, always injected whole (§7.1 block 5).
 After each exchange the utility model extracts durable facts as ops against
@@ -29,10 +29,10 @@ from pathlib import Path
 from yurios.app import vaultgit
 from yurios.characters.soulfiles import parse_md_text, split_sections
 
-QUARANTINE_CONFIDENCE = 0.6   # below this, an op waits for corroboration (§6.3)
+QUARANTINE_CONFIDENCE = 0.6   # below this, an op waits for corroboration (§2.1)
 UNSCORED_CONFIDENCE = 0.0     # a claim the model returned with NO confidence must
                               # be corroborated before it lands — "unsure" fails
-                              # safe, matching the quarantine stance (§6.3). Do NOT
+                              # safe, matching the quarantine stance (§2.1). Do NOT
                               # default this high: a missing score is not certainty.
 CORROBORATION_OVERLAP = 0.5   # token-overlap that counts as "the same claim again"
 KEY_MATCH_OVERLAP = 0.5       # token-overlap that still counts as the same *slot*
@@ -204,7 +204,7 @@ def parse_ops(raw: str) -> list[Op]:
         ops.append(Op(section=section, text=text,
                       op=o.get("op", "add"),
                       # a missing confidence is treated as UNSCORED (fails safe to
-                      # the quarantine), never as certainty (§6.3).
+                      # the quarantine), never as certainty (§2.1).
                       confidence=float(o.get("confidence", UNSCORED_CONFIDENCE)),
                       about_her=bool(o.get("about_her", False))))
     return ops
@@ -213,7 +213,7 @@ def parse_ops(raw: str) -> list[Op]:
 async def extract_ops(utility, user_md: str, exchange: str) -> tuple[str, list[Op]]:
     """One cheap utility-model call per exchange (§6.2 step 3). Returns the raw
     reply *and* the parsed ops so the caller can log both (the raw reply is the
-    only faithful record of what the model actually proposed — §6.3)."""
+    only faithful record of what the model actually proposed — §2.1)."""
     raw = await utility.complete([
         {"role": "system", "content": EXTRACT_SYSTEM},
         {"role": "user", "content":
@@ -762,7 +762,7 @@ def _who_line(sections: dict[str, str]) -> str:
 # --- merging ops into USER.md ------------------------------------------------
 
 def apply_ops(user_md: str, ops: list[Op], names=()) -> str:
-    """Merge, don't blindly append (§6.3): same-slot add becomes update,
+    """Merge, don't blindly append (§2.1): same-slot add becomes update,
     a contradiction replaces, `remove` drops the slot. After the ops, reconcile
     so leftover paraphrases and a frozen early-phase cannot survive the turn."""
     front, sections = parse_user_md(user_md)
@@ -1051,7 +1051,7 @@ def learned_already_in_persona(persona_md: str, delta: PersonaDelta) -> bool:
     return bool(learned) and all(line in learned for line in delta.lines)
 
 
-# --- the quarantine (§6.3) ----------------------------------------------------
+# --- the quarantine (§2.1) ----------------------------------------------------
 
 class Quarantine:
     """Low-confidence claims wait here (state/quarantine.json) until a second
@@ -1082,7 +1082,7 @@ class Quarantine:
                                or _overlap(q["text"], op.text, self.names)
                                >= CORROBORATION_OVERLAP)),
                          None)
-            if match is not None:       # second sighting — promote (§6.3)
+            if match is not None:       # second sighting — promote (§2.1)
                 self.items.remove(match)
                 apply_now.append(op)
             elif op.confidence < QUARANTINE_CONFIDENCE:

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""3-month dummy relationship against GLM-5.2 (SPEC §6.3 living USER.md).
+"""3-month dummy relationship against GLM-5.2 (SPEC §2.1 living USER.md).
 
 Seeds a throwaway Vault from soul-src, plays scripted Mira/Sam conversations
 through the real `remember()` extractor and weekly DREAM compact, then scores

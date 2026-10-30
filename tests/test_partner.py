@@ -1,4 +1,4 @@
-"""The partner model is a living file, not an append-only log (SPEC §6.3).
+"""The partner model is a living file, not an append-only log (SPEC §2.1).
 
 The live vault taught this: USER.md grew a preference soup, the phase line
 stayed on the seeded 'early' for a month after she knew his name, a skill was

@@ -2874,7 +2874,7 @@ reviewably.
   against the editable set and returns the contract, and the **host** runs `SelfEdit.propose()`,
   where the queue, the approval UI, the journal line and the commit live. The tool **MUST** refuse
   `CONSTITUTION.md` in its own right, and `USER.md` / `MEMORY.md` are absent from its list — those
-  are the runtime's to write (§6.3), not hers to redraft. `content` is the whole new file, never a
+  are the runtime's to write (§2.1), not hers to redraft. `content` is the whole new file, never a
   patch; nothing takes effect on the call.
 
 ## §24 — The journal, the trace, and the inner-life surface

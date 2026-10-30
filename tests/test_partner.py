@@ -121,6 +121,39 @@ def test_a_contradicting_add_replaces_the_old_bullet():
     assert "Wants Yuri" in md
 
 
+def test_a_who_rewrite_keeps_the_name_it_does_not_mention():
+    """Who is one slot, so an op replaces it whole — and the name was often all
+    it held. The bench lost Sam's name for ten weeks this way (minimax-m27)."""
+    md = "## Who {{user}} seems to be\n\nName is Sam.\n"
+    md = partner.apply_ops(md, [Op(
+        "Who they seem to be",
+        "Interested in the balance between an AI's agency and its devotion.",
+        "add", 0.9)])
+    who = partner.parse_user_md(md)[1][partner.WHO]
+    assert who.startswith("Sam. Interested in the balance")
+    # and again: the carried form is still a name the next rewrite can find
+    md = partner.apply_ops(md, [Op("Who they seem to be", "Works in software.",
+                                   "update", 0.9)])
+    assert partner.parse_user_md(md)[1][partner.WHO] == "Sam. Works in software."
+
+
+def test_a_who_rewrite_that_names_someone_is_a_correction():
+    md = "## Who {{user}} seems to be\n\nName is Sam.\n"
+    md = partner.apply_ops(md, [Op("Who they seem to be", "Name is Alex, not Sam.",
+                                   "update", 0.9)])
+    assert partner.parse_user_md(md)[1][partner.WHO] == "Name is Alex, not Sam."
+    md = partner.apply_ops(md, [Op("Who they seem to be", "Alex, who works late.",
+                                   "update", 0.9)])
+    assert partner.parse_user_md(md)[1][partner.WHO] == "Alex, who works late."
+
+
+def test_removing_who_still_empties_it():
+    md = "## Who {{user}} seems to be\n\nName is Sam.\n"
+    md = partner.apply_ops(md, [Op("Who they seem to be", "Name is Sam.",
+                                   "remove", 0.9)])
+    assert "Sam" not in partner.parse_user_md(md)[1].get(partner.WHO, "")
+
+
 def test_extractor_provenance_is_scrubbed():
     md = partner.apply_ops(
         "## Stable\n",

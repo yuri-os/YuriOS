@@ -232,7 +232,11 @@ file-backed:
   decide, two bullets survive. The topic key discounts the two speakers' names,
   which are **passed in** — a host holds every character on the node, so a name
   compiled into the matcher would discount one character's bullets and not the
-  rest. `USER.md` **MUST** survive its own renderer: frontmatter is re-parsed on
+  rest. `Who {{user}} seems to be` is one prose slot, so an op replaces it whole; a rewrite
+  that does not mention the name the old text held **MUST** keep that name ahead of the new
+  text, while one that names someone is a correction and stands as written — measured on
+  the relationship bench, one interest filed into Who cost her Sam's name for ten weeks.
+  `USER.md` **MUST** survive its own renderer: frontmatter is re-parsed on
   every turn, and `remember` swallows the failure, so an unquoted value that
   breaks YAML stops the partner model silently rather than loudly. The
   `Current relationship phase` line **MUST** be rewritten from evidence (name known,

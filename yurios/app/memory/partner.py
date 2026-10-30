@@ -680,8 +680,11 @@ def _name_from(sections: dict[str, str]) -> str:
         match = _NAME_RE.search(text)
         if match:
             return match.group(1)
-    who = sections.get("Who {{user}} seems to be", "")
-    match = _NAME_RE.search(who)
+    return _who_name(sections.get("Who {{user}} seems to be", ""))
+
+
+def _who_name(who: str) -> str:
+    match = _NAME_RE.search(who or "")
     if match:
         return match.group(1)
     # "Grant. Works late" — a filled Who that leads with the name
@@ -689,6 +692,23 @@ def _name_from(sections: dict[str, str]) -> str:
     if lead and len(lead.split()) <= 3 and lead[0].isupper() and " " not in lead:
         return lead
     return ""
+
+
+def _keep_name(old_who: str, new_who: str) -> str:
+    """A rewrite of Who that does not mention the name they gave keeps it (SPEC §2.1).
+
+    Who is one prose slot, so an op replaces the whole of it — and the name is
+    often the only thing in it ("Name is Sam."). Measured on the relationship
+    bench with minimax-m27: in week 4 the extractor filed "interested in the
+    balance between an AI's agency and its devotion" into Who, and she did not
+    know Sam's name for the remaining ten weeks. A new text that names someone
+    is a correction and stands as written.
+    """
+    name = _who_name(old_who)
+    if (not name or _NAME_RE.search(new_who)
+            or re.search(rf"\b{re.escape(name)}\b", new_who, re.I)):
+        return new_who
+    return f"{name}. {new_who}"
 
 
 def infer_phase(sections: dict[str, str], *, days_together: int = 0) -> str:
@@ -754,6 +774,8 @@ def apply_ops(user_md: str, ops: list[Op], names=()) -> str:
         if heading in PROSE_SECTIONS:
             if op.op == "remove":
                 sections[heading] = ""
+            elif heading == WHO:
+                sections[heading] = _keep_name(sections.get(WHO, ""), text)
             else:
                 sections[heading] = text
             continue

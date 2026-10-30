@@ -694,6 +694,22 @@ def _who_name(who: str) -> str:
     return ""
 
 
+def _who_add_is_a_fact(op: "Op", old_who: str, text: str) -> bool:
+    """An `add` to a Who that already says something is one more fact (SPEC §2.1).
+
+    Who is one prose slot and an op replaces it whole, which is right for an
+    `update` — the model read the line and rewrote it — and wrong for an `add`,
+    which means "and also". Measured on the relationship bench's generic track
+    with minimax-m27: "Paramedic; works nights" was filed as an add to Who, then
+    "Likes dogs", then "Likes green", and each erased the one before. A Stable
+    bullet is where a fact can be merged, contradicted and refiled; the name is
+    the one thing Who says that the bullets do not. So an add into an empty Who,
+    or one that states a name, still lands there.
+    """
+    return (op.op == "add" and bool(scrub(old_who).strip())
+            and not _NAME_RE.search(text))
+
+
 def _keep_name(old_who: str, new_who: str) -> str:
     """A rewrite of Who that does not mention the name they gave keeps it (SPEC §2.1).
 
@@ -771,6 +787,8 @@ def apply_ops(user_md: str, ops: list[Op], names=()) -> str:
         text = scrub(op.text)
         if not text and op.op != "remove":
             continue
+        if heading == WHO and _who_add_is_a_fact(op, sections.get(WHO, ""), text):
+            heading = "Stable"
         if heading in PROSE_SECTIONS:
             if op.op == "remove":
                 sections[heading] = ""

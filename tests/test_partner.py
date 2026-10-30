@@ -128,7 +128,7 @@ def test_a_who_rewrite_keeps_the_name_it_does_not_mention():
     md = partner.apply_ops(md, [Op(
         "Who they seem to be",
         "Interested in the balance between an AI's agency and its devotion.",
-        "add", 0.9)])
+        "update", 0.9)])
     who = partner.parse_user_md(md)[1][partner.WHO]
     assert who.startswith("Sam. Interested in the balance")
     # and again: the carried form is still a name the next rewrite can find
@@ -145,6 +145,27 @@ def test_a_who_rewrite_that_names_someone_is_a_correction():
     md = partner.apply_ops(md, [Op("Who they seem to be", "Alex, who works late.",
                                    "update", 0.9)])
     assert partner.parse_user_md(md)[1][partner.WHO] == "Alex, who works late."
+
+
+def test_an_add_to_a_filled_who_is_one_more_fact_not_a_rewrite():
+    """The generic track on minimax-m27: three facts added to Who, each erasing
+    the last. An add means "and also", so it becomes a bullet."""
+    md = "## Who {{user}} seems to be\n\nName: Ada.\n"
+    for fact in ("Paramedic; works nights, mostly.", "Likes dogs.", "Likes green."):
+        md = partner.apply_ops(md, [Op("Who they seem to be", fact, "add", 0.9)])
+    sections = partner.parse_user_md(md)[1]
+    assert sections[partner.WHO] == "Name: Ada."
+    stable = sections["Stable"]
+    assert "Paramedic" in stable and "dogs" in stable and "green" in stable
+
+
+def test_an_add_into_an_empty_who_or_one_naming_them_still_lands_there():
+    md = partner.apply_ops("## Who {{user}} seems to be\n\n", [
+        Op("Who they seem to be", "Quiet, works in software.", "add", 0.9)])
+    assert partner.parse_user_md(md)[1][partner.WHO] == "Quiet, works in software."
+    md = "## Who {{user}} seems to be\n\nName is Sam.\n"
+    md = partner.apply_ops(md, [Op("Who they seem to be", "Name is Alex.", "add", 0.9)])
+    assert partner.parse_user_md(md)[1][partner.WHO] == "Name is Alex."
 
 
 def test_removing_who_still_empties_it():

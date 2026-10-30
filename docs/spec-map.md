@@ -49,4 +49,4 @@ a section are folded into it.
 | **§36** — Command-line control | `scripts/export_corpus.py`<br>`yurios/ctl/__init__.py`<br>`yurios/ctl/characters.py`<br>`yurios/ctl/client.py`<br>*+2 more* | `tests/test_cli_camera.py`<br>`tests/test_cli_characters.py` |
 | **§37** — Rating her replies | `yurios/app/corpus.py`<br>`yurios/world/main.py`<br>`web/js/chat.js`<br>`scripts/export_corpus.py`<br>*+4 more* | `tests/test_ratings.py` |
 
-*1059 citation sites over 136 sections.*
+*1060 citation sites over 136 sections.*

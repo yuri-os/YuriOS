@@ -236,6 +236,9 @@ file-backed:
   that does not mention the name the old text held **MUST** keep that name ahead of the new
   text, while one that names someone is a correction and stands as written — measured on
   the relationship bench, one interest filed into Who cost her Sam's name for ten weeks.
+  An `add` to a Who that already holds text and states no name **MUST** be filed as a
+  `Stable` bullet instead: an add means "and also", and as a rewrite each fact erased the
+  last (the generic track lost a job and a pet to the next fact said).
   `USER.md` **MUST** survive its own renderer: frontmatter is re-parsed on
   every turn, and `remember` swallows the failure, so an unquoted value that
   breaks YAML stops the partner model silently rather than loudly. The

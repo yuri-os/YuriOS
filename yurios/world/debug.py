@@ -20,6 +20,7 @@ debug page must not pull one into memory to show you its last twenty rows.
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from itertools import islice
 from pathlib import Path
@@ -243,27 +244,59 @@ def calls(record, *, page: int = 0, limit: int = 50, tool: str | None = None,
           verdict: str | None = None, corr_id: str | None = None) -> dict:
     out = paged(source(record, "calls"), page=page, limit=limit,
                 match=_matcher(tool=tool, verdict=verdict, corr_id=corr_id))
-    photos = _generations_by_corr(record)
+    by_id, by_corr = _generations(record)
     for row in out["items"]:
-        photo = photos.get(row.get("corr_id"))
+        # Only the camera produces a photo. A `corr_id` is a whole unit of
+        # work — a DREAM night is one — so joining on it alone hung the night's
+        # picture under every diary write and filed goal beside it.
+        if row.get("tool") not in CAMERA_TOOLS:
+            continue
+        shot = _shot_id(row)
+        photo = by_id.get(shot) if shot else by_corr.get(row.get("corr_id"))
         if photo:
             row["selfie"] = photo
     return out
 
 
-def _generations_by_corr(record) -> dict[str, dict]:
-    """The render ledger, keyed by the turn that asked for the photo.
+#: The hands whose call starts a render (world/brain.py hands both to the lab).
+CAMERA_TOOLS = ("take_selfie", "show_picture")
+
+_RESULT_ID = re.compile(r'^\s*\{\s*"id":\s*"([^"]+)"')
+
+
+def _shot_id(row: dict) -> str | None:
+    """The selfie id a camera call started, which the render carries too.
+
+    A dreamt shot names it in its args; a daytime one gets it back from the
+    tool, as the first key of a result the audit line clips at 200 characters
+    — so it is read off the front rather than parsed whole."""
+    args = row.get("args")
+    if isinstance(args, dict) and args.get("id"):
+        return str(args["id"])
+    found = _RESULT_ID.match(str(row.get("result") or ""))
+    return found.group(1) if found else None
+
+
+def _generations(record) -> tuple[dict[str, dict], dict[str, dict]]:
+    """The render ledger, keyed by the shot's own id and by the turn that
+    asked for it.
 
     A render finishes long after the sentence that started it, so this is the
     join that puts the image next to the tool call instead of leaving them as
-    two events that happened near each other."""
+    two events that happened near each other. The id is the exact join — two
+    shots in one turn each get their own; `corr_id` is the fallback for a
+    call line that carries no id."""
     rows, _, _ = jsonl_page(source(record, "generations"), limit=MAX_LIMIT)
-    out = {}
-    for row in rows:
-        corr = row.get("corr_id")
-        if corr and corr not in out:            # newest render for that turn wins
-            out[corr] = _selfie(record, row)
-    return out
+    by_id: dict[str, dict] = {}
+    by_corr: dict[str, dict] = {}
+    for row in rows:                            # newest first: newest render wins
+        photo = _selfie(record, row)
+        shot, corr = row.get("selfie_id"), row.get("corr_id")
+        if shot and shot not in by_id:
+            by_id[shot] = photo
+        if corr and corr not in by_corr:
+            by_corr[corr] = photo
+    return by_id, by_corr
 
 
 def _selfie(record, row: dict) -> dict:

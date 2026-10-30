@@ -260,6 +260,30 @@ def test_calls_filter_by_correlation_id(client):
     assert get(client, "/calls", corr_id="c-nope")["items"] == []
 
 
+def test_a_photo_hangs_under_the_camera_call_that_took_it_and_no_other(client):
+    """A DREAM night is one `corr_id`, so a join on it alone hung the night's
+    picture under every diary write and filed goal that night too. And two
+    shots in one turn each get their own, not the newest twice."""
+    rec = client.record
+    write_jsonl(rec.paths.tool_logs / "calls.jsonl", [
+        {"ts": 1.0, "tool": "write_note", "args": {"path": "diary/d.md"},
+         "verdict": "ok", "result": "wrote diary/d.md", "corr_id": "c-night"},
+        {"ts": 2.0, "tool": "take_selfie", "args": {"look": "x", "id": "dream-d"},
+         "verdict": "ok", "result": "started", "corr_id": "c-night"},
+        {"ts": 3.0, "tool": "take_selfie", "args": {"look": "a"}, "verdict": "ok",
+         "result": '{\n  "id": "aaaa1111",\n  "look": "a', "corr_id": "c-turn"},
+        {"ts": 4.0, "tool": "show_picture", "args": {"subject": "b"}, "verdict": "ok",
+         "result": '{\n  "id": "bbbb2222",\n  "kind": "picture"', "corr_id": "c-turn"}])
+    write_jsonl(rec.paths.selfies / "generations.jsonl", [
+        {"image": "night.png", "corr_id": "c-night", "selfie_id": "dream-d"},
+        {"image": "a.png", "corr_id": "c-turn", "selfie_id": "aaaa1111"},
+        {"image": "b.png", "corr_id": "c-turn", "selfie_id": "bbbb2222"}])
+    items = get(client, "/calls")["items"]          # newest first
+    assert [(c["tool"], (c.get("selfie") or {}).get("image")) for c in items] == [
+        ("show_picture", "b.png"), ("take_selfie", "a.png"),
+        ("take_selfie", "night.png"), ("write_note", None)]
+
+
 # --- context windows ------------------------------------------------------------
 
 def test_the_prompt_index_omits_the_expensive_field(client):

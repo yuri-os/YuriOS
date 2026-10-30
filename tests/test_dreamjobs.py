@@ -316,8 +316,9 @@ async def test_a_nights_desk_write_does_not_hold_the_nodes_loop(rig):
 
 
 async def test_a_dreamt_selfie_carries_the_corr_id_that_joins_it_to_its_photo(rig, cfg):
-    """The Tools page joins a render to the call that asked for it on `corr_id`
-    (`debug._generations_by_corr`), and a dreamt render is the case where that
+    """The Tools page joins a render to the call that asked for it on the shot
+    id, falling back to `corr_id` (`debug._generations`), and a dreamt render
+    is the case where that
     join is load-bearing: nothing else connects a photo landing at 02:41 to the
     job that described it. Shipped without this, the page showed a `take_selfie`
     row with no picture and a picture nothing pointed at."""

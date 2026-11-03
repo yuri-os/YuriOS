@@ -172,6 +172,21 @@ class _EchoSkipper:
         return self._release(self.trail)
 
 
+#: What a continuation pass is told after a tool answers (SPEC §7.4). It used to
+#: say only "continue the same spoken reply", and every pass took that as room
+#: for a reply of its own: on 3 Nov a "good morning" became five tool rounds and
+#: ~3,300 visible characters, each round re-greeting, re-setting the scene and
+#: re-asking the question the first round had already asked. Everything she says
+#: after their message is one reply, and the length note (§38) covers all of it.
+CONTINUATION_CUE = (
+    "This is still the one reply you already started, not a new one: continue "
+    "from where you left off and weave the result in naturally — never read "
+    "data formats aloud. Add only what the result changes, usually a sentence "
+    "or two; don't re-greet, re-set the scene, or repeat a question you already "
+    "asked. The reply-length note on their message covers everything you say "
+    "this turn, so if you have already said your piece, end.")
+
+
 class ToolBrain(BrainAdapter):
     """BrainAdapter + the in-stream MCP tool loop (SPEC §7)."""
 
@@ -646,12 +661,11 @@ class ToolBrain(BrainAdapter):
             messages = messages + [
                 {"role": "assistant", "content": prev_spoken},
                 {"role": "user", "content":
-                    f"(({call.tool} returned: {result}.{index_warning} Continue the same spoken "
-                    "reply from where you left off — weave the result in "
-                    "naturally, never read data formats aloud"
-                    + (", and your tool budget for this turn is now spent — "
-                       "finish in words" if calls_made >= cap else "")
-                    + ".))"},
+                    f"(({call.tool} returned: {result}.{index_warning} "
+                    + CONTINUATION_CUE
+                    + (" Your tool budget for this turn is now spent — "
+                       "finish in words." if calls_made >= cap else "")
+                    + "))"},
             ]
 
     async def _execute(self, call: ToolCall, turn: Turn | None = None, *,

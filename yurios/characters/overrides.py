@@ -44,6 +44,7 @@ OVERRIDE_KEYS: tuple[tuple[str, str], ...] = (
     ("utility_thinking", "options"),
     ("temperature", "options"),
     ("max_reply_tokens", "options"),
+    ("reply_length", "options"),
     ("context_length", "options"),
 )
 

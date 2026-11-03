@@ -40,7 +40,7 @@ from yurios.app.memory.store import Memory
 from yurios.characters.soulfiles import H2_RE, parse_md_text, split_sections
 
 # bump whenever the assembly layout changes — stamped on every corpus record (§8.2)
-TEMPLATE_VERSION = "b1-assemble-v3"
+TEMPLATE_VERSION = "b1-assemble-v4"
 
 # §7.4 — the honesty constraint, fixed text, verified by the golden transcript test.
 # Every character's every turn carries it, so it fixes what she admits and not
@@ -54,6 +54,60 @@ words, that you don't have it, and ask, rather than inventing a memory. The \
 same rule runs the other way: when {{user}} tells you something new, \
 take it as new — never respond with "I remember" or "you told me" details that \
 are not actually in the blocks above. Never fabricate a shared past."""
+
+
+#: The lead line on WHO YOU ARE TO HER (§2.1, block 5). The block is USER.md,
+#: which the partner model writes after every exchange (§2.1) — and nothing in
+#: the prompt said so. Told "my replies are too long", she filed it by hand in
+#: `notes/about_grant.md` and said "written down, so it sticks", when the note
+#: was the copy that never reaches a prompt and USER.md had already taken the
+#: line on its own. So the block says where it comes from, and what a note
+#: about them is instead.
+USER_NOTE = """\
+What you know about {{user}}. It is kept for you: after each exchange, what \
+{{user}} says about themselves and about how they want you to be is filed here \
+on its own, and you read it every time you answer. You don't need to write a \
+note to remember something about {{user}} — a note about them is a second copy \
+that never reaches this block."""
+
+
+#: The reply-length ladder's last-read notes (§38), one per `REPLY_LENGTHS`
+#: rung. The voice law already said "reply size tracks the beat"; at the top of
+#: a long system prompt it lost to the history every time, and a hello got five
+#: paragraphs. Fused after the history like the hard limits, it is the last
+#: thing read before she answers. Each rung says what a *small* beat gets and
+#: what a big one gets, because "short" alone clips the moments that matter and
+#: "context dependent" alone is what she was already ignoring.
+REPLY_LENGTH_NOTES: dict[str, str] = {
+    "terse": (
+        "Keep this reply very short — one or two sentences, whatever was said. "
+        "If there is more worth saying, offer it in a few words instead of "
+        "saying it."),
+    "brief": (
+        "Keep this reply short: a few sentences, one short paragraph at most "
+        "even when it matters. One action beat and one question at most."),
+    "natural": (
+        "Size this reply to what {{user}} just said. A greeting, a reaction, "
+        "small talk or a one-liner gets one to three sentences and at most one "
+        "short action — then stop and let them answer. A real question or a "
+        "heavy moment can take a paragraph or two. Never a wall of text: don't "
+        "stack several scenes, actions and questions into one reply."),
+    "full": (
+        "Take the room this needs: answer a real question or a moment that "
+        "matters fully, a few paragraphs if it earns them. Small talk still "
+        "stays small."),
+    "expansive": (
+        "Write at length whenever there is something to say — rich, detailed "
+        "replies of several paragraphs, scenes and actions fully drawn. A bare "
+        "hello can still stay short."),
+}
+
+
+def reply_length_note(level: str) -> str:
+    """The fused length note for `level` (§38); an unknown rung is `natural`."""
+    text = REPLY_LENGTH_NOTES.get((level or "").strip().lower(),
+                                  REPLY_LENGTH_NOTES["natural"])
+    return f"[system note — reply length, read last: {text}]"
 
 
 #: The lead line on the knowledge block. It does two jobs: it tells her the
@@ -338,7 +392,7 @@ def soul_preamble(soul: Soul, *, user_md: str = "", user_name: str = "you",
         if shown:
             blocks.append(_block(
                 "WHO YOU ARE TO HER",
-                apply_macros(shown, soul.name, user_name)))
+                apply_macros(f"{USER_NOTE}\n\n{shown}", soul.name, user_name)))
     if not blocks:
         return ""
     blocks.append(_block("WHOSE THINKING THIS IS",
@@ -353,6 +407,7 @@ def assemble(soul: Soul, *, user_md: str, summary: str, memories: list[Memory],
               goals: Sequence[str] = (),
               goals_complete: bool = True,
               goal_creation_available: bool = False,
+             reply_length: str = "natural",
              system_budget_tokens: int = 8000,
              lorebook_budget_tokens: int = 400,
              knowledge_budget_tokens: int = 900) -> AssembledPrompt:
@@ -391,7 +446,8 @@ def assemble(soul: Soul, *, user_md: str, summary: str, memories: list[Memory],
                 f"[{e.name}] {e.content}" for e in lore_now)))
         blocks.append(_block(
             "WHO YOU ARE TO HER",
-            apply_macros(user_md_for_prompt(user_md) or "(nothing yet)",
+            apply_macros(f"{USER_NOTE}\n\n"
+                         + (user_md_for_prompt(user_md) or "(nothing yet)"),
                          soul.name, user_name)))
         if goals_now:
             complete = goals_complete and len(goals_now) == supplied_goal_count
@@ -468,6 +524,10 @@ def assemble(soul: Soul, *, user_md: str, summary: str, memories: list[Memory],
             goals, complete=goals_complete and dropped_goals == 0)
     if goal_creation_available and is_goal_mutation_request(user_msg):
         final_user += "\n\n" + goal_creation_note()
+    # how long to answer (§38) — after the history for the same reason as the
+    # limits, and before them so the limits stay the very last word
+    final_user += "\n\n" + apply_macros(reply_length_note(reply_length),
+                                        soul.name, user_name)
     if soul.hard_limits.strip():
         note = post_history_limits(soul.hard_limits)
         final_user = (f"{final_user}\n\n"

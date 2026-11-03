@@ -173,8 +173,17 @@ reactive body (Part II gates who may edit it, §23).
 ```
 
 followed by the last `RAW_WINDOW_TURNS` raw messages (default 6) and the new user message.
+
+Block 5 **MUST** open with a fixed line (`USER_NOTE`) saying where it comes from: it is kept for
+her — the partner model files what the user says about themselves and how they want her to be
+after each exchange — so she needs no note to remember something about them, and a note about
+them is a copy that never reaches the block. Without it the block read as given, not kept: told
+her replies ran long, she filed the feedback by hand in `workspace/notes/` and said "written
+down, so it sticks", when that note was the copy no prompt reads and `USER.md` had already taken
+the line. The same lead heads the block wherever the mind's preamble carries it (§22.4).
 `CONSTITUTION.md#Hard limits` (post-history instructions) **MUST** be appended **after** the
-history, so it is the last thing read before replying. The fused note **MUST** be a compact
+history, so it is the last thing read before replying. The reply-length note (§38) is fused
+there too, before the hard limits, which stay the final word. The fused note **MUST** be a compact
 restatement (a short last-read reminder), not the full constitution section: fusing the
 verbatim bullets onto the user line made a one-word check-in look like a hundred-word ask.
 When the new user message asks for the status of her goals, the final user turn **MUST** also
@@ -907,6 +916,12 @@ to every new subscriber before its first live event. Malformed JSON is logged an
   On a closed marker: guard-check → MCP
   call → a **continuation stream** (original messages + the partial reply + a `((tool result:
   …))` cue) the model finishes as the same turn — so she *speaks to* what her hands found.
+  The cue (`CONTINUATION_CUE`) **MUST** say that the pass is the same reply and not a new one:
+  add only what the result changes, re-greet nothing, re-set no scene, re-ask no question already
+  asked, and stop once the piece is said, because the reply-length note (§38) covers everything
+  she says that turn. "Continue the same spoken reply" alone was read as room for a reply per
+  pass: one "good morning" became five tool rounds and ~3,300 visible characters, each round
+  greeting again and asking the first round's question again.
   A catalog is evidence only of its catalog: after `list_notes`, the continuation **MUST** say
   that paths and sizes are not file contents, **MUST NOT** invite a claim that those files were
   read, and **MUST** direct her to `read_note` or to state the scope she could not inspect.
@@ -1343,7 +1358,7 @@ keeps a socket of its own is sound.
   event is one typed JSON dict: `hello` (her name), `message` (chat entries, including
   `image_url` selfies, and the originating `channel`), `draft` / `draft_cancel`, `avatar` (§4,
   scene channels included), `timers` (the sticky pending-countdown snapshot, §7.5), `rating`
-  (§37), and — with the mind — `journal` and `mind` (§24). Publishes are
+  (§37), `reply_length` (the sticky rung, §38), and — with the mind — `journal` and `mind` (§24). Publishes are
   non-blocking (a stalled client loses events, never blocks the publisher) and thread-safe (the
   TTS thread publishes). Sticky state is recorded before any subscriber and replayed
   last-write-wins; it includes both appearance and current runtime snapshots such as timers.
@@ -3453,7 +3468,8 @@ changes; a runtime does not know it has neighbours.
   paths (name, vault, corpus, traces, tool logs, selfies, the loop switches, her Telegram pair),
   and replacing a field only when her record names one: chat and utility model, TTS/STT backend
   and voice register, body backend and avatar model, plus any `.env` knob named in
-  `models.options` (`temperature`, the reasoning switches, `MAX_REPLY_TOKENS`, `CONTEXT_LENGTH`…),
+  `models.options` (`temperature`, the reasoning switches, `MAX_REPLY_TOKENS`, `REPLY_LENGTH`,
+  `CONTEXT_LENGTH`…),
   coerced to that field's own type — the registry is JSON, and a value that will not coerce is
   dropped with a warning rather than taking her runtime down. A blank binding therefore means
   *inherit*, which is what makes one `.env` still configure a house. A model id written through
@@ -3616,7 +3632,10 @@ the things she *is* and the wrong shape for the things she is *doing*.
 
   The hands are `list_notes`, `read_note`, `write_note`, `append_note`, `delete_note`,
   `read_skill`, `write_skill`, `delete_skill`, advertised by the tool server only when `VAULT_DIR`
-  is in its environment — the `SELFIE_BACKEND=off` rule (§7.6). That path **is** the sandbox root
+  is in its environment — the `SELFIE_BACKEND=off` rule (§7.6). `write_note` and `append_note`
+  **MUST** say they are not how she remembers the user: what the user tells her about themselves
+  and how they want her to be is filed for her into `USER.md` (§2.1, block 5), and a desk note
+  about them is a copy no prompt reads. That path **is** the sandbox root
   and is fixed at spawn time, so one character's hands can never reach another's desk. A refusal
   **MUST** say what a working path looks like: "denied" teaches nothing and the same path is tried
   again next turn.
@@ -3812,3 +3831,32 @@ nothing else.
   rating whose turn the log no longer holds is counted, not joined. This is the one deliberate
   way the corpus leaves the machine, and it is the owner's to run; a card export still never
   carries it (§30).
+
+## §38 — How long her replies run
+
+The voice law can say "reply size tracks the beat", and the live record says that is not enough:
+at the top of a long system prompt it loses to the history, and a hello comes back as five
+paragraphs. Length is a setting with a control, not a hope.
+
+- §38.1 **A ladder of five rungs.** `REPLY_LENGTH` is one of `terse`, `brief`, `natural`, `full`,
+  `expansive` (`REPLY_LENGTHS`, `yurios/app/config.py`), shortest first; `natural` is the default.
+  It is a `.env` knob and a per-character override in `models.options` (§31.2), and it is live:
+  `retune` moves it with no restart. An unknown rung written through the API **MUST** be refused
+  (400); one hand-edited into `.env` **MUST** fall back to `natural` with a warning rather than
+  stop her booting. It is not `MAX_REPLY_TOKENS`: a ceiling cuts a reply off mid-sentence, a rung
+  asks for a shorter one.
+- §38.2 **The rung is a last-read note.** Every assembled prompt (§2.1) — a reply, a greeting, an
+  ambient line — **MUST** fuse the rung's note (`REPLY_LENGTH_NOTES`, `assemble.py`) onto the final
+  user message after the history, ahead of the hard limits. Each note says what a *small* beat
+  gets and what a large one gets: `natural` holds a greeting, a reaction or small talk to one to
+  three sentences and lets a real question or a heavy moment take a paragraph or two, and says
+  "never a wall of text". "Short" alone clips the moments that matter; "context dependent" alone
+  is what she was already ignoring. The note covers the whole turn, tool continuations included
+  (§7.4).
+- §38.3 **Shorter and longer, in the room.** Every room with a composer shows two buttons beside
+  each other with the current rung between them (`web/shared/reply-length.js`). A press is a save
+  of her own override — `PATCH /api/brain`, scoped to the character by the runtime path — and the
+  rung shown changes only when the host accepts it. The runtime publishes the rung as the sticky
+  `reply_length` event (`{level, levels}`, §10) at start and whenever a retune moves it, so a room
+  opened later starts on the right word and a nudge in one room moves every other open one. The
+  control stays hidden until that event arrives. The settings panel edits the same override.

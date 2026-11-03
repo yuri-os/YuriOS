@@ -44,6 +44,7 @@ from types import SimpleNamespace
 from typing import Any, Mapping
 
 from yurios import daemon
+from yurios.app.config import REPLY_LENGTHS
 from yurios.security import MIN_TOKEN_LENGTH, is_loopback
 
 from yurios.desktop.avatar_models import MODELS
@@ -227,6 +228,10 @@ CURATED: list[dict] = [
         {"key": "MAX_REPLY_TOKENS", "attr": "max_reply_tokens", "type": "number",
          "help": "a ceiling a reply may think and speak up to, not a target — a "
                  "reasoning model spends its thinking inside it"},
+        {"key": "REPLY_LENGTH", "attr": "reply_length", "type": "select",
+         "options": list(REPLY_LENGTHS),
+         "help": "how long her replies run, house-wide — the room's "
+                 "shorter/longer buttons set it per character"},
         {"key": "AVATAR_MODEL", "attr": "avatar_model", "type": "select",
          "options": list(MODELS.keys()),
          "help": "miara/kei/ren are the modern female rigs; unknown → hiyori"},
@@ -682,6 +687,7 @@ PAGES: list[dict] = [
              ("UTILITY_THINKING", "Think during utility work"),
              ("UTILITY_MAX_TOKENS", "Utility token budget"),
              ("MAX_REPLY_TOKENS", "Reply token ceiling"),
+             ("REPLY_LENGTH", "Reply length"),
              ("TEMPERATURE", "Temperature"),
              ("CONTEXT_LENGTH", "Context window (tokens)"),
          ]},

@@ -28,6 +28,8 @@ from __future__ import annotations
 import logging
 from typing import Any, Mapping
 
+from yurios.app.config import REPLY_LENGTHS
+
 log = logging.getLogger("world.rewire")
 
 # The knobs a character may take for herself and change without a restart, in the
@@ -36,7 +38,7 @@ BRAIN_FIELDS: tuple[str, ...] = (
     "chat_model", "utility_model",
     "lmstudio_base_url", "lmstudio_api_key", "ollama_base_url", "openrouter_api_key",
     "connection_api_key", "chat_thinking", "chat_reasoning_effort", "utility_thinking", "utility_max_tokens",
-    "temperature", "max_reply_tokens", "context_length",
+    "temperature", "max_reply_tokens", "reply_length", "context_length",
 )
 
 # …of which these are baked into the provider objects at construction, so a change
@@ -71,6 +73,9 @@ OVERRIDE_SCHEMA: tuple[dict[str, Any], ...] = (
      "help": "how far she wanders from the likeliest word"},
     {"key": "max_reply_tokens", "store": "options", "type": "number",
      "help": "the ceiling on one reply"},
+    {"key": "reply_length", "store": "options", "type": "select",
+     "options": ["", *REPLY_LENGTHS],
+     "help": "how long her replies run — the room's shorter/longer buttons move it"},
     {"key": "context_length", "store": "options", "type": "number",
      "help": "the window her model is loaded with — 0 = the provider's default"},
 )
@@ -113,6 +118,14 @@ def coerce(cfg, field: str, value: Any) -> Any:
     info = type(cfg).model_fields.get(field)
     if info is None:
         raise ValueError(f"unknown setting: {field}")
+    if field == "reply_length":
+        # A ladder, not free text (§38): a rung the note table has no line for
+        # would read back as one setting and run as `natural`.
+        rung = str(value or "").strip().lower()
+        if rung not in REPLY_LENGTHS:
+            raise ValueError(
+                f"reply_length must be one of {', '.join(REPLY_LENGTHS)}")
+        return rung
     annotation = info.annotation
     if annotation is bool:
         if isinstance(value, bool):

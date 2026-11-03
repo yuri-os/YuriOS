@@ -313,6 +313,7 @@ class BrainAdapter:
             window=window,
             user_msg=text,
             user_name=self.cfg.user_name,
+            reply_length=self.cfg.reply_length,
             system_budget_tokens=self.cfg.system_budget_tokens,
             lorebook_budget_tokens=self.cfg.lorebook_budget_tokens,
             knowledge_budget_tokens=self.cfg.knowledge_budget_tokens)

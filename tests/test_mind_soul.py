@@ -380,9 +380,12 @@ def test_hard_limits_fusion_stays_a_short_last_read_note(tmp_path):
     out = assemble(soul, user_md="", summary="", memories=[], lore=[],
                    window=[], user_msg="hey", user_name="Sam")
     last = out.messages[-1]["content"]
-    assert last.startswith("hey\n\n[system note — hard limits, read last:")
+    # The reply-length note (SPEC §38) is fused first; the limits stay the
+    # very last thing read, and stay short.
+    assert last.startswith("hey\n\n[system note — reply length, read last:")
+    assert "\n\n[system note — hard limits, read last:" in last
     assert last.endswith("]")
-    note = last.split("read last:", 1)[1].strip().rstrip("]")
+    note = last.rsplit("[system note — hard limits, read last:", 1)[1].strip().rstrip("]")
     assert len(note) <= POST_HISTORY_LIMIT + 2
     assert "devoted to Sam" in note
     assert "never \"an AI assistant" in last or "stays in character" in note

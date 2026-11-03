@@ -47,6 +47,7 @@ from .avatar.controller import VrmController
 from .boot import BootBoard
 from .brain_protocol import AutonomousBrain
 from .channels.manager import ChannelManager
+from yurios.app.config import REPLY_LENGTHS
 from yurios.app.conversation import ConversationLog
 from yurios.app.corpus import CorpusLogger, UnratableLine
 from ..kernel.clock import Clock
@@ -828,6 +829,7 @@ class Runtime:
         # a probe that cannot reach the server answers "text only", which is a
         # room without a paperclip, not a room without her.
         await self._probe_image_input()
+        self._publish_reply_length()
         # the hands (SPEC §7.2): spawn/connect, discover, wire — or degrade.
         # tools_backend=off, a missing `mcp` install, or a dead server all leave
         # her hand-less but talking; /api/health says which happened.
@@ -1086,6 +1088,8 @@ class Runtime:
             # here, no restart) must retire the first-run chooser — and a
             # cleared override must revive it.
             self.model_configured = is_configured(self.cfg.chat_model)
+        if "reply_length" in applied:
+            self._publish_reply_length()
         if "chat_model" in applied:
             # A different model has different senses (§35). Re-asked here, on
             # the swap, so the composer's paperclip appears or disappears with
@@ -1097,6 +1101,17 @@ class Runtime:
             task.add_done_callback(self._forget_task)    # …and forgotten once done
         return {"applied": applied, "chat_model": self.cfg.chat_model,
                 "utility_model": self.cfg.utility_model}
+
+    def _publish_reply_length(self) -> None:
+        """Say how long her replies run, to every room (SPEC §38).
+
+        Sticky, like `capabilities`: a room opened later learns it on attach,
+        and a nudge from one room moves the control in every other open one —
+        the §10 rule that cross-surface state is an event, not a poll."""
+        self.hub.publish("reply_length",
+                         {"level": self.cfg.reply_length,
+                          "levels": list(REPLY_LENGTHS)},
+                         sticky="reply_length")
 
     def _forget_task(self, task: asyncio.Task) -> None:
         """Drop a finished one-shot task from the shutdown list, whichever order

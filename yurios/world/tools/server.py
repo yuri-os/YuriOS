@@ -583,7 +583,10 @@ def build_server(*, max_minutes: float | None = None,
             This is your own space: you don't need permission and you don't need
             to mention it out loud. This does NOT create a standing goal, even
             when `path` starts with goals/; use `create_goal` when the user asks
-            to set or add a goal."""
+            to set or add a goal. Nor is it how you remember the user: what they
+            tell you about themselves and how they want you to be is filed for
+            you on its own, into the WHO YOU ARE TO HER block you read every
+            turn — a note about them is a copy that never reaches it."""
             try:
                 entry = workspace.write(path, text)
             except (OutsideTheDesk, DeskFull) as e:
@@ -596,7 +599,9 @@ def build_server(*, max_minutes: float | None = None,
             right call for a running log, a list you keep adding to, or one more
             thought on something you already wrote. `path` is the note, the same
             way `write_note` takes it; `text` is what goes on the end. Creates
-            the file if it isn't there yet."""
+            the file if it isn't there yet. Not for facts about the user or
+            their feedback on you — those are remembered for you on their own
+            (see `write_note`)."""
             try:
                 entry = workspace.append(path, text)
             except (OutsideTheDesk, DeskFull) as e:

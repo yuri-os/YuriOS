@@ -898,6 +898,9 @@
       // around to importing voice.js, whose composer is the thing that wants
       // it. Held here, so a listener that arrives late can simply read it.
       if (m.type === 'capabilities') window.WorldChat.capabilities = m;
+      // …and the composer's length nudge (shared/reply-length.js, SPEC §38), the
+      // same way: sticky, replayed on open, read by a listener that came late
+      if (m.type === 'reply_length') window.WorldChat.replyLength = m;
       if (m.type === 'hello') {
         charName = m.character || '';
         // every label that names her at once — the chat head, the masthead, the
@@ -960,6 +963,8 @@
     connect,
     // the last `capabilities` event, for a consumer that attached after it
     capabilities: null,
+    // the last `reply_length` event (SPEC §38), the same arrangement
+    replyLength: null,
     scrollToLatest: scroll,
     addPendingUser,
     confirmUser: addMsg,

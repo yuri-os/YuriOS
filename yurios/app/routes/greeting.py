@@ -124,6 +124,7 @@ async def greeting(session_id: str, request: Request):
         soul, user_md=user_md, summary=summary, memories=memories,
         lore=[], window=_last_words(state), user_msg=cue,
         user_name=state.cfg.user_name,
+        reply_length=state.cfg.reply_length,
         system_budget_tokens=state.cfg.system_budget_tokens,
         lorebook_budget_tokens=state.cfg.lorebook_budget_tokens)
 

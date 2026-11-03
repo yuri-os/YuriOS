@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 
+from yurios.world.brain import CONTINUATION_CUE
+
 from yurios.world.tools.client import (
     DESC_MAX_CHARS, ToolSpec, build_directive, coerce_args, one_line)
 from yurios.world.tools.fakes import FakeToolRunner
@@ -407,7 +409,8 @@ async def test_result_truncated_before_the_continuation(cfg, guard, timers,
     runner = FakeToolRunner(results={"set_timer": "y" * 5000})
     tb = make_toolbrain(cfg, guard, timers, controller, chat, runner=runner)
     await collect(tb._stream_with_tools([], []))
-    assert len(chat.calls[1][-1]["content"]) < 800     # 600-char cap + the cue text
+    # the 600-char cap + the cue text (and the "returned:" wrapper around it)
+    assert len(chat.calls[1][-1]["content"]) < 700 + len(CONTINUATION_CUE)
 
 
 # ---- the web hands (SPEC §7.7) ---------------------------------------------
@@ -452,7 +455,7 @@ async def test_read_page_shelves_the_whole_page_while_she_speaks_to_a_gist(
     assert len(FAKE_PAGE) > 600
     # …while the continuation the model reads was bounded
     cont = chat.calls[1][-1]["content"]
-    assert len(cont) < 800 and "read_page returned" in cont
+    assert len(cont) < 700 + len(CONTINUATION_CUE) and "read_page returned" in cont
 
 
 async def test_read_page_without_a_researcher_is_simply_not_shelved(

@@ -140,6 +140,7 @@ async def chat(req: ChatRequest, request: Request):
             window=state.sessions.window(req.session_id, state.cfg.raw_window_turns),
             user_msg=req.message,
             user_name=state.cfg.user_name,
+            reply_length=state.cfg.reply_length,
             system_budget_tokens=state.cfg.system_budget_tokens,
             lorebook_budget_tokens=state.cfg.lorebook_budget_tokens)
         # step 5: the user message enters the transcript before the model speaks

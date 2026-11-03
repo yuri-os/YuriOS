@@ -1347,6 +1347,123 @@ async def _quiet_heartbeat(rig: Rig) -> None:
             await task
 
 
+async def _turn(rig: Rig, text: str) -> tuple[str, list[dict], list[list[dict]]]:
+    """One real chat turn: what she said, the hands it used, every prompt sent.
+
+    The prompts are taken by a spy on her chat model — it records the messages
+    and hands them straight to the real provider, so nothing about the turn is
+    replaced. The tool outcomes come off the `turn_committed` signal, which is
+    where REFLECT reads them too.
+    """
+    chat = rig.rt.brain.state.chat
+    sent: list[list[dict]] = []
+    real = chat.stream
+
+    def spy(messages, **kw):
+        sent.append([dict(m) for m in messages])
+        return real(messages, **kw)
+
+    chat.stream = spy                                   # type: ignore[method-assign]
+    try:
+        turn = await rig.rt.turns.run(text, channel="live-check")
+    finally:
+        chat.stream = real                              # type: ignore[method-assign]
+    said = str((turn.get("message") or {}).get("text") or "")
+    signals, _ = rig.rt.mind.bus.next(0)
+    committed = [s for s in signals if s.type == "turn_committed"]
+    outcomes = list(committed[-1].payload.get("tool_outcomes", [])) if committed else []
+    return said, outcomes, sent
+
+
+def _last_user(prompt: list[dict]) -> str:
+    content = next(m for m in reversed(prompt) if m["role"] == "user")["content"]
+    return content if isinstance(content, str) else json.dumps(content)
+
+
+async def scenario_length(rig: Rig) -> str:
+    """The reply-length rung reaches her, and moves her (SPEC §38).
+
+    On 3 Nov a "good morning" came back as ~3,300 characters, and the voice law
+    already said "reply size tracks the beat". So: the note is on the last user
+    line of the prompt actually sent, a hello on the default rung is a few
+    sentences, and the same real question is shorter on `terse` than on `full`.
+    """
+    want(rig.rt.cfg.reply_length == "natural",
+         f"the scratch character should start on natural, not {rig.rt.cfg.reply_length}")
+    hello, _, prompts = await _turn(rig, "hey, good morning")
+    want(prompts and "[system note — reply length, read last:" in _last_user(prompts[0]),
+         "the length note never reached the prompt the model was sent")
+    want(len(hello) <= 700,
+         f"a hello on the natural rung ran {len(hello)} characters:\n{hello}")
+
+    question = ("What do you think makes a home feel like home? Tell me "
+                "properly, I'm curious.")
+    await rig.rt.retune({"reply_length": "terse"})
+    short, _, prompts = await _turn(rig, question)
+    want("one or two sentences" in _last_user(prompts[0]),
+         "a live retune to terse did not change the note in the next prompt")
+    await rig.rt.retune({"reply_length": "full"})
+    full, _, _ = await _turn(rig, question)
+    await rig.rt.retune({"reply_length": "natural"})
+    want(len(short) < len(full),
+         f"terse ({len(short)} chars) was not shorter than full ({len(full)}):\n"
+         f"--- terse ---\n{short}\n--- full ---\n{full}")
+    want(len(short) <= 400, f"terse ran {len(short)} characters:\n{short}")
+    return (f"hello {len(hello)} chars on natural; the same question "
+            f"{len(short)} on terse, {len(full)} on full")
+
+
+async def scenario_about_user(rig: Rig) -> str:
+    """What you tell her about yourself is kept for her, not filed by hand
+    (SPEC §2.1 block 5, §34.2).
+
+    Told her replies ran long, she wrote it into `notes/about_grant.md` and
+    said "written down, so it sticks" — a copy no prompt reads, while USER.md
+    had already taken the line. With her note hands offered, the turn must not
+    reach for one, and USER.md must end up holding the fact.
+    """
+    user_md = rig.rt.cfg.vault_dir / "soul" / "USER.md"
+    said, outcomes, prompts = await _turn(
+        rig, "Remember this about me: I take my coffee black, no sugar. "
+             "And please keep your replies a bit shorter when we're just chatting.")
+    system = prompts[0][0]["content"] if prompts else ""
+    want("It is kept for you" in system,
+         "WHO YOU ARE TO HER did not open with the line saying it is kept for her")
+    filed = [o for o in outcomes if o.get("tool") in {"write_note", "append_note",
+                                                       "edit_note"}]
+    want(not filed,
+         f"she filed it on her desk by hand: {filed}\nand said:\n{said}")
+
+    def kept() -> bool:
+        return user_md.is_file() and "black" in user_md.read_text(encoding="utf-8").lower()
+
+    end = time.time() + 120
+    while time.time() < end and not kept():
+        await asyncio.sleep(1.0)
+    want(kept(), "USER.md never took the coffee fact. It reads:\n"
+         + (user_md.read_text(encoding="utf-8") if user_md.is_file() else "(missing)"))
+    return "no desk note; USER.md has the coffee line"
+
+
+async def scenario_tool_round(rig: Rig) -> str:
+    """A turn with a hand in it is still one reply (SPEC §7.4).
+
+    The wall of 3 Nov was five tool rounds, each greeting again and re-asking
+    the first round's question. The continuation must carry the one-reply cue,
+    and what she says across the passes must stay in the size of one reply.
+    """
+    said, outcomes, prompts = await _turn(
+        rig, "morning! take a quick selfie for me, would you?")
+    camera = [o for o in outcomes if o.get("tool") == "take_selfie"]
+    want(camera, f"the turn never reached for the camera:\n{said}")
+    want(len(prompts) >= 2 and "not a new one" in _last_user(prompts[1]),
+         "the continuation pass did not carry the one-reply cue")
+    want(len(said) <= 1200,
+         f"one selfie request became {len(said)} characters over "
+         f"{len(prompts)} passes:\n{said}")
+    return f"{len(prompts)} passes, {len(said)} characters, one camera call"
+
+
 SCENARIOS = {
     "waiting": scenario_waiting,
     "told": scenario_told,
@@ -1364,6 +1481,9 @@ SCENARIOS = {
     "goalhands": scenario_goal_hands,
     "goalfollowup": scenario_goal_followup,
     "night": scenario_night,
+    "length": scenario_length,
+    "aboutuser": scenario_about_user,
+    "toolround": scenario_tool_round,
 }
 
 

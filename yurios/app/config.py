@@ -6,9 +6,15 @@ to the spec's defaults.
 """
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+#: The reply-length ladder, shortest first (SPEC §38). The order is the room's:
+#: "shorter" steps left, "longer" steps right. `natural` is the default.
+REPLY_LENGTHS: tuple[str, ...] = ("terse", "brief", "natural", "full", "expansive")
 
 
 class Config(BaseSettings):
@@ -96,6 +102,25 @@ class Config(BaseSettings):
     # the default is generous: a ceiling costs nothing until it is used, a no-think
     # model never nears it, and llama.cpp trims it to whatever the window has left.
     max_reply_tokens: int = 8192
+    # How long her replies run (SPEC §38) — one of REPLY_LENGTHS, fused after the
+    # history as a last-read note. A ceiling above cuts her off mid-sentence; this
+    # is the knob that asks for less. Per character in `models.options`, and the
+    # room's shorter/longer buttons move it live.
+    reply_length: str = "natural"
+
+    @field_validator("reply_length", mode="before")
+    @classmethod
+    def _known_reply_length(cls, value: object) -> str:
+        # A typo in `.env` must not take her down at boot (§31.2's rule for a
+        # bad override): it is the default, with a warning. The API refuses one
+        # outright (world/rewire.coerce), so only a hand-edit reaches here.
+        text = str(value or "").strip().lower()
+        if text in REPLY_LENGTHS:
+            return text
+        logging.getLogger("app.config").warning(
+            "REPLY_LENGTH=%r is not one of %s — using natural",
+            value, ", ".join(REPLY_LENGTHS))
+        return "natural"
 
     # embeddings — local, always (§3: the mind stays ownable). lm_studio reuses the
     # same local server as an lm_studio/ chat model (LMSTUDIO_BASE_URL), so one

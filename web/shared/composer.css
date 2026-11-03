@@ -46,3 +46,27 @@
 
 /* your own picture in the transcript reads the same as one of hers (.msg-img),
    which is deliberate: it is the same conversation. */
+
+/* The reply-length nudge (shared/reply-length.js, SPEC §38): shorter and longer
+   beside each other with the rung between them, one joined pill the height of
+   an .icon-button so the composer stays a single row. Hidden until the host's
+   sticky `reply_length` event says there is a rung to show. */
+.reply-length{
+  flex:none; display:flex; align-items:stretch; height:40px;
+  border:1px solid var(--rule); border-radius:2px;
+}
+.reply-length-step{
+  width:24px; padding:0; display:grid; place-items:center;
+  border:0; background:transparent; color:var(--soft); cursor:pointer;
+}
+.reply-length-step svg{ width:14px; height:14px; fill:none; stroke:currentColor; stroke-width:2; }
+.reply-length-step:hover:not(:disabled),
+.reply-length-step:focus-visible{ color:var(--ink); }
+.reply-length-step:disabled{ opacity:.3; cursor:default; }
+.reply-length-level{
+  min-width:5.2em; display:grid; place-items:center; padding:0 2px;
+  border-inline:1px solid var(--rule);
+  font:11px/1 var(--font-mono); letter-spacing:.04em; color:var(--soft);
+}
+.reply-length.busy .reply-length-level{ color:var(--dim); }
+.reply-length.failed{ border-color:var(--acid-dark); }

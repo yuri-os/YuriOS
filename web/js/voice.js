@@ -380,6 +380,7 @@ export function initVoice({ viseme, els }) {
   }
 
   function renderProcessing() {
+    renderBusy();
     if (els.text) els.text.disabled = processing || warming;
     if (els.mic) {
       els.mic.disabled = warming ||
@@ -397,6 +398,12 @@ export function initVoice({ viseme, els }) {
     els.send.innerHTML = processing
       ? '<svg aria-hidden="true" viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="1"/></svg>'
       : sendMarkup;
+  }
+
+  // The chat column's ‹ ↻ › wait on the composer too (SPEC §39.5): one request
+  // at a time, whichever of the two asked it.
+  function renderBusy() {
+    window.WorldChat?.setBusy?.(processing || warming);
   }
 
   function beginProcessing(clientId = null, via = transport || 'voice') {
@@ -729,7 +736,10 @@ export function initVoice({ viseme, els }) {
   // One send path for the two ways of asking: Enter, and the composer's button
   // (an affordance the switchboard's language wants visible — and the only one
   // a touch keyboard without a newline key can offer).
-  async function sendHttp(path, body, clientId) {
+  //
+  // `landed`, when given, takes the answer instead of the chat column's usual
+  // two calls: a redo's answer is her line as it now stands, not a new line.
+  async function sendHttp(path, body, clientId, landed = null) {
     aborter = new AbortController();
     let reached = false;                  // did the server answer at all?
     try {
@@ -742,6 +752,11 @@ export function initVoice({ viseme, els }) {
       reached = true;
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(detailMessage(data, `request failed: ${response.status}`));
+      if (landed) {
+        landed(data);
+        completeLlm(clientId, data.active_selfies || []);
+        return;
+      }
       if (data.session_id) {
         sessionId = data.session_id;
         window.localStorage?.setItem(sessionKey, sessionId);
@@ -759,7 +774,8 @@ export function initVoice({ viseme, els }) {
       // answered and the turn itself broke (a 502 off turns.py) — the line got
       // to her, the reply is what is missing. Only a fetch that never came back
       // is genuinely not received.
-      window.WorldChat?.failPending?.(clientId, reached ? 'no reply' : 'not received');
+      window.WorldChat?.failPending?.(clientId, reached ? 'no reply' : 'not received',
+                                      e.message);
       // notice(), not the caption directly: `.caption` is display:none in the
       // browser room (the chat column carries text there), so writing to it
       // made every failed turn invisible. notice() writes both it and the
@@ -816,6 +832,24 @@ export function initVoice({ viseme, els }) {
     }
   }
 
+  /** Another reply in the place of her last one (SPEC §39.2) — a turn like
+   *  any other as far as the composer is concerned: locked while she answers,
+   *  Send turned to Stop, the words streaming in (into her line, by chat.js),
+   *  and a failure said where every failure is said. False when the composer
+   *  is already busy, which is the only answer a second press gets. */
+  function regenerate(messageId) {
+    if (!messageId || processing || warming) return false;
+    endReplay();
+    const clientId = newRequestId();
+    window.WorldChat?.beginAgain?.(messageId, clientId);
+    beginProcessing(clientId, 'http');
+    sendHttp('/api/regenerate', { id: messageId, channel: 'web', client_id: clientId },
+             clientId, (data) => {
+               if (data.message) window.WorldChat?.receiveSwipe?.(data.message);
+             });
+    return true;
+  }
+
   els.text.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') { e.preventDefault(); sendText(); }
   });
@@ -825,7 +859,7 @@ export function initVoice({ viseme, els }) {
   // that answers it. A global handle, like WorldChat and WorldControls, for the
   // reason those are: one room runs one voice client, and the three pages that
   // load this file must not each grow their own way of reaching it.
-  window.WorldVoice = { speak };
+  window.WorldVoice = { speak, regenerate };
 
   if (wantsVoice()) connect();
   else {

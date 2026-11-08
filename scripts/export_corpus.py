@@ -10,6 +10,8 @@ itself lives in `yurios/app/corpus.py`, so the format has one definition.
   raw   every turn record verbatim, with `rating` on the rated ones
   kto   rated turns only: prompt / completion / label, the conversational
         shape TRL's KTO trainer reads
+  dpo   the replies you chose between (SPEC §39): prompt / chosen / rejected,
+        one row per reply passed over — TRL's conversational DPO shape
 
 Reads only; writes nothing under `corpus/`. What it prints is your own
 conversation — personal data, the same as the folder it came from.
@@ -89,8 +91,9 @@ def main(argv: list[str] | None = None) -> int:
     else:
         sys.stdout.write(text)
     print(f"{len(rows)} rows from {stats['turns']} turns "
-          f"({stats['up']} 👍, {stats['down']} 👎"
-          + (f", {stats['orphaned']} ratings on turns no longer in the log"
+          f"({stats['up']} 👍, {stats['down']} 👎, "
+          f"{stats['preferences']} chosen between"
+          + (f", {stats['orphaned']} on turns no longer in the log"
              if stats["orphaned"] else "") + ")",
           file=sys.stderr)
     return 0

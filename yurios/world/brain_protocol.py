@@ -42,6 +42,17 @@ class ConversationalBrain(Protocol):
         """One turn, streamed. `image` is a picture sent with the line, or None."""
         ...
 
+    def stream_again(self, session_id: str, text: str,
+                     image: str | None = None) -> AsyncIterator[str]:
+        """Another reply to the line she just answered (SPEC §39.2). Persisted
+        or abandoned like a turn; persisting puts it in her last reply's place."""
+        ...
+
+    async def refile(self, session_id: str, user_text: str, reply: str) -> None:
+        """What she remembers of her last exchange, re-filed under the reply of
+        hers you picked to stand (SPEC §39.3)."""
+        ...
+
     def stream_greeting(self, session_id: str) -> AsyncIterator[str]:
         """The continuity opener. Not a turn, so it is never persisted."""
         ...

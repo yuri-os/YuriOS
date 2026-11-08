@@ -48,7 +48,7 @@ from .boot import BootBoard
 from .brain_protocol import AutonomousBrain
 from .channels.manager import ChannelManager
 from yurios.app.config import REPLY_LENGTHS
-from yurios.app.conversation import ConversationLog
+from yurios.app.conversation import INTERNAL_FIELDS, ConversationLog, swipeable
 from yurios.app.corpus import CorpusLogger, UnratableLine
 from ..kernel.clock import Clock
 from .config import Config
@@ -56,7 +56,7 @@ from . import raw_assets, runtime
 from .context import ContextMeter
 from ..kernel.hub import EventHub
 from .inbox import Inbox
-from .turns import RuntimeStopping, TextTurns
+from .turns import NotSwipeable, RuntimeStopping, TextTurns
 from .selfies import SelfieLab
 from .uploads import Uploads
 from .situation import render_visual_situation
@@ -128,6 +128,12 @@ def tool_notice_text(tool: str, args: object, result: str = "") -> str:
 HISTORY_PAGE = 100
 #: The most one call may ask for — a client cannot turn this route into a dump.
 HISTORY_MAX = 200
+
+#: Where a reply of hers can be asked again (SPEC §39.1): the rooms, which
+#: redraw her line in place. Telegram has already delivered the one it got and
+#: a voice reply was said aloud — another reply there would contradict what
+#: you were given rather than replace it.
+SWIPE_CHANNELS = ("web",)
 
 
 class Runtime:
@@ -462,6 +468,11 @@ class Runtime:
         # same sentence. Only the turn paths pass one: a selfie, a digest or a
         # mind reach-out belongs on the page and in no prompt's window (§9.9).
         drawn = self.chatlog.undrawn(session_id, role) if session_id else None
+        # Any line drawn under her last reply settles it (SPEC §39.1, §39.4):
+        # it can no longer be asked again, and whichever reply stood is the one
+        # kept. The ring names the line that was newest, from memory; the log
+        # is read (whole) only when that line could have been one.
+        settles = self._open_line() if role != "tool" else None
         entry: dict = {"id": (drawn or {}).get("id") or uuid.uuid4().hex[:8],
                        # dedup key: a page may see a message live AND in its
                        # /api/history backfill (a race the client resolves by
@@ -512,6 +523,95 @@ class Runtime:
             # react to the event, and both want a badge that already exists.
             self.inbox.add(entry)
         self.hub.publish("message", entry)
+        if settles is not None:
+            her = self.chatlog.line(settles["id"])
+            if her and her.get("turn_id"):
+                self._went_on_from(her, by="user" if role == "user" else "stood")
+        return entry
+
+    # ---- another reply in her last one's place (SPEC §39) ----
+
+    def _open_line(self) -> dict | None:
+        """The newest line on the page, when it is a reply of hers from a room
+        — the one line that may still be open to another reply (§39.1)."""
+        last = next((e for e in reversed(self.transcript)
+                     if e.get("role") != "tool"), None)
+        if last and last.get("id") and last.get("role") == "assistant" \
+                and last.get("channel") in SWIPE_CHANNELS:
+            return last
+        return None
+
+    def _went_on_from(self, her: dict, *, by: str = "user") -> None:
+        """A line was drawn after `her` reply, so it can no longer be asked
+        again — and if there was more than one to choose from, the one that
+        stood is the one kept (§39.4): `by` "user" when your line settled it,
+        "stood" when one of hers did and the choice was simply left in place."""
+        alts, chosen = her.get("alts") or [], her.get("swipe", 0)
+        if len(alts) > 1:
+            self.corpus.log_preference(
+                her["id"], chosen=her["turn_id"],
+                rejected=[a["turn_id"] for i, a in enumerate(alts)
+                          if i != chosen and a.get("turn_id")], by=by)
+        if her.get("channel") in SWIPE_CHANNELS and her.get("turn_id"):
+            self._publish_swipe(her, regenerable=False)
+
+    def swipe_target(self, message_id: str) -> tuple[str, dict, dict]:
+        """`(session, your line, her reply)` for a reply that can be asked
+        again (§39.1) — hers, filed, from a room, and still the newest line of
+        the conversation. Raises `KeyError` for a line this conversation
+        does not hold and `NotSwipeable` for one it cannot redo. Reads the log
+        whole: call it off the event loop."""
+        row = self.chatlog.line(message_id)
+        if row is None:
+            raise KeyError(message_id)
+        pair = self.chatlog.last_exchange()
+        session_id = str(row.get("session_id") or "")
+        if (pair is None or not session_id or pair[1].get("id") != message_id
+                or not pair[1].get("turn_id")
+                or pair[1].get("channel") not in SWIPE_CHANNELS):
+            raise NotSwipeable(message_id)
+        return session_id, pair[0], pair[1]
+
+    def add_swipe(self, message_id: str, text: str) -> dict:
+        """Another reply of hers drawn in `message_id`'s place, and standing."""
+        self.chatlog.add_swipe(message_id, text)
+        return self._publish_swipe(self.chatlog.line(message_id) or {},
+                                   regenerable=True)
+
+    def pick_swipe(self, message_id: str, index: int) -> dict:
+        """One of her replies on that line made the one that stands."""
+        self.chatlog.pick(message_id, index)
+        return self._publish_swipe(self.chatlog.line(message_id) or {},
+                                   regenerable=True)
+
+    def swipe_entry(self, message_id: str, *, regenerable: bool = True) -> dict:
+        """Her line as `_publish_swipe` describes it, without publishing — what
+        a route answers with once the turn behind it has been filed."""
+        return self._swipe_entry(self.chatlog.line(message_id) or {},
+                                 regenerable=regenerable)
+
+    def _swipe_entry(self, row: dict, *, regenerable: bool) -> dict:
+        entry = {k: v for k, v in row.items() if k not in INTERNAL_FIELDS}
+        entry["regenerable"] = regenerable
+        entry["rateable"] = bool(row.get("turn_id"))
+        rating = self.corpus.standing().get(row["turn_id"]) \
+            if row.get("turn_id") else None
+        if rating:
+            entry["thumbs"] = rating["thumbs"]
+        return entry
+
+    def _publish_swipe(self, row: dict, *, regenerable: bool) -> dict:
+        """Tell every room what her line says now (§39.5): the whole line, the
+        way history draws it, so a page repaints it in place — which reply of
+        how many, whether it can still be asked again, and the thumb that stands
+        on *this* reply, since a rating belongs to a reply and not a bubble."""
+        entry = self._swipe_entry(row, regenerable=regenerable)
+        for e in self.transcript:
+            if e.get("id") == row.get("id"):
+                for k in ("text", "swipe", "swipes"):
+                    if k in entry:
+                        e[k] = entry[k]
+        self.hub.publish("swipe", entry)
         return entry
 
     def hands_permit(self, tool: str) -> bool:
@@ -579,6 +679,7 @@ class Runtime:
         no more to ask for.
         """
         entries = self._visible()
+        redo = swipeable(entries)
         if before:
             cut = next((i for i, e in enumerate(entries)
                         if e.get("id") == before), None)
@@ -586,8 +687,23 @@ class Runtime:
                 return {"messages": [], "has_more": False}
             entries = entries[:cut]
         limit = max(1, min(int(limit), HISTORY_MAX))
-        window = self._with_ratings(entries[-limit:])
+        window = self._with_swipes(self._with_ratings(entries[-limit:]), redo)
         return {"messages": window, "has_more": len(window) < len(entries)}
+
+    @staticmethod
+    def _with_swipes(entries: list[dict], redo: set[str]) -> list[dict]:
+        """Say which reply of hers can still be asked again (SPEC §39.1), and
+        keep the replies it was chosen from off the wire — the page is told
+        which one of how many, never the others' words. Copies."""
+        out = []
+        for e in entries:
+            if "alts" in e:
+                e = {k: v for k, v in e.items() if k not in INTERNAL_FIELDS}
+            if (e.get("id") in redo and e.get("turn_id")
+                    and e.get("channel") in SWIPE_CHANNELS):
+                e = {**e, "regenerable": True}
+            out.append(e)
+        return out
 
     def _with_ratings(self, entries: list[dict]) -> list[dict]:
         """Say which lines can be rated, and how (SPEC §37.1): a line of hers
@@ -609,7 +725,9 @@ class Runtime:
         """A reply already on the page now has its corpus record — the text
         turn's order, where the stream ends and is drawn before the turn
         persists. Says so on the bus, so every open room can offer the 👍/👎
-        on a line it drew a moment ago without a reload (SPEC §37.1)."""
+        on a line it drew a moment ago without a reload (SPEC §37.1) — and,
+        when it is the newest line of the conversation and came from a room,
+        the ‹ › that asks for another reply in its place (§39.5)."""
         row = self.chatlog.line(message_id)
         if not row or not row.get("turn_id") or row.get("role") != "assistant":
             return False
@@ -617,6 +735,10 @@ class Runtime:
             if e.get("id") == message_id:
                 e["rateable"] = True
         self.hub.publish("rating", {"id": message_id, "thumbs": 0})
+        pair = self.chatlog.last_exchange()
+        if (pair is not None and pair[1].get("id") == message_id
+                and row.get("channel") in SWIPE_CHANNELS):
+            self._publish_swipe(row, regenerable=True)
         return True
 
     def rate(self, message_id: str, thumbs: int) -> dict:

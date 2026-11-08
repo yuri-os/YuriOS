@@ -115,6 +115,24 @@ class SessionStore:
         s["last_active"] = _now()
         self._save()
 
+    def revise_last(self, session_id: str, content: str,
+                    turn_id: str | None = None) -> bool:
+        """The model's half of another reply in the place of her last one
+        (SPEC §39): the runtime has drawn it on her line already (`add_swipe`),
+        and this files what the model produced and its corpus id onto it — the
+        reply that now stands, so the next prompt continues from it. False when
+        her line is no longer the last thing in the window."""
+        message_id = self.log.last_admitted(session_id, "assistant")
+        if message_id is None:
+            return False
+        row = self.log.line(message_id) or {}
+        drawn = row.get("text") or ""
+        self.log.attach_raw(message_id, content if content != drawn else None,
+                            turn_id)
+        self._data["sessions"][session_id]["last_active"] = _now()
+        self._save()
+        return True
+
     def drop_last(self, session_id: str, role: str) -> bool:
         """Undo the last `append_message` if it was `role`'s. A turn is written
         to the window in two halves — the user's line when the reply starts

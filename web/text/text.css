@@ -274,6 +274,25 @@ svg{ width:1.1em; height:1.1em; fill:none; stroke:currentColor; stroke-width:1.7
 .msg-rate.failed button{ color:var(--red); }
 @media (hover:none){ .msg-rate, .msg-rate.rated button[aria-pressed="false"]{ opacity:1; } }
 
+/* ‹ 2/3 › (SPEC §39) — another reply in the place of her last one. Always
+   shown, unlike the thumbs: it is only ever on one line, and a control that
+   waits for a hover is one nobody finds. */
+.msg-swipe{
+  flex:none; align-self:center; display:inline-flex; align-items:center; gap:3px;
+  margin-left:2px; font-variant-numeric:tabular-nums;
+}
+.msg-swipe button{
+  display:inline-flex; align-items:center; padding:0 1px; border:0;
+  background:transparent; color:var(--dim); cursor:pointer;
+  font:inherit; font-size:12px; line-height:1; transition:color .18s ease;
+}
+.msg-swipe button:disabled{ opacity:.35; cursor:default; }
+.msg-swipe svg{ width:13px; height:13px; fill:none; stroke:currentColor;
+                stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; }
+.msg-swipe button:not(:disabled):hover{ color:var(--ink); }
+.msg-swipe.failed button{ color:var(--red); }
+.msg.regenerating > :not(.who){ opacity:.4; transition:opacity .18s ease; }
+
 .msg-img{
   display:block; max-width:100%; border-radius:2px; margin:2px 0 7px;
   border:1px solid var(--rule);

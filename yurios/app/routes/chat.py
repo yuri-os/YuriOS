@@ -109,6 +109,33 @@ async def _post_turn(state, record: Record, session_id: str, turn_count: int) ->
                                     now=retired_bootstrap)
 
 
+async def refile_turn(state, record: Record) -> None:
+    """The exchange again, with the reply of hers that now stands (SPEC §39.3):
+    its journal line and its index row, rewritten under the Vault lock, then
+    the day's commit. Not the partner model or the summary — a different reply
+    is not a different you, and the turn was already counted. Shielded for
+    `post_turn`'s reason: a cancel must not release the lock mid-write."""
+    task = asyncio.create_task(_refile_turn(state, record))
+    _settling.add(task)
+    task.add_done_callback(_settling.discard)
+    try:
+        await asyncio.shield(task)
+    except asyncio.CancelledError:
+        task.add_done_callback(_log_orphan)
+        raise
+
+
+async def _refile_turn(state, record: Record) -> None:
+    async with state.vault_lock:
+        try:
+            await state.store.refile(record)
+        except Exception:
+            log.exception("re-filing a reply failed (the page already shows it)")
+        finally:
+            message = f"turn {record.session_id[:8]}:{record.turn_index} re-filed"
+            await asyncio.to_thread(vaultgit.commit, state.cfg.vault_dir, message)
+
+
 @router.post("/api/chat")
 async def chat(req: ChatRequest, request: Request):
     state = request.app.state.mvw

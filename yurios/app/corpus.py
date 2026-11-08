@@ -22,6 +22,8 @@ Written by: Build #1 (minimum-viable-waifu), from {date}.
 `turns.jsonl` — one line per assistant reply (append-only).
 `ratings.jsonl` — 👍/👎 sidecar, keyed by turn id; last line wins, 0 takes
     a rating back; merged at export.
+`preferences.jsonl` — which of her replies to one line you went on from, when
+    you had her say it again: the chosen turn id and the ones passed over.
 `utility.jsonl` — debug sidecar: one line per utility-model call (what it
     proposed for USER.md / the summary, and how triage handled it). Not training
     data; not read by export. Peek it: `cat utility.jsonl`.
@@ -72,11 +74,25 @@ def standing_ratings(path: pathlib.Path) -> dict[str, dict]:
     return out
 
 
+def standing_preferences(path: pathlib.Path) -> dict[str, dict]:
+    """transcript line id -> the preference that stands on it (SPEC §39.4):
+    the last line about a line wins, the way a rating's does."""
+    out: dict[str, dict] = {}
+    for row in read_jsonl(path):
+        line, chosen, rejected = row.get("id"), row.get("chosen"), row.get("rejected")
+        if (isinstance(line, str) and isinstance(chosen, str)
+                and isinstance(rejected, list)
+                and all(isinstance(r, str) for r in rejected)):
+            out[line] = row
+    return out
+
+
 class CorpusLogger:
     def __init__(self, corpus_dir: pathlib.Path):
         self.dir = pathlib.Path(corpus_dir)
         self.turns = self.dir / "turns.jsonl"
         self.ratings = self.dir / "ratings.jsonl"
+        self.preferences = self.dir / "preferences.jsonl"
 
     def _ensure_dir(self) -> None:
         if not self.dir.exists():
@@ -121,13 +137,52 @@ class CorpusLogger:
                                 "timestamp": datetime.datetime.now(
                                     datetime.UTC).isoformat()}) + "\n")
 
+    def log_preference(self, message_id: str, *, chosen: str,
+                       rejected: list[str], by: str = "user") -> None:
+        """Which of her replies to one line you went on from (SPEC §39.4) —
+        the pairwise half of the preference data, beside the thumbs. Keyed by
+        the transcript line the replies shared; the last line about it wins."""
+        if not rejected:
+            return
+        self._ensure_dir()
+        with self.preferences.open("a", encoding="utf-8") as f:
+            f.write(json.dumps({"id": message_id, "chosen": chosen,
+                                "rejected": list(rejected), "by": by,
+                                "timestamp": datetime.datetime.now(
+                                    datetime.UTC).isoformat()}) + "\n")
+
     def standing(self) -> dict[str, dict]:
         """Every rating that currently stands, by turn id."""
         return standing_ratings(self.ratings)
 
 
-#: What the export can write (SPEC §37.4).
-EXPORT_FORMATS = ("raw", "kto")
+#: What the export can write (SPEC §37.4, §39.6).
+EXPORT_FORMATS = ("raw", "kto", "dpo")
+
+
+def _as_reply(turn: dict) -> list[dict]:
+    return [{"role": "assistant", "content": turn.get("completion") or ""}]
+
+
+def _pairs(turns: list[dict], preferences: dict[str, dict],
+           stats: dict) -> list[dict]:
+    """One row per reply you passed over: the prompt the kept one answered,
+    the kept reply, and the one it was kept over — TRL's conversational DPO
+    shape. A pair whose turn the log no longer holds is counted, not joined."""
+    by_id = {t.get("id"): t for t in turns}
+    rows: list[dict] = []
+    for pref in preferences.values():
+        chosen = by_id.get(pref["chosen"])
+        for passed in pref["rejected"]:
+            other = by_id.get(passed)
+            if chosen is None or other is None:
+                stats["orphaned"] += 1
+                continue
+            rows.append({"id": f"{chosen['id']}>{other['id']}",
+                         "prompt": chosen.get("messages") or [],
+                         "chosen": _as_reply(chosen),
+                         "rejected": _as_reply(other)})
+    return rows
 
 
 def export(corpus_dir: pathlib.Path, *, fmt: str = "raw",
@@ -136,22 +191,34 @@ def export(corpus_dir: pathlib.Path, *, fmt: str = "raw",
     what went into them.
 
     `raw` is every turn record verbatim, plus a `rating` object on the ones a
-    rating stands on. `kto` is the rated turns only, as preference data:
+    rating stands on and `preferred` on the ones you chose between (§39.6).
+    `kto` is the rated turns only, as preference data:
     `prompt` (the messages as sent), `completion` (her reply as one assistant
     message) and `label` (true for 👍) — the conversational shape TRL's KTO
-    trainer reads. `rated_only` narrows `raw` the same way.
+    trainer reads. `rated_only` narrows `raw` the same way. `dpo` is the
+    choices as pairs: the prompt the kept reply answered, the kept reply, and
+    one row per reply it was kept over.
 
-    Reads only. A rating whose turn the log no longer holds is counted, not
-    guessed at: there is nothing to join it to.
+    Reads only. A rating or a choice whose turn the log no longer holds is
+    counted, not guessed at: there is nothing to join it to.
     """
     if fmt not in EXPORT_FORMATS:
         raise ValueError(f"format is one of {EXPORT_FORMATS}, not {fmt!r}")
     corpus_dir = pathlib.Path(corpus_dir)
     turns = read_jsonl(corpus_dir / "turns.jsonl")
     standing = standing_ratings(corpus_dir / "ratings.jsonl")
+    preferences = standing_preferences(corpus_dir / "preferences.jsonl")
     seen = {t.get("id") for t in turns}
     stats = {"turns": len(turns), "up": 0, "down": 0,
+             "preferences": len(preferences),
              "orphaned": sum(1 for turn_id in standing if turn_id not in seen)}
+    if fmt == "dpo":
+        for turn in turns:
+            if (rating := standing.get(str(turn.get("id")))):
+                stats["up" if rating["thumbs"] > 0 else "down"] += 1
+        return _pairs(turns, preferences, stats), stats
+    kept = {p["chosen"] for p in preferences.values()}
+    passed = {r for p in preferences.values() for r in p["rejected"]}
     rows: list[dict] = []
     for turn in turns:
         rating = standing.get(str(turn.get("id")))
@@ -166,10 +233,15 @@ def export(corpus_dir: pathlib.Path, *, fmt: str = "raw",
                                          "content": turn.get("completion") or ""}],
                          "label": rating["thumbs"] > 0})
         else:
+            # `preferred`: kept over another reply to the same line (true), or
+            # passed over for one (false) — absent when there was no choice
+            choice = ({"preferred": True} if turn.get("id") in kept
+                      else {"preferred": False} if turn.get("id") in passed
+                      else {})
             rows.append({**turn, **({"rating": {k: rating[k] for k in
                                                 ("thumbs", "by", "timestamp")
                                                 if k in rating}}
-                                    if rating else {})})
+                                    if rating else {}), **choice})
     return rows, stats
 
 

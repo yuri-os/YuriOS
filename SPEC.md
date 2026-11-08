@@ -623,7 +623,8 @@ greeting the other way round), so each patches the row the other made. A row rea
 only when `SessionStore.append_message` admits it: far more is drawn than is prompted with, and
 inferring membership from "has a session" would silently widen the next prompt. The §4.4 rollback
 takes a line *out of the window* and leaves it on the page — you said it, and a chat that deletes
-what you typed is lying about what happened. `GET /api/history?before=<message id>&limit=` walks back
+what you typed is lying about what happened. A reply you had her say again (§39) stays one line: its
+alternatives ride the row, and the fold hands every reader the one that stands. `GET /api/history?before=<message id>&limit=` walks back
 through it, which the chat surface **MUST** offer as a single control at the top of the column
 loading **six** older lines a press, holding the reader's scroll position across the insert.
 A page **MUST** open on that same six and no more: the control can only appear when something
@@ -1358,7 +1359,8 @@ keeps a socket of its own is sound.
   event is one typed JSON dict: `hello` (her name), `message` (chat entries, including
   `image_url` selfies, and the originating `channel`), `draft` / `draft_cancel`, `avatar` (§4,
   scene channels included), `timers` (the sticky pending-countdown snapshot, §7.5), `rating`
-  (§37), `reply_length` (the sticky rung, §38), and — with the mind — `journal` and `mind` (§24). Publishes are
+  (§37), `reply_length` (the sticky rung, §38), `swipe` (her last line, redrawn, §39), and — with
+  the mind — `journal` and `mind` (§24). Publishes are
   non-blocking (a stalled client loses events, never blocks the publisher) and thread-safe (the
   TTS thread publishes). Sticky state is recorded before any subscriber and replayed
   last-write-wins; it includes both appearance and current runtime snapshots such as timers.
@@ -3832,7 +3834,8 @@ nothing else.
   a `rating` object on the rated ones (`--rated-only` narrows it). `kto` is the rated turns as
   `prompt` / `completion` / `label` — the conversational shape a KTO trainer reads. The export
   only reads: it **MUST NOT** write under `corpus/` or the character registry (§36.1), and a
-  rating whose turn the log no longer holds is counted, not joined. This is the one deliberate
+  rating whose turn the log no longer holds is counted, not joined. The choices you made between
+  her replies (§39.4) join the same export as `dpo` and as `preferred` on `raw` (§39.6). This is the one deliberate
   way the corpus leaves the machine, and it is the owner's to run; a card export still never
   carries it (§30).
 
@@ -3864,3 +3867,69 @@ paragraphs. Length is a setting with a control, not a hope.
   `reply_length` event (`{level, levels}`, §10) at start and whenever a retune moves it, so a room
   opened later starts on the right word and a nudge in one room moves every other open one. The
   control stays hidden until that event arrives. The settings panel edits the same override.
+
+## §39 — Another reply in her last one's place
+
+A reply you do not like is something you can ask her to say again, and the reply you then go on
+from is the one you preferred. Both halves matter: the conversation continues from the reply you
+kept, and the corpus learns which one that was.
+
+- §39.1 **Only her last reply, and the host says which.** A line can be asked again when it is
+  hers, filed (a corpus `turn_id`, §37.1), drawn from a room (`channel: web` — Telegram has
+  already delivered its reply and a voice reply was said aloud), answering a line of yours, and
+  still the newest line of the conversation — newest in any §7.1 window *and* on the page, across
+  sessions, since a page that opens mints a session of its own but the column is one
+  conversation. So at most one line is ever marked. The host marks it `regenerable: true` on its
+  history row (§2.6); a frontend **MUST NOT** infer it. Any line drawn after it ends it, for good:
+  your next line by any medium (even one whose turn then fails — it is still on the page under
+  hers), and a greeting, reach-out or photo of hers. A chip for a hand she used (§7.3) is not a
+  line and does not.
+- §39.2 **The same turn again.** `POST /api/regenerate {id}` runs her through the turn that line
+  answered: the same window, your same line last, assembled now (recall, situation and desk are
+  today's) — and with her memory of the exchange being replaced left out of recall, because the
+  first reply was answered before that memory existed and recalling it hands her the reply you
+  asked her not to give. Your line is not appended a second time. It streams as `draft` like any
+  reply, takes the §7.6 door and the turn lock, and keeps the turn's rule (§10.5): a failure
+  leaves her line exactly as it was. A reply that is only a hand, with no words, is refused —
+  there is nothing to put in the line. What a hand did in the reply it replaces stays done; a
+  note she wrote is still on her desk.
+- §39.3 **One line, every reply, one standing.** The new reply is drawn *in* her line — same id
+  — and the one it replaced is kept beside it (`app/conversation.py`: a `swipe_for` record, then
+  the model's half as `raw_for`, as any reply). `POST /api/swipe {id, swipe}` picks which one
+  stands, generating nothing. The fold copies the standing reply onto the row, so the next
+  prompt, the page and a rating all read that one and no other. Her memory follows the reply
+  that stands: the exchange's journal line is rewritten where it is, keeping its time, and its
+  index row re-embedded under the same id (`FileMemoryStore.refile`). USER.md and the summary are
+  not re-run — your line has not changed, and the turn was counted once. Each new reply is its
+  own corpus record at the same `turn_index`, tagged `again`, and is shared with the mind as
+  `turn_committed` like any reply; what the mind already took from a reply that was replaced
+  (a promise filed as a goal, §22) is not taken back.
+- §39.4 **Going on is the choice.** When a line is drawn under her last one (§39.1) and that line
+  holds more than one reply, the host appends `{id, chosen, rejected, by, timestamp}` to
+  `corpus/preferences.jsonl` — the standing reply's turn id over every other one's — keyed by the
+  transcript line; the last line about a line wins. `by` is `user` when your line settled it and
+  `stood` when one of hers did, so a trainer can tell a reply you went on from from one that was
+  merely left standing. It is training data about her, under §37.3's
+  rule: it **MUST NOT** reach a prompt, the journal, her memory or the Vault.
+- §39.5 **The room redraws one line.** Every change to that line is published as a `swipe` event
+  carrying the line as history draws it — `swipe` (which reply), `swipes` (of how many),
+  `regenerable`, `rateable`, and `thumbs` for the standing reply, since a rating belongs to a
+  reply and not to a bubble. The page never receives the other replies' words. Every room with a
+  chat column shows the control on the marked line only, always visible: `‹ 2/3 ↻`, where ↻ at
+  the last reply asks for another and `›` before it steps forward. A line that stops being the
+  newest is published with `regenerable: false` the moment the next line is drawn, so the control
+  leaves every open room without a reload.
+
+  Asking again is a turn, and the room draws it as one. The composer runs it: the input locks and
+  Send becomes Stop, exactly as for a line you typed, and Stop cancels it through
+  `/api/chat/cancel` with the request's `client_id`. While the composer has any request in
+  flight, or a new line is arriving as a draft from any room, the control's buttons are
+  disabled — a redo pressed then would only be refused once that line lands. The new reply streams *into* her line, not under
+  it: the run publishes `draft {text: "", again: <id>}` before the first token, every draft after
+  it carries the same `again`, and so does the `draft_cancel` of a redo that fails or is stopped
+  — so every open room, not only the one that asked, shows the line being said again and puts it
+  back when nothing comes of it.
+- §39.6 **The export.** `scripts/export_corpus.py --format dpo` writes one row per reply passed
+  over — the prompt the kept reply answered, `chosen`, `rejected` — the conversational shape a
+  DPO trainer reads; `raw` marks those turns `preferred: true|false`. A choice whose turn the
+  log no longer holds is counted, not joined.

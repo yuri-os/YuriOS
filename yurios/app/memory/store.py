@@ -91,14 +91,22 @@ class MemoryStore(Protocol):
     service is not — it cannot answer inspect() ownably."""
 
     async def remember(self, record: Record) -> WriteResult: ...
-    def recall(self, query: str, k: int) -> list[Memory]: ...
-    async def arecall(self, query: str, k: int) -> list[Memory]: ...
+    async def refile(self, record: Record) -> WriteResult: ...
+    def recall(self, query: str, k: int,
+               leave_out: tuple[str, ...] = ()) -> list[Memory]: ...
+    async def arecall(self, query: str, k: int,
+                      leave_out: tuple[str, ...] = ()) -> list[Memory]: ...
     async def consolidate(self) -> ConsolidationReport: ...
     def forget(self, selector: str) -> int: ...
     def inspect(self, selector: str = "") -> list[Memory]: ...
 
 
 # --- the file backend (§6) ------------------------------------------------------
+
+def _one_line(text: str) -> str:
+    """A message as one journal line: its own line breaks become ` / `."""
+    return " / ".join(text.strip().splitlines())
+
 
 class FileMemoryStore:
     def __init__(self, vault: Path, embedder, utility=None, *,
@@ -177,10 +185,7 @@ class FileMemoryStore:
         day = when.strftime("%Y-%m-%d")
         rel = f"memory/episodic/{day}.md"
         path = self.vault / rel
-        one = lambda s: " / ".join(s.strip().splitlines())
-        entry = (f"### {when.strftime('%H:%M')}  "
-                 f"{self.user_name}: {one(record.user_msg)}  ⇄  "
-                 f"{self.char_name}: {one(record.reply)}\n")
+        entry = self._journal_line(when, record.user_msg, record.reply) + "\n"
         before = path.read_text(encoding="utf-8").count("\n") if path.exists() else 0
         if not path.exists():
             vaultgit.atomic_write(path, f"# Journal — {day}\n\n")
@@ -188,13 +193,83 @@ class FileMemoryStore:
         vaultgit.atomic_append(path, entry)
         return rel, f"{before + 1}-{before + 1}"
 
+    def _journal_prefix(self, when: datetime.datetime, user_msg: str) -> str:
+        """Everything an exchange's journal line says before her reply."""
+        return (f"### {when.strftime('%H:%M')}  "
+                f"{self.user_name}: {_one_line(user_msg)}  ⇄  {self.char_name}: ")
+
+    def _journal_line(self, when: datetime.datetime, user_msg: str,
+                      reply: str) -> str:
+        return self._journal_prefix(when, user_msg) + _one_line(reply)
+
+    def _exchange_text(self, record: Record) -> str:
+        """What the index embeds for one exchange."""
+        return f"{self.user_name}: {record.user_msg}\n{self.char_name}: {record.reply}"
+
+    async def refile(self, record: Record) -> WriteResult:
+        """The same exchange, with a different reply of hers (SPEC §39.3).
+
+        When you ask her for another reply, or pick an earlier one back, what
+        she remembers saying has to follow — otherwise the journal and the
+        index keep a reply that is no longer in the conversation, and DREAM
+        consolidates a night around words you threw away. So the exchange's
+        one journal line is rewritten where it stands, keeping its time, and
+        its one index row is re-embedded under the same id.
+
+        USER.md is left alone, deliberately: it is about *you*, your line has
+        not changed, and the extraction already read it. A line DREAM or a hand
+        has already moved is not chased: if the old line is not where the index
+        says, the exchange is written again at the end of the day it belongs to.
+        """
+        chunk_id = f"turn-{record.session_id}-{record.turn_index}"
+        old = self.index.get(chunk_id)
+        if old is None:
+            rel, span = self._journal_append(record)
+            created = record.ts
+        else:
+            created = datetime.datetime.fromisoformat(old.created_at)
+            when = created.astimezone() if created.tzinfo else created
+            rel = old.source_path
+            span = await asyncio.to_thread(
+                self._rewrite_journal_line, rel, when, record)
+        text = self._exchange_text(record)
+        vec = (await asyncio.to_thread(self.embedder.embed, [text]))[0]
+        self.index.upsert(
+            id=chunk_id, kind="turn", source_path=rel, source_span=span,
+            text=text, embedding=vec, created_at=created.isoformat(),
+            salience=old.salience if old is not None else 1.0)
+        return WriteResult(journal_path=rel, chunks_indexed=1,
+                           user_md_ops=0, quarantined=0)
+
+    def _rewrite_journal_line(self, rel: str, when: datetime.datetime,
+                              record: Record) -> str:
+        """Replace the newest line for this exchange in `rel`, keeping its
+        place and its time; append it if it is not there. Returns the span.
+        One read and one atomic write, back to back: the mind appends to the
+        same file without the Vault lock, and the window between the two is
+        what a line of hers could fall into."""
+        path = self.vault / rel
+        prefix = self._journal_prefix(when, record.user_msg)
+        line = self._journal_line(when, record.user_msg, record.reply)
+        lines = path.read_text(encoding="utf-8").split("\n") \
+            if path.exists() else []
+        for i in range(len(lines) - 1, -1, -1):
+            if lines[i].startswith(prefix):
+                lines[i] = line
+                vaultgit.atomic_write(path, "\n".join(lines))
+                return f"{i + 1}-{i + 1}"
+        moved = Record(session_id=record.session_id,
+                       turn_index=record.turn_index, user_msg=record.user_msg,
+                       reply=record.reply, ts=when)
+        return self._journal_append(moved)[1]
+
     async def remember(self, record: Record) -> WriteResult:
         """journal → index → partner model (§6.2). Tolerant by contract: a
         malformed utility reply is logged and dropped, never fatal to the turn."""
         rel, span = self._journal_append(record)
 
         # 2. embed + upsert one chunk row, traceable back to the journal line
-        text = f"{self.user_name}: {record.user_msg}\n{self.char_name}: {record.reply}"
+        text = self._exchange_text(record)
         # Off the loop, loaded or not: a cold load is tens of seconds, a server
         # embedder can hold the call for its whole timeout, and this host is
         # holding every other character's room open while it runs (§2.4).
@@ -394,26 +469,31 @@ class FileMemoryStore:
         # event loop and not a failed turn.
         return bool(getattr(self.embedder, "ready", True))
 
-    def recall(self, query: str, k: int = 6) -> list[Memory]:
+    def recall(self, query: str, k: int = 6,
+               leave_out: tuple[str, ...] = ()) -> list[Memory]:
         """Blocking: embeds the query on this thread. For a worker or a script —
-        anything on the event loop awaits `arecall` instead."""
+        anything on the event loop awaits `arecall` instead. `leave_out` names
+        index rows this recall must not return — the exchange a reply said
+        again is replacing (SPEC §39.2), which the first reply never saw."""
         if not self._can_recall():
             return []
-        return self._rank(self.embedder.embed([query])[0], k)
+        return self._rank(self.embedder.embed([query])[0], k, leave_out)
 
-    async def arecall(self, query: str, k: int = 6) -> list[Memory]:
+    async def arecall(self, query: str, k: int = 6,
+                      leave_out: tuple[str, ...] = ()) -> list[Memory]:
         """`recall` for the event loop (SPEC §2.4). The embed is the one step
         that waits on something else — a server that is swapping models, or a
         torch forward pass — so it alone goes to a worker; ranking stays here."""
         if not self._can_recall():
             return []
         q = (await asyncio.to_thread(self.embedder.embed, [query]))[0]
-        return self._rank(q, k)
+        return self._rank(q, k, leave_out)
 
-    def _rank(self, q, k: int) -> list[Memory]:
+    def _rank(self, q, k: int, leave_out: tuple[str, ...] = ()) -> list[Memory]:
         now = datetime.datetime.now(datetime.UTC)
-        rows = self.index.search(q, limit=k * 4)
-        rows = [r for r in rows if r.similarity >= self.retrieval_min_sim]
+        rows = self.index.search(q, limit=k * 4 + len(leave_out))
+        rows = [r for r in rows if r.similarity >= self.retrieval_min_sim
+                and r.id not in leave_out]
         # tombstoned memories are gone from every future prompt (§6.7)
         stones = [t.lower() for t in self.tombstones()]
         rows = [r for r in rows

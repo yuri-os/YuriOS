@@ -27,6 +27,11 @@
  *      corpus record behind them, never on a guess — and keep every open room
  *      showing the same one through the `rating` event.
  *
+ *   5. draw ‹ 2/3 › on her last reply (SPEC §39): ask her for another reply in
+ *      its place, or go back to one she gave before. Only on the line the host
+ *      marks `regenerable`, and repainted from the `swipe` event — the page
+ *      never holds the other replies' words, only which one of how many.
+ *
  * Sending is not here: typed input rides the voice socket exactly as before
  * (voice.js owns #text), so a typed turn keeps TurnController semantics —
  * TTS, barge-in, the works. The user bubble arrives back over the bus.
@@ -111,7 +116,7 @@
   }
 
   function dropDraft() {
-    if (draftEl) { draftEl.remove(); draftEl = null; }
+    if (draftEl) { draftEl.remove(); draftEl = null; settleControls(); }
   }
 
   const seen = new Set();               // a message can arrive live AND in the
@@ -239,9 +244,191 @@
     }
   }
 
+  /* ‹ 2/3 › (SPEC §39) — another reply in the place of her last one. The host
+   * says which line can still be redone (`regenerable`) and, once you have
+   * gone on from it, says it no longer can; this draws what it is told. ↻
+   * past the last reply asks her for a new one — through the composer, which
+   * locks and offers Stop as it does for any turn (voice.js) — and the new
+   * reply streams *into* her line as drafts tagged `again`, then lands there
+   * as a `swipe` event. */
+  const swipeState = new Map();         // id -> {swipe, swipes, regenerable}
+  const againLines = new Map();         // id -> the line as it was, while redone
+  const againAsked = new Map();         // client id -> line id, redos asked here
+  let busy = false;                     // the composer has a request in flight
+  // …or a new line is arriving under it (a reply, a greeting — from any room):
+  // a redo pressed now would only be refused once that line lands
+  const held = () => busy || Boolean(draftEl);
+
+  const REDO = '<path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/>';
+
+  function swipeOf(m) {
+    const known = swipeState.get(m.id) || {};
+    return {
+      swipe: Number(known.swipe ?? m.swipe ?? 0),
+      swipes: Number(known.swipes ?? m.swipes ?? 1),
+      regenerable: Boolean(known.regenerable ?? m.regenerable),
+    };
+  }
+
+  function swipeControl(m, her) {
+    if (!her || !m.id) return '';
+    const { swipe, swipes, regenerable } = swipeOf(m);
+    if (!regenerable) return '';
+    const button = (dir, label, inner, disabled = false) =>
+      `<button type="button" data-dir="${dir}" title="${label}" aria-label="${label}"` +
+      `${disabled || held() ? ' disabled' : ''}>${inner}</button>`;
+    const last = swipe >= swipes - 1;
+    let html = '';
+    if (swipes > 1) {
+      html += button('prev', 'her earlier reply', '‹', swipe <= 0) +
+              `<span class="count">${swipe + 1}/${swipes}</span>`;
+    }
+    html += last
+      ? button('again', 'ask her for another reply',
+               `<svg aria-hidden="true" viewBox="0 0 24 24">${REDO}</svg>`)
+      : button('next', 'her next reply', '›');
+    return `<span class="msg-swipe${swipes > 1 ? ' several' : ''}"` +
+           ` data-message-id="${esc(m.id)}" data-swipe="${swipe}"` +
+           ` data-swipes="${swipes}">${html}</span>`;
+  }
+
+  function lineOf(id) {
+    return messages && [...messages.querySelectorAll('.msg.her')]
+      .find((el) => el.dataset.messageId === id);
+  }
+
+  /** Her line as the host says it stands now: which reply of how many, whether
+   *  it can still be redone, and the thumb on *that* reply — a rating belongs
+   *  to a reply, so a swipe changes which one shows. */
+  function receiveSwipe(m) {
+    if (!m.id) return;
+    const div = lineOf(m.id);
+    const had = Number(swipeState.get(m.id)?.swipes ||
+                       div?.querySelector('.msg-swipe')?.dataset.swipes || 1);
+    swipeState.set(m.id, { swipe: m.swipe ?? 0, swipes: m.swipes ?? 1,
+                           regenerable: Boolean(m.regenerable) });
+    if (m.rateable) ratings.set(m.id, Number(m.thumbs || 0));
+    else ratings.delete(m.id);
+    // a reply more than this line had is the redo that was streaming into it
+    // — asked for here or in another room — arriving for good
+    if (Number(m.swipes || 1) > had) {
+      againLines.delete(m.id);
+      for (const [clientId, id] of againAsked) if (id === m.id) againAsked.delete(clientId);
+    }
+    if (!div) return;
+    paint(div, { ...m, role: 'assistant' }, true);
+    scroll();
+  }
+
+  /** Put the control's buttons in the state the line and the composer allow. */
+  function settleControl(group) {
+    if (!group) return;
+    for (const b of group.querySelectorAll('button')) {
+      b.disabled = held() || Boolean(group.dataset.busy) ||
+        (b.dataset.dir === 'prev' && Number(group.dataset.swipe) <= 0);
+    }
+  }
+
+  /** The composer took or released a request (voice.js): a redo or a switch
+   *  waits for it, as a second line typed would. */
+  function setBusy(on) {
+    busy = Boolean(on);
+    settleControls();
+  }
+
+  function settleControls() {
+    if (!messages) return;
+    for (const group of messages.querySelectorAll('.msg-swipe')) settleControl(group);
+  }
+
+  function markFailed(id, why) {
+    const group = lineOf(id)?.querySelector('.msg-swipe');
+    if (!group) return;
+    group.classList.add('failed');
+    group.title = why;
+  }
+
+  /** Her line, being said again: the words arriving so far in place of the
+   *  reply they replace, or — before the first of them — that reply dimmed
+   *  under "· …". What it was is kept to put back if the redo goes nowhere. */
+  function againDraft(id, text) {
+    const div = lineOf(id);
+    if (!div) return;
+    if (!againLines.has(id)) {
+      againLines.set(id, { html: div.innerHTML, cls: div.className });
+    }
+    if (text) {
+      div.className = 'msg her draft';
+      div.innerHTML = `<span class="who">${herName()} · …</span>` + esc(text);
+    } else if (!div.classList.contains('draft')) {
+      // the head a draft wears, over the reply it is about to replace
+      const was = document.createElement('div');
+      was.innerHTML = againLines.get(id).html;
+      was.querySelector('.who')?.remove();
+      div.className = 'msg her regenerating';
+      div.innerHTML = `<span class="who">${herName()} · …</span>` +
+        `<div class="was">${was.innerHTML}</div>`;
+    }
+    scroll();
+  }
+
+  /** The redo went nowhere: the line as it was before it began. */
+  function releaseLine(id) {
+    const was = againLines.get(id);
+    againLines.delete(id);
+    const div = lineOf(id);
+    if (!was || !div) return;
+    div.className = was.cls;
+    div.innerHTML = was.html;
+    settleControl(div.querySelector('.msg-swipe'));
+  }
+
+  /** voice.js is asking for a redo of this line under this request id. */
+  function beginAgain(id, clientId) {
+    againAsked.set(clientId, id);
+    againDraft(id, '');
+  }
+
+  async function swipeTo(button) {
+    const group = button.closest('.msg-swipe');
+    const id = group?.dataset.messageId;
+    if (!id || group.dataset.busy || held()) return;
+    const dir = button.dataset.dir;
+    if (dir === 'again') {
+      // a turn, so the composer runs it — and draws it as one
+      window.WorldVoice?.regenerate?.(id);
+      return;
+    }
+    const at = Number(group.dataset.swipe || 0);
+    group.dataset.busy = '1';
+    group.classList.remove('failed');
+    settleControl(group);
+    try {
+      const r = await fetch(apiPath('/api/swipe'), {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, swipe: at + (dir === 'prev' ? -1 : 1) }),
+      });
+      if (!r.ok) {
+        let why = '';
+        try { why = (await r.json()).detail || ''; } catch { /* not json */ }
+        throw new Error(why || String(r.status));
+      }
+      const data = await r.json();
+      if (data.message) receiveSwipe(data.message);   // the event may be late
+    } catch (err) {
+      // The host left the line as it was; put the control back and say why.
+      const now = lineOf(id)?.querySelector('.msg-swipe');
+      if (now) delete now.dataset.busy;
+      settleControl(now);
+      markFailed(id, "couldn't switch replies" + (err?.message ? ` — ${err.message}` : ''));
+    }
+  }
+
   messages?.addEventListener('click', (ev) => {
     const thumb = ev.target.closest?.('.msg-rate button');
     if (thumb) { rate(thumb); return; }
+    const swiper = ev.target.closest?.('.msg-swipe button');
+    if (swiper) { swipeTo(swiper); return; }
     const button = ev.target.closest?.('.msg-speak');
     if (button) window.WorldVoice?.speak?.(button.dataset.messageId);
   });
@@ -299,7 +486,8 @@
     let html = `<span class="who">${her ? herName() : 'you'}` +
                (m.proactive ? '<em>· she spoke first</em>' : '') +
                (receipt ? `<em class="receipt">${esc(receipt)}</em>` : '') +
-               stamp(m.ts) + speakButton(m, her) + rateButtons(m, her) + '</span>';
+               stamp(m.ts) + speakButton(m, her) + rateButtons(m, her) +
+               swipeControl(m, her) + '</span>';
     if (m.image_url) {
       // Hers is a selfie (SPEC §7.6); yours is a picture you sent her (§35) —
       // same element, same lane, and only the alt text knows the difference.
@@ -544,7 +732,7 @@
     forceScroll();
   }
 
-  function failPending(clientId, reason = 'not received') {
+  function failPending(clientId, reason = 'not received', detail = '') {
     // Not just the pending map: her line failing does not un-send yours, and
     // the user message arrives over SSE *before* the turn can fail, so addMsg
     // has already adopted the optimistic div and dropped it from `pending`.
@@ -552,6 +740,14 @@
     // showed a question sitting answered-looking forever. Same fallback addMsg
     // uses to find its own optimistic line.
     if (!clientId) return;
+    if (againAsked.has(clientId)) {
+      // a redo: no line of yours to mark — hers goes back to the reply it had
+      const id = againAsked.get(clientId);
+      againAsked.delete(clientId);
+      releaseLine(id);
+      markFailed(id, "couldn't get another reply" + (detail ? ` — ${detail}` : ''));
+      return;
+    }
     const div = pending.get(clientId) || (messages && [...messages.children]
       .find((el) => el.dataset.sentId === clientId));
     if (!div) return;
@@ -562,6 +758,12 @@
   }
 
   function stopPending(clientId) {
+    if (againAsked.has(clientId)) {
+      const id = againAsked.get(clientId);
+      againAsked.delete(clientId);
+      releaseLine(id);
+      return;
+    }
     const div = pending.get(clientId);
     if (!div) return;
     div.classList.remove('pending');
@@ -575,6 +777,7 @@
       draftEl = document.createElement('div');
       draftEl.className = 'msg her draft';
       messages.appendChild(draftEl);
+      settleControls();
     }
     draftEl.innerHTML = `<span class="who">${herName()} · …</span>` + esc(text);
     scroll();
@@ -920,8 +1123,12 @@
         if (m.unheard) markInboxRead();
         receiveMessage(m);
       } else if (m.type === 'rating') receiveRating(m);
-      else if (m.type === 'draft') addDraft(m.text);
-      else if (m.type === 'draft_cancel') dropDraft();
+      else if (m.type === 'swipe') receiveSwipe(m);
+      else if (m.type === 'draft') {
+        if (m.again) againDraft(m.again, m.text); else addDraft(m.text);
+      } else if (m.type === 'draft_cancel') {
+        if (m.again) releaseLine(m.again); else dropDraft();
+      }
     };
   }
 
@@ -937,6 +1144,11 @@
       es.close();
       es = null;
       dropDraft();
+      // …and a redo another room was streaming: its end may be what was missed
+      // (one of ours ends with its own answer). A redo still going re-marks
+      // the line with its next draft.
+      const ours = new Set(againAsked.values());
+      for (const id of [...againLines.keys()]) if (!ours.has(id)) releaseLine(id);
       openStream(onStatus, true);
     });
     // backfill what was said before this page opened (SPEC §2.6) — and what she
@@ -973,5 +1185,8 @@
     stopPending,
     markSpeaking,
     receiveRating,
+    receiveSwipe,
+    beginAgain,
+    setBusy,
   };
 })();

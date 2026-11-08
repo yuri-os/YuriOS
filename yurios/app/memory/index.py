@@ -126,6 +126,18 @@ class ChunkIndex:
         chunks.sort(key=lambda c: c.similarity, reverse=True)
         return chunks[:limit]
 
+    def get(self, id: str) -> Chunk | None:
+        """One row by id, or None — what re-filing an exchange starts from
+        (SPEC §39.3): where its journal line is, and when it was said."""
+        with self._lock:
+            row = self._db.execute("SELECT * FROM chunk WHERE id = ?",
+                                   (id,)).fetchone()
+        if row is None:
+            return None
+        cid, kind, spath, span, text, blob, created, salience = row
+        return Chunk(cid, kind, spath, span, text,
+                     np.frombuffer(blob, dtype=np.float32), created, salience)
+
     def all(self) -> list[Chunk]:
         with self._lock:
             rows = self._db.execute("SELECT * FROM chunk").fetchall()

@@ -38,6 +38,7 @@ import asyncio
 import logging
 import re
 from contextlib import nullcontext
+from typing import NoReturn
 
 from yurios.app.providers.usage import ACTED, LAST_STREAM, unanswered
 from yurios.desktop.voice.emotion import EmotionParser
@@ -95,9 +96,12 @@ class _Drafts:
     which is the cadence a reader perceives anyway.
     """
 
-    def __init__(self, hub, *, enabled: bool = True):
+    def __init__(self, hub, *, enabled: bool = True, again: str | None = None):
         self.hub = hub
         self.enabled = enabled          # a cold open shows its own text instead
+        # the line a redo is streaming into (SPEC §39.5): every room draws the
+        # draft *in* that line, not as a new bubble under it
+        self.tag = {"again": again} if again else {}
         self.shown: list[str] = []      # clean text, tags stripped, breaks kept
         self._unpublished = 0
 
@@ -113,7 +117,7 @@ class _Drafts:
         stream ends, so the room never sits on a draft cut mid-sentence while the
         commit waits behind a memory-extractor call."""
         if self._unpublished and self.enabled:
-            self.hub.publish("draft", {"text": self.text})
+            self.hub.publish("draft", {"text": self.text, **self.tag})
         self._unpublished = 0
 
     @property
@@ -123,6 +127,11 @@ class _Drafts:
 
 class RuntimeStopping(RuntimeError):
     """A request arrived after this character began shutting down."""
+
+
+class NotSwipeable(Exception):
+    """A line whose reply cannot be asked again (SPEC §39.1): not hers, not a
+    reply she made in a turn, not from a room, or no longer the last thing said."""
 
 
 class EmptyReply(RuntimeError):
@@ -272,71 +281,20 @@ class TextTurns:
             # blocked here would be waiting on a park waiting on it.
             await rt.park_gate.wait()
             rt.turn_started()
-            # A text turn keeps her narration: `*she leans in*` is how she
-            # shows a feeling in writing, and §9.7 already keeps the
-            # spoken-style block off this prompt for that reason. Only TTS
-            # strips it — there it would be read aloud.
-            parser = EmotionParser(default=rt.cfg.expression_default,
-                                   strip_narration=False)
-            raw: list[str] = []          # model output verbatim (tags kept, for persist)
-            drafts = _Drafts(rt.hub)     # clean text, tags stripped, line breaks kept
-            prev_events = 0
-            turn_context = getattr(rt.brain, "turn_context", None)
-            context = turn_context(channel=channel, client_id=client_id,
-                                   session_id=session_id) \
-                if turn_context else nullcontext()
             # The image part is the brain's business, not the runner's: what
             # this passes is the data url, and only when there is one, so a
             # brain seam that never heard of pictures (the route tests' fake)
             # keeps its two-argument signature.
             reply_kw = {"image": rt.uploads.data_url(attachment)} \
                 if attachment else {}
-            LAST_STREAM.set(None)        # this turn's reason, not an earlier one's
-            ACTED.set(False)
-            try:
-                with context:
-                    async for token in rt.brain.stream_reply(session_id, text,
-                                                             **reply_kw):
-                        raw.append(token)
-                        speakable = parser.push(token)
-                        # a closed tag drives the face before the text after it
-                        while len(parser.events) > prev_events:
-                            rt.controller.set_expression(
-                                parser.events[prev_events].expression, 1.0, reset_ms=0)
-                            prev_events += 1
-                        if speakable:
-                            drafts.push(speakable)
-                    tail = parser.finish()
-                    if tail:
-                        drafts.shown.append(tail)
-                    drafts.flush()
-            except asyncio.CancelledError:
-                rt.hub.publish("draft_cancel", {})
-                rt.brain.abandon(session_id)
-                raise
-            except Exception:
-                # a turn that didn't happen leaves no trace (B2 §4.4) — including
-                # in her memory: stream_reply already put the user's line in the
-                # session window, and only persist writes her half, so an
-                # un-rolled-back failure leaves a question the next prompt reads
-                # as still unanswered (she answers it again, in the next turn).
-                rt.hub.publish("draft_cancel", {})
-                rt.brain.abandon(session_id)
-                log.exception("text turn failed mid-stream (channel %s)", channel)
-                raise
-            finally:
-                rt.turn_ended()
+            raw, drafts = await self._pump(
+                rt.brain.stream_reply(session_id, text, **reply_kw),
+                session_id=session_id, channel=channel, client_id=client_id)
 
             entry = None
             reply = drafts.text
             if not reply and not ACTED.get():
-                rt.brain.abandon(session_id)   # nothing to commit — same rollback
-                tally = LAST_STREAM.get()
-                why = (tally.reason() if tally else "") \
-                    or "her reply had nothing in it to show"
-                log.warning("text turn came back empty (channel %s): %s %s",
-                            channel, why, tally.detail() if tally else "")
-                raise EmptyReply(why)
+                self._empty(session_id, channel)
             # No words, but a hand ran: the act is the reply. It is committed —
             # her memory keeps the call, REFLECT gets its outcome — and nothing
             # is drawn, because the tool row already is. Failing it would ask
@@ -362,3 +320,152 @@ class TextTurns:
             selfies = rt.selfies.active_ids(client_id) if rt.selfies else []
             return {"session_id": session_id, "message": entry,
                     "user_message": user_entry, "active_selfies": selfies}
+
+    async def _pump(self, agen, *, session_id: str, channel: str,
+                    client_id: str | None,
+                    again: str | None = None) -> tuple[list[str], _Drafts]:
+        """Stream one reply into the room: tags to the face, clean text out as
+        drafts. Returns the model's own tokens and the drafts. Ends the turn
+        `turn_started` began, however the stream does; a stream that fails is
+        cancelled on the page and rolled back in the brain, and raises."""
+        rt = self.rt
+        # A text turn keeps her narration: `*she leans in*` is how she shows a
+        # feeling in writing, and §9.7 already keeps the spoken-style block off
+        # this prompt for that reason. Only TTS strips it — there it would be
+        # read aloud.
+        parser = EmotionParser(default=rt.cfg.expression_default,
+                               strip_narration=False)
+        raw: list[str] = []          # model output verbatim (tags kept, for persist)
+        drafts = _Drafts(rt.hub, again=again)   # clean text, tags stripped, breaks kept
+        prev_events = 0
+        turn_context = getattr(rt.brain, "turn_context", None)
+        context = turn_context(channel=channel, client_id=client_id,
+                               session_id=session_id) \
+            if turn_context else nullcontext()
+        LAST_STREAM.set(None)        # this turn's reason, not an earlier one's
+        ACTED.set(False)
+        try:
+            with context:
+                async for token in agen:
+                    raw.append(token)
+                    speakable = parser.push(token)
+                    # a closed tag drives the face before the text after it
+                    while len(parser.events) > prev_events:
+                        rt.controller.set_expression(
+                            parser.events[prev_events].expression, 1.0, reset_ms=0)
+                        prev_events += 1
+                    if speakable:
+                        drafts.push(speakable)
+                tail = parser.finish()
+                if tail:
+                    drafts.shown.append(tail)
+                drafts.flush()
+        except asyncio.CancelledError:
+            rt.hub.publish("draft_cancel", drafts.tag)
+            rt.brain.abandon(session_id)
+            raise
+        except Exception:
+            # a turn that didn't happen leaves no trace (B2 §4.4) — including
+            # in her memory: stream_reply already put the user's line in the
+            # session window, and only persist writes her half, so an
+            # un-rolled-back failure leaves a question the next prompt reads
+            # as still unanswered (she answers it again, in the next turn).
+            rt.hub.publish("draft_cancel", drafts.tag)
+            rt.brain.abandon(session_id)
+            log.exception("text turn failed mid-stream (channel %s)", channel)
+            raise
+        finally:
+            rt.turn_ended()
+        return raw, drafts
+
+    def _empty(self, session_id: str, channel: str) -> NoReturn:
+        """Nothing to commit: roll the turn back and say why, in words."""
+        self.rt.brain.abandon(session_id)
+        tally = LAST_STREAM.get()
+        why = (tally.reason() if tally else "") \
+            or "her reply had nothing in it to show"
+        log.warning("text turn came back empty (channel %s): %s %s",
+                    channel, why, tally.detail() if tally else "")
+        raise EmptyReply(why)
+
+    async def regenerate(self, message_id: str, *, channel: str = "web",
+                         client_id: str | None = None) -> dict:
+        """Ask her for another reply in the place of her last one (SPEC §39.2).
+
+        The same turn again, from the line of yours it answered: streamed into
+        the room as a draft like any reply, then drawn *in* her line rather than
+        under it, persisted — a corpus record of its own, her memory of the
+        exchange re-filed — and shared with the mind like any committed reply.
+        The reply it replaces is kept on the line, one swipe back.
+
+        Raises `KeyError` for an unknown line, `NotSwipeable` for one that is
+        not her last reply, `LookupError` when the picture the line answered has
+        left the shelf, and `EmptyReply` when she has nothing new to say. Every
+        failure leaves the line exactly as it was."""
+        rt = self.rt
+        async with self._lock:
+            if rt.stopping.is_set():
+                raise RuntimeStopping("character is stopping")
+            session_id, you, _her = await asyncio.to_thread(
+                rt.swipe_target, message_id)
+            text = str(you.get("text") or "")
+            reply_kw = {}
+            if you.get("image_url"):
+                name = str(you["image_url"]).rsplit("/", 1)[-1]
+                attachment = rt.uploads.get(name)
+                if attachment is None:
+                    raise LookupError("the picture that line answered is no "
+                                      "longer on the shelf")
+                reply_kw = {"image": rt.uploads.data_url(attachment)}
+            await rt.park_gate.wait()          # the §7.6 door, as in `run`
+            # every room marks the line as being said again before a word of
+            # it arrives — the tab that asked, and any other one open (§39.5)
+            rt.hub.publish("draft", {"text": "", "again": message_id})
+            rt.turn_started()
+            raw, drafts = await self._pump(
+                rt.brain.stream_again(session_id, text, **reply_kw),
+                session_id=session_id, channel=channel, client_id=client_id,
+                again=message_id)
+            reply = drafts.text
+            if not reply:
+                # A hand-only reply is a turn in `run`; here there would be no
+                # words to put in her line, and the line is the whole point.
+                rt.hub.publish("draft_cancel", drafts.tag)
+                self._empty(session_id, channel)
+            rt.add_swipe(message_id, reply)
+            rt.committing()
+            async with rt.park_gate.hold():
+                tool_outcomes = await rt.brain.persist(
+                    session_id, text, "".join(raw))
+            rt.turn_filed(message_id)
+            rt.signals.post("turn_committed",
+                            {"text": text, "reply": reply,
+                             "tool_outcomes": tool_outcomes}, source=channel)
+            # the line as it stands now that the reply is filed — rateable —
+            # rather than as it was drawn a moment before
+            return {"session_id": session_id,
+                    "message": rt.swipe_entry(message_id)}
+
+    async def pick(self, message_id: str, index: int) -> dict:
+        """Make one of the replies she has given on her last line the one that
+        stands (SPEC §39.3): the line shows it, the next prompt continues from
+        it, and her memory of the exchange is re-filed under it. Nothing is
+        generated. Raises like `regenerate`, and `IndexError` for a reply the
+        line does not have."""
+        rt = self.rt
+        async with self._lock:
+            if rt.stopping.is_set():
+                raise RuntimeStopping("character is stopping")
+            session_id, you, her = await asyncio.to_thread(
+                rt.swipe_target, message_id)
+            alts = her.get("alts") or [her]
+            if not 0 <= index < len(alts):
+                raise IndexError(index)
+            if index == her.get("swipe", 0):
+                return {"session_id": session_id,
+                        "message": rt._publish_swipe(her, regenerable=True)}
+            entry = rt.pick_swipe(message_id, index)
+            chosen = alts[index]
+            await rt.brain.refile(session_id, str(you.get("text") or ""),
+                                  chosen.get("raw") or chosen.get("text") or "")
+            return {"session_id": session_id, "message": entry}

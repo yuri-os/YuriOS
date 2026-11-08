@@ -21,6 +21,8 @@ record and is folded back on read:
   `{"raw_for": "<id>", "raw": …, "w": 1}`      what the model produced for it
   `{"drawn_for": "<id>", …}`                   how the page draws it
   `{"unwind": "<id>"}`                         it leaves the window, not the page
+  `{"swipe_for": "<id>", "text": …}`           another reply in its place (§39)
+  `{"pick_for": "<id>", "swipe": n}`           which of those replies stands
 
 Either half may be written first, so both can create the line and both can patch
 it. A reply is drawn the instant the stream ends and admitted a moment later
@@ -34,6 +36,14 @@ barged-in turn must stop feeding the next prompt, but your own line stays on
 screen where you can see you said it. Two facts about one line that the old
 split expressed by accident — the chat file kept it, the session file dropped it
 — and that a merged store has to say out loud.
+
+**One line, several replies (§39).** A reply you asked her to say again keeps
+its id: the page redraws one bubble, a rating still names one line, and the
+walk back still pages by it. Every reply she gave there is kept on the row as
+`alts` (its `text`, `raw` and corpus `turn_id`), and `swipe` says which one
+stands. The fold copies the standing one onto the row's own fields, so every
+reader above — the window, the page, the rating — sees the reply that was
+picked and nothing else, without knowing alternatives exist.
 
 **The window is admitted to, never inferred.** `w` is what puts a line in the
 §7.1 window, and only `SessionStore.append_message` sets it. That matters
@@ -83,6 +93,14 @@ SPOKEN_ROLES = ("user", "assistant")
 
 #: Fields that belong to the model's side of a line and never to the page's.
 _WINDOW_ONLY = ("raw", "turn_id")
+
+#: What one of a line's alternative replies carries (§39): the words drawn, the
+#: model's own, and the corpus record that a rating or a preference joins to.
+_ALT_FIELDS = ("text", "raw", "turn_id")
+
+#: Kept on the row for the fold and the runtime, never sent to a page — it holds
+#: every reply's raw text, and the page only needs to know which one and of how many.
+INTERNAL_FIELDS = ("alts",)
 
 #: What the page needs and the window has no use for. `post_message` builds
 #: exactly these (`world/main.py`), and a line missing them was never drawn.
@@ -269,6 +287,13 @@ class ConversationLog:
                 return row.get("id") if row.get("role") == role else None
         return None
 
+    def last_exchange(self) -> tuple[dict, dict] | None:
+        """`(your line, her reply)` when her reply is the newest line of the
+        conversation, folded — the one reply that can still be asked again
+        (§39.1). See `last_exchange` below."""
+        with self._lock:
+            return last_exchange(self._fold())
+
     # ---- writing -------------------------------------------------------------
 
     def add(self, entry: dict, *, window: bool = False,
@@ -326,6 +351,18 @@ class ConversationLog:
         """
         if message_id:
             self._append({"unwind": message_id})
+
+    def add_swipe(self, message_id: str, text: str) -> None:
+        """Another reply in place of `message_id`'s, drawn and standing (§39).
+        Its model half arrives later through `attach_raw`, exactly as a first
+        reply's does, and lands on the reply this made current."""
+        if message_id:
+            self._append({"swipe_for": message_id, "text": text})
+
+    def pick(self, message_id: str, index: int) -> None:
+        """Make reply `index` of a line the one that stands (§39)."""
+        if message_id:
+            self._append({"pick_for": message_id, "swipe": int(index)})
 
     def _append(self, record: dict) -> None:
         path = self.path
@@ -543,13 +580,23 @@ def fold(path: Path) -> tuple[list[dict], int | None]:
                     continue
                 records += 1
                 target = (rec.get("raw_for") or rec.get("drawn_for")
-                          or rec.get("unwind"))
+                          or rec.get("unwind") or rec.get("swipe_for")
+                          or rec.get("pick_for"))
                 if target:
                     row = index.get(target)
                     if row is None:
                         continue
                     if rec.get("unwind"):
                         row["unwound"] = True
+                    elif rec.get("swipe_for"):
+                        alts = _alts(row)
+                        alts.append({"text": rec.get("text") or ""})
+                        _stand(row, len(alts) - 1)
+                    elif rec.get("pick_for"):
+                        alts = _alts(row)
+                        chosen = rec.get("swipe")
+                        if isinstance(chosen, int) and 0 <= chosen < len(alts):
+                            _stand(row, chosen)
                     elif rec.get("drawn_for"):
                         # The page's half landing second overwrites `text`, and
                         # on a line the window created that text *is* the
@@ -570,6 +617,12 @@ def fold(path: Path) -> tuple[list[dict], int | None]:
                         for field in _WINDOW_ONLY:
                             if rec.get(field) is not None:
                                 row[field] = rec[field]
+                    kept, at = row.get("alts"), row.get("swipe")
+                    if (isinstance(kept, list) and isinstance(at, int)
+                            and 0 <= at < len(kept)):
+                        # whatever was patched belongs to the reply that stands
+                        kept[at] = {k: row[k] for k in _ALT_FIELDS
+                                    if row.get(k) is not None}
                     continue
                 if not rec.get("id"):
                     continue
@@ -582,6 +635,68 @@ def fold(path: Path) -> tuple[list[dict], int | None]:
                     path, exc_info=True)
         return [], None
     return rows, records
+
+
+def _alts(row: dict) -> list[dict]:
+    """A row's alternative replies, starting the list from the row itself the
+    first time it gets a second one."""
+    if not isinstance(row.get("alts"), list) or not row["alts"]:
+        row["alts"] = [{k: row[k] for k in _ALT_FIELDS if row.get(k) is not None}]
+        row["swipe"] = 0
+    return row["alts"]
+
+
+def _stand(row: dict, chosen: int) -> None:
+    """Make one alternative the row's own words — the only ones any reader
+    sees. A field the chosen reply lacks is removed, not inherited: a second
+    reply whose raw has not landed yet must not borrow the first one's."""
+    reply = row["alts"][chosen]
+    row["swipe"] = chosen
+    row["swipes"] = len(row["alts"])
+    for k in _ALT_FIELDS:
+        if reply.get(k) is not None:
+            row[k] = reply[k]
+        else:
+            row.pop(k, None)
+
+
+def last_exchange(rows: list[dict]) -> tuple[dict, dict] | None:
+    """The conversation's last exchange, if her reply is the newest line in
+    any window and on the page: `(your line, her reply)`. None when anything
+    else is — your next line, a rolled-back turn, a line she said on her own
+    after it, a window that starts with her.
+
+    Across sessions, not per session: a page that opens mints a session of its
+    own, but the column you read is one conversation, and a reply of hers with a
+    whole other exchange drawn beneath it is not the last word of anything. Only
+    the last word can be replaced, because everything after it was said in
+    answer to it. `rows` is a folded log, oldest first.
+    """
+    admitted = [r for r in rows if r.get("w") and not r.get("unwound")]
+    if not admitted or admitted[-1].get("role") != "assistant":
+        return None
+    her = admitted[-1]
+    # …and the newest line on the page, too, not only in the window: a greeting,
+    # a reach-out, a photo or a line of yours that never got its answer, drawn
+    # beneath her reply, is said after it (a chip for a hand she used is not a
+    # line). A row with neither flag is one the ring holds and the log missed —
+    # on the page all the same.
+    at = next(i for i in range(len(rows) - 1, -1, -1) if rows[i] is her)
+    if any(r.get("role") != "tool" and (r.get("d") or ("w" not in r and "d" not in r))
+           for r in rows[at + 1:]):
+        return None
+    you = next((r for r in reversed(admitted[:-1])
+                if r.get("session_id") == her.get("session_id")), None)
+    if you is None or you.get("role") != "user":
+        return None
+    return dict(you), dict(her)
+
+
+def swipeable(rows: list[dict]) -> set[str]:
+    """The id of the line whose reply can still be asked again (§39.1), as a
+    set — empty, or the one."""
+    pair = last_exchange(rows)
+    return {pair[1]["id"]} if pair and pair[1].get("id") else set()
 
 
 def read_entries(vault: Path | str) -> list[dict]:

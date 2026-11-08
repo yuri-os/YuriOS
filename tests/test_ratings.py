@@ -231,7 +231,8 @@ def test_raw_is_every_turn_with_the_rating_joined_in(corpus):
     assert [r["id"] for r in rows] == ids
     assert [r.get("rating", {}).get("thumbs") for r in rows] == [1, -1, None]
     assert rows[0]["completion"] == "a0"         # the record itself, verbatim
-    assert stats == {"turns": 3, "up": 1, "down": 1, "orphaned": 1}
+    assert stats == {"turns": 3, "up": 1, "down": 1, "preferences": 0,
+                     "orphaned": 1}
     assert [r["id"] for r in export(path, rated_only=True)[0]] == ids[:2]
 
 

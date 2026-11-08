@@ -90,6 +90,8 @@ class FakeBrain:
         self.images: list[str | None] = []                    # …and every picture shown
         self.tool_outcomes: list[dict] = []
         self._gate: asyncio.Event | None = None
+        self.again_calls: list[tuple[str, str]] = []          # replies said again
+        self.refiled: list[tuple[str, str, str]] = []         # …and re-filed (§39)
 
     def cold_open(self) -> str | None:
         """The authored scene she opens on before she has met anyone, or None."""
@@ -116,6 +118,17 @@ class FakeBrain:
                 self._gate.set()
             yield tok
             await asyncio.sleep(0)      # a real await point — cancellation lands here
+
+    async def stream_again(self, session_id: str, text: str,
+                           image: str | None = None):
+        """Another reply to the line just answered (SPEC §39) — the same script
+        with a spy, so a route test can tell which door a stream came through."""
+        self.again_calls.append((session_id, text))
+        async for tok in self.stream_reply(session_id, text, image):
+            yield tok
+
+    async def refile(self, session_id: str, user_text: str, reply: str) -> None:
+        self.refiled.append((session_id, user_text, reply))
 
     async def stream_greeting(self, session_id: str):
         for tok in _wordish(self.cold or "[happy] Oh, there you are."):

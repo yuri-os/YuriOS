@@ -25,11 +25,12 @@ import asyncio
 import logging
 
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StrictInt
 
 from yurios.app.providers.admission import InferenceBusy
 from yurios.desktop.voice.transcript import is_meaningful_transcript
-from yurios.world.turns import EmptyReply, RuntimeStopping
+from yurios.desktop.brain import NothingToRedo
+from yurios.world.turns import EmptyReply, NotSwipeable, RuntimeStopping
 
 log = logging.getLogger("world.chat")
 router = APIRouter()
@@ -57,6 +58,21 @@ class GreetRequest(BaseModel):
     channel: str = Field(default="api", max_length=24, pattern=r"^[a-z0-9_-]+$")
     client_id: str | None = Field(default=None, max_length=64,
                                   pattern=r"^[A-Za-z0-9_-]+$")
+
+
+class AgainRequest(BaseModel):
+    """Another reply in the place of her last one (SPEC §39.2)."""
+    # the transcript id of her line, as the page drew it
+    id: str = Field(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
+    client_id: str | None = Field(default=None, max_length=64,
+                                  pattern=r"^[A-Za-z0-9_-]+$")
+    channel: str = Field(default="web", max_length=24, pattern=r"^[a-z0-9_-]+$")
+
+
+class SwipeRequest(BaseModel):
+    """Which of the replies on her last line stands (SPEC §39.3)."""
+    id: str = Field(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
+    swipe: StrictInt = Field(ge=0, le=999)
 
 
 class CancelRequest(BaseModel):
@@ -203,6 +219,51 @@ async def greeting(req: GreetRequest, request: Request):
         raise HTTPException(503, str(e)) from e
     except Exception as e:  # noqa: BLE001 — nothing was committed (turns.py)
         raise HTTPException(502, f"greeting failed: {e}")
+
+
+@router.post("/api/regenerate")
+async def regenerate(req: AgainRequest, request: Request):
+    """Ask her for another reply to the line she just answered (SPEC §39.2).
+    The reply streams as a `draft` like any other and lands in her line as a
+    `swipe` event; this answers with the line as it now stands."""
+    rt = request.app.state.rt
+    try:
+        async with request.app.state.turn_admission:
+            return await _tracked(request, req.client_id, rt.turns.regenerate(
+                req.id, channel=req.channel, client_id=req.client_id))
+    except HTTPException:
+        raise
+    except InferenceBusy:
+        raise
+    except RuntimeStopping as e:
+        raise HTTPException(503, str(e)) from e
+    except KeyError:
+        raise HTTPException(404, "no such line in this conversation") from None
+    except (NotSwipeable, NothingToRedo):
+        raise HTTPException(409, "only her last reply can be said again") from None
+    except LookupError as e:   # the picture it answered has left the shelf
+        raise HTTPException(404, str(e))
+    except EmptyReply as e:
+        raise HTTPException(502, str(e))
+    except Exception as e:  # noqa: BLE001 — her line is as it was (turns.py)
+        raise HTTPException(502, f"another reply failed: {e}")
+
+
+@router.post("/api/swipe")
+async def swipe(req: SwipeRequest, request: Request):
+    """Make one of the replies on her last line the one that stands (SPEC
+    §39.3) — what the ‹ › on her line press. Nothing is generated."""
+    rt = request.app.state.rt
+    try:
+        return await rt.turns.pick(req.id, req.swipe)
+    except RuntimeStopping as e:
+        raise HTTPException(503, str(e)) from e
+    except KeyError:
+        raise HTTPException(404, "no such line in this conversation") from None
+    except NotSwipeable:
+        raise HTTPException(409, "only her last reply can be swiped") from None
+    except IndexError:
+        raise HTTPException(404, "that line has no such reply") from None
 
 
 @router.post("/api/chat/cancel")

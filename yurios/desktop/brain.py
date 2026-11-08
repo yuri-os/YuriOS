@@ -26,7 +26,7 @@ from yurios.app.core import assemble as asm
 from yurios.app.corpus import CorpusLogger  # noqa: F401 (documents the reused surface)
 from yurios.app.main import AppState, create_app
 from yurios.app.memory.store import Record
-from yurios.app.routes.chat import post_turn
+from yurios.app.routes.chat import post_turn, refile_turn
 from yurios.app import vaultgit
 from yurios.mind.util import estimate_tokens
 from yurios.kernel import correlate
@@ -52,6 +52,14 @@ class _Pending:
     prompt: object
     turn_index: int
     soul: object
+    #: another reply to a line she has already answered (SPEC §39): your line
+    #: is in the window already, and her new reply replaces her last one
+    again: bool = False
+
+
+class NothingToRedo(LookupError):
+    """Her reply is not the last thing in this session's window any more, so
+    there is no reply of hers to say again (SPEC §39.1)."""
 
 
 class BrainAdapter:
@@ -290,13 +298,14 @@ class BrainAdapter:
         return self.state.sessions.create()
 
     async def _assemble(self, session_id: str, text: str, *, window: list[dict],
-                        lore) -> object:
+                        lore, leave_out: tuple[str, ...] = ()) -> object:
         """One assembled prompt (Build #1) + the Build #2 expression block (§6).
 
         Async for the two lookups alone: each embeds the message, and an
         embedder can hold a call for seconds, so the vectors come from a worker
         while every other character on the node keeps talking (SPEC §2.4)."""
-        memories = await self.state.store.arecall(text, self.cfg.retrieval_k)
+        memories = await self.state.store.arecall(text, self.cfg.retrieval_k,
+                                                  leave_out=leave_out)
         knowledge = await self._recall_knowledge(text)
         soul = self.state.soul_loader.load()                  # read every turn (§5)
         goals, goals_complete = self._open_goals()
@@ -344,24 +353,75 @@ class BrainAdapter:
         rides *this* prompt only: what stays behind in the window, and in the
         corpus, is the note (§35), because a photo re-sent with every later turn
         would eat the window it was small enough to fit in the first place."""
-        turn_index = self.state.sessions.get(session_id)["turn_count"]
-        soul, prompt = await self._assemble(
-            session_id, text,
-            window=self.state.sessions.window(session_id, self.cfg.raw_window_turns),
-            lore=self.state.soul_loader.load().lorebook_hits(text))
-        if image:
-            asm.mark_picture(prompt.messages)
+        async for token in self._stream(session_id, text, image, again=False):
+            yield token
 
-        self.state.sessions.append_message(
-            session_id, "user", asm.note_picture(text) if image else text)
-        self._pending[session_id] = _Pending(prompt, turn_index, soul)
+    async def stream_again(self, session_id: str, text: str,
+                           image: str | None = None) -> AsyncIterator[str]:
+        """Another reply to the line she just answered (SPEC §39.2).
 
+        The prompt is the one that line was answered from — the same window,
+        your same line last — rebuilt now, so recall and the situation are
+        today's. Nothing is appended: your line is in the window already, and
+        her new reply takes the place of her last one when it persists.
+        Raises `NothingToRedo` before the model is called when her reply is no
+        longer the last thing said."""
+        async for token in self._stream(session_id, text, image, again=True):
+            yield token
+
+    async def _stream(self, session_id: str, text: str, image: str | None,
+                      *, again: bool) -> AsyncIterator[str]:
+        soul, prompt, turn_index = await self._open(session_id, text, again=again)
+        self._admit(session_id, text, image, prompt, turn_index, soul, again=again)
         messages = asm.with_image(prompt.messages, image) if image \
             else prompt.messages
         async for token in self.state.chat.stream(
                 messages, temperature=self.cfg.temperature,
                 max_tokens=self.cfg.max_reply_tokens):
             yield token
+
+    def _redo_window(self, session_id: str) -> list[dict]:
+        """The window her last reply was answered from: the current one with
+        that exchange — your line and her reply — taken off the end."""
+        n = self.cfg.raw_window_turns
+        window = self.state.sessions.window(session_id, n + 2)
+        if (len(window) < 2 or window[-1]["role"] != "assistant"
+                or window[-2]["role"] != "user"):
+            raise NothingToRedo(session_id)
+        return window[:-2][-n:] if n > 0 else []
+
+    async def _open(self, session_id: str, text: str, *,
+                    again: bool) -> tuple[object, object, int]:
+        """The assembled prompt for a turn, and its index. A reply said again
+        belongs to the turn it replaces — the one `persist` already counted."""
+        turn_count = self.state.sessions.get(session_id)["turn_count"]
+        leave_out: tuple[str, ...] = ()
+        if again:
+            window = self._redo_window(session_id)
+            turn_index = max(0, turn_count - 1)
+            # …and her memory of the exchange being replaced is not recalled
+            # into it: the first reply was answered before it existed, and
+            # recalling it would hand her the reply you asked her not to give
+            leave_out = (f"turn-{session_id}-{turn_index}",)
+        else:
+            window = self.state.sessions.window(session_id, self.cfg.raw_window_turns)
+            turn_index = turn_count
+        soul, prompt = await self._assemble(
+            session_id, text, window=window,
+            lore=self.state.soul_loader.load().lorebook_hits(text),
+            leave_out=leave_out)
+        return soul, prompt, turn_index
+
+    def _admit(self, session_id: str, text: str, image: str | None, prompt,
+               turn_index: int, soul, *, again: bool) -> None:
+        """Your line into the window — unless it is there already — and the
+        turn marked in flight, so `persist` or `abandon` can close it."""
+        if image:
+            asm.mark_picture(prompt.messages)
+        if not again:
+            self.state.sessions.append_message(
+                session_id, "user", asm.note_picture(text) if image else text)
+        self._pending[session_id] = _Pending(prompt, turn_index, soul, again)
 
     def abandon(self, session_id: str) -> None:
         """The other close-out: this turn never happened (barge-in, brain error).
@@ -373,7 +433,10 @@ class BrainAdapter:
         time alongside the new one. Idempotent, and a no-op unless *this*
         session had a reply in flight (a greeting or an ambient line appends
         nothing, so cancelling one must never touch the transcript)."""
-        if self._pending.pop(session_id, None) is None:
+        pend = self._pending.pop(session_id, None)
+        if pend is None or pend.again:
+            # A reply said again appended nothing: your line was answered
+            # already, and her last reply still stands where it was (§39.2).
             return
         self.state.sessions.drop_last(session_id, "user")
 
@@ -391,7 +454,7 @@ class BrainAdapter:
             companion=pend.soul.name.lower(),
             template_version=pend.prompt.template_version,
             gen_params={"temperature": self.cfg.temperature},
-            tags=["voice"])
+            tags=["voice", "again"] if pend.again else ["voice"])
         if self.prompt_log is not None:
             # A pointer, not a copy: the corpus already holds this prompt, and it
             # is the record ratings.jsonl joins against. What the prompt log adds
@@ -405,13 +468,30 @@ class BrainAdapter:
                 tokens_in=sum(estimate_tokens(m.get("content") or "")
                               for m in pend.prompt.messages),
                 tokens_out=estimate_tokens(reply))
+        record = Record(session_id=session_id, turn_index=pend.turn_index,
+                        user_msg=user_text, reply=reply)
+        if pend.again:
+            # Another reply in the place of her last (SPEC §39.3): the line
+            # takes it, and what she remembers saying follows. The turn was
+            # counted the first time; the corpus keeps both replies.
+            self.state.sessions.revise_last(session_id, reply, turn_id=turn_id)
+            await refile_turn(self.state, record)
+            return []
         self.state.sessions.append_message(session_id, "assistant", reply,
                                            turn_id=turn_id)
         self.state.sessions.bump_turn(session_id)
-        record = Record(session_id=session_id, turn_index=pend.turn_index,
-                        user_msg=user_text, reply=reply)
         await post_turn(self.state, record, session_id, pend.turn_index + 1)
         return []
+
+    async def refile(self, session_id: str, user_text: str, reply: str) -> None:
+        """You picked a different reply of hers to stand (SPEC §39.3): the
+        window already reads it (the log's own fold), so what is left is her
+        memory of the exchange — its journal line and its index row."""
+        turn_count = self.state.sessions.get(session_id)["turn_count"]
+        record = Record(session_id=session_id,
+                        turn_index=max(0, turn_count - 1),
+                        user_msg=user_text, reply=reply)
+        await refile_turn(self.state, record)
 
     # -- the greeting: she speaks first (SPEC §7) -------------------------------
     def _has_history(self) -> bool:

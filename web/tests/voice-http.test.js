@@ -186,7 +186,7 @@ it('tells the room when the turn itself failed, not just the console', async () 
   els.send.click();
 
   await vi.waitFor(() => expect(window.WorldChat.failPending)
-    .toHaveBeenCalledWith(expect.any(String), 'no reply'));
+    .toHaveBeenCalledWith(expect.any(String), 'no reply', expect.any(String)));
   expect(els.text.placeholder).toContain('turn failed');
 });
 
@@ -234,7 +234,7 @@ it('says not received when the request never landed', async () => {
   els.send.click();
 
   await vi.waitFor(() => expect(window.WorldChat.failPending)
-    .toHaveBeenCalledWith(expect.any(String), 'not received'));
+    .toHaveBeenCalledWith(expect.any(String), 'not received', expect.any(String)));
 });
 
 it('marks the line when a spoken turn comes back with no reply', async () => {

@@ -393,7 +393,7 @@ class ToolBrain(BrainAdapter):
 
     # -- prompt assembly: the blocks + the situation (SPEC §19.2) ------
     async def _assemble(self, session_id: str, text: str, *, window: list[dict],
-                        lore) -> object:
+                        lore, leave_out: tuple[str, ...] = ()) -> object:
         """B2's assembly, then the present tense appended — so every prompt
         (reply, greeting, ambient self-talk) knows when and where she is. With
         the mind running, the block is the world model's live stage (presence,
@@ -401,7 +401,7 @@ class ToolBrain(BrainAdapter):
         rendering of host state. The clock is the guard's injected one, never
         the wall clock."""
         soul, prompt = await super()._assemble(session_id, text, window=window,
-                                               lore=lore)
+                                               lore=lore, leave_out=leave_out)
         if self.world is not None:
             situation = self.world.situation()
         else:
@@ -417,14 +417,22 @@ class ToolBrain(BrainAdapter):
     # -- the ReplyBrain seam, re-streamed through the tool loop ----------------
     async def stream_reply(self, session_id: str, text: str,
                            image: str | None = None) -> AsyncIterator[str]:
-        # bookkeeping mirrors the BrainAdapter.stream_reply line for line
-        # (B2 §2.2 — the base body streams directly, so the override restates it)
-        from yurios.desktop.brain import _Pending
-        turn_index = self.state.sessions.get(session_id)["turn_count"]
-        soul, prompt = await self._assemble(
-            session_id, text,
-            window=self.state.sessions.window(session_id, self.cfg.raw_window_turns),
-            lore=self.state.soul_loader.load().lorebook_hits(text))
+        async for token in self._stream(session_id, text, image, again=False):
+            yield token
+
+    async def stream_again(self, session_id: str, text: str,
+                           image: str | None = None) -> AsyncIterator[str]:
+        """Another reply to the line she just answered, through the same loop
+        and with the same hands (SPEC §39.2). What a hand did in the reply it
+        replaces stays done — a note written is still on her desk."""
+        async for token in self._stream(session_id, text, image, again=True):
+            yield token
+
+    async def _stream(self, session_id: str, text: str, image: str | None,
+                      *, again: bool) -> AsyncIterator[str]:
+        # bookkeeping mirrors BrainAdapter._stream (B2 §2.2), with the tools
+        # directive between the assembly and the admission
+        soul, prompt, turn_index = await self._open(session_id, text, again=again)
         goal_status = asm.is_goal_status_request(text)
         goal_mutation = asm.is_goal_mutation_request(text)
         directive = self.directive()
@@ -432,12 +440,9 @@ class ToolBrain(BrainAdapter):
                                                    # the tools directive (§7.4); the
                                                    # situation block rides _assemble (§2.5)
             prompt.messages[0]["content"] += f"\n\n## TOOLS\n\n{directive}"
-        if image:                                  # a picture you sent (§35)
-            asm.mark_picture(prompt.messages)
-
-        self.state.sessions.append_message(
-            session_id, "user", asm.note_picture(text) if image else text)
-        self._pending[session_id] = _Pending(prompt, turn_index, soul)
+        # a picture you sent (§35) is marked, and your line admitted unless
+        # this is a reply said again to it
+        self._admit(session_id, text, image, prompt, turn_index, soul, again=again)
 
         raw: list[str] = []
         outcomes: list[dict] = []

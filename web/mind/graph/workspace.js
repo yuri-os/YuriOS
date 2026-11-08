@@ -102,19 +102,7 @@ export async function mountGraph(section, params, deps) {
   if (!ws.model || ws.loadedDays !== ws.state.days || ws.stale) {
     await load(ws.state.days, { keepRange: fromLink && params.r });
   }
-  // A link to a record the window does not hold widens to everything once,
-  // rather than opening on a selection that silently isn't there.
-  if (ws.state.selected && !ws.model.byId.has(ws.state.selected) && ws.state.days !== 0) {
-    const wanted = ws.state.selected;
-    ws.state.days = 0;
-    await load(0);
-    ws.state.selected = wanted;
-    if (ws.model.byId.has(wanted)) reveal(wanted);
-  }
-  if (ws.state.selected && !ws.model.byId.has(ws.state.selected)) {
-    ws.toast("That record is no longer on disk — its log has rolled past it.");
-    ws.state.selected = null;
-  }
+  clearMissingSelection();
   ws.els = buildChrome();
   return ws.els.root;
 }
@@ -180,7 +168,15 @@ async function load(days, { keepRange = false, followLatest = false } = {}) {
     ws.state.t1 = tMax;
   }
   clampRange();
-  if (ws.state.selected && !ws.model.byId.has(ws.state.selected) && days === 0) {
+}
+
+function clearMissingSelection() {
+  // A missing selection must not turn the default week into an unbounded load.
+  // The reader can explicitly choose a wider window if they want older records.
+  if (ws.state.selected && !ws.model.byId.has(ws.state.selected)) {
+    ws.toast(ws.state.days === 0
+      ? "That record is no longer on disk — its log has rolled past it."
+      : "That record is outside the loaded window or no longer on disk. Choose a wider window to look further back.");
     ws.state.selected = null;
   }
 }
@@ -304,6 +300,7 @@ async function reload({ keepRange = false, followLatest = false } = {}) {
     { className: "gx-empty", textContent: "Reading her traces…" }));
   try {
     await load(ws.state.days, { keepRange, followLatest });
+    clearMissingSelection();
   } catch (error) {
     ws.deps.toast(error?.message || "Could not read her traces.");
   }

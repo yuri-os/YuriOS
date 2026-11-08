@@ -2960,7 +2960,11 @@ The product half of autonomy: what converts an always-on process from creepy to 
   log: the prompt log rolls whole, and its live file is recreated only by her next model call, so an
   index that read the live file alone would go blank on every quiet day after a roll. A tick's detail **MUST** describe the tick in the
   same shape and sentence the graph does. The six views share one loaded window, one range, one set
-  of kind filters, one search and one selection, all carried in the hash; a bus event that means new
+  of kind filters, one search and one selection, all carried in the hash. The loaded window **MUST**
+  default to one week; an explicit window in the hash or chosen by the reader is preserved. A selected
+  record absent from that window **MUST NOT** automatically widen it or trigger an all-history fetch;
+  the page **MUST** clear the selection and explain that the record is outside the loaded window or
+  no longer retained. A bus event that means new
   records marks them stale and says so, and **MUST NOT** redraw them under the reader. A successful
   manual reload **MUST** clear the stale notice; when the visible range reached the previous window's
   newest edge, it **MUST** advance to the new edge while retaining its duration. A range focused on older

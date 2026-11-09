@@ -115,6 +115,8 @@ def test_stream_opens_with_hello_then_sticky_and_honours_the_stop_flag(client):
     assert r.headers["content-type"].startswith("text/event-stream")
     events = sse_events(r.text)
     assert events[0] == {"type": "hello", "character": "yuri"}
+    assert {"type": "brain", "chat_model": rt.cfg.chat_model,
+            "chat_thinking": rt.cfg.chat_thinking} in events
     assert {"type": "avatar", "op": "rain",       # startup scene, replayed sticky
             "intensity": rt.cfg.rain_intensity} in events
     assert rt.hub.subscribers == 0                 # unsubscribed on the way out

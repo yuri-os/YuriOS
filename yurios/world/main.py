@@ -945,6 +945,7 @@ class Runtime:
         self.loop = asyncio.get_running_loop()
         # the render thread closes/opens the gate from off-loop; tell it where
         self.park_gate.bind(self.loop)
+        self._publish_brain()
         # Can she be shown a picture? (SPEC §35) Her provider is asked once, at
         # boot, and the answer rides the `hello` event to every room — that is
         # what puts the paperclip in the composer, or leaves it out. Never fatal:
@@ -1212,6 +1213,8 @@ class Runtime:
             self.model_configured = is_configured(self.cfg.chat_model)
         if "reply_length" in applied:
             self._publish_reply_length()
+        if {"chat_model", "chat_thinking"}.intersection(applied):
+            self._publish_brain()
         if "chat_model" in applied:
             # A different model has different senses (§35). Re-asked here, on
             # the swap, so the composer's paperclip appears or disappears with
@@ -1223,6 +1226,12 @@ class Runtime:
             task.add_done_callback(self._forget_task)    # …and forgotten once done
         return {"applied": applied, "chat_model": self.cfg.chat_model,
                 "utility_model": self.cfg.utility_model}
+
+    def _publish_brain(self) -> None:
+        """The live reply model and reasoning switch, for every room (SPEC §31.4)."""
+        self.hub.publish("brain", {"chat_model": self.cfg.chat_model,
+                                   "chat_thinking": self.cfg.chat_thinking},
+                         sticky="brain")
 
     def _publish_reply_length(self) -> None:
         """Say how long her replies run, to every room (SPEC §38).

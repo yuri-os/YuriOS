@@ -136,3 +136,29 @@ async def test_a_live_model_choice_retires_the_first_run_chooser(cfg, monkeypatc
 
     cleared = await rt.retune({"chat_model": "NONE"})
     assert cleared["applied"] == ["chat_model"] and not rt.model_configured
+
+
+async def test_model_and_thinking_changes_reach_open_and_later_rooms(cfg):
+    from yurios.desktop.voice.backends.fakes import FakeBrain
+    from yurios.world.main import create_app
+
+    rt = create_app(cfg.model_copy(update={"tools_backend": "off",
+                                           "mind_enabled": False,
+                                           "chat_model": "ollama/first",
+                                           "chat_thinking": False}),
+                    brain=FakeBrain()).state.rt
+    rooms = [rt.hub.subscribe(), rt.hub.subscribe()]
+    await rt.retune({"chat_thinking": True})
+    await rt.retune({"chat_model": "ollama/second"})
+    await rt.retune({"temperature": 0.2})
+
+    expected = [
+        {"type": "brain", "chat_model": "ollama/first", "chat_thinking": True},
+        {"type": "brain", "chat_model": "ollama/second", "chat_thinking": True},
+    ]
+    for room in rooms:
+        events = [room.get_nowait() for _ in range(room.qsize())]
+        assert [event for event in events if event["type"] == "brain"] == expected
+    late = rt.hub.subscribe()
+    events = [late.get_nowait() for _ in range(late.qsize())]
+    assert [event for event in events if event["type"] == "brain"] == expected[-1:]

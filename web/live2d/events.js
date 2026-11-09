@@ -8,18 +8,10 @@
  * remains a guest, not a second puppet (SPEC §6.6) — wiring them is the reader
  * exercise it always was, now with the events already arriving on this page.
  *
- * It also boots the shared chat panel (/js/chat.js) and, in desktop-pet mode,
- * moves the composer back onto the hover bar (the chat column is hidden there).
+ * It also boots the shared chat panel (/js/chat.js). In desktop-pet mode the
+ * shared options controller moves the complete composer onto the hover bar.
  */
 (() => {
-  if (document.documentElement.classList.contains('desktop')) {
-    const text = document.getElementById('text');
-    const send = document.getElementById('send');
-    const bar = document.querySelector('.controls');
-    if (text && bar) bar.appendChild(text);
-    if (send && bar) bar.appendChild(send);
-  }
-
   window.addEventListener('world-ev', (e) => {
     const m = e.detail;
     if (m && m.type === 'avatar' && m.op === 'expression') {

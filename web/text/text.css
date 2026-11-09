@@ -42,6 +42,7 @@
 
 html,body{ height:100%; overscroll-behavior:none; }
 body{
+  height:100dvh; overflow:hidden;
   display:flex; flex-direction:column;
   background:var(--void); color:var(--ink);
   font-family:var(--font-sans); font-size:14px;
@@ -352,8 +353,8 @@ svg{ width:1.1em; height:1.1em; fill:none; stroke:currentColor; stroke-width:1.7
 
 /* ---- the composer ---- */
 .composer{
-  flex:none; display:flex; align-items:center; gap:9px;
-  padding:14px var(--gutter);
+  flex:none; display:flex; flex-direction:column; gap:10px; min-width:0;
+  padding:0 var(--gutter) max(12px, env(safe-area-inset-bottom));
   border-top:1px solid var(--rule); background:var(--ground);
 }
 #text{
@@ -579,7 +580,7 @@ svg{ width:1.1em; height:1.1em; fill:none; stroke:currentColor; stroke-width:1.7
 
 /* ---- narrow: the page is already one column, so only the chrome gives ---- */
 @media (max-width: 720px){
-  :root{ --bar-h:56px; }
+  :root{ --bar-h:56px; --gutter:16px; }
   .masthead{ gap:12px; }
   .leave span{ display:none; }
   .leave{ width:38px; padding:0; }
@@ -591,8 +592,22 @@ svg{ width:1.1em; height:1.1em; fill:none; stroke:currentColor; stroke-width:1.7
 }
 
 @media (max-width: 560px){
-  .composer{ flex-wrap:wrap; }
-  .composer #text{ flex:0 0 100%; order:-1; }
+  :root{ --gutter:12px; }
+  .masthead{ gap:10px; }
+  .mast-state{ gap:8px; }
+  .status{ letter-spacing:0; }
+  .context{ font-size:9px; }
+  .subbar{ flex-wrap:wrap; gap:0; }
+  .tabs{ flex:1 0 100%; justify-content:space-between; gap:12px; }
+  .tab{ min-height:44px; }
+  .ways{ width:100%; justify-content:flex-end; gap:18px; padding-bottom:10px; }
+  .way{ min-height:24px; display:inline-flex; align-items:center; }
+  .msg{ max-width:94%; padding:11px 12px; }
+  .reader{ min-width:0; }
+  .enter{ padding:16px; overflow-y:auto; }
+  .bt-row{ grid-template-columns:auto minmax(0, 1fr); white-space:normal; gap:0 8px; }
+  .bt-detail{ grid-column:2; overflow-wrap:anywhere; }
+  .bt-secs{ display:none; }
 }
 
 @media (prefers-reduced-motion: reduce){

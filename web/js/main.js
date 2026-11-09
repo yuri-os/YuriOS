@@ -72,6 +72,8 @@ async function boot() {
     els.rainMute.classList.toggle('muted', muted);
     els.rainMute.setAttribute('aria-pressed', String(muted));
     els.rainMute.title = muted ? 'unmute the rain' : 'mute the rain';
+    els.rainMute.setAttribute('aria-label', els.rainMute.title);
+    els.rainMute.querySelector('[data-rain-label]').textContent = muted ? 'rain muted' : 'rain on';
   });
 
   // The local speaker switch is shared with the Live2D body and text room.
@@ -124,11 +126,7 @@ async function boot() {
     // a stricter engine left suspended, so the worst case is a quiet greeting,
     // never a dead one.
     els.enter?.remove();
-    // the chat column is hidden on the desktop (§6.5) — the composer moves to
-    // the hover bar so typing to her still works
-    const controls = document.querySelector('.controls');
-    controls?.appendChild(els.text);
-    controls?.appendChild(els.send);
+    // shared/chat-options.js places the complete composer on the hover bar.
     enter();
     addEventListener('pointerdown', () => viseme.context().resume(), { once: true });
   } else {

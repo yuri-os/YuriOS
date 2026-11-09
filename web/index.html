@@ -9,7 +9,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
   <!-- boot.js replaces this with her name the moment /api/boot answers -->
   <title>YuriOS / Sanctuary</title>
   <!-- her ◇ as an inline SVG favicon — drawn, not typed, for the same reason the
@@ -25,6 +25,7 @@
   <!-- the composer's picture affordance (SPEC §35), shared with every
        room that runs js/voice.js — served raw at /shared/, like the panel above -->
   <link rel="stylesheet" href="/shared/composer.css">
+  <link rel="stylesheet" href="/shared/chat-options.css">
   <!-- Desktop-pet mode (opened by world/window.py with ?desktop=1 — SPEC §6.5):
        flip the page transparent + chromeless *before* first paint so there's no
        flash of the dark sanctuary; main.js reads the class and sets the room
@@ -164,34 +165,65 @@
     <div id="files" hidden></div>
     <div id="gallery" hidden></div>
     <div class="composer">
-      <input id="text" type="text" placeholder="…or type to her" autocomplete="off">
-      <!-- Enter still sends (voice.js); this is the visible half of the same
-           one path, and the only one a touch keyboard can offer -->
-      <button id="send" class="icon-button" type="button" title="send" aria-label="send">
-        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 12h14M13 6l6 6-6 6"/></svg>
-      </button>
+      <details class="chat-options" id="chat-options">
+        <summary>
+          <span class="options-title">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m7 14 5-5 5 5"/></svg>
+            Options
+          </span>
+          <span class="chat-model-readout">
+            <span class="option-label">Chat model</span>
+            <span id="chat-model" title="Loading chat model…">Loading…</span>
+          </span>
+        </summary>
+        <div class="options-controls">
+          <div class="option-group">
+            <span class="option-label">Voice</span>
+            <div class="option-actions">
+              <button id="mic" class="button mic" type="button" title="click to toggle listening">
+                <span class="dot" aria-hidden="true"></span>
+                <span id="mic-label">start listening</span>
+              </button>
+              <!-- The speakers only: a muted room still fills with her words. -->
+              <button id="voice-mute" class="icon-button voice-mute muted" type="button"
+                      title="unmute her voice" aria-label="unmute her voice" aria-pressed="true">
+                <svg class="voice-glyph" aria-hidden="true" viewBox="0 0 24 24">
+                  <path d="M4 10v4h3l4 3V7l-4 3H4zM15.4 9.3a4 4 0 0 1 0 5.4"/>
+                </svg>
+                <span data-voice-label>voice muted</span>
+              </button>
+            </div>
+          </div>
+          <div class="option-group">
+            <span class="option-label">Reply length</span>
+            <div data-reply-length></div>
+          </div>
+          <div class="option-group">
+            <span class="option-label">Reasoning</span>
+            <button id="chat-thinking" class="button" type="button" aria-pressed="false" disabled
+                    title="Think before replying; applies to the next reply">Thinking: loading…</button>
+          </div>
+          <div class="option-group">
+            <span class="option-label">Ambience</span>
+            <button id="rain-mute" class="button rain-mute" type="button" title="mute the rain"
+                    aria-label="mute the rain" aria-pressed="false">
+              <span class="rain-glyph" aria-hidden="true">🌧</span>
+              <span data-rain-label>rain on</span>
+            </button>
+          </div>
+          <p id="chat-options-note" class="options-note" role="status" hidden></p>
+        </div>
+      </details>
+      <div class="composer-input">
+        <input id="text" type="text" placeholder="…or type to her" aria-label="Message" autocomplete="off" enterkeyhint="send">
+        <button id="send" class="icon-button" type="button" title="send" aria-label="send">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 12h14M13 6l6 6-6 6"/></svg>
+        </button>
+      </div>
     </div>
   </aside>
 
-  <footer class="controls hud">
-    <button id="mic" class="button mic" title="click to toggle listening">
-      <span class="dot" aria-hidden="true"></span>
-      <span id="mic-label">start listening</span>
-    </button>
-    <!-- mute her voice (js/controls.js): the speakers, not the mic — she keeps
-         talking, the chat keeps filling, her mouth keeps moving. Remembered. -->
-    <button id="voice-mute" class="icon-button voice-mute muted" title="unmute her voice"
-            aria-label="unmute her voice" aria-pressed="true">
-      <svg class="voice-glyph" aria-hidden="true" viewBox="0 0 24 24">
-        <path d="M4 10v4h3l4 3V7l-4 3H4zM15.4 9.3a4 4 0 0 1 0 5.4"/>
-      </svg>
-    </button>
-    <!-- mute just the rain bed (js/music.js); the window keeps raining -->
-    <button id="rain-mute" class="icon-button rain-mute" title="mute the rain"
-            aria-label="mute the rain" aria-pressed="false">
-      <span class="rain-glyph" aria-hidden="true">🌧</span>
-    </button>
-  </footer>
+  <footer class="controls hud"></footer>
 
   <!-- All four are ES modules so Vite bundles them (§3). boot/chat/mind were
        classic scripts; each is a self-contained IIFE that only shares state via
@@ -213,5 +245,6 @@
   <script src="/shared/settings.js"></script>
   <!-- the composer's shorter/longer nudge (SPEC §38), raw like settings.js -->
   <script src="/shared/reply-length.js"></script>
+  <script src="/shared/chat-options.js"></script>
 </body>
 </html>

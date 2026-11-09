@@ -62,6 +62,18 @@ describe('the reply-length nudge', () => {
     expect(word()).toBe('brief');
   });
 
+  it('uses the text room options slot above the nested input row', async () => {
+    await load();
+    document.body.innerHTML = `<div class="composer"><details><div data-reply-length></div></details>
+      <div><input id="text"><button id="send"></button></div></div>`;
+    delete window.ReplyLength;
+    vi.resetModules();
+    await import('../shared/reply-length.js');
+    announce('natural');
+    expect(group().parentElement.hasAttribute('data-reply-length')).toBe(true);
+    expect(document.getElementById('text').nextElementSibling.id).toBe('send');
+  });
+
   it('saves one step, as her own override, and then shows it', async () => {
     await load();
     announce('natural');

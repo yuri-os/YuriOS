@@ -34,6 +34,7 @@
 
 html,body{ height:100%; }
 body{
+  overflow:hidden;
   background:
     radial-gradient(circle at 50% -6%, rgb(106 141 78 / .12), transparent 30rem),
     var(--void);
@@ -110,7 +111,7 @@ svg{ width:1.1em; height:1.1em; fill:none; stroke:currentColor; stroke-width:1.7
 
 /* the body */
 .scene{
-  flex:1; position:relative; overflow:hidden;
+  flex:1; min-height:0; position:relative; overflow:hidden;
   display:flex; align-items:center; justify-content:center;
 }
 #live2d{ width:100%; height:100%; display:block; }
@@ -133,7 +134,7 @@ svg{ width:1.1em; height:1.1em; fill:none; stroke:currentColor; stroke-width:1.7
 @keyframes pulse{ 50%{ opacity:.35; } }
 
 #text{
-  flex:1; width:100%; height:38px; padding:0 13px;
+  flex:1; min-width:0; width:100%; height:38px; padding:0 13px;
   border:1px solid var(--rule); border-radius:2px; outline:none;
   background:var(--void); color:var(--ink); font:11px var(--font-mono);
 }
@@ -142,7 +143,7 @@ svg{ width:1.1em; height:1.1em; fill:none; stroke:currentColor; stroke-width:1.7
 
 /* ---- FORK(B2): the chat column (Build #4 SPEC §2.6), beside the body ---- */
 #chat-col{
-  width:352px; height:100%;
+  flex:none; min-height:0; width:352px; height:100%;
   display:flex; flex-direction:column;
   background:var(--ground); border-right:1px solid var(--rule);
 }
@@ -351,11 +352,19 @@ svg{ width:1.1em; height:1.1em; fill:none; stroke:currentColor; stroke-width:1.7
 
 /* narrow window: the body above, the chat below */
 @media (max-width: 720px){
-  :root{ --bar-h:56px; }
+  :root{ --bar-h:56px;
+         --mobile-chat-h:min(calc(100% - var(--bar-h)), max(46%, 260px)); }
+  :root:has(#chat-options[open]){
+    --mobile-chat-h:min(calc(100% - var(--bar-h)), max(72%, 360px));
+  }
   body{ flex-direction:column; align-items:center; }
-  .stage{ height:55%; }
-  #chat-col{ width:min(560px, 100%); height:45%; border-right:none;
+  .stage{ flex:none; height:calc(100% - var(--mobile-chat-h)); }
+  #chat-col{ width:min(560px, 100%); height:var(--mobile-chat-h); border-right:none;
              border-top:1px solid var(--rule); }
+  .masthead{ padding:0 12px; gap:10px; }
+  .mast-state{ gap:8px; }
+  .status{ letter-spacing:0; }
+  #text{ font-size:16px; }
   .leave span{ display:none; }
   .leave{ width:38px; padding:0; }
   .mast-copy small,.latency{ display:none; }
@@ -395,7 +404,7 @@ svg{ width:1.1em; height:1.1em; fill:none; stroke:currentColor; stroke-width:1.7
 :root.desktop .controls .icon-button,
 :root.desktop .controls #text{ background:rgb(7 10 9 / .82); backdrop-filter:blur(14px); }
 :root.desktop .stage:hover .controls{ opacity:1; pointer-events:auto; }
-:root.desktop .caption{ bottom:64px; }               /* clear the hover bar */
+:root.desktop .caption{ bottom:128px; }              /* clear the hover composer */
 
 /* ---- the boot log (SPEC §6.4): shared /js/boot.js, overlay mode here ---- */
 .boot-panel{

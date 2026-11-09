@@ -619,8 +619,7 @@ export function initVoice({ viseme, els }) {
     chip.title = 'take the picture off this line';
     chip.setAttribute('aria-label', chip.title);
     chip.innerHTML = '<img alt="">';
-    composer.insertBefore(attachBtn, els.text);
-    composer.insertBefore(chip, els.text);
+    els.text.before(attachBtn, chip);
     composer.appendChild(fileInput);
     attachBtn.addEventListener('click', () => fileInput.click());
     chip.addEventListener('click', clearPicture);

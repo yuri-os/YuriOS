@@ -50,10 +50,12 @@
     for (const button of group.querySelectorAll('button')) {
       button.addEventListener('click', () => nudge(Number(button.dataset.dir)));
     }
-    // before the text box, so the row stays one row and the send button stays
-    // where a thumb expects it
+    // The text room gives options their own drawer; the body rooms keep the
+    // control before the text box. Sending stays on the same path in both.
     const input = composer.querySelector('#text');
-    composer.insertBefore(group, input || composer.firstChild);
+    const slot = composer.querySelector('[data-reply-length]');
+    if (slot) slot.append(group);
+    else composer.insertBefore(group, input || composer.firstChild);
     controls.push(group);
   }
 

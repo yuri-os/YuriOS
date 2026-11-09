@@ -442,7 +442,7 @@ svg{ width:1.1em; height:1.1em; fill:none; stroke:currentColor; stroke-width:1.7
 #send.processing{ border-color:var(--amber); color:var(--amber); }
 #send.processing svg{ fill:currentColor; animation:pulse 1.2s ease-in-out infinite; }
 #text{
-  flex:1; width:100%; height:40px; padding:0 13px;
+  flex:1; min-width:0; width:100%; height:40px; padding:0 13px;
   border:1px solid var(--rule); border-radius:2px; outline:none;
   background:var(--void); color:var(--ink); font:11px var(--font-mono);
 }
@@ -462,13 +462,24 @@ svg{ width:1.1em; height:1.1em; fill:none; stroke:currentColor; stroke-width:1.7
 
 /* narrow window: the room above, the chat below — never a horizontal scroll */
 @media (max-width: 720px){
-  :root{ --chat-w:0px; --bar-h:56px; }
+  :root{ --chat-w:0px; --bar-h:56px;
+         --mobile-chat-h:min(calc(100% - var(--bar-h)), max(46%, 260px)); }
+  :root:has(#chat-options[open]){
+    --mobile-chat-h:min(calc(100% - var(--bar-h)), max(72%, 360px));
+  }
   #scene, .masthead, .controls{ right:0; }
-  #scene{ bottom:46%; }
-  #chat-col{ top:auto; left:0; height:46%; width:auto; border-left:none;
+  #scene{ bottom:var(--mobile-chat-h); }
+  #chat-col{ top:auto; left:0; height:var(--mobile-chat-h); width:auto; border-left:none;
              border-top:1px solid var(--rule); }
   .controls{ bottom:46%; padding:12px 14px; }
-  .masthead{ padding:0 14px; gap:12px; }
+  .masthead{ padding:0 12px; gap:10px; }
+  .mast-state{ gap:8px; }
+  .status{ letter-spacing:0; }
+  .context{ font-size:9px; }
+  .chat-head{ height:48px; padding:0 12px; }
+  .chat-head > .brand-mark,.chat-head .chat-copy{ display:none; }
+  .chat-tabs{ flex:1; justify-content:space-between; margin-left:0; }
+  .chat-tabs .tab{ min-height:44px; padding-bottom:8px; }
   .leave span{ display:none; }
   .leave{ width:38px; padding:0; }
   .mast-copy small,.avatar-status,.latency{ display:none; }
@@ -704,9 +715,10 @@ svg{ width:1.1em; height:1.1em; fill:none; stroke:currentColor; stroke-width:1.7
   opacity:0; pointer-events:none;
   transition:opacity .25s;
 }
-:root.desktop .controls #text{ max-width:18em; background:rgb(7 10 9 / .82); backdrop-filter:blur(14px); }
+:root.desktop .controls #text{ background:rgb(7 10 9 / .82); backdrop-filter:blur(14px); }
+:root.desktop .controls{ bottom:0; padding:8px; }
 :root.desktop body:hover .controls{ opacity:1; pointer-events:auto; }
-:root.desktop .caption{ display:block; bottom:4.2em; }  /* no chat here: captions carry text */
+:root.desktop .caption{ display:block; bottom:8.5em; }  /* clear the hover composer */
 
 @media (prefers-reduced-motion: reduce){
   *, *::before, *::after{ animation-duration:.01ms !important; animation-iteration-count:1 !important;

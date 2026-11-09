@@ -24,7 +24,8 @@ afterEach(() => {
 
 it('renders the authoritative HTTP reply when SSE misses it', async () => {
   document.body.innerHTML = `
-    <div class="composer"><input id="text"><button id="send">send</button></div>
+    <div class="composer"><details><summary>Options</summary></details>
+      <div class="composer-input"><input id="text"><button id="send">send</button></div></div>
     <button id="mic"></button><span id="mic-label"></span>
     <span id="status"></span><span id="caption"></span><span id="latency"></span>
   `;
@@ -56,6 +57,7 @@ it('renders the authoritative HTTP reply when SSE misses it', async () => {
   };
   window.WorldControls = { isVoiceMuted: () => true };
   window.WorldChat = {
+    capabilities: { image_input: true },
     addPendingUser: vi.fn(),
     confirmUser: vi.fn(),
     receiveMessage: vi.fn(),
@@ -74,6 +76,8 @@ it('renders the authoritative HTTP reply when SSE misses it', async () => {
   };
 
   initVoice({ viseme: { context: vi.fn() }, els });
+  expect(document.querySelector('.attach').parentElement.className).toBe('composer-input');
+  expect(document.querySelector('.pic-chip').parentElement.className).toBe('composer-input');
   await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
     '/api/greeting', expect.any(Object)));
   await vi.waitFor(() => expect(els.text.disabled).toBe(false));

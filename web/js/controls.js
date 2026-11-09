@@ -69,6 +69,8 @@
       btn.setAttribute('aria-pressed', String(muted));
       btn.title = muted ? 'unmute her voice' : 'mute her voice';
       btn.setAttribute('aria-label', btn.title);
+      const label = btn.querySelector('[data-voice-label]');
+      if (label) label.textContent = muted ? 'voice muted' : 'voice on';
       window.dispatchEvent(new CustomEvent('voice-mute-change', {
         detail: { muted },
       }));

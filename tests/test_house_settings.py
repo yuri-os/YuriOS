@@ -48,7 +48,7 @@ def board(tmp_path, monkeypatch):
     registry = CharacterRegistry(tmp_path)
     registry.add(record(tmp_path, "yuri", enabled=False))
     registry.add(record(tmp_path, "mia", enabled=False))
-    app = create_host_app(Config(data_dir=tmp_path), registry)
+    app = create_host_app(Config(data_dir=tmp_path, _env_file=None), registry)
     with TestClient(app) as client:
         yield SimpleNamespace(client=client, app=app, env=env, root=tmp_path,
                               registry=registry)

@@ -92,7 +92,13 @@
     }
     app.stage.addChild(model);
     fit(app, model);
-    window.addEventListener("resize", () => fit(app, model));
+    const resize = () => { app.resize(); fit(app, model); };
+    // Opening chat options changes the scene's height without resizing the window.
+    if (typeof ResizeObserver !== 'undefined') {
+      new ResizeObserver(resize).observe(document.getElementById("scene"));
+    } else {
+      window.addEventListener("resize", resize);
+    }
     window.__avatar = { app, model };   // dev inspection hook (console only)
 
     // drive parameters every tick: ease the expression, apply live mouth (§6)

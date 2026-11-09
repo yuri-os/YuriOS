@@ -89,7 +89,13 @@ export class VrmStage {
     this.lastTime = performance.now();
     this.running = false;
 
-    window.addEventListener('resize', () => this.onResize());
+    // The mobile options drawer also changes the scene without a window resize.
+    if (typeof ResizeObserver !== 'undefined') {
+      this.resizeObserver = new ResizeObserver(() => this.onResize());
+      this.resizeObserver.observe(container);
+    } else {
+      window.addEventListener('resize', () => this.onResize());
+    }
     window.addEventListener('mousemove', (e) => {
       this.parallax.x = (e.clientX / window.innerWidth) * 2 - 1;
       this.parallax.y = (e.clientY / window.innerHeight) * 2 - 1;

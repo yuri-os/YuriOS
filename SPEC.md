@@ -793,6 +793,17 @@ to every new subscriber before its first live event. Malformed JSON is logged an
   are simply not realised. The §6.4 enter gesture still applies: autoplay policy does not
   care that there is no body, and her greeting still has to be audible. The switchboard
   (§6.3) **MUST** offer all three ways in for every character.
+  Every browser room's voice mute, microphone, reply-length nudge (§38) and chat-thinking
+  switch **MUST** sit in a collapsible options bar above a separate input/send row.
+  The bar starts collapsed and **MAY** remember its open state per character in the browser.
+  The current chat model **MUST** remain visible with the bar collapsed, with its full route
+  readable on expansion. The controls **MUST** fit a phone viewport without horizontal page
+  scrolling; the input and send button **MUST** stay together on one row.
+  The Live2D (§6.6) and 3D (§6.1) rooms **MUST** use the same controls and brain-state
+  handling as the text room. The 3D rain mute belongs in that drawer too. On a phone,
+  expanding options **MUST** give the chat column enough space to keep sending accessible.
+  In desktop-pet mode (§6.5), the whole composer **MUST** move to the hover bar together,
+  including its options and picture attachments.
 
 ## §7 — Tools via MCP: the hands
 
@@ -3519,6 +3530,12 @@ changes; a runtime does not know it has neighbours.
   made by comparing the record before and after the save, not by which keys were sent: a client
   may post the whole form, and re-submitting an unchanged voice is not a reason to take her
   conversation down.
+  The runtime **MUST** publish a sticky `brain` event containing `chat_model` and
+  `chat_thinking` at startup and when either changes. Every room's model readout and
+  thinking switch **MUST** follow it across open rooms. Its thinking toggle saves
+  `chat_thinking` through the same brain API, applies to subsequent replies, and **MUST NOT**
+  display a changed value before the host accepts the save. Before opening the bus, the
+  room **MAY** seed those controls with a single read of that API.
 
 ## §32 — The switchboard
 

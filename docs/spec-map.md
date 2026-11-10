@@ -21,7 +21,7 @@ a section are folded into it.
 | **§8** — Ambient life is the mind's, not a scripted machine | `yurios/app/core/assemble.py`<br>`web/js/stage/GazeController.js`<br>`yurios/world/avatar/controller.py`<br>`yurios/world/brain.py`<br>*+2 more* | `tests/test_mind_loop.py`<br>`tests/test_voice_ws_fork.py` |
 | **§9** — The voice loop | `web/js/voice.js`<br>`yurios/world/routes/voice_ws.py`<br>`yurios/desktop/voice/emotion.py`<br>`yurios/world/main.py`<br>*+9 more* | `tests/test_channels.py`<br>`tests/test_text_style.py`<br>`tests/test_voice_handshake.py`<br>*+2 more* |
 | **§10** — Topology: one event bus + one audio socket | `yurios/world/main.py`<br>`yurios/world/channels/telegram.py`<br>`yurios/envfile.py`<br>`yurios/kernel/hub.py`<br>*+23 more* | `tests/test_channels.py`<br>`tests/test_draft_cadence.py`<br>`tests/test_host.py`<br>*+1 more* |
-| **§11** — Config | `yurios/security.py`<br>`web/settings/settings.js`<br>`web/shared/settings.js`<br>`yurios/forge/civitai.py`<br>*+31 more* | `tests/test_envfile.py`<br>`tests/test_checkpoints.py`<br>`tests/test_config.py`<br>*+7 more* |
+| **§11** — Config | `yurios/security.py`<br>`web/settings/settings.js`<br>`web/shared/settings.js`<br>`yurios/forge/civitai.py`<br>*+34 more* | `tests/test_envfile.py`<br>`tests/test_checkpoints.py`<br>`tests/test_config.py`<br>*+7 more* |
 | **§12** — Omissions → superseded by §26 | — | — |
 | **§13** — Tests → superseded by §27 | — | — |
 | **§14** — Extends to → superseded by §28 | — | — |
@@ -51,4 +51,4 @@ a section are folded into it.
 | **§38** — How long her replies run | `web/js/chat.js`<br>`yurios/app/config.py`<br>`scripts/live_check.py`<br>`web/shared/reply-length.js`<br>*+2 more* | `tests/test_mind_soul.py`<br>`tests/test_reply_length.py` |
 | **§39** — Another reply in her last one's place | `yurios/desktop/brain.py`<br>`yurios/world/main.py`<br>`yurios/world/routes/chat.py`<br>`yurios/world/turns.py`<br>*+13 more* | `tests/test_swipes.py` |
 
-*1113 citation sites over 143 sections.*
+*1117 citation sites over 144 sections.*

@@ -30,6 +30,7 @@ avatar is skipped when vendor/ is empty (web/live2d/avatar.js says so out loud).
 from __future__ import annotations
 
 import argparse
+import hashlib
 import os
 import shutil
 import stat
@@ -50,6 +51,13 @@ JS = {
     "pixi.min.js": "https://cdnjs.cloudflare.com/ajax/libs/pixi.js/6.5.10/browser/pixi.min.js",
     "cubism4.min.js": "https://cdn.jsdelivr.net/npm/pixi-live2d-display@0.4.0/dist/cubism4.min.js",
     "live2dcubismcore.min.js": "https://cubism.live2d.com/sdk-web/cubismcore/live2dcubismcore.min.js",
+}
+
+# Reviewed HTTPS bytes, 2026-11-10. Fail closed if a CDN changes the runtime.
+JS_SHA256 = {
+    "pixi.min.js": "403f2f2ee8145fa17f60c5c89403056efe2680e5096ec2762036486914ed19c5",
+    "cubism4.min.js": "af1267e6d52759b245766c578d905bfa025b532d5c3cc727c370957c4409e21b",
+    "live2dcubismcore.min.js": "25ae938cb4fe282ce189b357bcc97e603d1e1f7ec78bf04150d401c23cdc792f",
 }
 
 # The user pointed at a local AIRI checkout as the model source (it ships the
@@ -150,9 +158,12 @@ def _download(url: str, directory: Path, max_bytes: int, timeout: int) -> Path:
         raise
 
 
-def _download_atomic(url: str, dest: Path, max_bytes: int, timeout: int) -> None:
+def _download_atomic(url: str, dest: Path, max_bytes: int, timeout: int,
+                     expected_sha256: str | None = None) -> None:
     temp_path = _download(url, dest.parent, max_bytes, timeout)
     try:
+        if expected_sha256 and hashlib.sha256(temp_path.read_bytes()).hexdigest() != expected_sha256:
+            raise RuntimeError("download SHA-256 does not match the reviewed runtime")
         os.replace(temp_path, dest)
     finally:
         temp_path.unlink(missing_ok=True)
@@ -327,7 +338,8 @@ def fetch_js() -> None:
         dest = VENDOR / name
         try:
             print(f"↓ {name}  ({url})")
-            _download_atomic(url, dest, MAX_JS_BYTES, timeout=30)
+            _download_atomic(url, dest, MAX_JS_BYTES, timeout=30,
+                             expected_sha256=JS_SHA256[name])
         except Exception as e:
             print(f"  ! failed: {e} — the app will run voice-only until this exists",
                   file=sys.stderr)

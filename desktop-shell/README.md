@@ -60,4 +60,9 @@ taskbar entry (right-click → Close) or stop the launcher in WSL.
   address — not a change to any browser you use.
 - Autoplay is unblocked for the same reason the enter gate is hidden in desktop
   mode: her greeting has to be audible without a click.
-- Only `media` permission requests are granted; everything else is denied.
+- Only the selected room origin’s main-frame microphone is granted, in both
+  permission phases. Camera, screen capture, popups and foreign-origin navigation
+  are denied. The renderer runs sandboxed without Node integration.
+- Run `npm ci` on Windows to install the updated Electron runtime, then `npm test`.
+  Check real microphone capture and navigation after packaging; the Linux gate
+  tests permission decisions without opening devices.

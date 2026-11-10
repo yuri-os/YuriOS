@@ -50,6 +50,7 @@ log = logging.getLogger("forge.krea2")
 # The companion repo the text encoder / VAE / tokenizer / scheduler come from.
 # Everything EXCEPT its transformer weights — the local checkpoint is those.
 COMPANION_REPO = "krea/Krea-2-Raw"
+COMPANION_REVISION = "6b0ece7fffb640c5e3bcbe0a7f10f66b8e60a603"
 COMPANION_ALLOW = ["model_index.json", "scheduler/*", "tokenizer/*",
                    "text_encoder/*", "vae/*", "transformer/config.json"]
 
@@ -215,7 +216,8 @@ class Krea2Backend(ImageBackend):
         """Text encoder + VAE + tokenizer + scheduler, never the transformer."""
         from huggingface_hub import snapshot_download
         try:
-            return snapshot_download(COMPANION_REPO, allow_patterns=COMPANION_ALLOW)
+            return snapshot_download(COMPANION_REPO, revision=COMPANION_REVISION,
+                                          allow_patterns=COMPANION_ALLOW)
         except Exception as e:
             # Gated / not-logged-in is the overwhelmingly likely cause, and the
             # stock message doesn't say what to do about it. Anything else

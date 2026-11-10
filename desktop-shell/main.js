@@ -19,6 +19,7 @@
  * installed. Run it by hand if you like — see README.md.
  */
 const { app, BrowserWindow, Notification, globalShortcut, shell } = require('electron');
+const { guardWindow, roomURL } = require('./security.cjs');
 
 const DEFAULT_URL = 'http://127.0.0.1:8768/?desktop=1';
 const PASS_THROUGH_HOTKEY = 'Control+Alt+Y';
@@ -31,6 +32,7 @@ function argOf(name, fallback) {
 }
 
 const url = argOf('url', process.env.YURI_URL || DEFAULT_URL);
+roomURL(url);                  // refuse file:, javascript: and embedded credentials
 const width = Number(argOf('width', process.env.WINDOW_WIDTH || 360));
 const height = Number(argOf('height', process.env.WINDOW_HEIGHT || 640));
 const onTop = String(argOf('on-top', process.env.WINDOW_ON_TOP || 'true'))
@@ -69,6 +71,7 @@ function createWindow() {
     webPreferences: {
       contextIsolation: true,   // she is a web page here, not a privileged app
       nodeIntegration: false,
+      sandbox: true,
       backgroundThrottling: false,   // she keeps swaying when she isn't focused
     },
   });
@@ -76,10 +79,7 @@ function createWindow() {
   // loses to them, which is where a pet is most missed.
   if (onTop) win.setAlwaysOnTop(true, 'screen-saver');
 
-  // Only the mic. Everything else a page might ask for stays denied.
-  win.webContents.session.setPermissionRequestHandler((_wc, permission, done) => {
-    done(permission === 'media');
-  });
+  guardWindow(win, url);
 
   // The page already marks its drag surface for pywebview (index.html adds
   // .pywebview-drag-region to #scene in desktop mode) — teach Electron the same

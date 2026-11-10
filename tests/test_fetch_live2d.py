@@ -257,3 +257,24 @@ def test_successful_install_atomically_replaces_previous_tree(tmp_path):
     assert not (dest / "stale.txt").exists()
     assert (dest / "runtime" / ANCHOR).exists()
     assert not list(dest.parent.glob(".hiyori-install-*"))
+
+
+def test_runtime_digest_mismatch_preserves_previous_file(tmp_path, monkeypatch):
+    import hashlib
+    destination = tmp_path / "pixi.min.js"
+    destination.write_bytes(b"reviewed runtime")
+    monkeypatch.setattr(fetch.urllib.request, "urlopen",
+                        lambda *_a, **_k: Response(b"changed upstream runtime"))
+    with pytest.raises(RuntimeError, match="SHA-256"):
+        fetch._download_atomic("https://example.test/runtime", destination, 1024, 30,
+                               hashlib.sha256(b"reviewed runtime").hexdigest())
+    assert destination.read_bytes() == b"reviewed runtime"
+    assert list(tmp_path.iterdir()) == [destination]
+
+
+def test_browser_and_downloader_pin_the_same_runtime_bytes():
+    import base64
+    html = (Path(__file__).parents[1] / "web/live2d/index.html").read_text()
+    for name, digest in fetch.JS_SHA256.items():
+        sri = "sha256-" + base64.b64encode(bytes.fromhex(digest)).decode()
+        assert f'src="vendor/{name}" integrity="{sri}"' in html

@@ -16,7 +16,7 @@ from __future__ import annotations
 import re
 
 from .knowledge import SOURCE_PREFIX, SUFFIXES, TOPIC_PREFIX
-from .pdftext import PdfUnreadable, pdf_text
+from yurios.parsing import ParseRejected, parse_file
 
 #: The largest text document a person can hand her. Past `LONG_DOC_CHARS` the
 #: shelf reads a document for notes, so a big one costs sections rather than
@@ -74,8 +74,9 @@ def read_document(filename: str, data: bytes, *,
             raise DocumentRefused(f"over the {MAX_PDF_BYTES // 1_000_000} MB limit "
                                   "for a PDF", status=413)
         try:
-            return doc, pdf_text(data, title=base[:-len(suffix)].strip())
-        except PdfUnreadable as e:
+            result = parse_file("pdf", data, title=base[:-len(suffix)].strip())
+            return doc, result["text"]
+        except ParseRejected as e:
             raise DocumentRefused(f"can't read this PDF: {e}") from None
     if len(data) > MAX_TEXT_BYTES:
         raise DocumentRefused(f"over the {MAX_TEXT_BYTES // 1_000_000} MB limit",

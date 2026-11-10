@@ -44,6 +44,9 @@ log = logging.getLogger("world.host")
 #: One upload — a zip of job files is a few kilobytes; anything near this is
 #: not a set of prompts.
 MAX_IMPORT_BYTES = 2 * 1024 * 1024
+MAX_IMPORT_TOTAL_BYTES = 8 * 1024 * 1024
+MAX_IMPORT_FILES = 64
+MAX_ARCHIVE_MEMBERS = 128
 # `[ \t]*`, not `\s*`: a `\s` after the closing fence would swallow the blank
 # line between the frontmatter and the prompt, and a rename would rewrite more
 # of the file than its one `name:` line.
@@ -86,6 +89,57 @@ def declared_name(text: str, fallback: str) -> str:
     found = _NAME_LINE.search(match.group("front")) if match else None
     name = found.group(0).split(":", 1)[1].strip().strip("'\"") if found else ""
     return name or fallback
+
+
+def _read_job_upload(data: bytes, filename: str, *, remaining_bytes: int,
+                     remaining_files: int) -> list[tuple[str, str]]:
+    """Bound expanded content as it is read, on a worker thread (SPEC §11.4)."""
+    if not filename.lower().endswith(".zip"):
+        if not is_job_file(filename):
+            return []
+        if len(data) > min(MAX_IMPORT_BYTES, remaining_bytes) or remaining_files < 1:
+            raise HTTPException(413, "night-job import exceeds the total size or file limit")
+        text = data.decode("utf-8", "replace")
+        if len(text.encode("utf-8")) > min(MAX_IMPORT_BYTES, remaining_bytes):
+            raise HTTPException(413, "night-job text exceeds the size limit")
+        return [(Path(filename).name, text)]
+    files: list[tuple[str, str]] = []
+    total = 0
+    names: set[str] = set()
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            members = archive.infolist()
+            if len(members) > MAX_ARCHIVE_MEMBERS:
+                raise HTTPException(413, "too many members in the night-job archive")
+            for info in members:
+                if info.is_dir() or not is_job_file(info.filename):
+                    continue
+                name = Path(info.filename).name
+                if name.casefold() in names:
+                    raise HTTPException(422, "duplicate job filename in archive")
+                names.add(name.casefold())
+                if len(files) >= remaining_files:
+                    raise HTTPException(413, "too many night-job files in this import")
+                limit = min(MAX_IMPORT_BYTES, remaining_bytes - total)
+                if info.file_size > limit or limit < 0:
+                    raise HTTPException(413, "expanded night-job archive exceeds the size limit")
+                if info.flag_bits & 1:
+                    raise HTTPException(422, "encrypted night-job archives are not supported")
+                content = bytearray()
+                with archive.open(info) as stream:
+                    while chunk := stream.read(min(65536, limit - len(content) + 1)):
+                        content.extend(chunk)
+                        if len(content) > limit:
+                            raise HTTPException(413, "expanded night-job archive exceeds the size limit")
+                text = content.decode("utf-8", "replace")
+                retained = len(text.encode("utf-8"))
+                if retained > limit:
+                    raise HTTPException(413, "expanded night-job text exceeds the size limit")
+                total += retained
+                files.append((name, text))
+    except (zipfile.BadZipFile, RuntimeError, NotImplementedError, EOFError) as exc:
+        raise HTTPException(422, "that night-job archive cannot be read") from exc
+    return files
 
 
 def register(app: FastAPI, host: CharacterHost, require) -> None:
@@ -201,6 +255,7 @@ def register(app: FastAPI, host: CharacterHost, require) -> None:
         form = await request.form()
         overwrite = str(form.get("overwrite") or "").lower() in ("1", "true", "on")
         files: list[tuple[str, str]] = []
+        expanded_bytes = 0
         for upload in form.getlist("files"):
             if not isinstance(upload, UploadFile):
                 continue
@@ -208,17 +263,16 @@ def register(app: FastAPI, host: CharacterHost, require) -> None:
             if len(data) > MAX_IMPORT_BYTES:
                 raise HTTPException(413, f"{upload.filename} is larger than an import may be")
             filename = Path(upload.filename or "job.md").name
-            if filename.lower().endswith(".zip"):
-                try:
-                    with zipfile.ZipFile(io.BytesIO(data)) as archive:
-                        for info in archive.infolist():
-                            if is_job_file(info.filename) and not info.is_dir():
-                                files.append((Path(info.filename).name,
-                                              archive.read(info).decode("utf-8", "replace")))
-                except zipfile.BadZipFile:
-                    raise HTTPException(422, f"{filename} is not a zip file") from None
-            elif is_job_file(filename):
-                files.append((filename, data.decode("utf-8", "replace")))
+            added = await asyncio.to_thread(
+                _read_job_upload, data, filename,
+                remaining_bytes=MAX_IMPORT_TOTAL_BYTES - expanded_bytes,
+                remaining_files=MAX_IMPORT_FILES - len(files))
+            # Replacement decoding can expand invalid UTF-8. Count the retained
+            # text too, so many malformed members cannot evade the request budget.
+            expanded_bytes += sum(len(text.encode("utf-8")) for _, text in added)
+            if expanded_bytes > MAX_IMPORT_TOTAL_BYTES:
+                raise HTTPException(413, "night-job import exceeds the total size limit")
+            files.extend(added)
         if not files:
             raise HTTPException(422, "no .md job files in that upload")
         imported, skipped, refused = [], [], []

@@ -12,6 +12,7 @@ for. Nobody has to know to hard-reload.
 """
 from __future__ import annotations
 
+import base64
 import hashlib
 import re
 from pathlib import Path
@@ -54,4 +55,20 @@ def stamp_refs(html: str, web_dir: Path) -> str:
 def page(path: Path, web_dir: Path) -> Response:
     """One HTML page, its raw references stamped, revalidated on every load."""
     html = stamp_refs(path.read_text(encoding="utf-8"), web_dir)
-    return Response(html, media_type="text/html", headers={"Cache-Control": "no-cache"})
+    # SPEC §11.6: only the inline bootstraps in this local page may execute.
+    inline = re.findall(r"<script\b[^>]*>(.*?)</script\s*>", html, re.I | re.S)
+    hashes = sorted({"'sha256-" + base64.b64encode(hashlib.sha256(
+        code.encode("utf-8")).digest()).decode("ascii") + "'" for code in inline if code.strip()})
+    scripts = "script-src 'self' 'wasm-unsafe-eval' " + " ".join(hashes)
+    if "live2d" in path.parts:
+        scripts += " 'unsafe-eval'"       # Pixi 6 shader generation
+    policy = "; ".join([
+        "default-src 'self'", scripts, "style-src 'self' 'unsafe-inline'",
+        "img-src 'self' data: blob: https:", "font-src 'self' data:",
+        "connect-src 'self' blob: data: ws: wss: https:", "media-src 'self' data: blob:",
+        "worker-src 'self' blob:", "object-src 'none'", "base-uri 'self'",
+        "frame-ancestors 'none'", "form-action 'self'",
+    ])
+    return Response(html, media_type="text/html", headers={
+        "Cache-Control": "no-cache", "Content-Security-Policy": policy,
+        "X-Content-Type-Options": "nosniff", "X-Frame-Options": "DENY"})

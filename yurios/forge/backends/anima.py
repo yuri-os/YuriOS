@@ -47,6 +47,7 @@ log = logging.getLogger("forge.anima")
 # Everything EXCEPT its transformer and text-conditioner weights — the local
 # checkpoint is those.
 COMPANION_REPO = "circlestone-labs/Anima-Base-v1.0-Diffusers"
+COMPANION_REVISION = "073c3a9db359c31ad0e8aa268d15775473c2176c"
 COMPANION_ALLOW = ["scheduler/*", "tokenizer/*", "t5_tokenizer/*", "text_encoder/*",
                    "vae/*", "transformer/config.json", "text_conditioner/config.json"]
 
@@ -204,7 +205,8 @@ class AnimaBackend(ImageBackend):
         checkpoint already holds."""
         from huggingface_hub import snapshot_download
         try:
-            return Path(snapshot_download(COMPANION_REPO, allow_patterns=COMPANION_ALLOW))
+            return Path(snapshot_download(COMPANION_REPO, revision=COMPANION_REVISION,
+                                          allow_patterns=COMPANION_ALLOW))
         except Exception as e:
             # The repo is public, so this is the network or the disk; the
             # stock message doesn't say what the download was for.

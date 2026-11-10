@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import io
 import json
 import logging
 import os
@@ -15,8 +14,8 @@ from pathlib import Path
 from typing import Any, Mapping
 
 import yaml
-from PIL import Image, ImageOps, UnidentifiedImageError
 
+from yurios.parsing import ParseRejected, image_bytes, parse_file
 from yurios.app import vaultgit
 # The desk's ignore rule and the night's roster each have one home (§34.1, §21.2),
 # and it is the module that owns the thing rather than this one. Neither imports
@@ -571,24 +570,11 @@ def _sanitize_portrait(png: bytes, limits: CardLimits) -> bytes:
     except CardParseError as exc:
         raise CharacterImportError(str(exc)) from exc
     try:
-        with Image.open(io.BytesIO(png)) as image:
-            if image.format != header.format:
-                raise CharacterImportError("image format does not match its header")
-            image.load()
-            image.seek(0)
-            portrait = ImageOps.exif_transpose(image)
-            has_alpha = portrait.mode in ("RGBA", "LA") or "transparency" in portrait.info
-            portrait = portrait.convert("RGBA" if has_alpha else "RGB")
-            if (image.width != header.width or image.height != header.height or
-                    portrait.width * portrait.height > limits.max_pixels):
-                raise CharacterImportError("portrait dimensions exceed limits")
-            output = io.BytesIO()
-            portrait.save(output, format="PNG")
-            return output.getvalue()
-    except CharacterImportError:
-        raise
-    except (UnidentifiedImageError, OSError, ValueError) as exc:
-        raise CharacterImportError(f"cannot decode PNG pixels: {exc}") from exc
+        return image_bytes(parse_file("portrait", png, max_pixels=limits.max_pixels,
+                                      width=header.width, height=header.height,
+                                      source_format=header.format))
+    except ParseRejected as exc:
+        raise CharacterImportError(f"cannot decode portrait pixels: {exc}") from exc
 
 
 def _initialize_git(vault: Path, *, message: str = "vault: import character card") -> bool:

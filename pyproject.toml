@@ -21,7 +21,7 @@ dependencies = [
     # model weights; sentence-transformers remains a lazy import at runtime.
     "fastapi",
     "uvicorn[standard]",      # [standard] pulls the websockets impl for /ws/voice
-    "litellm",                # the model-router seam (B1 §3.1) — local or hosted
+    "litellm>=1.108.3,<2",     # patched router; disk caching is now an opt-in extra
     "pydantic-settings",      # typed config (§11)
     "python-dotenv",          # …and the per-character keys it can't declare (§10.5)
     "pyyaml",                 # soul.yaml + .md frontmatter
@@ -38,10 +38,19 @@ dependencies = [
     # the spawned server dying on its import line: "No module named
     # 'mcp.server.fastmcp'", then "she has no hands this run". Raise this when
     # world/tools/{server,client}.py speak 2.x.
-    "mcp>=1.2,<2",            # >=1.2 is where FastMCP landed in the official SDK
-    "Pillow",                 # her camera (§7.6): the vendored forge's mock backend + provenance
+    "mcp>=1.30,<2",           # patched schema resolver, keeping the FastMCP 1.x API
+    "Pillow>=13,<14",         # patched image parsers, including PNG EXIF and GIF headers
     "python-multipart",       # bounded character-card uploads in the local dashboard
-    "pypdf",                  # a PDF handed to her shelf, as text (§20.1) — pure Python, lazy
+    "pypdf>=6.21.4,<7",       # patched PDF reader; keep the current API major
+    # Security floors also apply to ordinary, unpinned pip installs. These are
+    # shared transitive dependencies, not optional proxy/caching features.
+    "certifi>=2026.10.19",
+    "aiohttp>=3.14.4,<4",
+    "filelock>=4.2.1,<5",
+    "PyJWT>=2.15.1,<3",
+    "multidict>=6.9.1,<8",
+    "urllib3>=2.8,<3",
+    "setuptools>=84.1,<85",
     # Her tray icon (§18.4.7): StatusNotifierItem + dbusmenu, spoken directly.
     # Linux-only by marker because both interfaces are freedesktop ones — macOS
     # and Windows have their own tray and no session bus to put this on. A wheel,
@@ -124,7 +133,7 @@ dev = ["yurios[test]", "ruff>=0.14,<1", "mypy>=1.18,<3", "build>=1.2,<2",
 # real speed (the default PyPI wheel is the CUDA one — the opposite of the CPU
 # advice below); the checkpoint itself (~7 GB .safetensors) is user-supplied
 # from Civitai, never shipped. See .env.example's SELFIE_LOCAL_* block.
-forge-local = ["diffusers", "transformers", "accelerate", "safetensors"]
+forge-local = ["diffusers", "transformers", "accelerate>=1.15", "safetensors"]
 # The other local camera: a Krea 2 checkpoint — a ~12.5 B diffusion transformer,
 # so it is shipped (and RUN) as INT4 "ConvRot" and never dequantized; at bf16 it
 # would be ~23 GB and fit nothing. comfy-kitchen provides that layout's
@@ -133,7 +142,7 @@ forge-local = ["diffusers", "transformers", "accelerate", "safetensors"]
 # (user-supplied, ~7 GB, never shipped) and a one-time Hugging Face fetch of the
 # text encoder + VAE from the GATED krea/Krea-2-Raw repo — accept its licence,
 # then `huggingface-cli login`. See .env.example's SELFIE_LOCAL_* block.
-forge-krea2 = ["diffusers", "transformers", "accelerate", "safetensors",
+forge-krea2 = ["diffusers", "transformers", "accelerate>=1.15", "safetensors",
                "comfy-kitchen", "huggingface-hub"]
 # Direct GGUF fallback for a local `lm_studio/...` chat route. llama-cpp-python's
 # wheel is CPU-first; users who build it with CUDA/Metal can expose layers through

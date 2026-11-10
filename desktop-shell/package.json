@@ -5,9 +5,10 @@
   "description": "The Windows-native frame for her desktop mode: a transparent, frameless, always-on-top window over the same ?desktop=1 page the browser serves.",
   "main": "main.js",
   "scripts": {
-    "start": "electron ."
+    "start": "electron .",
+    "test": "node --test tests/*.test.cjs"
   },
   "devDependencies": {
-    "electron": "^41.2.1"
+    "electron": "^45.2.3"
   }
 }

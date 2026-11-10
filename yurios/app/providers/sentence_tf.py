@@ -47,6 +47,7 @@ _INSTALL_HINT = (
     "default) or EMBED_BACKEND=ollama.")
 
 DEFAULT_MODEL = "BAAI/bge-small-en-v1.5"
+DEFAULT_REVISION = "5c38ec7c405ec4b44b94cc5a9bb96e735b38267a"
 DEFAULT_DIM = 384
 
 _shared: dict[str, object] = {}            # model name -> loaded SentenceTransformer
@@ -76,6 +77,8 @@ def _load(SentenceTransformer, model_name: str, **kwargs):
     makes "no room on the GPU" a placement decision rather than a failed boot.
     Her memory is what the whole runtime is built on, so it must not be the
     thing that can't start."""
+    if model_name == DEFAULT_MODEL:
+        kwargs["revision"] = DEFAULT_REVISION
     try:
         return SentenceTransformer(model_name, **kwargs)
     except Exception as e:

@@ -39,6 +39,9 @@ read, so "what did you do while I was gone?" is a page you open, not a vibe.
 | **[A house](docs/characters.md)** | Multiple companions, each with her own Vault, memory, models, bot and journal. Import SillyTavern V2/V3 cards; export her as one |
 | **[Any medium](docs/channels.md)** | The web page, a terminal client, Telegram. One conversation, one event bus, thin views |
 
+For dependency scans, deployment guidance and remaining upstream advisories, see
+[security maintenance](docs/security.md).
+
 ## The three surfaces
 
 **[The switchboard](docs/characters.md#the-switchboard)** is the front door: one tile per

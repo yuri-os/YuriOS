@@ -86,7 +86,7 @@ def test_a_cached_embedding_model_loads_without_touching_the_hub(monkeypatch):
 
     embedder = sentence_tf.SentenceTFEmbedder()
 
-    assert loaded == [(sentence_tf.DEFAULT_MODEL, {"local_files_only": True})]
+    assert loaded == [(sentence_tf.DEFAULT_MODEL, {"local_files_only": True, "revision": sentence_tf.DEFAULT_REVISION})]
     assert embedder.dim == 384
 
 
@@ -97,8 +97,9 @@ def test_an_uncached_embedding_model_downloads_once_then_loads(monkeypatch):
 
     embedder = sentence_tf.SentenceTFEmbedder()
 
-    assert calls == [{"local_files_only": True}, {}]   # offline tried, then the hub
-    assert loaded == [(sentence_tf.DEFAULT_MODEL, {})]
+    assert calls == [{"local_files_only": True, "revision": sentence_tf.DEFAULT_REVISION},
+                     {"revision": sentence_tf.DEFAULT_REVISION}]   # offline tried, then the hub
+    assert loaded == [(sentence_tf.DEFAULT_MODEL, {"revision": sentence_tf.DEFAULT_REVISION})]
     assert embedder.dim == 384
 
 
@@ -118,8 +119,8 @@ def test_a_full_card_moves_the_embedder_to_the_cpu(monkeypatch, caplog):
         embedder = sentence_tf.SentenceTFEmbedder()
 
     # straight to the CPU — not to Hugging Face, which frees no VRAM at all
-    assert calls == [{"local_files_only": True},
-                     {"device": "cpu", "local_files_only": True}]
+    assert calls == [{"local_files_only": True, "revision": sentence_tf.DEFAULT_REVISION},
+                     {"device": "cpu", "local_files_only": True, "revision": sentence_tf.DEFAULT_REVISION}]
     assert embedder.dim == 384
     assert "not fully cached" not in caplog.text
     assert "no room on the GPU" in caplog.text
@@ -185,7 +186,7 @@ def test_construction_neither_waits_for_the_model_nor_starts_it(monkeypatch):
     done.join(timeout=5)
     embedder.ensure_ready()
     assert embedder.ready is True
-    assert loaded == [(sentence_tf.DEFAULT_MODEL, {"local_files_only": True})]
+    assert loaded == [(sentence_tf.DEFAULT_MODEL, {"local_files_only": True, "revision": sentence_tf.DEFAULT_REVISION})]
     assert embedder.embed(["hi"])  # bound, not still waiting
 
 

@@ -11,10 +11,12 @@ from __future__ import annotations
 import io
 import json
 import zipfile
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
+from fastapi import HTTPException
 
 from yurios import daemon
 from yurios.characters import CharacterRegistry
@@ -33,6 +35,46 @@ enabled: true
 
 You are {{char}}. Look back over the day and write one line.
 """
+
+
+def job_zip(entries):
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        for name, content in entries:
+            archive.writestr(name, content)
+    return buffer.getvalue()
+
+
+def test_night_job_zip_limits_expanded_bytes_before_any_write(board):
+    archive = job_zip([("oversize.md", JOB.format(name="oversize") +
+                        "x" * module_routes.MAX_IMPORT_BYTES)])
+    assert len(archive) < module_routes.MAX_IMPORT_BYTES
+    result = board.client.post("/api/characters/yuri/dream-jobs/import",
+                               files={"files": ("jobs.zip", archive)})
+    assert result.status_code == 413
+    assert not list(Path(board.registry.require("yuri").paths.vault).rglob("oversize.md"))
+
+
+def test_night_job_zip_limits_total_bytes_and_member_count(board, monkeypatch):
+    monkeypatch.setattr(module_routes, "MAX_IMPORT_TOTAL_BYTES", 300)
+    entries = [(f"job{i}.md", JOB.format(name=f"job{i}") + "x" * 100) for i in range(3)]
+    result = board.client.post("/api/characters/yuri/dream-jobs/import",
+                               files={"files": ("jobs.zip", job_zip(entries))})
+    assert result.status_code == 413
+    monkeypatch.setattr(module_routes, "MAX_ARCHIVE_MEMBERS", 2)
+    result = board.client.post("/api/characters/yuri/dream-jobs/import",
+                               files={"files": ("jobs.zip", job_zip(entries))})
+    assert result.status_code == 413
+
+
+def test_night_job_zip_bounds_streamed_bytes_even_when_metadata_lies(monkeypatch):
+    archive = job_zip([("audit.md", "short")])
+    monkeypatch.setattr(zipfile.ZipFile, "open", lambda *_args, **_kwargs:
+                        io.BytesIO(b"x" * 201))
+    with pytest.raises(HTTPException) as caught:
+        module_routes._read_job_upload(archive, "jobs.zip", remaining_bytes=200,
+                                       remaining_files=1)
+    assert caught.value.status_code == 413
 
 
 @pytest.fixture
@@ -264,3 +306,12 @@ def test_a_saved_address_never_borrows_the_booted_key(board, monkeypatch):
                          "OPENAI_COMPATIBLE_API_KEY=\n", encoding="utf-8")
     board.client.get("/api/models", params={"provider": "openai_compatible"})
     assert asked == [("https://new.example/v1/models", None)]
+
+
+def test_import_limits_count_replacement_decoded_text(monkeypatch):
+    from yurios.world.host import modules
+    monkeypatch.setattr(modules, "MAX_IMPORT_BYTES", 10)
+    with pytest.raises(HTTPException) as exc:
+        modules._read_job_upload(b"\xff" * 5, "job.md", remaining_bytes=100,
+                                 remaining_files=1)
+    assert exc.value.status_code == 413

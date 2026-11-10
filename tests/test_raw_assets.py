@@ -102,3 +102,20 @@ def test_the_raw_live2d_page_is_stamped_too(tmp_path):
         assert page.headers["cache-control"] == "no-cache"
         assert _stamp(page.text, "/shared/settings.js")
         assert _stamp(page.text, "/shared/runtime.js")
+
+
+def test_pages_authorize_only_their_inline_bootstraps_and_refuse_framing(tmp_path):
+    import base64
+    import hashlib
+    html = tmp_path / "index.html"
+    code = "window.ready = true;"
+    html.write_text(f'<script>{code}</script><script src="/shared/panel.js"></script>')
+    response = raw_assets.page(html, tmp_path)
+    csp = response.headers["Content-Security-Policy"]
+    digest = base64.b64encode(hashlib.sha256(code.encode()).digest()).decode()
+    assert "'sha256-" + digest + "'" in csp
+    assert "script-src 'self'" in csp and "'unsafe-eval'" not in csp
+    assert "connect-src 'self' blob: data:" in csp  # GLTF embedded textures
+    assert "frame-ancestors 'none'" in csp and "object-src 'none'" in csp
+    assert response.headers["X-Content-Type-Options"] == "nosniff"
+    assert response.headers["X-Frame-Options"] == "DENY"

@@ -60,7 +60,7 @@ def register(app: FastAPI, host: CharacterHost, require) -> None:
     async def import_card(file: UploadFile):
         payload = await file.read(32 * 1024 * 1024 + 1)
         try:
-            record = CharacterImporter(registry).import_card(payload)
+            record = await asyncio.to_thread(CharacterImporter(registry).import_card, payload)
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
         return {"character": host.summary(record)}
@@ -490,8 +490,9 @@ def register(app: FastAPI, host: CharacterHost, require) -> None:
         else:
             raise HTTPException(400, "send a selfie name or a base64 image")
         try:
+            portrait = await asyncio.to_thread(_sanitize_portrait, raw, _IMAGE_LIMITS)
             record.paths.portrait.parent.mkdir(parents=True, exist_ok=True)
-            record.paths.portrait.write_bytes(_sanitize_portrait(raw, _IMAGE_LIMITS))
+            record.paths.portrait.write_bytes(portrait)
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
         return {"portrait_url": f"/api/characters/{record.id}/portrait"}

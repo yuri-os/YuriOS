@@ -25,13 +25,14 @@ attachment is not an archive and nobody is coming back to prune it by hand.
 from __future__ import annotations
 
 import base64
-import io
 import logging
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
-from PIL import Image, ImageOps, UnidentifiedImageError
+from PIL import Image, UnidentifiedImageError
+
+from yurios.parsing import ParseRejected, image_bytes, parse_file
 
 log = logging.getLogger("world.uploads")
 
@@ -84,28 +85,17 @@ class Uploads:
     def save(self, data: bytes) -> Attachment:
         """Decode, orient, shrink, re-encode, write. Raises `UploadRejected`
         with a sentence for the person who chose the file."""
-        image, source_format = self._decode(data)
-        with image:
-            # EXIF first: a phone photo is stored sideways with a tag saying so,
-            # and a model reads the pixels, not the tag. `exif_transpose` is
-            # also the last thing that reads the metadata — everything from here
-            # is a freshly built image with none.
-            oriented = ImageOps.exif_transpose(image) or image
-            has_alpha = (oriented.mode in ("RGBA", "LA")
-                         or "transparency" in oriented.info)
-            out_format = "PNG" if has_alpha else "JPEG"
-            oriented = oriented.convert("RGBA" if has_alpha else "RGB")
-            # `thumbnail` is a no-op when it already fits, so a screenshot that
-            # is small enough is never re-sampled — only re-encoded.
-            oriented.thumbnail((self.max_px, self.max_px),
-                               Image.Resampling.LANCZOS)
-            buffer = io.BytesIO()
-            if out_format == "JPEG":
-                oriented.save(buffer, format="JPEG", quality=88, optimize=True)
-            else:
-                oriented.save(buffer, format="PNG", optimize=True)
-            width, height = oriented.size
-        payload = buffer.getvalue()
+        if not data:
+            raise UploadRejected("that file is empty")
+        try:
+            result = parse_file("image", data, max_pixels=MAX_SOURCE_PIXELS,
+                                max_px=self.max_px)
+            payload = image_bytes(result)
+        except ParseRejected as exc:
+            raise UploadRejected(str(exc)) from exc
+        out_format = result["format"]
+        source_format = result["source_format"]
+        width, height = result["width"], result["height"]
 
         self.dir.mkdir(parents=True, exist_ok=True)
         name = f"{uuid.uuid4().hex[:16]}{_SUFFIX[out_format]}"
@@ -116,25 +106,6 @@ class Uploads:
         return Attachment(id=name, path=self.dir / name,
                           media_type=_MEDIA[out_format],
                           width=width, height=height, bytes=len(payload))
-
-    def _decode(self, data: bytes) -> tuple[Image.Image, str]:
-        if not data:
-            raise UploadRejected("that file is empty")
-        try:
-            image = Image.open(io.BytesIO(data))
-        except (UnidentifiedImageError, OSError, ValueError) as exc:
-            raise UploadRejected("that doesn't look like an image") from exc
-        # `open` has read the header and nothing else, so both checks below are
-        # still ahead of the expensive part.
-        if image.format not in ACCEPTED:
-            image.close()
-            raise UploadRejected(
-                f"{image.format or 'that format'} isn't one she can be sent "
-                f"({', '.join(ACCEPTED)})")
-        if image.width * image.height > MAX_SOURCE_PIXELS:
-            image.close()
-            raise UploadRejected("that image is too large to open")
-        return image, image.format or ""
 
     def _prune(self) -> None:
         """Keep the newest `keep`. Best-effort: a file that vanished under us
@@ -162,7 +133,7 @@ class Uploads:
             return None
         media = _MEDIA["PNG"] if path.suffix == ".png" else _MEDIA["JPEG"]
         try:
-            with Image.open(path) as image:
+            with Image.open(path, formats=("PNG", "JPEG")) as image:
                 size = image.size
             return Attachment(id=path.name, path=path, media_type=media,
                               width=size[0], height=size[1],

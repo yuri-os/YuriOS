@@ -233,8 +233,8 @@ def test_a_native_card_with_two_payloads_is_not_trusted_to_start(tmp_path):
 def test_portrait_preflight_rejects_dimensions_before_pillow_load(monkeypatch):
     oversized = (b"\x89PNG\r\n\x1a\n" + struct.pack(">I", 13) + b"IHDR" +
                  struct.pack(">IIBBBBB", 9000, 2, 8, 2, 0, 0, 0))
-    monkeypatch.setattr("yurios.characters.importer.Image.open",
-                        lambda *_a, **_k: pytest.fail("Pillow was called"))
+    monkeypatch.setattr("yurios.characters.importer.parse_file",
+                        lambda *_a, **_k: pytest.fail("parser was called"))
 
     with pytest.raises(CharacterImportError, match="dimensions exceed"):
         _sanitize_portrait(oversized, CardLimits())

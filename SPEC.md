@@ -772,7 +772,9 @@ to every new subscriber before its first live event. Malformed JSON is logged an
   room — the desktop is the room), the renderer **MUST** clear to alpha 0, a neutral light rig
   **MUST** replace the lamp, and the camera frames the full body. Both sockets, every §4 command,
   the tools, and ambient life are unchanged; `rain` arrives as sound only. Not required for the
-  DoD.
+  DoD. The Electron shell **MUST** run sandboxed without Node integration, grant only
+  the selected HTTP(S) origin's main-frame microphone, and deny camera, screen capture,
+  popups and foreign-origin navigation in both permission-check and request phases.
 - §6.6 **The second body.** A Live2D web client is served at `/live2d/` (`web/live2d/`); its
   Cubism runtime and rig ship with the build. It carries the §2.6 chat column and one
   `events.js` that maps
@@ -1709,7 +1711,12 @@ Below the house pages the rail lists every character on the node. Her page has t
 - §11.4.2 **Night jobs.** `vault/dreams/*.md` (§21.2), through host routes that work with her
   stopped (`/api/characters/<id>/dream-jobs`): list, write, delete (a builtin reverts), export one
   as its `.md` or all as a zip, import `.md` files or zips, and copy one straight into another
-  character. A file is filed under the name its frontmatter declares (rewritten in that one line
+  character. Imports **MUST** cap compressed uploads and each expanded job at 2 MiB,
+  the entire request at 8 MiB expanded and 64 jobs, and each archive at 128 entries.
+  Expanded data **MUST** be read with a byte limit, not trusted from ZIP metadata;
+  parsing **MUST** run off the event loop and all limits **MUST** be checked before writes.
+  Duplicate job basenames within an archive and encrypted job entries **MUST** be refused.
+  A file is filed under the name its frontmatter declares (rewritten in that one line
   when imported under another), refused with `validate_job_file`'s own sentence, skipped when she
   already has it unless replacing was asked for, and committed as a person's edit (`now=True`).
 - §11.4.3 **Selfie scenes.** Her `selfie.yaml` (§7.6) as a unit: export, import a YAML to **merge**
@@ -1769,6 +1776,25 @@ Pictures in the rail and linked from the top of it) is where that file comes fro
   searched card downloads under §11.5.4 like any other, because its file and address are now in
   the cached list.
 - Every route here is owner-or-loopback: they write `.env`, use someone's bandwidth and fill a disk.
+
+### §11.6 — File parsing and browser security
+
+Untrusted chat images, imported portraits and PDF documents **MUST** be decoded in
+short-lived subprocesses. The host **MUST** accept at most two concurrent parsers,
+refuse raw inputs above 50 MB, and kill and reap a parser after 20 seconds. A worker
+**MUST** impose a 1.5 GiB memory budget and 10-second CPU budget before importing
+decoders. Its JSON output **MUST** be bounded to 64 MiB and **MUST NOT** use pickle.
+A refusal **MUST NOT** write character state. Image decoders **MUST** receive an
+explicit format allowlist before opening the input; existing pixel/header limits,
+EXIF orientation, metadata removal and output normalization still apply. These are
+resource limits, not an operating-system security sandbox.
+
+Main HTML pages **MUST** send CSP with same-origin scripts, hashes for their inline
+bootstraps, no object embeds, no framing, and `nosniff`. Live2D **MAY** permit eval for
+Pixi shader generation. Downloaded Live2D scripts **MUST** match reviewed SHA-256
+hashes before replacement and in browser SRI checks. The default embedder and forge
+companion models **MUST** use immutable Hugging Face revisions; changing a bundled
+revision or runtime hash requires review and validation.
 
 ## §12 — Omissions → superseded by §26
 

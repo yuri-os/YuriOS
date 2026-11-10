@@ -138,6 +138,14 @@ else
 fi
 
 # --- does it install --------------------------------------------------------------
+start "desktop shell tests"
+if command -v npm >/dev/null 2>&1; then
+    ( cd desktop-shell && npm test --silent )
+    verdict $?
+else
+    missing 'install Node (install.sh does this via nvm)'
+fi
+
 if [ "$RELEASE" = true ]; then
     start "install smoke test"
     ./scripts/smoke_install.sh --python 3.11

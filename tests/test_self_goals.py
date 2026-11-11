@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from yurios.app.memory.store import FileMemoryStore
 from yurios.mind.dream import DreamConsolidator
 from yurios.mind.dreamjobs import SELF_GOAL, DreamRunner
@@ -410,6 +412,22 @@ async def test_the_night_refuses_to_file_a_morning_brief(tmp_path, cfg):
     assert goals.open_goals() == []
     assert ctx.goal_refusal == "night"
     assert "the night already does that" in out.result
+
+
+@pytest.mark.parametrize("tools", [False, True])
+async def test_strategy_context_offers_tell_them(tmp_path, cfg, tools):
+    """Found live: with only her hands in view, a night that wanted a finished
+    post in front of the user planned a `propose_edit` of NOTES.md."""
+    cfg.mind_tools_enabled = tools
+    runner, _clock, goals = _rig(
+        tmp_path, cfg, answer='{"reflection":"ok","next":null}')
+    ctx = runner._context(day="2026-07-06")
+    prompt = ctx.strategy_context("2026-07-06", [])
+    block = prompt.split("AVAILABLE AUTONOMOUS CAPABILITIES\n", 1)[1]
+    listed = block.split("\n", 1)[0].split(", ")
+    assert "tell_them" in listed
+    assert ("write_note" in listed) is tools
+    assert "tell_them is how anything reaches" in block
 
 
 async def test_strategy_context_labels_the_dream_maintenance_goal(tmp_path, cfg):

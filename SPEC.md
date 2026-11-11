@@ -2693,6 +2693,12 @@ optional due time, **provenance**, and a **commitment strategy**; lifecycle
   the goals page stays a thing you read *before* the fact. At most `MIND_SELF_GOALS_MAX` of hers may
   be open at once; each is filed `open-minded` with a due date so §22.2's `reconsider()` lets go of
   what she never advanced; and `MIND_GOAL_FILING_ENABLED` **MUST** take effect without a restart.
+  The capabilities the stock-take is shown **MUST** include `tell_them` (§18.2b) beside her
+  allowed hands, whether or not any hand is on, and say that it is how something reaches the
+  user. It is not a hand, so the allowlist never names it, yet every goal step is offered it; a
+  stock-take that cannot see it plans delivery through whatever hand looks closest. Live,
+  12 Nov: a night decided a finished post needed handing over and planned a `propose_edit` of
+  `NOTES.md` that would have replaced the whole file with its cover note.
   The stock-take's answer is read from the object it opens with, whatever follows it; one that
   opens as an object and still cannot be read **MUST** be reported as unreadable — never as a
   night that chose nothing — and its raw text **MUST NOT** become her strategy note.

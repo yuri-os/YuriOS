@@ -32,7 +32,7 @@ a section are folded into it.
 | **§19** — The world model (the present tense) | `yurios/mind/world.py`<br>`yurios/world/brain.py`<br>`yurios/world/situation.py` | `tests/test_world_model.py` |
 | **§20** — The knowledge layer (drop-folder RAG) | `yurios/mind/knowledge.py`<br>`yurios/mind/documents.py`<br>`web/js/files.js`<br>`yurios/ctl/documents.py`<br>*+2 more* | `tests/test_mind_routes.py`<br>`tests/test_cli_documents.py`<br>`tests/test_knowledge.py`<br>*+1 more* |
 | **§21** — DREAM consolidation | `yurios/mind/dreamjobs/research.py`<br>`yurios/mind/dream.py`<br>`yurios/mind/dreamjobs/builtins.py`<br>`yurios/mind/dreamjobs/context.py`<br>*+6 more* | `tests/test_dreamjobs.py`<br>`tests/test_mind_routes.py`<br>`tests/test_cli_dreams.py`<br>*+1 more* |
-| **§22** — Goals and intentions | `yurios/mind/goals.py`<br>`yurios/mind/handwork.py`<br>`scripts/live_check.py`<br>`yurios/mind/goalwork.py`<br>*+12 more* | `tests/test_mind_goals.py`<br>`tests/test_mind_hands.py`<br>`tests/test_mind_routes.py`<br>*+7 more* |
+| **§22** — Goals and intentions | `yurios/mind/goals.py`<br>`yurios/mind/handwork.py`<br>`scripts/live_check.py`<br>`yurios/mind/goalwork.py`<br>*+13 more* | `tests/test_mind_goals.py`<br>`tests/test_mind_hands.py`<br>`tests/test_mind_routes.py`<br>*+7 more* |
 | **§23** — The SOUL split and gated self-edits | `yurios/mind/selfedit.py`<br>`yurios/world/tools/server.py` | `tests/test_selfedit.py`<br>`tests/test_mind_goals.py` |
 | **§24** — The journal, the trace, and the inner-life surface | `yurios/world/debug.py`<br>`yurios/world/host/debug.py`<br>`yurios/world/main.py`<br>`yurios/world/routes/mind.py`<br>*+24 more* | `tests/test_host_debug.py`<br>`tests/test_mind_routes.py`<br>`tests/test_correlate.py`<br>*+3 more* |
 | **§25** — Config (the mind's knobs) | — | — |
@@ -51,4 +51,4 @@ a section are folded into it.
 | **§38** — How long her replies run | `web/js/chat.js`<br>`yurios/app/config.py`<br>`scripts/live_check.py`<br>`web/shared/reply-length.js`<br>*+2 more* | `tests/test_mind_soul.py`<br>`tests/test_reply_length.py` |
 | **§39** — Another reply in her last one's place | `yurios/desktop/brain.py`<br>`yurios/world/main.py`<br>`yurios/world/routes/chat.py`<br>`yurios/world/turns.py`<br>*+13 more* | `tests/test_swipes.py` |
 
-*1129 citation sites over 145 sections.*
+*1130 citation sites over 145 sections.*

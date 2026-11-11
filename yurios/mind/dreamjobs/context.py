@@ -25,7 +25,7 @@ from ..journal import canonical_day, is_canonical_day
 from ..util import day_of, iso_of, read_json, write_json
 from ..vaultio import MindVault
 from ..goals import OWN_JUDGEMENT, Goal, GoalStore, echoes, night_owned
-from ..hands import Hands
+from ..hands import TELL, Hands
 from ..workspace import SkillStore, Workspace
 
 log = logging.getLogger("mind.dreamjobs")
@@ -430,8 +430,20 @@ class DreamContext:
         enabled = bool(getattr(self.cfg, "mind_tools_enabled", False))
         names = Hands(cfg=self.cfg, clock=self.clock).allowlist \
             if self.cfg is not None else ()
-        capability = ", ".join(names) if enabled and names else "thought-only"
-        parts.append("AVAILABLE AUTONOMOUS CAPABILITIES\n" + capability)
+        # `tell_them` is not a hand, so the allowlist never names it — but
+        # every goal step is offered it (§18.2b), and a stock-take that
+        # cannot see it has no way to plan "put this in front of them". Live,
+        # 12 Nov: the night decided a finished post needed handing over, saw
+        # only her hands, and planned a `propose_edit` that would have
+        # replaced her NOTES.md with the cover note (SPEC §22.1b).
+        hands = list(names) if enabled and names else []
+        capability = ", ".join([*hands, TELL])
+        parts.append(
+            "AVAILABLE AUTONOMOUS CAPABILITIES\n" + capability + "\n"
+            f"{TELL} is how anything reaches {self.user_name}: a message, in "
+            "your own words, that they get the next time it is a good moment. "
+            f"When the thing worth doing is that {self.user_name} sees or "
+            f"hears about something, plan it with {TELL}.")
 
         if open_goals:
             lines = []

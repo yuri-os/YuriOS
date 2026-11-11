@@ -559,7 +559,10 @@ def resume_after_telling(loop, parent: Goal, *, delivered: bool) -> list[str]:
     telling = parent.meta.get("telling") or {}
     user = loop.cfg.user_name
     if delivered and telling.get("completes"):
-        loop.goals.update(parent.id, state="done", meta={"telling": {}})
+        # Told in her own words as it closed: heard, so neither the
+        # conversation nor a follow-up says it again (§22.8).
+        loop.goals.update(parent.id, state="done",
+                          meta={"telling": {}, "heard": iso_of(loop.clock.now())})
         return [f"finished: {parent.text} — {user} has it now"]
     # Back to work — but not on the next tick. What she said is often a
     # question, and the answer needs time to come: found live, "which framing

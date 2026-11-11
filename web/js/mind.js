@@ -312,6 +312,61 @@ import { detailMessage } from '../shared/http.js';
       '</li>';
   }
 
+  // ---- finished lately (SPEC §22.8, §24.3) ----------------------------------
+  // A goal used to leave this panel the moment it was done, and took with it
+  // the one place the file she wrote for you overnight could be found. The last
+  // few days' finished work, newest first: what it was, when, whether she has
+  // told you, and every file the work went to — each opening in place.
+  const FINISHED_DAYS = 3;
+
+  function finishedLately(goals) {
+    const since = Date.now() - FINISHED_DAYS * 86400000;
+    const at = (g) => new Date(g.closed || '').getTime();
+    return goals
+      .filter(g => g.state === 'done' && g.kind === 'task' &&
+        !String(g.provenance || '').startsWith('maintenance:') &&
+        Number.isFinite(at(g)) && at(g) >= since)
+      .sort((a, b) => at(b) - at(a));
+  }
+
+  function madeRow(g, path) {
+    const id = `made:${g.id}:${path}`;
+    deskPaths.set(id, path);
+    const looking = openDesks.has(id);
+    const cached = deskCache.get(id);
+    const body = !cached ? 'opening…'
+      : cached.missing ? 'it is no longer on her desk.' : cached.text;
+    return `<li><code class="il-path">${esc(path)}</code>` +
+      `<button type="button" class="il-look" data-desk="${esc(id)}" ` +
+      `data-path="${esc(path)}">${looking ? 'fold it away' : 'open'}</button>` +
+      (looking ? `<pre class="il-content il-desk">${esc(body)}</pre>` : '') +
+      '</li>';
+  }
+
+  function finishedRow(g) {
+    deskPaths.set(g.id, deskPath(g));
+    const hers = HERS.some(p => String(g.provenance || '').startsWith(p));
+    const looking = openDesks.has(g.id);
+    const made = g.made || [];
+    return `<li class="g-done${g.heard ? '' : ' g-untold'}${hers ? ' g-hers' : ''}">` +
+      `<span class="il-goal-line">` +
+      (g.heard ? '' : '<span class="il-untold">new</span> ') +
+      (hers ? '<span class="il-hers">she filed this</span> ' : '') +
+      `${esc(g.text)}</span>` +
+      `<span class="il-goal-actions">` +
+      `<button type="button" class="il-look" data-desk="${esc(g.id)}" ` +
+      `data-path="${esc(deskPath(g))}">` +
+      `${looking ? 'fold her notes away' : 'her notes'}</button></span>` +
+      `<span class="il-prov">finished ${esc(when(g.closed))} · ` +
+      `${g.heard ? 'she has told you' : 'not mentioned to you yet'} · ` +
+      `${esc(g.kind)} · ${esc(g.provenance)}</span>` +
+      (made.length
+        ? '<ul class="il-made">' + made.map(p => madeRow(g, p)).join('') + '</ul>'
+        : '') +
+      (looking ? `<pre class="il-content il-desk">${esc(deskBody(g.id))}</pre>` : '') +
+      '</li>';
+  }
+
   // ---- documents you handed her (SPEC §34.6) ---------------------------------
   // Newest first. A waiting one says when she will get to it; a read one says
   // what came of it. Each opens in place, in the viewer a goal's desk file uses.
@@ -424,6 +479,8 @@ import { detailMessage } from '../shared/http.js';
       nowHtml += section('she asks — edits waiting on you', edits.map(editBlock).join(''));
     }
 
+    const finished = finishedLately(state.goals || []);
+    const untold = finished.filter(g => !g.heard).length;
     const goals = (state.goals || []).filter(g => g.state !== 'done');
     const maintenance = goals.filter(g => g.kind === 'maintenance' ||
       String(g.provenance || '').startsWith('maintenance:'));
@@ -435,6 +492,12 @@ import { detailMessage } from '../shared/http.js';
         (intentions.length
           ? '<ul class="il-goals">' + intentions.map(goalRow).join('') + '</ul>'
           : '<p class="il-off">nothing she means to do right now</p>'));
+    }
+    if (finished.length) {
+      plansHtml += section('finished lately',
+        `<p class="il-off">${untold ? `${untold} she hasn’t mentioned yet` : 'all mentioned'}` +
+        ` · the last ${FINISHED_DAYS} days, and where the work went</p>` +
+        '<ul class="il-goals il-finished">' + finished.map(finishedRow).join('') + '</ul>');
     }
     if (maintenance.length) {
       plansHtml += section('system upkeep',
@@ -473,7 +536,7 @@ import { detailMessage } from '../shared/http.js';
     const needsAttention = timers.count + reading.live + reading.held + edits.length;
     const html = navigation({
       now: needsAttention,
-      plans: openGoals + unread,
+      plans: openGoals + unread + untold,
       history: days.length,
     }) + page('now', nowHtml) + page('plans', plansHtml) + page('history', historyHtml);
     repaint(html);

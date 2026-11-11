@@ -550,6 +550,17 @@ svg{ width:1.1em; height:1.1em; fill:none; stroke:currentColor; stroke-width:1.7
    the two, and a handed row put them after */
 .il-handed .il-prov{ display:block; margin-top:3px; line-height:1.6; }
 .il-outcome{ display:block; margin-top:4px; color:var(--soft); font-size:12px; line-height:1.5; }
+/* finished lately (§22.8): what she did, whether she said so, where it went */
+.il-finished .il-prov{ display:block; margin-top:3px; line-height:1.6; }
+.il-finished .g-untold{ border-left:2px solid var(--mint); padding-left:9px; }
+.il-untold{
+  color:var(--mint); font:9px var(--font-mono); letter-spacing:.08em;
+  text-transform:uppercase;
+}
+.il-made{ list-style:none; padding:0; margin:6px 0 0; }
+.il-made li{ display:flex; flex-wrap:wrap; align-items:center; gap:4px 8px; margin:0 0 4px; }
+.il-path{ min-width:0; color:var(--ink); font:10px var(--font-mono); overflow-wrap:anywhere; }
+.il-made .il-content{ flex-basis:100%; }
 /* the switch, on the list it governs — two states side by side, the live one
    marked, so "off" is never a checkbox you have to read twice */
 .il-filing{ margin:0 0 12px; color:var(--soft); font-size:12px; }

@@ -2093,7 +2093,8 @@ them is precisely the always-interrupting-assistant failure.
   errand (§18.2a) — and a goal waiting on a message that is no longer open returns to work. A
   wakeup **MUST NOT** return a goal to work while the message it waits on is still open. The step
   prompt **MUST** name
-  this as the way to reach them. Told only that nothing it wrote reached anyone, a step whose goal
+  this as the way to reach them, and **MUST** tell her that a finish leaving something they would
+  want to see is told this way, with what it is and its path (§22.8). Told only that nothing it wrote reached anyone, a step whose goal
   was "tell him, directly, in conversation, not in a note" wrote a scene of saying it on her desk,
   read its own desk back on the next step as the event, recorded the conversation in her diary,
   and closed the goal on an `append_note` (28 Sep).
@@ -2721,7 +2722,8 @@ optional due time, **provenance**, and a **commitment strategy**; lifecycle
   every promise as a `reach_out` — which is what this did before — meant nothing in the store was
   ever a `task`, so goal work and her hands had no subject and she talked about work she had not
   done. **A `task` she finishes on her own promise MUST file the news half** (`followup:<goal>`,
-  `open-minded`) rather than closing silently, or the split loses the half you were waiting for.
+  `open-minded`) rather than closing silently, or the split loses the half you were waiting for —
+  and so **MUST** one she took on of her own judgement (`strategy:`, `muse:`), §22.8.
   Quoted examples of first-person promises **MUST NOT** become candidates. Semantic review
   **MUST** receive the tool outcomes from the completed turn and **MUST NOT** accept narration as
   proof of an action: `list_notes` proves an index, `read_note` proves only its returned path and
@@ -2795,7 +2797,9 @@ optional due time, **provenance**, and a **commitment strategy**; lifecycle
   `goals/<id>.md` **MUST** say whose goal it is and in what state. Unnamed, and with five goal
   files listed by id alone, a skill goal's first step took the newest — the finished diary goal's —
   for its own and logged its progress there twice. The horizon is bounded by `MIND_GOAL_MAX_STEPS`
-  (`meta.steps`), after which the goal waits or the commitment strategy lets it go.
+  (`meta.steps`), after which the goal waits or the commitment strategy lets it go. Every exit to
+  `done` or `abandoned`, by any path, **MUST** stamp `meta.closed` once, and a step's successful
+  desk writes **MUST** be kept on the goal as `meta.made` (§22.8).
 - §22.4 **A working step gets the same context as a conversational turn.** The desk digest, the
   skills catalog, the situation, the durable facts, her other open goals — **and who she is**: the
   identity blocks of §7.1 (voice law, persona backbone, scenario, `USER.md`), rendered by
@@ -2902,6 +2906,42 @@ optional due time, **provenance**, and a **commitment strategy**; lifecycle
   nothing else, because anything that changes the world is a goal's step (§26.2). A sitting that
   ends on a thought alone is kept, on `workspace/free-time/<day>.md` and in the journal. The
   cooldown is stamped when the sitting starts, so a failed one is not retried next tick.
+- §22.8 **Finished work reaches the user.** Live, 10 Nov: a `strategy:` goal read two notes at
+  02:17, wrote `notes/yurios-readme.md`, and closed on "drop-in ready for the repo or to show
+  anyone who asks. Goal complete." Nobody was told and nothing showed it: the follow-up was
+  promise-only, the step never reached for `tell_them`, the next conversation saw only open goals,
+  and the inner-life panel dropped a goal the moment it was done. A finished `task` therefore has
+  four ways to reach the user, and each **MUST** hold:
+  1. **Her own words, on the finishing step.** The step prompt **MUST** tell her that a finish
+     leaving something the user would want to see is told with `tell_them` — what it is and its
+     path — with the done-mark above it (§18.2b). That goal closes on delivery and is stamped
+     `meta.heard`; it **MUST NOT** also file a follow-up.
+  2. **The follow-up, for work nobody asked for.** A `task` finished without telling them whose
+     provenance is `promise:`, `strategy:` or `muse:` **MUST** file the `followup:<goal>`
+     `reach_out` (§22.1a) — `open-minded`, a day's shelf life, and Gate 2's to time. Its text
+     **MUST** name where the work is (`meta.made`), falling back to the goal's desk file. The
+     user's own asks file none (they are on the desk where they left them, and door three tells
+     them), nor do a step's sub-goals, maintenance, or a `reach_out`.
+  3. **WHILE YOU WERE AWAY, on the next turn.** A conversational reply's system prompt **MUST**
+     carry a `WHILE YOU WERE AWAY` block listing each finished `task` (not maintenance, not
+     `meta.auto`) that closed after the user's previous line — the newest standing user line in
+     any session, the one being answered again excluded — and within the last three days, at most
+     five, none of them already told: stamped `heard`, or with a delivered `followup:`. Each line
+     says when it closed and where the work is. The block **MUST** say these really happened and
+     tell her to mention them in this reply, briefly, with the path. Greetings, murmurs and
+     reach-outs do not carry it, since nothing they say is persisted. Only when the turn
+     **commits** are those goals stamped `heard`, and an open `followup:` for any of them settled
+     `done` (`completed_by: conversation`) so Gate 2 does not say it a second time — except one
+     holding a picture, which a sentence does not deliver (§18.2a). A failed or abandoned turn
+     **MUST NOT** mark anything. Building the block never raises.
+  4. **The panel keeps it findable.** The `/api/mind` goal rows **MUST** carry `closed`, `made` and
+     `heard` (stamped, or a delivered follow-up), and the **Plans** view **MUST** list the last
+     three days' finished tasks, newest first — when each closed, whether she has told the user,
+     and every file it made, each opening in place (§24.3).
+  `meta.made` holds the paths her `write_note` / `append_note` / `edit_note` calls answered `ok`
+  with, newest last and at most eight; a `delete_note` takes its path off, and `goals/` desk files
+  never go on — they are her thinking about the work, which the panel already opens. A goal closed
+  before `meta.closed` existed **MUST** read its `meta.last_step` as when it closed.
 
 ## §23 — The SOUL split and gated self-edits
 
@@ -2957,8 +2997,9 @@ The product half of autonomy: what converts an always-on process from creepy to 
   and edits waiting on you (what each changes, the whole file folded under it, one-click
   approve/reject, and an edit control that lets you rewrite it before approving); **Plans** carries
   goals with provenance and a one-click control that opens the matching desk file
-  (`workspace/goals/<id>.md`, §22.3) through `GET /api/mind/workspace/file`, system upkeep and the
-  shelf; **History** carries completed research and the journal. The selected view **MUST** survive
+  (`workspace/goals/<id>.md`, §22.3) through `GET /api/mind/workspace/file`, finished work with the
+  files it made (§22.8), system upkeep and the shelf; **History** carries completed research and
+  the journal. Finished work she has not told the user about counts on the **Plans** tab. The selected view **MUST** survive
   live refreshes. The surface is refreshed live off the same one bus (`journal`/`mind`/`timers`
   events). Everything reads *through* the mind's
   own stores; the dashboard can never disagree with the files. The snapshot **MUST** name each

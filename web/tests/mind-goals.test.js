@@ -294,3 +294,75 @@ it('retries a missing goal file when reopened', async () => {
   document.querySelector('.il-look').click();
   await vi.waitFor(() => expect(document.querySelector('.il-desk')?.textContent).toBe('written now'));
 });
+
+it('keeps finished work findable: when, whether she said so, and each file it made', async () => {
+  document.body.innerHTML = `
+    <button id="tab-chat"></button><button id="tab-mind"></button>
+    <button id="tab-files"></button><button id="tab-gallery"></button>
+    <div id="messages"></div><div id="innerlife" hidden></div>
+    <div id="files" hidden></div><div id="gallery" hidden></div>
+  `;
+  window.YuriOSRuntime = { apiPath: (path) => path };
+  const hoursAgo = (h) => new Date(Date.now() - h * 3600000).toISOString();
+  const done = (id, closed, extra = {}) => ({
+    id, text: id, kind: 'task', state: 'done', closed,
+    provenance: 'strategy:2026-11-09', made: [], heard: false, ...extra,
+  });
+  const state = {
+    state: 'IDLE', cadence_s: 60, interrupts_today: 0, dream_backlog: [],
+    budget: { spent_tokens: 0, daily_tokens: 1000 }, pending_edits: [],
+    goals: [
+      done('the readme', hoursAgo(5), { made: ['notes/yurios-readme.md'] }),
+      done('told already', hoursAgo(2), { heard: true, provenance: 'user:chat' }),
+      done('last week', hoursAgo(24 * 8)),
+      done('the night', hoursAgo(1), { kind: 'maintenance',
+                                       provenance: 'maintenance:dream' }),
+      { id: 'still open', text: 'still open', kind: 'task', state: 'active',
+        provenance: 'user:chat' },
+    ],
+    goal_filing: { enabled: true, open: 0, max: 3 }, shelf: [],
+  };
+  vi.stubGlobal('fetch', vi.fn((url) => {
+    if (url === '/api/mind') return Promise.resolve({ ok: true, json: async () => state });
+    if (url === '/api/mind/journal?days=3') {
+      return Promise.resolve({ ok: true, json: async () => ({ days: [] }) });
+    }
+    if (url === '/api/mind/reading') {
+      return Promise.resolve({
+        ok: true, json: async () => ({ reading: null, runs: [], held: [] }),
+      });
+    }
+    if (url === '/api/mind/workspace/file?path=notes%2Fyurios-readme.md') {
+      return Promise.resolve({
+        ok: true, json: async () => ({ path: 'notes/yurios-readme.md', text: '# YuriOS' }),
+      });
+    }
+    throw new Error(`unexpected request: ${url}`);
+  }));
+
+  await import('../js/mind.js');
+  document.getElementById('tab-mind').click();
+  await vi.waitFor(() => expect(document.querySelector('.il-finished')).not.toBeNull());
+
+  const rows = [...document.querySelectorAll('.il-finished > li')];
+  // newest first, inside the window, and never the night's bookkeeping
+  expect(rows.map((li) => li.querySelector('.il-goal-line').textContent))
+    .toEqual(['told already', 'new she filed this the readme']);
+  expect(rows[0].classList).not.toContain('g-untold');
+  expect(rows[0].textContent).toContain('she has told you');
+  expect(rows[1].classList).toContain('g-untold');
+  expect(rows[1].textContent).toContain('not mentioned to you yet');
+  expect(document.querySelector('.il-finished').textContent).not.toContain('last week');
+  expect(document.querySelector('.il-finished').textContent).not.toContain('the night');
+  // still open stays on her mind, not in the finished list
+  expect(document.querySelector('.il-finished').textContent).not.toContain('still open');
+
+  // the untold one counts on the plans tab, beside the one open goal
+  expect(document.querySelector('[data-il-view="plans"] small').textContent).toBe('2');
+
+  const open = rows[1].querySelector('.il-made .il-look');
+  expect(open.dataset.path).toBe('notes/yurios-readme.md');
+  open.click();
+  await vi.waitFor(() => expect(
+    document.querySelector('.il-made .il-content')?.textContent).toBe('# YuriOS'));
+});

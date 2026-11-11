@@ -48,7 +48,7 @@ from .budget import BudgetGovernor
 from .dream import DreamConsolidator
 from .dreamjobs import DreamRunner
 from .goals import (OWN_JUDGEMENT, Goal, GoalStore, discover_promise_candidates,
-                    fallback_promises, timer_for_promise, trim)
+                    fallback_promises, timer_for_promise, told_of, trim)
 from .hands import (Hands, build_guard, strip_native_calls)
 from .journal import Journal
 from .knowledge import KnowledgeStore
@@ -1043,16 +1043,23 @@ class MindLoop:
     # ---- the inner-life snapshot the /api/mind route serves (SPEC §24.3) ------
 
     def snapshot(self) -> dict:
+        everything = self.goals.all()
+        told = told_of(everything)
         return {
             "state": self.activity.state,
             "cadence_s": self.activity.cadence(),
             "next_tick_at": self.next_tick_at,
             "budget": self.budget.snapshot(),
+            # `closed`, `made` and `heard` are what the panel's finished list
+            # reads (§22.8, §24.3): when it closed, the files the work went
+            # to, and whether anybody has been told.
             "goals": [{"id": g.id, "text": g.text, "kind": g.kind,
                        "state": g.state, "due": g.due,
                        "provenance": g.provenance,
-                       "desk": self.GOAL_DESK.format(id=g.id)}
-                      for g in self.goals.all()][-30:],
+                       "desk": self.GOAL_DESK.format(id=g.id),
+                       "closed": g.closed or None, "made": g.made,
+                       "heard": g.id in told}
+                      for g in everything][-30:],
             "pending_edits": self.selfedit.pending_view(),
             # Goals of her own (§22.1), as the inner-life panel reads them.
             # `open` counts only hers against the cap, so the panel can say

@@ -12,7 +12,7 @@ starves the loop within weeks. The sources, stamped on every goal:
     ("I'll look into that") and files each one; a companion who forgets her
     own promises is worse than one who forgets yours.
   * `maintenance:*` — DREAM backlog, knowledge drops.
-  * `followup:<goal>` — work she finished, waiting to be mentioned.
+  * `followup:<goal>` — work she finished, waiting to be mentioned (§22.8).
 The file itself is a markdown checklist: `cat vault/goals.md` reads as her
 to-do list, because it is one.
 
@@ -129,6 +129,65 @@ class Goal:
         if p.get("deliver") == "chat":
             return ""
         return str(p.get("image_url") or "")
+
+    @property
+    def made(self) -> list[str]:
+        """The desk files this goal's steps wrote or changed (SPEC §22.8).
+
+        Her desk file (`goals/<id>.md`) is where she *thinks* about a goal; this
+        is where the work went. Without it the only trace of the README she
+        wrote overnight was a `write_note` line in the journal, and the goals
+        list said "done" with nothing to open.
+        """
+        made = self.meta.get("made")
+        return [str(p) for p in made if p] if isinstance(made, list) else []
+
+    @property
+    def closed(self) -> str:
+        """When this goal left the open states, as ISO, or "" (SPEC §22.8).
+
+        A goal closed before the stamp existed reads its last working step
+        instead — for a goal a step finished, that is the same minute.
+        """
+        if self.state not in ("done", "abandoned"):
+            return ""
+        return str(self.meta.get("closed") or self.meta.get("last_step") or "")
+
+    @property
+    def heard(self) -> bool:
+        """Whether the user has been told this goal is finished (SPEC §22.8).
+
+        Stamped by the two doors that tell them in her own words — a
+        `tell_them` that closed it, a conversational turn that carried it.
+        The third door, a delivered `followup:` reach-out, is read from the
+        follow-up itself (`GoalStore.unheard`).
+        """
+        return bool(self.meta.get("heard"))
+
+
+#: A goal still in play, and the two ways out of it (SPEC §22.3).
+OPEN_STATES = ("pending", "active", "waiting")
+CLOSED_STATES = ("done", "abandoned")
+
+
+def is_news(goal: Goal) -> bool:
+    """Is this a finished piece of work worth telling the user about (§22.8)?
+
+    A `task` she brought to `done`. Not a `reach_out` — its whole act was a
+    message, already delivered — and not the night's bookkeeping.
+    """
+    return (goal.state == "done" and goal.kind == "task"
+            and not goal.meta.get("auto")
+            and not goal.provenance.startswith("maintenance:"))
+
+
+def told_of(goals: Iterable[Goal]) -> set[str]:
+    """The ids of goals the user has been told are finished (§22.8): stamped
+    `heard`, or with a `followup:` reach-out that was delivered."""
+    goals = list(goals)
+    return ({g.id for g in goals if g.heard}
+            | {g.provenance.split(":", 1)[1] for g in goals
+               if g.provenance.startswith("followup:") and g.state == "done"})
 
 
 def _echo_words(text: str) -> set[str]:
@@ -321,7 +380,7 @@ class GoalStore:
         return goals
 
     def open_goals(self) -> list[Goal]:
-        return [g for g in self.all() if g.state in ("pending", "active", "waiting")]
+        return [g for g in self.all() if g.state in OPEN_STATES]
 
     def desk_labels(self, desk: str = "goals/{id}.md", *,
                     this: str = "") -> dict[str, str]:
@@ -397,7 +456,7 @@ class GoalStore:
                 continue
             found = g
             if state is not None:
-                g.state = state
+                self._move(g, state)
             if meta:
                 g.meta = {**g.meta, **meta}
             if priority is not None:
@@ -407,6 +466,71 @@ class GoalStore:
         if found is not None:
             self._save(goals)
         return found
+
+    def _move(self, g: Goal, state: str) -> None:
+        """Set a goal's state, stamping `meta.closed` on the way out (§22.8).
+
+        Every exit goes through here — a finished step, a delivered message,
+        `reconsider`, a picture shown — so "finished since you last wrote" has
+        one clock to read and nothing has to remember to stamp it.
+        """
+        if state in CLOSED_STATES and g.state not in CLOSED_STATES:
+            g.meta = {**g.meta, "closed": iso_of(self.clock.now())}
+        g.state = state
+
+    def unheard(self, *, since: float | None, oldest: float,
+                limit: int = 5) -> list[Goal]:
+        """Finished work the user has not been told about, newest last (§22.8).
+
+        Closed after `since` — the user's previous line, or None when there is
+        none — and after `oldest`, the earliest close still worth a sentence:
+        back after a fortnight, they want the last few days, not a ledger. A
+        goal is told once a `tell_them` or a turn has said it (`Goal.heard`),
+        or once its `followup:` reach-out has been delivered.
+        """
+        goals = self.all()
+        told = told_of(goals)
+        floor = max(oldest, since) if since is not None else oldest
+        news = []
+        for g in goals:
+            if not is_news(g) or g.id in told or not g.closed:
+                continue
+            try:
+                at = ts_of_iso(g.closed)
+            except (TypeError, ValueError):
+                continue
+            if at > floor:
+                news.append((at, g))
+        news.sort(key=lambda pair: pair[0])
+        return [g for _, g in news][-limit:] if limit > 0 else []
+
+    def mark_heard(self, goal_ids: Iterable[str]) -> list[Goal]:
+        """The conversation told them: these goals are heard (§22.8).
+
+        An open `followup:` for the same goal is settled with them, or Gate 2
+        would tell them a second time later in the day. One holding a picture
+        is not — the turn carried a sentence, not the photograph, and §18.2a's
+        own door is what sends that. Returns the goals changed.
+        """
+        ids = {i for i in goal_ids if i}
+        if not ids:
+            return []
+        now = iso_of(self.clock.now())
+        goals = self.all()
+        changed = []
+        for g in goals:
+            if g.id in ids and not g.heard:
+                g.meta = {**g.meta, "heard": now}
+                changed.append(g)
+            elif (g.state in OPEN_STATES and g.provenance.startswith("followup:")
+                    and g.provenance.split(":", 1)[1] in ids
+                    and not g.product.get("image_url")):
+                self._move(g, "done")
+                g.meta = {**g.meta, "completed_by": "conversation"}
+                changed.append(g)
+        if changed:
+            self._save(goals)
+        return changed
 
     def picture_shown(self, image_url: str) -> list[Goal]:
         """A picture reached the chat: no goal holding it may send it again.
@@ -430,9 +554,9 @@ class GoalStore:
             if g.product.get("deliver") != "chat":
                 g.meta = {**g.meta, "product": {**g.product, "deliver": "chat"}}
                 changed.append(g)
-            if (g.state in ("pending", "active", "waiting")
+            if (g.state in OPEN_STATES
                     and g.provenance.startswith("followup:")):
-                g.state = "done"
+                self._move(g, "done")
                 if g not in changed:
                     changed.append(g)
         if changed:
@@ -456,7 +580,7 @@ class GoalStore:
             if g.state not in ("pending", "waiting"):
                 continue
             if g.is_stale(self.clock) and g.commitment == "open-minded":
-                g.state = "abandoned"
+                self._move(g, "abandoned")
                 dropped.append(g)
         if dropped:
             self._save(goals)

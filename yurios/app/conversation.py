@@ -287,6 +287,20 @@ class ConversationLog:
                 return row.get("id") if row.get("role") == role else None
         return None
 
+    def last_said(self, role: str, *, skip: int = 0) -> str | None:
+        """The `ts` of the newest line `role` said that still stands in some
+        session's window — every session, because "since you last wrote to
+        her" means you, not this tab. `skip` passes over that many of the
+        newest first: a reply asked for again has your line admitted already,
+        and the one before it is the last time you wrote (SPEC §22.8)."""
+        with self._lock:
+            rows = [r for r in self._fold()
+                    if r.get("role") == role and r.get("w")
+                    and not r.get("unwound")]
+        if len(rows) <= skip:
+            return None
+        return str(rows[-1 - skip].get("ts") or "") or None
+
     def last_exchange(self) -> tuple[dict, dict] | None:
         """`(your line, her reply)` when her reply is the newest line of the
         conversation, folded — the one reply that can still be asked again

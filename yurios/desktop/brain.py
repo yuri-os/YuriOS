@@ -28,7 +28,7 @@ from yurios.app.main import AppState, create_app
 from yurios.app.memory.store import Record
 from yurios.app.routes.chat import post_turn, refile_turn
 from yurios.app import vaultgit
-from yurios.mind.util import estimate_tokens
+from yurios.mind.util import dt_of, estimate_tokens, ts_of_iso
 from yurios.kernel import correlate
 
 from .config import Config
@@ -55,6 +55,9 @@ class _Pending:
     #: another reply to a line she has already answered (SPEC §39): your line
     #: is in the window already, and her new reply replaces her last one
     again: bool = False
+    #: the goals WHILE YOU WERE AWAY carried (SPEC §22.8) — heard once this
+    #: turn commits, and not before: a failed turn told nobody anything
+    told: tuple[str, ...] = ()
 
 
 class NothingToRedo(LookupError):
@@ -87,6 +90,9 @@ class BrainAdapter:
         self.goals = None
         self._on_goal_write = None
         self.goal_creation_available = False
+        # session -> the goal ids the turn being opened told of (§22.8),
+        # handed from `_open` to `_admit`, which puts them on the `_Pending`
+        self._away: dict[str, tuple[str, ...]] = {}
 
     def set_prompt_log(self, prompt_log) -> None:
         """Wire the sink that records what she was actually asked (SPEC §24.2)."""
@@ -410,7 +416,73 @@ class BrainAdapter:
             session_id, text, window=window,
             lore=self.state.soul_loader.load().lorebook_hits(text),
             leave_out=leave_out)
+        # A reply, not a greeting or a murmur: only a turn that persists can
+        # mark what it told as heard, so only a turn carries the block.
+        block, told = self._away_block(again=again)
+        if block:
+            prompt.messages[0]["content"] += f"\n\n{block}"
+        self._away[session_id] = told
         return soul, prompt, turn_index
+
+    #: How far back WHILE YOU WERE AWAY looks, at most (SPEC §22.8). Back after
+    #: a fortnight, the last few days are news; the rest is the goals page.
+    AWAY_HORIZON_S = 3 * 24 * 3600
+
+    def _away_block(self, *, again: bool) -> tuple[str, tuple[str, ...]]:
+        """WHILE YOU WERE AWAY (SPEC §22.8): what she finished since you last
+        wrote, that nobody has told you — and the goal ids it names.
+
+        Live, 10 Nov: a README written at 02:17 and closed "drop-in ready";
+        the next morning's conversation had no idea it existed, because the
+        goals block lists open goals and this one was done. Never raises —
+        the shelf's rule: a broken read costs the block, not the turn.
+        """
+        if self.goals is None:
+            return "", ()
+        try:
+            log_ = getattr(self.state.sessions, "log", None)
+            last = (log_.last_said("user", skip=1 if again else 0)
+                    if log_ is not None else None)
+            since = ts_of_iso(last) if last else None
+            now = self.goals.clock.now()
+            news = self.goals.unheard(since=since,
+                                      oldest=now - self.AWAY_HORIZON_S)
+        except Exception:       # noqa: BLE001 — a mangled goals.md, an odd stamp
+            log.warning("finished-goal read failed; assembling without it",
+                        exc_info=True)
+            return "", ()
+        if not news:
+            return "", ()
+        user = self.cfg.user_name
+        lines = []
+        for goal in news:
+            when = dt_of(ts_of_iso(goal.closed)).strftime("%a %d %b, %H:%M")
+            where = (f"the work is in {', '.join(goal.made[-3:])}" if goal.made
+                     else f"your notes on it are in goals/{goal.id}.md")
+            lines.append(f"- {goal.text} — finished {when}; {where}")
+        note = (
+            f"Work you finished since {user} last wrote to you, that they "
+            "haven't heard about from you yet. These come from your goal "
+            "list, so they really happened. Tell them in this reply: once "
+            "you've answered what they said, a sentence or two in your own "
+            "words about what you did, with the path, so they can open it.")
+        return ("## WHILE YOU WERE AWAY\n\n" + note + "\n\n" + "\n".join(lines),
+                tuple(g.id for g in news))
+
+    def _told(self, pend: _Pending) -> None:
+        """The turn that carried WHILE YOU WERE AWAY committed: those goals
+        are heard, and a follow-up still waiting to say the same is settled
+        (SPEC §22.8). Never raises: the turn is already kept."""
+        if not pend.told or self.goals is None:
+            return
+        try:
+            changed = self.goals.mark_heard(pend.told)
+        except Exception:       # noqa: BLE001 — the reply stands either way
+            log.warning("marking finished goals heard failed", exc_info=True)
+            return
+        if self._on_goal_write is not None:
+            for goal in changed:
+                self._on_goal_write(goal)
 
     def _admit(self, session_id: str, text: str, image: str | None, prompt,
                turn_index: int, soul, *, again: bool) -> None:
@@ -421,7 +493,9 @@ class BrainAdapter:
         if not again:
             self.state.sessions.append_message(
                 session_id, "user", asm.note_picture(text) if image else text)
-        self._pending[session_id] = _Pending(prompt, turn_index, soul, again)
+        self._pending[session_id] = _Pending(
+            prompt, turn_index, soul, again,
+            told=self._away.pop(session_id, ()))
 
     def abandon(self, session_id: str) -> None:
         """The other close-out: this turn never happened (barge-in, brain error).
@@ -476,11 +550,13 @@ class BrainAdapter:
             # counted the first time; the corpus keeps both replies.
             self.state.sessions.revise_last(session_id, reply, turn_id=turn_id)
             await refile_turn(self.state, record)
+            self._told(pend)
             return []
         self.state.sessions.append_message(session_id, "assistant", reply,
                                            turn_id=turn_id)
         self.state.sessions.bump_turn(session_id)
         await post_turn(self.state, record, session_id, pend.turn_index + 1)
+        self._told(pend)
         return []
 
     async def refile(self, session_id: str, user_text: str, reply: str) -> None:

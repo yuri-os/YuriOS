@@ -26,7 +26,7 @@ from yurios.app.core.assemble import age_tag
 from yurios.kernel import correlate
 
 from . import acts
-from .goals import Goal, night_owned, trim
+from .goals import OWN_JUDGEMENT, Goal, night_owned, trim
 from . import handwork
 from .handwork import Reach
 from .hands import FILE_GOAL, NEEDS_CAMERA, READ_ONLY, TELL, Offer, klass
@@ -480,10 +480,16 @@ def offer_to_tell(loop, goal: Goal) -> list[str]:
     never mentions. That is a worse companion than the one who talked about
     everything and did none of it.
 
-    Only her own promises get a sentence about the work. Work you planted
-    is on the desk where you left it, maintenance is nobody's business but
-    hers, and a `followup` never gets a follow-up of its own — reaching out
-    is already the act.
+    Her own promises get a sentence about the work, and so does work she took
+    on of her own judgement (`NEWSWORTHY`, §22.8) — nobody asked for that, so
+    nobody is going to look for it. Work you planted is on the desk where you
+    left it and comes up the next time you talk (§22.8), maintenance is
+    nobody's business but hers, and a `followup` never gets a follow-up of
+    its own — reaching out is already the act.
+
+    Reached only by a finish that did not tell them: a done-mark beside
+    `tell_them` waits on that message and closes on its delivery
+    (`acts.resume_after_telling`), never here — so one finish is one message.
 
     An undelivered picture is handed on whoever asked. The photograph is the
     news: a `user:chat` goal holds the same shot a promise does, and finishing
@@ -499,15 +505,57 @@ def offer_to_tell(loop, goal: Goal) -> list[str]:
     """
     if goal.product.get("image_url"):
         return offer_the_picture(loop, goal)
-    if goal.kind != "task" or not goal.provenance.startswith("promise:"):
+    if goal.kind != "task" or not goal.provenance.startswith(NEWSWORTHY):
         return []
+    # Where the work is, not where she thought about it: the files the steps
+    # wrote, else her desk file for the goal (§22.8).
+    where = ", ".join(goal.made[-3:]) or loop.GOAL_DESK.format(id=goal.id)
     loop.goals.add(
-        f"tell them what came of “{goal.text}” — it's in "
-        f"{loop.GOAL_DESK.format(id=goal.id)}",
+        f"tell them what came of “{goal.text}” — it's in {where}",
         kind="reach_out", priority=0.6,
         due=iso_of(loop.clock.now() + 24 * 3600),
         commitment="open-minded", provenance=f"followup:{goal.id}")
     return [f"…and they should hear what came of it: {goal.text}"]
+
+
+#: Whose finished `task` files a sentence about itself (SPEC §22.1a, §22.8):
+#: her promises, and the goals she took on of her own judgement — the night's
+#: stock-take and her free time. Live, 10 Nov: a `strategy:` README she wrote
+#: at 02:17 closed with "drop-in ready for the repo" and nobody was ever told.
+#: Not your own asks (on the desk where you left it, and the conversation
+#: says so — §22.8), not a step's sub-goal (its parent reports), and not
+#: maintenance.
+NEWSWORTHY = ("promise:", *OWN_JUDGEMENT)
+
+#: The hands that leave a file behind on her desk, for `Goal.made` (§22.8).
+WRITES = ("write_note", "append_note", "edit_note")
+
+
+def note_made(loop, goal: Goal, reaches) -> list[str]:
+    """`Goal.made` after this step's calls: the desk files the work went to.
+
+    Taken from the call's own answer where it names the path (the sandbox
+    may have normalised it), else from what she asked for. A deleted file
+    comes off; her `goals/` desk files never go on — those are her thinking
+    about the work, and the panel already opens them.
+    """
+    made = list(goal.made)
+    for reach in reaches:
+        if reach.verdict != "ok" or reach.tool not in (*WRITES, "delete_note"):
+            continue
+        try:
+            answered = json.loads(reach.result or "")
+        except ValueError:
+            answered = {}
+        path = str((answered.get("path") if isinstance(answered, dict) else "")
+                   or (reach.args or {}).get("path") or "").strip().lstrip("/")
+        if not path or path.startswith("goals/"):
+            continue
+        if path in made:
+            made.remove(path)
+        if reach.tool != "delete_note":
+            made.append(path)
+    return made[-8:]
 
 
 def finished(loop, note: str) -> bool:
@@ -584,6 +632,13 @@ def work_system(loop, goal: Goal, offer, last: bool) -> str:
         f"are not read. If what finishes it is {user} hearing something, "
         f"write it on the `think` line above `{TELL}`: the goal closes "
         "itself once the message has reached them.",
+        # §22.8. Live, 10 Nov: a README written at 02:17, "drop-in ready for
+        # the repo or to show anyone who asks. Goal complete." — and asked by
+        # nobody, it was shown to nobody. Finishing is the moment to say so.
+        f"If finishing leaves something {user} would want to see — a note, "
+        f"a draft, a file they could use — end by telling them with `{TELL}`: "
+        "a sentence or two in your own words saying what it is and the path "
+        f'where it is, with "{loop.DONE_MARK}" on the `think` line above it.',
     ]
     if last:
         lines.append(
@@ -944,6 +999,10 @@ async def goal_work(loop, goal: Goal,
         notes.append(f"worked on: {goal.text} — {takeaway(note)}")
 
     meta: dict = {"steps": step, "last_step": iso_of(loop.clock.now())}
+    made = note_made(loop, goal, worked.reaches)
+    if made != goal.made:
+        meta["made"] = made
+        goal.meta["made"] = made     # …and on the copy `offer_to_tell` reads
     # A finish she wrote beside calls that never ran is a finish she narrated
     # (§22.3). Live, 29 Sep: six calls glued into one paragraph, none
     # dispatched, and "goal complete — skill written, verified" closed a goal

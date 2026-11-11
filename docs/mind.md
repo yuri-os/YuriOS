@@ -589,6 +589,25 @@ a night files a goal.
 `single-minded` drops only when it's moot; `open-minded` is abandoned the moment it stops being
 timely.
 
+### When she finishes something
+
+A goal that closes at 2am with a new file on her desk should not stay a secret. When it closes,
+the goal records the time and the files its steps wrote, and the news reaches you in up to four
+ways (SPEC §22.8):
+
+- **She says so herself.** The step prompt tells her that a finish leaving something you'd want
+  to see is told with `tell_them`: what it is and where it is. The goal closes when that message
+  lands.
+- **A follow-up, if she didn't.** A task she took on herself (`promise:`, `strategy:`, `muse:`)
+  files a "tell them what came of …" reach-out naming the file. Gate 2 picks the moment, and the
+  follow-up lapses after a day.
+- **The next time you talk.** Your next reply's prompt carries `WHILE YOU WERE AWAY`, listing
+  tasks finished since your last message that nobody has told you about. She is asked to mention
+  them, with the path. Once that turn is saved they count as told, and a follow-up still
+  waiting to say the same thing is closed, so you don't hear it twice.
+- **The Plans view.** "finished lately" lists the last three days' finished tasks, each with
+  every file it made, openable in place.
+
 ## Self-edits
 
 Who she is, immutably; who she's becoming, reviewably.
@@ -631,7 +650,8 @@ The chat column's second tab, refreshed live off the same event bus and divided 
 - **Now** — her activity state and heartbeat, today's token budget, pending timers, reading in
   progress or held, and edits waiting on your approval.
 - **Plans** — the goals on her mind, where each came from, controls for the desk files she has
-  been writing against, system upkeep, and the shelf.
+  been writing against, what she finished lately and the files it made (marked **new** until
+  she has told you, and counted on the tab), system upkeep, and the shelf.
 - **History** — completed research and the journal.
 
 The selected view stays put as live updates arrive. Timers show their labels, remaining time, and

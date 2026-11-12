@@ -742,72 +742,25 @@ function setNotifyAvailability(form, available) {
   }
 }
 
-/* Her own VRM body (SPEC §6.8). Uploaded the moment it is picked rather than
- * held for "Save profile": a 30 MB model is not a form field, and the host
- * flips her backend to VRM in the same request, so the select is moved to
- * match and the baseline with it — otherwise the next save would resend a
- * change that is already made. */
-function renderBodyState(body) {
-  const own = body?.vrm;
-  const megabytes = (bytes) => `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  const limit = body?.max_bytes ? megabytes(body.max_bytes) : "128 MB";
-  $("#body-vrm-state").textContent = own
-    ? `${own.title || "Her own model"} · VRM ${own.version} · ${megabytes(own.bytes)}. Her VRM rooms and a VRM desktop window wear it.`
-    : `None yet — her VRM rooms wear the bundled body. A .vrm from VRoid Studio or UniVRM, up to ${limit}.`;
-  $("#body-vrm-clear").hidden = !own;
+/* Her body (SPEC §6.8), named here and chosen on the studio's Body page — the
+ * house's library of VRM and Live2D bodies lives there, with the switch that
+ * picks which of the two her desktop window floats. */
+const BACKEND_WORDS = { vrm: "floats as VRM", live2d: "floats as Live2D" };
+
+function renderBodySummary(body) {
+  const floats = BACKEND_WORDS[body.desktop_body] || "floats the house default";
+  $("#body-summary").textContent =
+    `VRM: ${body.vrm?.title || "bundled"} · Live2D: ${body.live2d?.title || "default"} · ${floats}.`;
 }
 
-async function loadBodyState(id) {
-  renderBodyState(null);
-  $("#body-vrm-state").textContent = "Reading her body...";
+async function loadBodySummary(id) {
+  $("#body-summary").textContent = "Reading her body...";
+  $("#body-studio-link").href = `/studio/?character=${encodeURIComponent(id)}#body`;
   try {
     const body = await charactersApi.body(id);
-    if (state.selectedId === id) renderBodyState(body);   // she may have changed mid-read
+    if (state.selectedId === id) renderBodySummary(body);   // she may have changed mid-read
   } catch (error) {
-    $("#body-vrm-state").textContent = `Could not read her body. ${errorMessage(error)}`;
-  }
-}
-
-function adoptBackend(character, backend) {
-  const form = $("#profile-form");
-  form.elements.body_backend.value = backend;
-  profileBaseline.body_backend = backend;
-  if (character.raw) character.raw.body_backend = backend;
-}
-
-async function uploadBody(file) {
-  const character = selectedCharacter();
-  if (!character || !file) return;
-  const button = $("#body-vrm-upload");
-  const error = $("#profile-error");
-  error.textContent = "";
-  setBusy(button, true, "Uploading...");
-  try {
-    const body = await charactersApi.setBody(character.id, file);
-    renderBodyState(body);
-    adoptBackend(character, body.backend || "vrm");
-    toast(`${character.name} has a body of her own now.`);
-  } catch (failure) {
-    error.textContent = errorMessage(failure);
-  } finally {
-    setBusy(button, false);
-    $("#body-vrm-file").value = "";
-  }
-}
-
-async function clearBody() {
-  const character = selectedCharacter();
-  if (!character) return;
-  const button = $("#body-vrm-clear");
-  $("#profile-error").textContent = "";
-  setBusy(button, true, "Removing...");
-  try {
-    renderBodyState(await charactersApi.clearBody(character.id));
-    toast(`${character.name} is back in the bundled body.`);
-  } catch (failure) {
-    $("#profile-error").textContent = errorMessage(failure);
-  } finally {
-    setBusy(button, false);
+    $("#body-summary").textContent = `Could not read her body. ${errorMessage(error)}`;
   }
 }
 
@@ -821,8 +774,6 @@ async function openProfile() {
   form.elements.description.value = character.description === "No profile note has been set." ? "" : character.description;
   form.elements.connection_profile.value = character.connectionProfile;
   form.elements.utility_model.value = "";
-  form.elements.body_backend.value = character.raw?.body_backend || "";
-  form.elements.body_model.value = character.raw?.body_model || "";
   for (const name of ["personality", "scenario", "first_mes"]) form.elements[name].value = "";
   for (const key of ["mind", "utility", "dream", "hands"]) form.elements[key].checked = character.loops[key];
   setHandsAvailability(form, character.hands.available);
@@ -834,7 +785,7 @@ async function openProfile() {
   brainState.confirmSwitch = false;
   snapshotSettings();
   openModal(elements.profileDialog);
-  void loadBodyState(character.id);
+  void loadBodySummary(character.id);
   try {
     const [payload, connections] = await Promise.all([
       charactersApi.settings(character.id), charactersApi.connections(),
@@ -846,8 +797,7 @@ async function openProfile() {
     profileSelect.replaceChildren(...profiles.map((profile) => element("option", {
       text: profile.name, attrs: { value: profile.name },
     })));
-    for (const name of ["name", "voice", "model", "utility_model",
-      "body_backend", "body_model", "description",
+    for (const name of ["name", "voice", "model", "utility_model", "description",
       "connection_profile", "personality", "scenario", "first_mes"]) {
       if (settings[name] != null) form.elements[name].value = settings[name];
     }
@@ -1199,9 +1149,6 @@ function wireEvents() {
     goTo: state.pendingRoom }));
   $("#profile-open").addEventListener("click", openProfile);
   $("#profile-form").addEventListener("submit", submitProfile);
-  $("#body-vrm-upload").addEventListener("click", () => $("#body-vrm-file").click());
-  $("#body-vrm-file").addEventListener("change", (event) => uploadBody(event.target.files?.[0]));
-  $("#body-vrm-clear").addEventListener("click", clearBody);
   $("#brain-open").addEventListener("click", leaveForBrain);
   $("#brain-form").addEventListener("submit", submitBrain);
   // Every way out of the brain panel goes back where it came from — including

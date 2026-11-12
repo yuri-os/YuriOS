@@ -90,6 +90,36 @@ def log(vault: Path, *paths: str, limit: int = 50) -> list[Commit]:
     return [commit for commit in (_parse(line) for line in out.splitlines()) if commit]
 
 
+def log_by_path(vault: Path, *paths: str, limit: int = 50,
+                scan: int = 2000) -> dict[str, list[Commit]]:
+    """`log` for several paths in ONE git call: path → its commits, newest first.
+
+    The studio asks who last wrote each of a dozen soul files on every open, and
+    a subprocess per file is seconds on a slow disk. One walk of the last *scan*
+    commits answers all of them; each path keeps at most *limit*. Paths come back
+    repo-relative, as git prints them. No `--follow` (it takes one path) — a
+    rename shows up as two names, which is what the caller asks about anyway.
+    """
+    args = ["log", f"-{max(1, scan)}", "--name-only",
+            "--pretty=format:%x1e%h%x1f%at%x1f%s"]
+    if paths:
+        args += ["--", *paths]
+    out = _git(vault, *args)
+    found: dict[str, list[Commit]] = {path: [] for path in paths}
+    if not out:
+        return found
+    for chunk in out.split("\x1e"):
+        header, _, names = chunk.partition("\n")
+        commit = _parse(header.strip())
+        if commit is None:
+            continue
+        for name in {line.strip() for line in names.splitlines() if line.strip()}:
+            commits = found.setdefault(name, [])
+            if len(commits) < limit:
+                commits.append(commit)
+    return found
+
+
 def commit_counts(vault: Path, *paths: str, limit: int = 500) -> dict[str, int]:
     """How many of the last *limit* commits touched each path, in ONE git call.
 

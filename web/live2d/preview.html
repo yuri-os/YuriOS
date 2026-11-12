@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>YuriOS / Live2D preview</title>
+  <!-- The studio's Live2D body preview (SPEC §6.8). Framed by the studio, never
+       opened on its own: one canvas, the Live2D room's runtime, and a model
+       chosen by the frame that holds it (preview.js). -->
+  <style>
+    /* the studio is dark: a frame whose scheme differs is painted opaque */
+    html { color-scheme: dark; }
+    html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; }
+    #stage { position: fixed; inset: 0; }
+    canvas { display: block; width: 100%; height: 100%; }
+  </style>
+</head>
+<body>
+  <div id="stage"><canvas id="live2d"></canvas></div>
+  <script src="/live2d/vendor/live2dcubismcore.min.js" integrity="sha256-Ja6TjLT+KCzhibNXvMl+YD0eH37Hi/BBUNQBwjzceS8="></script>
+  <script src="/live2d/vendor/pixi.min.js" integrity="sha256-QD8vLugUX6F/YMXIlAMFbv4mgOUJbsJ2IDZIaRTtGcU="></script>
+  <script src="/live2d/vendor/cubism4.min.js" integrity="sha256-rxJn5tUnWbJFdmxXjZBb+gJbUy1cPMcnw3CVfEQJ4hs="></script>
+  <script src="/live2d/preview.js"></script>
+</body>
+</html>

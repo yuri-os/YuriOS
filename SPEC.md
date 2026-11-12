@@ -806,7 +806,10 @@ to every new subscriber before its first live event. Malformed JSON is logged an
   Cubism runtime and rig ship with the build. It carries the §2.6 chat column and one
   `events.js` that maps
   `avatar`/`expression` events from `/api/events` onto the pixi body. Audio rides `/ws/voice`
-  unchanged; `/api/config` (`yurios/world/routes/live2d.py`) answers its rig-registry needs.
+  unchanged; `/api/config` answers which rig to mount — on a host, `GET
+  /api/characters/<id>/config` (`world/host/bodies.py`) resolves it from her record and the
+  body library (§6.8) at request time; the runtime's own (`yurios/world/routes/live2d.py`)
+  sees only the vendor rigs and is what a single-companion page asks.
   `DESKTOP_BODY=vrm|live2d` (or `--window --body …`) picks which body the §6.5 window floats
   for the house; a character's own body backend overrides it for her window (§6.5, §6.8).
   The Live2D body realises only the `expression` op — it remains a guest, not a second puppet.
@@ -834,25 +837,42 @@ to every new subscriber before its first live event. Malformed JSON is logged an
   expanding options **MUST** give the chat column enough space to keep sending accessible.
   In desktop-pet mode (§6.5), the whole composer **MUST** move to the hover bar together,
   including its options and picture attachments.
-- §6.8 **Her own body.** A character **MAY** have a VRM body of her own: one `.vrm` at
-  `body/body.vrm` in her folder (`CharacterPaths.body_vrm`), outside the Vault — a binary
-  that size has no place in its history — but inside her folder, so a copy, a clone (§36.3)
-  or an archive takes it with her. It is not a card field and an exported card **MUST NOT**
-  carry it. The host answers `GET /api/characters/<id>/body` with which body she floats and
-  `vrm_url`, the model a VRM room loads: hers, else the bundled `web/models/avatar.vrm`, so
-  no page decides that for itself; her own is served at `…/body.vrm` with `?v=` set to its
-  mtime and `Cache-Control: no-cache`. An upload (`POST …/body`, multipart, at most 128 MB)
-  **MUST** be checked before it replaces anything — a glTF 2 binary whose length matches its
-  header and whose JSON names `VRMC_vrm` (VRM 1.0) or `VRM` (0.x); anything else is refused
-  with the reason and her old body is left untouched (`characters/vrmbody.py`). Choosing a
-  3D body *is* choosing VRM, so an upload **MUST** set her body backend to `vrm` in the same
-  request. Uploading or removing (`DELETE …/body`) publishes a `load_model` avatar event, so
-  an open VRM room — the desktop window included — changes body without a reload; the room
-  **MUST** dispose of the old model's GPU resources and put her idle back on. The control
-  sits in the switchboard's profile form beside the backend that chooses it. Her Live2D
-  rig stays `body.model`, a key from `desktop/avatar_models.py`, so one character can have
-  both, and her body backend says which one floats (§6.5).
-
+- §6.8 **Her body, from the house's library.** The host keeps one **body library** at
+  `DATA_DIR/bodies/` (`characters/bodylib.py`): VRM models (`vrm/<id>.vrm`) and Live2D rigs
+  (`live2d/<id>/`, unpacked), each with a `<id>.json` beside it naming its title, size and source
+  file. It lists, beside the uploads, what ships — the bundled `web/models/avatar.vrm` (id
+  `bundled`) and every vendor rig from `desktop/avatar_models.py` that is actually fetched —
+  as `builtin` entries that can be worn and **MUST NOT** be removed. It is the house's rather
+  than any one character's, because two of them may wear the same body, and outside every Vault
+  because a binary that size has no place in its history; it is not a card field and an exported
+  card **MUST NOT** carry a body. A character names one of each by id — `body.vrm` (blank: the
+  bundled body) and `body.model` (her Live2D rig) — and `body.backend` says which of the two her
+  desktop window floats (§6.5). An id the library does not know resolves to the default for its
+  kind, so a removed body or a card from another house puts her in *a* body, never an empty room.
+  The surface is the studio's **Body** page (§30): both shelves, who wears what, an upload at the
+  foot of each, a **Wear** button that puts a body on her *and* makes its kind the one she floats,
+  a two-button switch for which kind floats on its own, and removal on a second click rather than
+  a browser dialog. A **preview** shows the body she floats, or whichever one is clicked, without
+  putting it on her (`web/studio/bodypreview.js`): a VRM on the room's own `VrmStage`, framed head
+  to feet with the room's idle playing, and a rig on the Live2D room's own runtime, each loaded
+  only when first needed, one canvas per kind for the page's life, paused while it is off screen. The switchboard's profile names her bodies and links there. The routes:
+  `GET /api/bodies` (both shelves with `worn_by`), `POST /api/bodies/{vrm|live2d}` (multipart),
+  `DELETE /api/bodies/<kind>/<id>` — whoever wore it is set back to the default in the same
+  request — and `GET|PUT /api/characters/<id>/body` for what she wears (`{backend, vrm, live2d}`,
+  each optional; an unknown id is refused, not saved). The answer carries `vrm_url` and
+  `live2d_url`, the files a room loads, so no page decides a fallback for itself; uploaded files
+  are served under `/api/bodies/…` with `Cache-Control: no-cache` and a VRM's `?v=` set to its
+  mtime. An upload **MUST** be checked before anything is kept: a VRM (at most 128 MB) is a glTF 2
+  binary whose length matches its header and whose JSON names `VRMC_vrm` (1.0) or `VRM` (0.x)
+  (`characters/vrmbody.py`); a Live2D rig is one zip (at most 256 MB, 512 MB and 4,000 files
+  unpacked) of a Cubism 3+ rig — a `.model3.json` whose `.moc3` and textures are in the zip, with
+  no entry that is absolute, climbs out with `..`, or is a link. Anything else is refused with
+  the reason, shown beside the upload that failed, and leaves nothing behind. A change to her VRM
+  — worn, or removed from under her — publishes a `load_model` avatar event, so an open VRM room,
+  the desktop window included, changes body without a reload; the room **MUST** dispose of the old
+  model's GPU resources and put her idle back on. A Live2D rig is read when the room loads. A
+  `body/body.vrm` left in a character's folder by the build that kept bodies there is filed into
+  the library at the host's start and worn by her (`world/host/bodies.py`).
 ## §7 — Tools via MCP: the hands
 
 - §7.1 **Built-in tools, real MCP.** An in-repo MCP server (`yurios/world/tools/server.py`, FastMCP
@@ -3434,7 +3454,17 @@ Two things on that page are **not** card fields and say so: her selfie library (
 setting (§2.5). Both are files in her own storage that the card decides at import and never
 carries back out, and both therefore load and save on their own endpoints rather than through
 the draft. The setting's AI pass follows the optimiser's rule (§30.6) exactly — the model
-proposes prose, the page shows it, and the ordinary save is the only thing that writes.
+proposes prose, the page shows it, and the ordinary save is the only thing that writes. Her body
+(§6.8) is a third such page, and the plainest: it is not even hers alone, but the house's library.
+
+The studio shows **one section at a time** — the rail switches it and the URL's `#section` keeps
+it, so a reload, a link or the back button lands where you were — with previous/next steps at the
+foot so it still reads top to bottom. A section that is not shown is not built, and loads nothing.
+The face picker **MUST** page her selfies (`GET /api/characters/<id>/selfies?offset=&limit=`,
+newest first, 24 to a page, with the shelf's `total`) and draw each from a thumbnail
+(`…/selfies/<name>/thumb`: a WebP inside 240×360, made on first ask under her folder's
+`cache/thumbs/` and remade when the selfie is newer, `characters/thumbs.py`) — never the full PNG,
+of which a shelf of a hundred is a quarter of a gigabyte. Adopting a selfie still copies the PNG.
 
 ---
 
@@ -3652,9 +3682,9 @@ changes; a runtime does not know it has neighbours.
   changing it re-indexes the Vault (§4.3). `GET|PATCH /api/brain` (and `/api/characters/<id>/brain`,
   which is what the gear in her room calls) is the surface. A profile save (§30.4) **MUST** take
   the same path rather than restarting whenever it left everything the runtime was *built* with —
-  her name, her voice, her Live2D rig, the utility and dream loops — where it found it. Her body
-  *backend* is not among them: the desktop window and her rooms read it from the record when
-  they open (§6.5, §6.8), so choosing VRM or Live2D **MUST NOT** rebuild her. That decision is
+  her name, her voice, the utility and dream loops — where it found it. Her body is not among
+  them — backend, VRM or Live2D rig: the desktop window and her rooms read it from the record
+  when they open (§6.5, §6.8), so dressing her **MUST NOT** rebuild her. That decision is
   made by comparing the record before and after the save, not by which keys were sent: a client
   may post the whole form, and re-submitting an unchanged voice is not a reason to take her
   conversation down.

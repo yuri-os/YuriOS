@@ -273,17 +273,11 @@
         <label><span>Connection profile</span><select name="connection_profile"><option value="default">default</option></select></label>
         <label class="field-wide"><span>Model route</span><input name="model" type="text" maxlength="240" placeholder="inherit node default"></label>
         <label class="field-wide"><span>Utility model route</span><input name="utility_model" type="text" maxlength="240" placeholder="inherit node default"></label>
-        <label><span>Body backend</span><select name="body_backend"><option value="">default</option><option value="vrm">VRM</option><option value="live2d">Live2D</option></select></label>
-        <label><span>Live2D rig</span><input name="body_model" type="text" maxlength="240" placeholder="hiyori"></label>
-        <!-- Her own 3D body (SPEC §6.8): uploaded at once, beside the backend that
-             chooses it, rather than saved with the rest of the form. The file
-             input has no name, so the form's FormData never carries it. -->
-        <fieldset class="field-wide loop-settings body-vrm"><legend>VRM body</legend>
-          <p id="body-vrm-state" class="field-note">Reading her body...</p>
-          <input id="body-vrm-file" type="file" accept=".vrm" hidden>
-          <button id="body-vrm-upload" class="button button-quiet" type="button"><span>Upload .vrm</span></button>
-          <button id="body-vrm-clear" class="button button-quiet" type="button" hidden><span>Use the bundled body</span></button>
-          <p class="field-note">The backend picks which body her desktop window floats. Uploading a VRM sets it to VRM.</p>
+        <!-- Her body (SPEC §6.8) is chosen on the studio's Body page, from the
+             house's library of VRM and Live2D bodies; here it is only named. -->
+        <fieldset class="field-wide loop-settings body-summary"><legend>Body</legend>
+          <p id="body-summary" class="field-note">Reading her body...</p>
+          <a id="body-studio-link" class="button button-quiet" href="/studio/"><span>Choose her body in the studio</span></a>
         </fieldset>
         <label class="field-wide"><span>Short description</span><textarea name="description" rows="3" maxlength="400"></textarea></label>
         <label class="field-wide"><span>Personality</span><textarea name="personality" rows="3"></textarea></label>

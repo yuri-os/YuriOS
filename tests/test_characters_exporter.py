@@ -372,3 +372,30 @@ def test_unknown_options_are_refused_early(tmp_path):
         ExportOptions(spec="v9")
     with pytest.raises(CardExportError):
         ExportOptions(fit="squish")
+
+
+def test_log_by_path_answers_every_file_in_one_walk(tmp_path):
+    """The studio's provenance asks a dozen files at once (SPEC §28.1)."""
+    import subprocess
+    from yurios.characters import vcs
+
+    vault = tmp_path / "vault"
+    (vault / "soul").mkdir(parents=True)
+
+    def git(*args):
+        subprocess.run(["git", "-C", str(vault), "-c", "user.name=t", "-c", "user.email=t@t",
+                        *args], check=True, capture_output=True)
+
+    git("init", "-q")
+    (vault / "soul" / "A.md").write_text("a")
+    (vault / "soul" / "B.md").write_text("b")
+    git("add", "-A"); git("commit", "-qm", "vault: seed")
+    (vault / "soul" / "A.md").write_text("a2")
+    git("add", "-A"); git("commit", "-qm", "her: grow A")
+
+    found = vcs.log_by_path(vault, "soul/A.md", "soul/B.md", "soul/C.md")
+
+    assert [c.subject for c in found["soul/A.md"]] == ["her: grow A", "vault: seed"]
+    assert [c.subject for c in found["soul/B.md"]] == ["vault: seed"]
+    assert found["soul/C.md"] == []
+    assert [c.sha for c in found["soul/A.md"]] == [c.sha for c in vcs.log(vault, "soul/A.md")]

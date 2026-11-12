@@ -1,5 +1,7 @@
 import { ApiError, studioApi } from "./api.js";
 import { BUDGETS, SECTIONS, description, equal, normalise, problems, tokens } from "./draft.js";
+import { createBodyPage } from "./bodies.js";
+import { createBodyPreview } from "./bodypreview.js";
 import { createOptimizer } from "./optimize.js";
 import { EVERY_MODEL, archTarget, assemble, cellOf, inherited, modelTarget,
          parseTarget, resolve, usedTargets, withField } from "./wording.js";
@@ -50,6 +52,14 @@ const state = {
   // the browser the bytes behind it changed.
   portraitVersion: 0,
   adopting: false,
+  // The one section on the page (the rail switches it, the URL's #hash keeps
+  // it): the studio used to be every section at once, a wall that took the
+  // selfie shelf's full-size PNGs down with it on every open.
+  section: "identity",
+  // One page of the face picker: `faces` is what GET /selfies answered.
+  facePage: 0,
+  faces: null,
+  facesLoading: false,
 };
 
 const elements = {
@@ -283,7 +293,7 @@ function imageControl() {
       className: `selfie${selfieName === null ? " chosen" : ""}`,
       attrs: { type: "button",
                title: selfieName === null ? label : `Make ${label} her face` },
-    }, url ? element("img", { attrs: { src: url, alt: label, loading: "lazy" } })
+    }, url ? element("img", { attrs: { src: url, alt: label, loading: "lazy", decoding: "async" } })
            : element("span", { className: "selfie-empty", text: "no face yet" }));
     if (selfieName !== null) {
       button.addEventListener("click", () => adoptSelfie(selfieName));
@@ -292,14 +302,31 @@ function imageControl() {
   };
   strip.append(choose(null, "Her portrait",
     state.images.portrait ? `/api/characters/${state.id}/portrait?v=${state.portraitVersion || 0}` : null));
-  for (const selfie of state.images.selfies) {
-    strip.append(choose(selfie.name, selfie.name, selfie.url));
+  const faces = state.faces;
+  if (!faces && !state.facesLoading) void loadFaces(state.facePage);
+  for (const selfie of faces?.selfies || []) {
+    strip.append(choose(selfie.name, selfie.name, selfie.thumb || selfie.url));
   }
   wrap.append(strip);
-  if (state.images.selfies.length) {
+  if (faces?.total) {
+    const pages = Math.max(1, Math.ceil(faces.total / FACE_PAGE));
+    const pageButton = (label, to, disabled) => {
+      const button = element("button", {
+        className: "button button-quiet",
+        attrs: { type: "button", disabled: disabled || state.facesLoading }, text: label });
+      button.addEventListener("click", () => loadFaces(to));
+      return button;
+    };
+    wrap.append(element("div", { className: "pager" },
+      pageButton("Newer", state.facePage - 1, state.facePage <= 0),
+      element("span", { className: "pager-state",
+        text: `Page ${state.facePage + 1} of ${pages} · ${faces.total} selfies` }),
+      pageButton("Older", state.facePage + 1, state.facePage >= pages - 1)));
     wrap.append(element("p", { className: "form-note",
       text: "The ringed one is her face. Click a selfie to make it hers instead — "
             + "the card, her tile and her settings all follow." }));
+  } else if (state.facesLoading) {
+    wrap.append(element("p", { className: "form-note", text: "Reading her selfies…" }));
   }
 
   const drop = element("label", { className: "drop-zone" },
@@ -823,58 +850,107 @@ function exportControl() {
   return wrap;
 }
 
-function renderForm() {
-  const fragment = document.createDocumentFragment();
-  for (const section of SECTIONS) {
-    const block = element("section", { className: "form-section", attrs: { id: `sec-${section.id}` } });
-    block.append(element("header", { className: "section-head" },
-      element("p", { className: "eyebrow", text: section.eyebrow }),
-      element("h2", { text: section.label }),
-      section.blurb ? element("p", { className: "section-blurb", text: section.blurb }) : null));
-    const grid = element("div", { className: "field-grid" });
-    for (const field of section.fields) {
-      if (field.type === "list") grid.append(listControl(field));
-      else if (field.type === "lorebook") grid.append(lorebookControl());
-      else if (field.type === "image") grid.append(imageControl());
-      else if (field.type === "selfiebook") grid.append(selfieBookControl());
-      else if (field.type === "selfiewording") grid.append(selfieWordingControl());
-      else if (field.type === "setting") grid.append(settingControl());
-      else if (field.type === "export") grid.append(exportControl());
-      else grid.append(fieldControl(field));
-    }
-    block.append(grid);
-    fragment.append(block);
+const FACE_PAGE = 24;
+
+/* One page of the face picker. Thumbnails, not the PNGs: a shelf of a hundred
+   selfies is a quarter of a gigabyte at full size (SPEC §28.1). */
+async function loadFaces(page) {
+  if (!state.id || state.facesLoading) return;
+  state.facesLoading = true;
+  try {
+    const faces = await studioApi.selfies(state.id, { offset: page * FACE_PAGE, limit: FACE_PAGE });
+    state.faces = faces;
+    state.facePage = page;
+  } catch (error) {
+    toast(error.message || "Could not read her selfies.", "error");
+    state.faces = state.faces || { selfies: [], total: 0 };
+  } finally {
+    state.facesLoading = false;
   }
-  elements.form.replaceChildren(fragment);
+  if (state.section === "image") renderForm();
+}
+
+/* The Body page (SPEC §6.8) keeps its own state and saves on its own requests;
+   the studio only gives it a place on the page. A character not yet created
+   has nothing to dress. */
+let bodyPage = null;
+function bodyControl() {
+  if (!state.id) {
+    return element("p", { className: "form-note",
+      text: "Create her first, then choose her body — the library is the house's, but the choice is hers." });
+  }
+  bodyPage ??= createBodyPage({ characterId: state.id, element, icon, toast,
+                                preview: createBodyPreview() });
+  return bodyPage.control();
+}
+
+/* Which section a URL names: `#body`, or `#sec-body` from the links that
+   predate the one-section page (the grown strip still writes those). */
+function sectionFromHash(hash = location.hash) {
+  const id = hash.replace(/^#/, "").replace(/^sec-/, "");
+  return SECTIONS.some((section) => section.id === id) ? id : SECTIONS[0].id;
+}
+
+function showSection(id, { push = true } = {}) {
+  if (!SECTIONS.some((section) => section.id === id)) return;
+  const moved = state.section !== id;
+  state.section = id;
+  if (push && location.hash !== `#${id}`) history.pushState(null, "", `#${id}`);
+  renderForm();
+  if (moved) elements.form.closest(".board")?.scrollIntoView({ block: "start" });
+}
+
+function renderForm() {
+  const index = SECTIONS.findIndex((section) => section.id === state.section);
+  const section = SECTIONS[Math.max(0, index)];
+  const block = element("section", { className: "form-section", attrs: { id: `sec-${section.id}` } });
+  block.append(element("header", { className: "section-head" },
+    element("p", { className: "eyebrow", text: section.eyebrow }),
+    element("h2", { text: section.label }),
+    section.blurb ? element("p", { className: "section-blurb", text: section.blurb }) : null));
+  const grid = element("div", { className: "field-grid" });
+  for (const field of section.fields) {
+    if (field.type === "list") grid.append(listControl(field));
+    else if (field.type === "lorebook") grid.append(lorebookControl());
+    else if (field.type === "image") grid.append(imageControl());
+    else if (field.type === "body") grid.append(bodyControl());
+    else if (field.type === "selfiebook") grid.append(selfieBookControl());
+    else if (field.type === "selfiewording") grid.append(selfieWordingControl());
+    else if (field.type === "setting") grid.append(settingControl());
+    else if (field.type === "export") grid.append(exportControl());
+    else grid.append(fieldControl(field));
+  }
+  block.append(grid);
+  block.append(sectionSteps(index));
+  elements.form.replaceChildren(block);
   renderNav();
+}
+
+/* Previous / next at the foot of a section, so the studio still reads straight
+   through for someone writing a character from the top. */
+function sectionSteps(index) {
+  const step = (target, label) => {
+    if (!target) return element("span");
+    const link = element("a", { className: "button button-quiet", attrs: { href: `#${target.id}` } },
+      element("span", { text: label.replace("%", target.label) }));
+    link.addEventListener("click", (event) => { event.preventDefault(); showSection(target.id); });
+    return link;
+  };
+  return element("nav", { className: "section-steps", attrs: { "aria-label": "Next section" } },
+    step(SECTIONS[index - 1], "← %"), step(SECTIONS[index + 1], "% →"));
 }
 
 function renderNav() {
   elements.nav.replaceChildren(...SECTIONS.map((section) => {
-    const link = element("a", { attrs: { href: `#sec-${section.id}` }, text: section.label });
+    const current = section.id === state.section;
+    const link = element("a", {
+      className: current ? "current" : "",
+      attrs: { href: `#${section.id}`, "aria-current": current ? "page" : false },
+      text: section.label,
+    });
+    link.addEventListener("click", (event) => { event.preventDefault(); showSection(section.id); });
     return element("li", {}, link);
   }));
-  spy();
-}
-
-/* The rail follows the form. Rebuilt with the nav because renderForm() replaces
-   every section node, so a long-lived observer would be watching orphans. */
-let observer = null;
-function spy() {
-  observer?.disconnect();
-  const links = new Map([...elements.nav.querySelectorAll("a")]
-    .map((link) => [link.getAttribute("href").slice(1), link]));
-  observer = new IntersectionObserver((entries) => {
-    for (const entry of entries) {
-      if (!entry.isIntersecting) continue;
-      for (const link of links.values()) link.classList.remove("current");
-      links.get(entry.target.id)?.classList.add("current");
-    }
-  }, { rootMargin: "-20% 0px -70% 0px", threshold: 0 });
-  for (const id of links.keys()) {
-    const node = document.getElementById(id);
-    if (node) observer.observe(node);
-  }
 }
 
 function renderPreviewPanels() {
@@ -1138,6 +1214,7 @@ function blockedByAProblem(draft) {
   const [first] = problems(draft);
   if (!first) return false;
   notice(first.message);
+  showSection(sectionFor(first.field));
   document.querySelector(
     `[data-field="${first.field}"] textarea, [data-field="${first.field}"] input`)?.focus();
   return true;
@@ -1246,6 +1323,7 @@ async function loadSelfieBook() {
 }
 
 async function boot() {
+  state.section = sectionFromHash();
   try {
     if (state.id) {
       const payload = await studioApi.load(state.id);
@@ -1253,6 +1331,10 @@ async function boot() {
       state.provenance = payload.provenance || {};
       state.grown = payload.grown || [];
       state.images = payload.images || state.images;
+      // The draft arrives with the picker's first page; the rest are asked for.
+      if (Array.isArray(state.images.selfies)) {
+        state.faces = { selfies: state.images.selfies, total: state.images.total ?? state.images.selfies.length };
+      }
       state.setting = payload.setting || state.setting;
       elements.brandSub.textContent = `studio / ${payload.draft.name || state.id}`;
       elements.title.textContent = payload.draft.name || state.id;
@@ -1287,6 +1369,15 @@ async function boot() {
     notice(error.message || "Could not open the studio.");
     setSaveState("error");
   }
+}
+
+// Back, forward and a hand-edited #hash all land here; a rail click has
+// already rendered, so a section that has not changed is left alone.
+for (const type of ["popstate", "hashchange"]) {
+  addEventListener(type, () => {
+    const id = sectionFromHash();
+    if (id !== state.section && state.draft) showSection(id, { push: false });
+  });
 }
 
 elements.reviewDialog.addEventListener("click", (event) => {

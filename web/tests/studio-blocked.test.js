@@ -33,6 +33,9 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.resetModules();
   document.body.innerHTML = '';
+  // A refusal moves the page to the offending field's section, and the studio
+  // keeps its section in the URL — so the next test would boot there.
+  history.replaceState(null, '', '/');
 });
 
 /** Open the studio on a new character whose draft is `draft`. */
@@ -85,6 +88,9 @@ it('sends you to the cold open when that is the missing half', async () => {
     .toContain('cannot be imported anywhere');
   expect(document.activeElement)
     .toBe(document.querySelector('[data-field="first_mes"] textarea'));
+  // …on its own page: the studio shows one section at a time, and the refusal
+  // has to bring that section up before there is a box to focus.
+  expect(location.hash).toBe('#scenario');
 });
 
 it('does not block a draft with nothing wrong with it', async () => {

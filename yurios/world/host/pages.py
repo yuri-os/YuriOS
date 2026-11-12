@@ -92,6 +92,13 @@ def register(app: FastAPI, host: CharacterHost, require) -> None:
         require(character_id)
         return _html(DIST_DIR / "index.html")
 
+    # The studio's Live2D body preview (SPEC §6.8): the Live2D room's runtime
+    # on a bare page the studio frames, so Pixi's `unsafe-eval` stays on a
+    # page under /live2d/ and off the studio's own policy.
+    @app.get("/live2d/preview/")
+    async def live2d_preview_page():
+        return raw_assets.page(WEB_DIR / "live2d" / "preview.html", WEB_DIR, frame_self=True)
+
     @app.get("/characters/{character_id}/live2d")
     async def character_live2d(character_id: str):
         require(character_id)

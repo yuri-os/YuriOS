@@ -101,21 +101,36 @@ def _update_soul(record: CharacterRecord, fields: dict[str, Any]) -> None:
             manifest.write_text(text, encoding="utf-8")
 
 
-def _images(record: CharacterRecord) -> dict[str, Any]:
-    """Every picture that could become the card's face."""
+#: One page of the studio's face picker (SPEC §28.1): enough to choose from,
+#: few enough that opening the page does not fetch a hundred thumbnails.
+SELFIE_PAGE = 24
+
+
+def _images(record: CharacterRecord, *, offset: int = 0,
+            limit: int = SELFIE_PAGE) -> dict[str, Any]:
+    """Every picture that could become the card's face — one page of them, newest first.
+
+    `total` is the whole shelf, so the picker can page; each selfie carries the
+    full image's `url` (what adopting it copies) and a `thumb` to draw it with.
+    """
     selfies: list[dict[str, Any]] = []
+    shelf: list[tuple[Path, os.stat_result]] = []
     if record.paths.selfies.is_dir():
-        for path in sorted(record.paths.selfies.glob("*.png"),
-                           key=lambda p: p.stat().st_mtime, reverse=True)[:60]:
-            stat = path.stat()
-            selfies.append({
-                "name": path.name,
-                "url": f"/api/characters/{record.id}/selfies/{path.name}",
-                "bytes": stat.st_size,
-                "taken_at": datetime.datetime.fromtimestamp(
-                    stat.st_mtime, datetime.timezone.utc).isoformat(),
-            })
-    return {"portrait": record.paths.portrait.is_file(), "selfies": selfies}
+        shelf = sorted(((path, path.stat()) for path in record.paths.selfies.glob("*.png")),
+                       key=lambda pair: pair[1].st_mtime, reverse=True)
+    offset, limit = max(0, offset), max(1, min(limit, 96))
+    for path, stat in shelf[offset:offset + limit]:
+        selfies.append({
+            "name": path.name,
+            "url": f"/api/characters/{record.id}/selfies/{path.name}",
+            "thumb": f"/api/characters/{record.id}/selfies/{path.name}/thumb"
+                     f"?v={stat.st_mtime_ns}",
+            "bytes": stat.st_size,
+            "taken_at": datetime.datetime.fromtimestamp(
+                stat.st_mtime, datetime.timezone.utc).isoformat(),
+        })
+    return {"portrait": record.paths.portrait.is_file(), "selfies": selfies,
+            "total": len(shelf), "offset": offset, "limit": limit}
 
 
 def _sync_card_json(record: CharacterRecord, draft: "studio_model.Draft") -> None:
@@ -386,9 +401,8 @@ _OPTION_KEYS = frozenset(
 def _construction_fingerprint(record: CharacterRecord) -> tuple:
     """What a runtime bakes in when it is built (SPEC §31.4).
 
-    Her name (it is the runtime's `companion_name`), her voice, her Live2D rig
-    (the room reads it from her config), the two loops that are wired rather
-    than switched, and her doorbell — the
+    Her name (it is the runtime's `companion_name`), her voice, the two loops
+    that are wired rather than switched, and her doorbell — the
     NotifyChannel is built once by the channel manager at start, so a change here
     is invisible until she is rebuilt. Everything else a profile save
     can touch reaches her while she runs: her brain settings through `retune`,
@@ -399,12 +413,13 @@ def _construction_fingerprint(record: CharacterRecord) -> tuple:
     a client may post every field on every save, and re-submitting the same
     voice is not a reason to take her conversation down.
 
-    Her body *backend* is not here: nothing a running runtime holds reads it.
-    The desktop window asks the record when it opens (`desktop_body`), and her
-    VRM rooms ask `/body` (SPEC §6.8) — so choosing VRM or Live2D must not take
-    her conversation down for a setting she never sees."""
+    Her body is not here at all — backend, VRM or Live2D rig: nothing a running
+    runtime holds reads it. The desktop window asks the record when it opens
+    (`desktop_body`), her VRM rooms ask `/body` and her Live2D room asks the
+    host's `/config` (SPEC §6.8) — so dressing her must not take her
+    conversation down for a setting she never sees."""
     return (record.display.name, record.voice.tts_backend, record.voice.stt_backend,
-            record.voice.voice_id, record.body.model,
+            record.voice.voice_id,
             record.loops.utility, record.loops.dream, record.notify.enabled)
 
 

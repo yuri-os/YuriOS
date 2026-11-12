@@ -61,7 +61,8 @@ export const studioApi = Object.freeze({
   create: (draft, portrait) => request(ROOT, {
     method: "POST", body: JSON.stringify({ draft, portrait }),
   }),
-  selfies: (id) => request(at(id, "/selfies")),
+  selfies: (id, { offset = 0, limit = 24 } = {}) =>
+    request(at(id, `/selfies?offset=${offset}&limit=${limit}`)),
   // Where she is (SPEC §2.5) — a Vault file, not a card field, so it loads and
   // saves on its own. `deriveSetting` proposes a better room and writes nothing.
   setting: (id) => request(at(id, "/setting")),
@@ -88,5 +89,21 @@ export const studioApi = Object.freeze({
     at(id, `/selfie-prompts?scope=${encodeURIComponent(scope)}`), { method: "DELETE" }),
   setPortrait: (id, body) => request(at(id, "/portrait"), {
     method: "POST", body: JSON.stringify(body),
+  }),
+});
+
+/* The house's body library and what one character wears (SPEC §6.8). */
+export const bodiesApi = Object.freeze({
+  list: () => request("/api/bodies"),
+  add: (kind, file) => {
+    const body = new FormData();
+    body.append("file", file, file.name);
+    return request(`/api/bodies/${encodeURIComponent(kind)}`, { method: "POST", body });
+  },
+  remove: (kind, id) => request(
+    `/api/bodies/${encodeURIComponent(kind)}/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  worn: (id) => request(at(id, "/body")),
+  choose: (id, choice) => request(at(id, "/body"), {
+    method: "PUT", body: JSON.stringify(choice),
   }),
 });

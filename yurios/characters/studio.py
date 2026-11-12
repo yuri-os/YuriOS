@@ -270,12 +270,12 @@ def _provenance(record: CharacterRecord,
     if not (soul / "BOOTSTRAP.md").is_file() and (soul / RETIRED_BOOTSTRAP).is_file():
         files["first_mes"] = RETIRED_BOOTSTRAP.as_posix()   # follow it into retirement
 
-    cache: dict[str, list[vcs.Commit]] = {}
+    # One git call for every file — a subprocess each was seconds per page open.
+    history = vcs.log_by_path(record.paths.vault,
+                              *sorted({f"soul/{name}" for name in files.values()}), limit=50)
     out: dict[str, FieldProvenance] = {}
     for field_name, filename in files.items():
-        if filename not in cache:
-            cache[filename] = vcs.log(record.paths.vault, f"soul/{filename}", limit=50)
-        commits = cache[filename]
+        commits = history.get(f"soul/{filename}", [])
         if not commits:
             out[field_name] = FieldProvenance(origin="seed")
             continue

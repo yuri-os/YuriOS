@@ -52,8 +52,13 @@ def stamp_refs(html: str, web_dir: Path) -> str:
     return _RAW_REF.sub(stamped, html)
 
 
-def page(path: Path, web_dir: Path) -> Response:
-    """One HTML page, its raw references stamped, revalidated on every load."""
+def page(path: Path, web_dir: Path, *, frame_self: bool = False) -> Response:
+    """One HTML page, its raw references stamped, revalidated on every load.
+
+    `frame_self` lets this origin's own pages frame it — the Live2D body
+    preview, which the studio shows through an iframe so the studio's own
+    policy never needs Pixi's `unsafe-eval` (SPEC §6.8). Every other page
+    refuses to be framed at all."""
     html = stamp_refs(path.read_text(encoding="utf-8"), web_dir)
     # SPEC §11.6: only the inline bootstraps in this local page may execute.
     inline = re.findall(r"<script\b[^>]*>(.*?)</script\s*>", html, re.I | re.S)
@@ -67,8 +72,10 @@ def page(path: Path, web_dir: Path) -> Response:
         "img-src 'self' data: blob: https:", "font-src 'self' data:",
         "connect-src 'self' blob: data: ws: wss: https:", "media-src 'self' data: blob:",
         "worker-src 'self' blob:", "object-src 'none'", "base-uri 'self'",
-        "frame-ancestors 'none'", "form-action 'self'",
+        "frame-ancestors 'self'" if frame_self else "frame-ancestors 'none'",
+        "form-action 'self'",
     ])
     return Response(html, media_type="text/html", headers={
         "Cache-Control": "no-cache", "Content-Security-Policy": policy,
-        "X-Content-Type-Options": "nosniff", "X-Frame-Options": "DENY"})
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "SAMEORIGIN" if frame_self else "DENY"})

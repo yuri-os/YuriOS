@@ -133,7 +133,11 @@ class VoiceBinding:
 @dataclass(slots=True)
 class BodyBinding:
     backend: str = ""
+    #: Her Live2D rig: a key from the body library (SPEC §6.8) — an installed
+    #: vendor rig (`desktop/avatar_models.py`) or one uploaded to the house.
     model: str = ""
+    #: Her VRM body: a library id, or "" for the bundled body (SPEC §6.8).
+    vrm: str = ""
     options: dict[str, Any] = field(default_factory=dict)
 
 
@@ -167,10 +171,9 @@ class CharacterPaths:
     # Derived from her card at import (characters/setting.py) and hand-editable
     # after. Inside the Vault, because it is world state and travels with her.
     setting: Path
-    # Her own 3D body, when she has one (SPEC §6.8, characters/vrmbody.py) — the
-    # `.vrm` her VRM rooms and her desktop window wear instead of the bundled
-    # one. Outside the Vault (a 30 MB binary has no business in its history),
-    # inside her folder, so a copy, a clone or an archive takes it along.
+    # Where a VRM of her own used to live, before bodies moved to the house's
+    # library (SPEC §6.8, characters/bodylib.py). Read once, by the migration
+    # that files it into the library; nothing writes here any more.
     body_vrm: Path
 
     @classmethod

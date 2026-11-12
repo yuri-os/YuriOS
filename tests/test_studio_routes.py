@@ -55,7 +55,8 @@ def test_studio_get_returns_draft_provenance_and_images(node):
     assert payload["draft"]["personality"] == "dry, observant, kind"
     assert payload["draft"]["description"].startswith("A complete identity")
     assert payload["provenance"]["manner"]["origin"] in ("seed", "you", "her", "unknown")
-    assert payload["images"] == {"portrait": True, "selfies": []}
+    assert payload["images"] == {"portrait": True, "selfies": [], "total": 0,
+                                 "offset": 0, "limit": 24}
 
 
 def test_a_studio_save_reaches_the_soul_and_the_registry(node):
@@ -559,3 +560,30 @@ def test_a_model_route_no_provider_could_answer_is_refused(node, route):
         assert "model route" in response.json()["detail"]
     models = registry.require("subject").models
     assert (models.chat, models.utility) == ("", "")
+
+
+def test_the_face_picker_pages_her_selfies_and_draws_them_small(node):
+    """A shelf of full-size PNGs is not a page (SPEC §30.4): one page at a time,
+    newest first, each drawn from a small WebP made on first ask."""
+    import os
+    client, registry = node
+    shelf = registry.require("subject").paths.selfies
+    shelf.mkdir(parents=True, exist_ok=True)
+    for n in range(30):
+        path = shelf / f"shot-{n:02d}.png"
+        Image.new("RGB", (768, 1152), (n * 8, 40, 90)).save(path)
+        os.utime(path, (1_800_000_000 + n, 1_800_000_000 + n))
+
+    first = client.get("/api/characters/subject/selfies").json()
+    second = client.get("/api/characters/subject/selfies?offset=24").json()
+    thumb = client.get(first["selfies"][0]["thumb"])
+
+    assert first["total"] == 30 and len(first["selfies"]) == 24
+    assert first["selfies"][0]["name"] == "shot-29.png"          # newest first
+    assert [s["name"] for s in second["selfies"]][-1] == "shot-00.png"
+    assert thumb.headers["content-type"] == "image/webp"
+    with Image.open(io.BytesIO(thumb.content)) as small:
+        assert small.width <= 240 and small.height <= 360
+    assert len(thumb.content) < (shelf / "shot-29.png").stat().st_size
+    # The PNG itself is still what adopting a face copies.
+    assert client.get(first["selfies"][0]["url"]).headers["content-type"] == "image/png"

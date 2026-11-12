@@ -25,7 +25,7 @@ from yurios.characters import CharacterRecord, CharacterRegistry
 from ..config import Config
 from ..desktop_windows import DesktopWindows
 from ..main import DIST_DIR, WEB_DIR, _RawAssetNoCache
-from . import brains, checkpoints, house, modules, pages, studio, switchboard
+from . import bodies, brains, checkpoints, house, modules, pages, studio, switchboard
 from . import debug as debug_routes
 from .hosting import CharacterBusy, CharacterHost, _RuntimeDispatcher, _turn_away
 
@@ -109,6 +109,7 @@ def create_host_app(base: Config, registry: CharacterRegistry | None = None, *,
     switchboard.register(app, host, require)
     brains.register(app, host, require)
     studio.register(app, host, require)
+    bodies.register(app, host, require)
     debug_routes.register(app, host, require)
     # House settings' own surfaces (SPEC §11.3, §11.4): the restart, the files
     # `.env` only names, and the files a character carries as modules.

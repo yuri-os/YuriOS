@@ -205,7 +205,8 @@
             <button id="chat-thinking" class="button" type="button" aria-pressed="false" disabled
                     title="Think before replying; applies to the next reply">Thinking: loading…</button>
           </div>
-          <div class="option-group">
+          <!-- hidden while the room is dry: RAIN_INTENSITY is 0 unless set (SPEC §6.2) -->
+          <div class="option-group" id="ambience" hidden>
             <span class="option-label">Ambience</span>
             <button id="rain-mute" class="button rain-mute" type="button" title="mute the rain"
                     aria-label="mute the rain" aria-pressed="false">

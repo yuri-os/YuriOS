@@ -110,7 +110,7 @@ export class Cat {
   constructor(room, { camera = null } = {}) {
     this.low = QUALITY.low;                        // shadow casting, and that is all
     this.camera = camera;
-    this.rain = 0.6;
+    this.rain = 0;
     this._t = 0;
     this._walk = 0;          // 0 resting, 1 mid-stride — drives the leg swing
     this._legPhase = 0;

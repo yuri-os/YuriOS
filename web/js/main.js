@@ -38,6 +38,7 @@ const els = {
   text: document.getElementById('text'),
   send: document.getElementById('send'),
   rainMute: document.getElementById('rain-mute'),
+  ambience: document.getElementById('ambience'),
   enter: document.getElementById('enter'),
   enterBtn: document.getElementById('enter-btn'),
 };
@@ -104,7 +105,12 @@ async function boot() {
 
     // the one bus (SPEC §10): chat.js opens /api/events and re-dispatches every
     // event as `world-ev`; the bridge realises the `avatar` ones on the stage.
-    const bridge = new ControlBridge(stage, { room, music });
+    // The rain is off unless the house sends weather (SPEC §6.2), and a switch
+    // for a sound that isn't playing is only clutter — so it appears with the rain.
+    const onRain = (intensity) => {
+      if (els.ambience) els.ambience.hidden = !(intensity > 0);
+    };
+    const bridge = new ControlBridge(stage, { room, music, onRain });
     bridge.listen();
     addEventListener('world-ev', (e) => {
       if (e.detail?.type === 'context') renderContext(els.context, e.detail);

@@ -27,6 +27,7 @@
   max-height:30dvh; overflow-y:auto; padding:10px 0 16px; border-bottom:1px solid var(--rule);
 }
 .option-group{ display:grid; gap:8px; }
+.option-group[hidden]{ display:none; }   /* an author display beats the UA's [hidden] */
 .option-actions{ display:flex; gap:8px; }
 .options-controls .button{ min-height:44px; padding:0 12px; }
 .composer .options-controls .voice-mute{ display:flex; align-items:center; justify-content:center; gap:8px; width:auto; height:44px; padding:0 12px; white-space:nowrap; font:10px var(--font-mono); }

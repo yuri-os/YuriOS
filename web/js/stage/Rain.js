@@ -82,7 +82,7 @@ export class Rain {
    *                 falling drops outside, given as { x0,x1, y0,y1, z0,z1 }.
    */
   constructor(scene, opening) {
-    this.intensity = 0.6;
+    this.intensity = 0;
 
     // --- the glass ---
     this.paneMats = [];

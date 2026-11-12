@@ -111,7 +111,7 @@ export class City {
     const Q = (this.q = QUALITY);
     const low = Q.low;
     this.t = 0;
-    this.rain = 0.6;
+    this.rain = 0;
     this._overlayDue = 0;
 
     // ---- the baked city ----

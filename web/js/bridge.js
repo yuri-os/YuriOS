@@ -5,10 +5,11 @@
  * is the same channel set as ever — Build #4's two scene channels (`rain`,
  * `music`) included; a command's old wire `type` is the event's `op`. */
 export class ControlBridge {
-  constructor(stage, { room, music } = {}) {
+  constructor(stage, { room, music, onRain } = {}) {
     this.stage = stage;
     this.room = room;       // SanctuaryScene (SPEC §6) — rain intensity
     this.music = music;     // music.js — play/stop ambience (SPEC §7.5)
+    this.onRain = onRain;   // the page's chrome: the rain switch shows only while it rains
     this._handler = null;
   }
 
@@ -61,6 +62,7 @@ export class ControlBridge {
       case 'rain':                                     // SPEC §4/§6 — scene channel
         this.room?.setRain(cmd.intensity);
         this.music?.setRainLevel?.(cmd.intensity);
+        this.onRain?.(cmd.intensity);
         break;
       case 'music':                                    // SPEC §4/§7.5 — ambience
         if (cmd.action === 'play') this.music?.play(cmd.track, cmd.volume);

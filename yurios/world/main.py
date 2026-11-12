@@ -1012,7 +1012,10 @@ class Runtime:
         if runner is None:
             self.tools_settled.set()           # nothing is on its way
 
-        self.controller.set_rain(self.cfg.rain_intensity)   # the room's weather (§6.2)
+        # The room's weather (§6.2). Off by default: 0 sends no scene at all, so
+        # her situation and her selfies say nothing about a window or rain.
+        if self.cfg.rain_intensity > 0:
+            self.controller.set_rain(self.cfg.rain_intensity)
 
         # Publish the restored board before its scheduler can land anything.
         # This is startup state, not constructor work: bare runtimes in tests and

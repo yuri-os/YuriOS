@@ -375,7 +375,7 @@ reach-outs are still filed in her inbox and show the next time you open her room
 
 | Key | Default | |
 |---|---|---|
-| `RAIN_INTENSITY` | `0.6` | 0..1 |
+| `RAIN_INTENSITY` | `0` | 0..1; 0 turns the rain off |
 | `DESKTOP_BODY` | `vrm` | `vrm` · `live2d` |
 | `AVATAR_MODEL` | `hiyori` | which Live2D rig |
 | `WINDOW_WIDTH` / `WINDOW_HEIGHT` | `360` / `640` | |

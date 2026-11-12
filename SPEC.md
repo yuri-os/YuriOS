@@ -734,7 +734,10 @@ to every new subscriber before its first live event. Malformed JSON is logged an
   in git: surfaces are canvases drawn at boot, the city is a baked canvas plus a small animated
   overlay, and the weather is a shader. Rain **MUST** respond to the `rain` command (§4): a
   glass streak-and-bead shader, falling drops outside, the far rain over the city, and a
-  synthesized rain-noise bed (client-side) whose gain follows intensity. The room renders
+  synthesized rain-noise bed (client-side) whose gain follows intensity. The rain **MUST** be
+  off by default: `RAIN_INTENSITY` defaults to 0, at which the host sends no `rain` scene at all
+  — the room starts dry, her situation and selfie prompts say nothing of weather, and the
+  options bar's rain switch stays hidden until a `rain` command above 0 arrives. The room renders
   through a post chain (bloom → tone-map → grade) — without it the neon does not leave the
   surface it is painted on. Cost is a first-class constraint: this GPU is usually also holding
   her model (§3), and on a handset it is also holding the browser. The room therefore **MUST**

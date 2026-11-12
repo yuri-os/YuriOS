@@ -117,9 +117,21 @@ def test_stream_opens_with_hello_then_sticky_and_honours_the_stop_flag(client):
     assert events[0] == {"type": "hello", "character": "yuri"}
     assert {"type": "brain", "chat_model": rt.cfg.chat_model,
             "chat_thinking": rt.cfg.chat_thinking} in events
-    assert {"type": "avatar", "op": "rain",       # startup scene, replayed sticky
-            "intensity": rt.cfg.rain_intensity} in events
+    # The rain is off by default (SPEC §6.2): no weather, so no scene to replay.
+    assert not [e for e in events if e.get("op") == "rain"]
     assert rt.hub.subscribers == 0                 # unsubscribed on the way out
+
+
+def test_rain_the_house_asked_for_is_the_startup_scene(cfg):
+    cfg = cfg.model_copy(update={"tools_backend": "off", "mind_enabled": False,
+                                 "rain_intensity": 0.4})
+    app = create_app(cfg, brain=FakeBrain())
+    with TestClient(app) as c:
+        rt = app.state.rt
+        rt.loop.call_soon_threadsafe(rt.stopping.set)
+        events = sse_events(c.get("/api/events").text)
+    assert {"type": "avatar", "op": "rain",       # startup scene, replayed sticky
+            "intensity": 0.4} in events
 
 
 def test_pending_timers_have_a_read_route_and_sticky_state(client):

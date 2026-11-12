@@ -430,7 +430,7 @@ class Config(VoiceConfig):
     tray_enabled: bool = True
 
     # --- the room (SPEC §6) ---
-    rain_intensity: float = 0.6                 # 0..1, pushed to the scene at connect
+    rain_intensity: float = 0.0                 # 0..1, pushed to the scene at connect; 0 = off
 
     # --- the desktop window (SPEC §6.5–§6.6) ---
     # Which body `python -m yurios.world --window` floats: the VRM stage (/?desktop=1)

@@ -14,7 +14,7 @@ def test_defaults():
     assert cfg.mind_goal_max_hands == 4         # a goal step's own, §26.2
     assert cfg.mind_compact_followups is True   # later rounds send the short prompt, §22.4
     assert cfg.timer_max_minutes == 1440
-    assert cfg.rain_intensity == 0.6
+    assert cfg.rain_intensity == 0.0           # the rain is off unless asked for
     # the mind's dials (SPEC §15–§18)
     assert cfg.mind_enabled
     assert cfg.mind_act_threshold == 0.4

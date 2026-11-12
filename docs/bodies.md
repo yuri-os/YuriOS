@@ -65,7 +65,8 @@ than it looks. Whatever the tier, the page also watches its own frame clock and 
 resolution until the frame fits, so a slow device settles at a lower resolution instead of
 crawling at a high one.
 
-`RAIN_INTENSITY` (0..1) sets the weather. She can't change it; you can.
+`RAIN_INTENSITY` (0..1) sets the weather, and is 0 — no rain — unless you set it. She can't
+change it; you can.
 
 ## Live2D
 

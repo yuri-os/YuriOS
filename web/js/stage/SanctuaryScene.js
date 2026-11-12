@@ -634,7 +634,7 @@ export class SanctuaryScene {
     // ---- the look (SPEC §6.2) ----
     this.post = new Post(renderer, scene, camera);
 
-    this.setRain(0.6);
+    this.setRain(0);                         // off until the house sends weather
   }
 
   /** Turn off automatic matrix updates for everything under `root` except the

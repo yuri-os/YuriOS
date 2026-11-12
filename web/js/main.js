@@ -43,6 +43,29 @@ const els = {
   enterBtn: document.getElementById('enter-btn'),
 };
 
+// The ?v tag busts caches that predate the Cache-Control fix (world/main.py):
+// a different URL is a guaranteed cache miss. Bump it when the bundled body
+// changes (and BUNDLED_VRM_URL in world/host/studio.py with it).
+// v2 = AvatarSample_B (the YuriOS body).
+const BUNDLED_VRM_URL = '/models/avatar.vrm?v=2';
+const IDLE_URL = '/models/idle.vrma?v=2';
+
+/** The body she wears (SPEC §6.8): her own `.vrm` if the switchboard gave her
+ *  one, else the bundled body. A page with no character behind it, or a host
+ *  that cannot say, gets the bundled body rather than an empty room. */
+async function bodyUrl() {
+  const runtime = window.YuriOSRuntime;
+  if (!runtime?.characterId) return BUNDLED_VRM_URL;
+  try {
+    const response = await fetch(runtime.apiPath('/api/body'), { cache: 'no-store' });
+    if (!response.ok) return BUNDLED_VRM_URL;
+    const body = await response.json();
+    return typeof body?.vrm_url === 'string' && body.vrm_url ? body.vrm_url : BUNDLED_VRM_URL;
+  } catch (_) {
+    return BUNDLED_VRM_URL;
+  }
+}
+
 async function boot() {
   const stage = new VrmStage(document.getElementById('scene'),
     { transparent: DESKTOP, frameBody: DESKTOP });
@@ -87,11 +110,8 @@ async function boot() {
   // beside it already says what's still loading (SPEC §6.4).
   if (els.enterBtn) els.enterBtn.disabled = true;
   try {
-    // The ?v tag busts caches that predate the Cache-Control fix (world/main.py):
-    // a different URL is a guaranteed cache miss. Bump it when the bundled body
-    // changes. v2 = AvatarSample_B (the YuriOS body).
-    await stage.loadModel('/models/avatar.vrm?v=2');
-    await stage.playAnimation('/models/idle.vrma?v=2');
+    await stage.loadModel(await bodyUrl());
+    await stage.playAnimation(IDLE_URL);
   } catch (e) {
     console.error('model load failed:', e);
     els.caption.textContent = 'her body failed to load — check web/models/';
@@ -110,7 +130,11 @@ async function boot() {
     const onRain = (intensity) => {
       if (els.ambience) els.ambience.hidden = !(intensity > 0);
     };
-    const bridge = new ControlBridge(stage, { room, music, onRain });
+    // A body swapped in the switchboard arrives as `load_model` (SPEC §6.8): the
+    // new skeleton starts with an empty mixer, so give her the idle back.
+    const onModel = () => stage.playAnimation(IDLE_URL)
+      .catch((e) => console.warn('idle after a body swap failed:', e));
+    const bridge = new ControlBridge(stage, { room, music, onRain, onModel });
     bridge.listen();
     addEventListener('world-ev', (e) => {
       if (e.detail?.type === 'context') renderContext(els.context, e.detail);

@@ -5,11 +5,12 @@
  * is the same channel set as ever — Build #4's two scene channels (`rain`,
  * `music`) included; a command's old wire `type` is the event's `op`. */
 export class ControlBridge {
-  constructor(stage, { room, music, onRain } = {}) {
+  constructor(stage, { room, music, onRain, onModel } = {}) {
     this.stage = stage;
     this.room = room;       // SanctuaryScene (SPEC §6) — rain intensity
     this.music = music;     // music.js — play/stop ambience (SPEC §7.5)
     this.onRain = onRain;   // the page's chrome: the rain switch shows only while it rains
+    this.onModel = onModel; // after a `load_model` swap: the page puts her idle back on
     this._handler = null;
   }
 
@@ -57,7 +58,9 @@ export class ControlBridge {
         void this.stage.playAnimation(cmd.url, cmd.loop ?? true, cmd.fadeIn ?? 0.3);
         break;
       case 'load_model':
-        void this.stage.loadModel(cmd.url);
+        this.stage.loadModel(cmd.url)
+          .then(() => this.onModel?.())
+          .catch((e) => console.error('[ControlBridge] load_model failed:', e));
         break;
       case 'rain':                                     // SPEC §4/§6 — scene channel
         this.room?.setRain(cmd.intensity);

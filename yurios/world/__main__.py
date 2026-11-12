@@ -53,7 +53,7 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--window", action="store_true",
                     help="float her on the desktop in a native transparent window (§6.5)")
     ap.add_argument("--body", choices=("vrm", "live2d"), default=None,
-                    help="which body --window floats (§6.6; default: DESKTOP_BODY)")
+                    help="which body --window or --attach floats (§6.6; default: DESKTOP_BODY)")
     ap.add_argument("--attach", metavar="CHARACTER", default=None,
                     help="float one character from the running house; starts no server (§6.5)")
     ap.add_argument("--title", default=None, help=argparse.SUPPRESS)

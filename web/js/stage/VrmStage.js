@@ -13,6 +13,7 @@
  * called — the manual order is the whole point (spring bones LAST, or physics
  * and expressions fight; CS §8 is the checklist).
  */
+import { VRMUtils } from '@pixiv/three-vrm';
 import { createVRMAnimationClip } from '@pixiv/three-vrm-animation';
 import {
   ACESFilmicToneMapping, AnimationMixer, Euler, LoopOnce, LoopRepeat,
@@ -171,6 +172,9 @@ export class VrmStage {
     if (this.group) {                                 // tear down any previous model
       this.scene.remove(this.group);
       this.mixer?.stopAllAction();
+      // A swapped body (SPEC §6.8) is tens of MB of geometry and textures on
+      // the GPU; removing it from the scene alone leaves all of it allocated.
+      if (this.vrm) VRMUtils.deepDispose(this.vrm.scene);
     }
 
     this.vrm = loaded.vrm;

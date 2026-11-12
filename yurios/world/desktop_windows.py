@@ -60,8 +60,13 @@ class DesktopWindows:
     def __init__(self, host: str, port: int, *,
                  spawn: Callable[..., subprocess.Popen] = subprocess.Popen,
                  python: str = sys.executable,
-                 check: Callable[[], str | None] = unavailable):
+                 check: Callable[[], str | None] = unavailable,
+                 body_for: Callable[[str], str | None] = lambda _id: None):
         self.host = host
+        # Which body each character floats (`CharacterHost.desktop_body`): hers
+        # from the switchboard, else the house's. Asked at every open, so a body
+        # changed in the board is the one the next window wears.
+        self._body_for = body_for
         self._check = check
         self.port = port
         self._spawn = spawn
@@ -91,6 +96,9 @@ class DesktopWindows:
         argv = [self._python, "-m", "yurios.world", "--attach", character_id]
         if title:
             argv += ["--title", title]
+        body = self._body_for(character_id)
+        if body:
+            argv += ["--body", body]
         # The window reads the house `.env` like any other entry point, but it
         # must reach *this* server, which booted from whatever `.env` said then.
         env = {**os.environ, "HOST": self.host, "PORT": str(self.port)}

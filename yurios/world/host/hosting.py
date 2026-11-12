@@ -522,6 +522,21 @@ class CharacterHost:
         app = self.apps.get(character_id)
         return app.state.rt if app is not None else None
 
+    def desktop_body(self, character_id: str) -> str | None:
+        """Which body her desktop window floats (SPEC §6.5–§6.6): hers, else the house's.
+
+        Read from her record at the moment the window opens rather than from her
+        runtime's config, so changing her body in the switchboard takes effect on
+        the next float without restarting her. None for a character who is not on
+        the board, which leaves the window to the house default.
+        """
+        record = self.registry.get(character_id)
+        if record is None:
+            return None
+        if record.body.backend in {"vrm", "live2d"}:
+            return record.body.backend
+        return self.base.desktop_body if self.base.desktop_body in {"vrm", "live2d"} else "vrm"
+
     def effective_config(self, record: CharacterRecord) -> Config:
         """Her `.env`, with her record's overrides laid over it (SPEC §31.2)."""
         profile = self.connections.get(record.connection.profile)

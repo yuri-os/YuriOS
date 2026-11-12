@@ -40,7 +40,7 @@ def create_host_app(base: Config, registry: CharacterRegistry | None = None, *,
     # Her on the desktop from the running house (SPEC §6.5): the switchboard's
     # Desktop button and the tray's menu both spawn through this one object, so
     # either can see a window the other opened.
-    windows = DesktopWindows(base.host, base.port)
+    windows = DesktopWindows(base.host, base.port, body_for=host.desktop_body)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):

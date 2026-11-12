@@ -26,7 +26,7 @@ from yurios.characters import (
     CharacterImporter,
     CharacterRecord,
 )
-from yurios.characters import selfiebook
+from yurios.characters import selfiebook, vrmbody
 from yurios.characters import studio as studio_model
 from yurios.characters import setting as setting_model
 from yurios.characters.creator import create_character, template_draft
@@ -40,6 +40,11 @@ from .hosting import (_IMAGE_LIMITS, MAX_OPTIMIZER_DRAFT_BYTES,
                       _optimize_events, _sync_card_json)
 
 log = logging.getLogger("world.host")
+
+#: What a VRM room wears when she has no body of her own (web/models/, served
+#: by the character app). The `?v` is main.js's cache-buster for the bundled
+#: file — bump both together when the bundled body changes.
+BUNDLED_VRM_URL = "/models/avatar.vrm?v=2"
 
 
 def register(app: FastAPI, host: CharacterHost, require) -> None:
@@ -77,6 +82,77 @@ def register(app: FastAPI, host: CharacterHost, require) -> None:
         # no-cache makes it ask, and the ETag still answers 304 when nothing moved.
         return FileResponse(path, media_type="image/png",
                             headers={"Cache-Control": "no-cache"})
+
+    # ---- her own 3D body (SPEC §6.8) ----
+
+    def _body_state(record: CharacterRecord) -> dict[str, Any]:
+        """What she wears: which body she floats, and her own VRM if she has one.
+
+        `vrm_url` is the one a VRM room should load — hers, else the bundled body —
+        so a page never has to know where either lives. Hers carries her file's
+        mtime as `?v=`, because the URL is stable and the bytes are not: a body
+        replaced in the board must not be answered from yesterday's cache.
+        """
+        info = vrmbody.read_info(record.paths.body_vrm)
+        own = None
+        if info is not None:
+            stamp = record.paths.body_vrm.stat().st_mtime_ns
+            own = {"url": f"/api/characters/{record.id}/body.vrm?v={stamp}",
+                   "title": info.title, "version": info.version, "bytes": info.size}
+        return {
+            "backend": record.body.backend,
+            "desktop_body": host.desktop_body(record.id),
+            "vrm": own,
+            "vrm_url": own["url"] if own else BUNDLED_VRM_URL,
+            "max_bytes": vrmbody.MAX_VRM_BYTES,
+        }
+
+    @app.get("/api/characters/{character_id}/body")
+    async def body_state(character_id: str):
+        return await asyncio.to_thread(_body_state, require(character_id))
+
+    @app.get("/api/characters/{character_id}/body.vrm")
+    async def body_file(character_id: str):
+        path = require(character_id).paths.body_vrm
+        if not path.is_file():
+            raise HTTPException(404, "she has no body of her own")
+        # no-cache for the portrait's reason: one URL whose bytes change.
+        return FileResponse(path, media_type="model/gltf-binary",
+                            headers={"Cache-Control": "no-cache"})
+
+    def _wear(record: CharacterRecord, state: dict[str, Any]) -> None:
+        """Put the body she now has on in any VRM room of hers that is open."""
+        rt = host.runtime(record.id)
+        if rt is not None:
+            rt.controller.load_model(state["vrm_url"])
+
+    @app.post("/api/characters/{character_id}/body")
+    async def set_body(character_id: str, file: UploadFile):
+        """Give her a VRM body of her own, replacing any she had (SPEC §6.8).
+
+        Choosing a 3D body *is* choosing VRM, so her body backend follows: the
+        desktop window floats this model from the next open, without a second
+        setting somewhere else to remember.
+        """
+        record = require(character_id)
+        try:
+            await asyncio.to_thread(vrmbody.store, file.file, record.paths.body_vrm)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        record.body.backend = "vrm"
+        registry.upsert(record)
+        state = await asyncio.to_thread(_body_state, record)
+        _wear(record, state)
+        return state
+
+    @app.delete("/api/characters/{character_id}/body")
+    async def clear_body(character_id: str):
+        """Take her own VRM away; her VRM rooms go back to the bundled body."""
+        record = require(character_id)
+        await asyncio.to_thread(record.paths.body_vrm.unlink, missing_ok=True)
+        state = await asyncio.to_thread(_body_state, record)
+        _wear(record, state)
+        return state
 
     @app.get("/api/characters/{character_id}/selfies/{name}")
     async def selfie(character_id: str, name: str):

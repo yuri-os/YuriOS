@@ -167,6 +167,11 @@ class CharacterPaths:
     # Derived from her card at import (characters/setting.py) and hand-editable
     # after. Inside the Vault, because it is world state and travels with her.
     setting: Path
+    # Her own 3D body, when she has one (SPEC §6.8, characters/vrmbody.py) — the
+    # `.vrm` her VRM rooms and her desktop window wear instead of the bundled
+    # one. Outside the Vault (a 30 MB binary has no business in its history),
+    # inside her folder, so a copy, a clone or an archive takes it along.
+    body_vrm: Path
 
     @classmethod
     def under(cls, root: Path) -> "CharacterPaths":
@@ -186,6 +191,7 @@ class CharacterPaths:
             selfie_templates=root / "selfie.yaml",
             selfie_prompts=root / "selfie-prompts.yaml",
             setting=root / "vault" / "world" / "setting.md",
+            body_vrm=root / "body" / "body.vrm",
         )
 
 

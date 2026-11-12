@@ -742,6 +742,75 @@ function setNotifyAvailability(form, available) {
   }
 }
 
+/* Her own VRM body (SPEC §6.8). Uploaded the moment it is picked rather than
+ * held for "Save profile": a 30 MB model is not a form field, and the host
+ * flips her backend to VRM in the same request, so the select is moved to
+ * match and the baseline with it — otherwise the next save would resend a
+ * change that is already made. */
+function renderBodyState(body) {
+  const own = body?.vrm;
+  const megabytes = (bytes) => `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  const limit = body?.max_bytes ? megabytes(body.max_bytes) : "128 MB";
+  $("#body-vrm-state").textContent = own
+    ? `${own.title || "Her own model"} · VRM ${own.version} · ${megabytes(own.bytes)}. Her VRM rooms and a VRM desktop window wear it.`
+    : `None yet — her VRM rooms wear the bundled body. A .vrm from VRoid Studio or UniVRM, up to ${limit}.`;
+  $("#body-vrm-clear").hidden = !own;
+}
+
+async function loadBodyState(id) {
+  renderBodyState(null);
+  $("#body-vrm-state").textContent = "Reading her body...";
+  try {
+    const body = await charactersApi.body(id);
+    if (state.selectedId === id) renderBodyState(body);   // she may have changed mid-read
+  } catch (error) {
+    $("#body-vrm-state").textContent = `Could not read her body. ${errorMessage(error)}`;
+  }
+}
+
+function adoptBackend(character, backend) {
+  const form = $("#profile-form");
+  form.elements.body_backend.value = backend;
+  profileBaseline.body_backend = backend;
+  if (character.raw) character.raw.body_backend = backend;
+}
+
+async function uploadBody(file) {
+  const character = selectedCharacter();
+  if (!character || !file) return;
+  const button = $("#body-vrm-upload");
+  const error = $("#profile-error");
+  error.textContent = "";
+  setBusy(button, true, "Uploading...");
+  try {
+    const body = await charactersApi.setBody(character.id, file);
+    renderBodyState(body);
+    adoptBackend(character, body.backend || "vrm");
+    toast(`${character.name} has a body of her own now.`);
+  } catch (failure) {
+    error.textContent = errorMessage(failure);
+  } finally {
+    setBusy(button, false);
+    $("#body-vrm-file").value = "";
+  }
+}
+
+async function clearBody() {
+  const character = selectedCharacter();
+  if (!character) return;
+  const button = $("#body-vrm-clear");
+  $("#profile-error").textContent = "";
+  setBusy(button, true, "Removing...");
+  try {
+    renderBodyState(await charactersApi.clearBody(character.id));
+    toast(`${character.name} is back in the bundled body.`);
+  } catch (failure) {
+    $("#profile-error").textContent = errorMessage(failure);
+  } finally {
+    setBusy(button, false);
+  }
+}
+
 async function openProfile() {
   const character = selectedCharacter();
   if (!character) return;
@@ -765,6 +834,7 @@ async function openProfile() {
   brainState.confirmSwitch = false;
   snapshotSettings();
   openModal(elements.profileDialog);
+  void loadBodyState(character.id);
   try {
     const [payload, connections] = await Promise.all([
       charactersApi.settings(character.id), charactersApi.connections(),
@@ -1129,6 +1199,9 @@ function wireEvents() {
     goTo: state.pendingRoom }));
   $("#profile-open").addEventListener("click", openProfile);
   $("#profile-form").addEventListener("submit", submitProfile);
+  $("#body-vrm-upload").addEventListener("click", () => $("#body-vrm-file").click());
+  $("#body-vrm-file").addEventListener("change", (event) => uploadBody(event.target.files?.[0]));
+  $("#body-vrm-clear").addEventListener("click", clearBody);
   $("#brain-open").addEventListener("click", leaveForBrain);
   $("#brain-form").addEventListener("submit", submitBrain);
   // Every way out of the brain panel goes back where it came from — including

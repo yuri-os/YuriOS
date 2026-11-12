@@ -37,6 +37,13 @@ export const charactersApi = Object.freeze({
   }),
   approve: (id) => request(characterPath(id, "/approve"), { method: "POST" }),
   desktop: (id) => request(characterPath(id, "/desktop"), { method: "POST" }),
+  body: (id, { signal } = {}) => request(characterPath(id, "/body"), { signal }),
+  setBody: (id, file) => {
+    const body = new FormData();
+    body.append("file", file, file.name);
+    return request(characterPath(id, "/body"), { method: "POST", body });
+  },
+  clearBody: (id) => request(characterPath(id, "/body"), { method: "DELETE" }),
   archive: (id) => request(characterPath(id, "/archive"), { method: "POST" }),
   preparePurge: (id) => request(characterPath(id, "/purge/prepare"), { method: "POST" }),
   purge: (id, challenge) => request(characterPath(id, "/purge"), {

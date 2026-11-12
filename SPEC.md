@@ -797,13 +797,18 @@ to every new subscriber before its first live event. Malformed JSON is logged an
   dies in the log, **MUST NOT** open a second window for one who is already out,
   and the host **MUST** close a character's window when she is stopped, archived or purged from
   the board, and every window when the house goes down. Each attached window keeps its own
-  browser profile under `.yurios/windows/<id>/`.
+  browser profile under `.yurios/windows/<id>/`. Which body an attached window floats is
+  **hers**: her record's body backend when it names one, else `DESKTOP_BODY` — read from
+  the record when the window opens (`CharacterHost.desktop_body`), so a body changed in the
+  switchboard is the one the next window wears without restarting her, and two characters
+  out at once may float different bodies. The host passes it as `--attach <id> --body …`.
 - §6.6 **The second body.** A Live2D web client is served at `/live2d/` (`web/live2d/`); its
   Cubism runtime and rig ship with the build. It carries the §2.6 chat column and one
   `events.js` that maps
   `avatar`/`expression` events from `/api/events` onto the pixi body. Audio rides `/ws/voice`
   unchanged; `/api/config` (`yurios/world/routes/live2d.py`) answers its rig-registry needs.
-  `DESKTOP_BODY=vrm|live2d` (or `--window --body …`) picks which body the §6.5 window floats.
+  `DESKTOP_BODY=vrm|live2d` (or `--window --body …`) picks which body the §6.5 window floats
+  for the house; a character's own body backend overrides it for her window (§6.5, §6.8).
   The Live2D body realises only the `expression` op — it remains a guest, not a second puppet.
 - §6.7 **No body at all.** A **text client** **MUST** be served at `/text/` (`web/text/`, and
   `/characters/<id>/text/` on a multi-character node), because a room she cannot be reached
@@ -829,6 +834,24 @@ to every new subscriber before its first live event. Malformed JSON is logged an
   expanding options **MUST** give the chat column enough space to keep sending accessible.
   In desktop-pet mode (§6.5), the whole composer **MUST** move to the hover bar together,
   including its options and picture attachments.
+- §6.8 **Her own body.** A character **MAY** have a VRM body of her own: one `.vrm` at
+  `body/body.vrm` in her folder (`CharacterPaths.body_vrm`), outside the Vault — a binary
+  that size has no place in its history — but inside her folder, so a copy, a clone (§36.3)
+  or an archive takes it with her. It is not a card field and an exported card **MUST NOT**
+  carry it. The host answers `GET /api/characters/<id>/body` with which body she floats and
+  `vrm_url`, the model a VRM room loads: hers, else the bundled `web/models/avatar.vrm`, so
+  no page decides that for itself; her own is served at `…/body.vrm` with `?v=` set to its
+  mtime and `Cache-Control: no-cache`. An upload (`POST …/body`, multipart, at most 128 MB)
+  **MUST** be checked before it replaces anything — a glTF 2 binary whose length matches its
+  header and whose JSON names `VRMC_vrm` (VRM 1.0) or `VRM` (0.x); anything else is refused
+  with the reason and her old body is left untouched (`characters/vrmbody.py`). Choosing a
+  3D body *is* choosing VRM, so an upload **MUST** set her body backend to `vrm` in the same
+  request. Uploading or removing (`DELETE …/body`) publishes a `load_model` avatar event, so
+  an open VRM room — the desktop window included — changes body without a reload; the room
+  **MUST** dispose of the old model's GPU resources and put her idle back on. The control
+  sits in the switchboard's profile form beside the backend that chooses it. Her Live2D
+  rig stays `body.model`, a key from `desktop/avatar_models.py`, so one character can have
+  both, and her body backend says which one floats (§6.5).
 
 ## §7 — Tools via MCP: the hands
 

@@ -26,6 +26,8 @@
        room that runs js/voice.js — served raw at /shared/, like the panel above -->
   <link rel="stylesheet" href="/shared/composer.css">
   <link rel="stylesheet" href="/shared/chat-options.css">
+  <!-- desktop mode's ✕ (SPEC §6.5): the frameless window has no title bar -->
+  <link rel="stylesheet" href="/shared/desktop-close.css">
   <!-- Desktop-pet mode (opened by world/window.py with ?desktop=1 — SPEC §6.5):
        flip the page transparent + chromeless *before* first paint so there's no
        flash of the dark sanctuary; main.js reads the class and sets the room
@@ -246,5 +248,6 @@
   <!-- the composer's shorter/longer nudge (SPEC §38), raw like settings.js -->
   <script src="/shared/reply-length.js"></script>
   <script src="/shared/chat-options.js"></script>
+  <script src="/shared/desktop-close.js"></script>
 </body>
 </html>

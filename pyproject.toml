@@ -267,6 +267,17 @@ explicit_package_bases = true
 module = "yurios.world.tray"
 ignore_errors = true
 
+# With the [desktop] extra installed, PyQt6 is importable, and two typed packages
+# reach it: Pillow (`PIL.ImageQt`) and pywebview (guilib → `webview.platforms.qt` →
+# qtpy). PyQt6 6.12's QtGui.pyi has a signature mypy cannot parse ("/ must be ahead
+# of *"), and one syntax error there is "errors prevented further checking" for the
+# whole run — the numpy story above, on any machine with the extra. Neither module
+# is one we use, so the chain is cut at them. A stub itself cannot be skipped this
+# way, which is why the launcher's Qt probe imports by name (yurios/desktop/window.py).
+[[tool.mypy.overrides]]
+module = ["PIL.ImageQt", "webview.platforms.*"]
+follow_imports = "skip"
+
 # --- THE BASELINE ----------------------------------------------------------------
 # These 30 modules were written before there was a typecheck, and between them they
 # report 139 findings — mostly duck-typed seams (a settings dict splatted into a

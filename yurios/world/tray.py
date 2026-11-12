@@ -166,7 +166,12 @@ class TrayModel:
             {"id": c.get("id", ""), "name": c.get("name") or c.get("id", ""),
              "unread": int((c.get("unread") or {}).get("count") or 0),
              "selfies": int((c.get("unread") or {}).get("selfies") or 0),
-             "state": c.get("state") or "offline"}
+             "state": c.get("state") or "offline",
+             # Up and reviewed: the one she can be floated on the desktop from.
+             "running": c.get("runtime_state") == "ready"
+                        and not c.get("review_required"),
+             # Out on the desktop in a window of her own right now (SPEC §6.5).
+             "desktop": bool(c.get("desktop"))}
             for c in characters
         ]
         changed = wanted != self.characters
@@ -210,19 +215,95 @@ class TrayModel:
         Per character rather than one combined count, because with four of them
         "3 waiting" tells you a number and not who — and who is the part that
         decides whether you open it now.
+
+        Each name is listed once, and her row is the switch for her desktop
+        window (SPEC §6.5): ticked while she is out, a click floats her or puts
+        her away. It cannot also open her room, because a dbusmenu row is one
+        target — GNOME's host draws the tick and the icon but makes neither a
+        second button (`MenuItemFactory`, the AppIndicator extension's
+        dbusMenu.js) — so the room is the switchboard's to open, one row down.
+        A row for someone not running is greyed rather than hidden: the list is
+        the house, and a window over a character who is not up opens on nothing.
         """
         rows: list[dict] = []
         for character in self.characters:
-            label = character["name"]
-            if character["unread"]:
-                label = f"{label} — {self._what(character)}"
-            rows.append({"label": label,
-                         "url": f"/characters/{character['id']}/sanctuary/",
-                         "bold": bool(character["unread"])})
+            state = _state_word(character["state"])
+            what = self._what(character) if character["unread"] else state
+            rows.append({"label": f"{character['name']} · {what}",
+                         "toggle": character["id"],
+                         "name": character["name"],
+                         "checked": character["desktop"],
+                         # Out but no longer running: still offered, to put her away.
+                         "enabled": character["running"] or character["desktop"],
+                         "dot": ("waiting" if character["unread"] else state)})
         if rows:
             rows.append({"separator": True})
-        rows.append({"label": "Switchboard", "url": "/dashboard/"})
+        rows.append({"label": "Open the switchboard", "url": "/dashboard/"})
+        # The icon's own way out, for this run: the house, and anyone out on the
+        # desktop, carry on without it, and the next start brings it back.
+        rows.append({"label": "Close the tray", "close": True})
         return rows
+
+
+#: The switchboard's words and colours for a state (web/shared/activity-state.js),
+#: so the tray and the tile say the same thing in the same colour: the ladder's
+#: own words, and the process's for a character with no mind running.
+STATE_RGB = {
+    "engaged": (0xD7, 0xFF, 0x58), "idle": (0x76, 0xE8, 0xBD),
+    "dream": (0xF4, 0xBD, 0x62), "dormant": (0x69, 0x73, 0x6D),
+    "starting": (0xA7, 0xCA, 0x32), "ready": (0xA7, 0xCA, 0x32),
+    "attention": (0xEF, 0x78, 0x6F), "offline": (0x69, 0x73, 0x6D),
+}
+_STATE_ALIASES = {"failed": "attention", "error": "attention", "stopped": "offline"}
+
+#: A menu row's icon: 16px is GNOME's `popup-menu-icon`.
+ROW_ICON_SIZE = 16
+
+
+def _state_word(state: str) -> str:
+    word = str(state or "offline").strip().lower()
+    return _STATE_ALIASES.get(word, word)
+
+
+def _png(size: int, argb: bytes) -> bytes:
+    """ARGB32 pixels as a PNG — what dbusmenu's `icon-data` wants.
+
+    A menu row's icon is decoded by GdkPixbuf from an encoded image, not read as
+    raw pixels like the tray icon's own pixmap, so the same circle has to be
+    wrapped. An RGBA PNG with no filtering is a few lines of zlib.
+    """
+    import struct
+    import zlib
+
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        return (struct.pack(">I", len(data)) + kind + data
+                + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF))
+
+    raw = bytearray()
+    for y in range(size):
+        raw.append(0)                                   # filter: none
+        row = argb[y * size * 4:(y + 1) * size * 4]
+        for x in range(0, len(row), 4):
+            raw += row[x + 1:x + 4] + row[x:x + 1]      # ARGB → RGBA
+    header = struct.pack(">IIBBBBB", size, size, 8, 6, 0, 0, 0)
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header)
+            + chunk(b"IDAT", zlib.compress(bytes(raw))) + chunk(b"IEND", b""))
+
+
+_DOT_CACHE: dict[str, bytes] = {}
+
+
+def _dot(kind: str) -> bytes:
+    """The PNG beside a name: a ring in the waiting colour for someone who
+    wrote — the tray icon's own mark — and otherwise a dot in her state's."""
+    png = _DOT_CACHE.get(kind)
+    if png is None:
+        if kind == "waiting":
+            argb = _circle_argb(ROW_ICON_SIZE, WAITING_RGB, dot=True)
+        else:
+            argb = _circle_argb(ROW_ICON_SIZE, STATE_RGB.get(kind, STATE_RGB["offline"]))
+        png = _DOT_CACHE[kind] = _png(ROW_ICON_SIZE, argb)
+    return png
 
 
 # --- the wire ---------------------------------------------------------------
@@ -232,7 +313,8 @@ class TrayModel:
 # it, and it must stay importable — and testable — on a machine with no desktop
 # and no D-Bus at all.
 
-def _build_interfaces(model: "TrayModel", on_open):
+def _build_interfaces(model: "TrayModel", on_open, on_toggle=None, on_close=None,
+                      refresh=None):
     from dbus_fast import PropertyAccess, Variant
     from dbus_fast.service import ServiceInterface, dbus_property, method, signal
 
@@ -349,16 +431,33 @@ def _build_interfaces(model: "TrayModel", on_open):
         """com.canonical.dbusmenu — the right-click menu.
 
         A tree, addressed by integer id, where 0 is the invisible root. The ids
-        are re-derived from the model on every rebuild and `revision` is bumped
-        with them, which is what tells a host its cached copy is stale.
+        are re-derived from the model on every rebuild — depth first, so a
+        submenu's rows follow it — and `revision` is bumped with them, which is
+        what tells a host its cached copy is stale.
         """
 
         def __init__(self):
             super().__init__("com.canonical.dbusmenu")
             self._revision = 1
             self._rows: list[dict] = []
+            self._items: dict[int, dict] = {}        # id → row
+            self._children: dict[int, list[int]] = {0: []}
             self._served: int | None = None   # the revision the host last read
             self.rebuild()
+
+        def _index(self) -> None:
+            self._items, self._children = {}, {0: []}
+
+            def walk(rows: list[dict], parent: int) -> None:
+                for row in rows:
+                    item_id = len(self._items) + 1
+                    self._items[item_id] = row
+                    self._children[parent].append(item_id)
+                    if row.get("children"):
+                        self._children[item_id] = []
+                        walk(row["children"], item_id)
+
+            walk(self._rows, 0)
 
         def rebuild(self) -> bool:
             """Re-derive the rows. True when they actually moved.
@@ -370,6 +469,7 @@ def _build_interfaces(model: "TrayModel", on_open):
             if rows == self._rows:
                 return False
             self._rows = rows
+            self._index()
             self._revision += 1
             return True
 
@@ -377,39 +477,48 @@ def _build_interfaces(model: "TrayModel", on_open):
             if row.get("separator"):
                 return {"type": Variant("s", "separator")}
             props = {"label": Variant("s", row["label"]),
-                     "enabled": Variant("b", True),
+                     "enabled": Variant("b", bool(row.get("enabled", True))),
                      "visible": Variant("b", True)}
-            if row.get("bold"):
-                # There is no "bold" in the spec. This is the closest honest
-                # thing: a host that understands it shows the row as the one
-                # worth clicking, and one that does not simply ignores it.
-                props["icon-name"] = Variant("s", "mail-unread")
+            if row.get("children"):
+                props["children-display"] = Variant("s", "submenu")
+            if row.get("toggle"):
+                # GNOME draws a checkmark toggle as a tick in the row's ornament
+                # column — which it keeps, empty, on an unticked row, so the
+                # names line up either way.
+                props["toggle-type"] = Variant("s", "checkmark")
+                props["toggle-state"] = Variant("i", 1 if row.get("checked") else 0)
+            if row.get("dot"):
+                # Drawn at the row's far end. It is a picture, not a second
+                # target: a click anywhere on the row is the row's one action.
+                props["icon-data"] = Variant("ay", _dot(row["dot"]))
             return props
 
+        def _layout(self, item_id: int, depth: int) -> list:
+            props = ({"children-display": Variant("s", "submenu")} if item_id == 0
+                     else self._properties(self._items[item_id]))
+            children = [] if depth == 0 else [
+                Variant("(ia{sv}av)", self._layout(child, depth - 1))
+                for child in self._children.get(item_id, [])]
+            return [item_id, props, children]
+
         @method()
-        def GetLayout(self, parentId: "i", recursionDepth: "i",   # noqa: N802, ARG002
+        def GetLayout(self, parentId: "i", recursionDepth: "i",   # noqa: N802
                       propertyNames: "as") -> "u(ia{sv}av)":      # noqa: N802, ARG002
             self._served = self._revision
-            children = [
-                Variant("(ia{sv}av)", [index + 1, self._properties(row), []])
-                for index, row in enumerate(self._rows)
-            ]
-            return [self._revision,
-                    [0, {"children-display": Variant("s", "submenu")}, children]]
+            if parentId != 0 and parentId not in self._items:
+                return [self._revision, [parentId, {}, []]]
+            return [self._revision, self._layout(parentId, recursionDepth)]
 
         @method()
         def GetGroupProperties(self, ids: "ai",                   # noqa: N802
                                propertyNames: "as") -> "a(ia{sv})":   # noqa: N802, ARG002
-            out = []
-            for item_id in ids:
-                if 1 <= item_id <= len(self._rows):
-                    out.append([item_id, self._properties(self._rows[item_id - 1])])
-            return out
+            return [[item_id, self._properties(self._items[item_id])]
+                    for item_id in ids if item_id in self._items]
 
         @method()
         def GetProperty(self, id: "i", name: "s") -> "v":         # noqa: N802, A002
-            if 1 <= id <= len(self._rows):
-                value = self._properties(self._rows[id - 1]).get(name)
+            if id in self._items:
+                value = self._properties(self._items[id]).get(name)
                 if value is not None:
                     return value
             return Variant("s", "")
@@ -417,12 +526,15 @@ def _build_interfaces(model: "TrayModel", on_open):
         @method()
         def Event(self, id: "i", eventId: "s", data: "v",         # noqa: N802, A002, ARG002
                   timestamp: "u"):                                # noqa: ARG002
-            if eventId != "clicked":
+            if eventId != "clicked" or id not in self._items:
                 return
-            if 1 <= id <= len(self._rows):
-                url = self._rows[id - 1].get("url")
-                if url:
-                    on_open(url)
+            row = self._items[id]
+            if row.get("url"):
+                on_open(row["url"])
+            elif row.get("toggle") and row.get("enabled") and on_toggle is not None:
+                on_toggle(row["toggle"], row["name"])
+            elif row.get("close") and on_close is not None:
+                on_close()
 
         @method()
         def EventGroup(self, events: "a(isvu)") -> "ai":          # noqa: N802
@@ -439,6 +551,10 @@ def _build_interfaces(model: "TrayModel", on_open):
             # from the wire on every single open, including the overwhelmingly
             # common one where nothing has changed since the last. That rebuild
             # is what a click waits for. So: only when the rows really moved…
+            # (read fresh, since a window can be closed from its own ✕ between
+            # two polls, and a stale tick is the one thing this moment can't show)
+            if refresh is not None:
+                refresh()
             if self.rebuild():
                 return True
             # …or when this host has never read them, which is every host on its
@@ -450,6 +566,8 @@ def _build_interfaces(model: "TrayModel", on_open):
         def AboutToShowGroup(self, ids: "ai") -> "aiai":          # noqa: N802, ARG002
             # (ids that need updating, ids that don't exist) — 0 is the root, so
             # "the menu" is the honest answer when the rows moved.
+            if refresh is not None:
+                refresh()
             return [[0], []] if self.rebuild() else [[], []]
 
         @dbus_property(access=PropertyAccess.READ)
@@ -487,8 +605,11 @@ class Tray:
 
     def __init__(self, host, *, app_name: str = "YuriOS",
                  base_url: str = "http://127.0.0.1:8768",
-                 poll_seconds: float = POLL_SECONDS, opener=None):
+                 poll_seconds: float = POLL_SECONDS, opener=None, windows=None):
         self.host = host
+        # The host's `DesktopWindows` (SPEC §6.5): who is out on the desktop, and
+        # the switch each name in the menu is. None leaves the names inert.
+        self._windows = windows
         self.base_url = base_url.rstrip("/")
         self.poll_seconds = poll_seconds
         self.model = TrayModel(app_name)
@@ -497,7 +618,10 @@ class Tray:
         self.item = None
         self.menu = None
         self._task: asyncio.Task | None = None
+        self._jobs: set[asyncio.Task] = set()
         self._registered = False
+        self._closed = False         # closed from its own menu, for this run
+        self._face: tuple | None = None   # the icon and tooltip the host last heard
 
     # -- what the icon reads --------------------------------------------------
 
@@ -506,13 +630,50 @@ class Tray:
         — see the module docstring. `summary()` is the same call `/api/characters`
         makes, so the tray and the switchboard cannot disagree."""
         try:
-            return [self.host.summary(record) for record in self.host.registry.list()]
+            listing = [self.host.summary(record) for record in self.host.registry.list()]
         except Exception:            # noqa: BLE001 — a tray must not take the house down
             log.warning("tray could not read the character list", exc_info=True)
             return []
+        if self._windows is None:
+            return listing
+        return [{**character, "desktop": self._windows.is_open(character.get("id", ""))}
+                for character in listing]
+
+    def _refresh(self) -> None:
+        self.model.update(self._listing())
 
     def _open_path(self, path: str) -> None:
         self._opener(f"{self.base_url}{path}")
+
+    def _later(self, coro) -> None:
+        """Run a menu click's work off the D-Bus reply: the host is waiting on
+        `Event` to return, and closing a window can take seconds."""
+        task = asyncio.get_running_loop().create_task(coro)
+        self._jobs.add(task)
+        task.add_done_callback(self._jobs.discard)
+
+    def _toggle(self, character_id: str, name: str) -> None:
+        if self._windows is not None:
+            self._later(self._toggle_now(character_id, name))
+
+    async def _toggle_now(self, character_id: str, name: str) -> None:
+        try:
+            if self._windows.is_open(character_id):
+                await asyncio.to_thread(self._windows.close, character_id)
+            else:
+                self._windows.open(character_id, title=name)
+        except Exception:            # noqa: BLE001 — a menu click must not take the tray down
+            log.warning("could not float or put away %s", character_id, exc_info=True)
+        self._refresh()
+        self._publish()
+
+    def _close(self) -> None:
+        self._later(self._close_now())
+
+    async def _close_now(self) -> None:
+        await self.stop()
+        self._closed = True
+        log.info("tray: closed from its menu; it comes back at the next start")
 
     # -- lifecycle ------------------------------------------------------------
 
@@ -534,7 +695,8 @@ class Tray:
             return "off · session bus refused"
 
         self.model.update(self._listing())
-        self.item, self.menu = _build_interfaces(self.model, self._open_path)
+        self.item, self.menu = _build_interfaces(
+            self.model, self._open_path, self._toggle, self._close, self._refresh)
         self.bus.export(ITEM_PATH, self.item)
         self.bus.export(MENU_PATH, self.menu)
         # The spec wants a well-known name of this shape; some hosts key their
@@ -576,19 +738,34 @@ class Tray:
             # Cheap, and the only way a tray started before the shell extension
             # ever becomes visible without a restart of the daemon.
             await self._try_register()
-        if not self.model.update(self._listing()):
+        self._refresh()
+        self._publish()
+
+    def _publish(self) -> None:
+        """Tell the host what moved since it last heard — and only that.
+
+        Measured against what was last *sent* rather than against the previous
+        poll, because the model is also refreshed when the menu opens and after
+        a click, and a change picked up there must still reach the icon.
+        """
+        if self.item is None or self.menu is None:
             return
+        face = (self.model.status, self.model.tooltip(), bool(self.model.waiting))
+        if face != self._face:
+            self._face = face
+            self._signal_icon()
+        # …but the menu only when the rows moved: a state change the rows don't
+        # show is no reason to make the host drop a menu it could have kept.
+        if self.menu.rebuild():
+            self.menu.LayoutUpdated()
+
+    def _signal_icon(self) -> None:
         # Three separate signals because hosts subscribe to them separately, and
         # one that redraws only on NewIcon would keep a stale tooltip forever.
         self.item.emit_properties_changed({"Status": self.model.status})
         self.item.NewIcon()
         self.item.NewToolTip()
         self.item.NewStatus()
-        # …but the menu only when the rows moved: a state change the rows don't
-        # show (she woke up, nobody wrote) is no reason to make the host drop a
-        # menu it could have kept.
-        if self.menu.rebuild():
-            self.menu.LayoutUpdated()
 
     async def stop(self) -> None:
         if self._task is not None:
@@ -598,6 +775,8 @@ class Tray:
         if self.bus is not None:
             self.bus.disconnect()
             self.bus = None
+        self.item = self.menu = None
+        self._face = None
         self._registered = False
 
     def status(self) -> dict:
@@ -608,6 +787,8 @@ class Tray:
         no dbus-fast, and no tray host yet. Guessing between them from an absent
         icon is exactly the loop this feature kept people in.
         """
+        if self._closed:
+            return {"state": "off", "detail": "closed from its menu — back at the next start"}
         if self.bus is None:
             return {"state": "off", "detail": "not running"}
         if not self._registered:

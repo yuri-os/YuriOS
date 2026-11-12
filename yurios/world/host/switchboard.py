@@ -32,8 +32,10 @@ from yurios.characters import (
     clone_character,
 )
 from yurios.characters import archive as archive_model
+from yurios.security import is_loopback
 
 from .. import rewire
+from ..desktop_windows import WindowUnavailable
 from .hosting import (_OPTION_KEYS, PURGE_CHALLENGE_TTL_S,
                       CharacterBusy, CharacterHost, _env_values, _card_values, _construction_fingerprint,
                       _update_soul, save_brain_overrides)
@@ -308,7 +310,58 @@ def register(app: FastAPI, host: CharacterHost, require) -> None:
         """Take her runtime down without archiving the tree."""
         record = require(character_id)
         await host.stop(character_id)
+        await _close_window(character_id)
         return {"character": host.summary(record), "stopped": True}
+
+    async def _close_window(character_id: str) -> None:
+        """A window left floating over a character who is gone is a broken one.
+
+        Only where *you* took her down — stop, archive, purge. A restart for a
+        profile change also passes through `host.stop`, and the page rides that
+        out on its own reconnect, so the host's stop is not the place for this.
+        """
+        await asyncio.to_thread(app.state.desktop_windows.close, character_id)
+
+    def _on_this_machine(request: Request) -> None:
+        peer = request.client.host if request.client else None
+        if not is_loopback(peer):
+            raise HTTPException(403, "the desktop window opens on the machine the house "
+                                     "runs on — use this from that machine")
+
+    @app.delete("/api/characters/{character_id}/desktop")
+    async def put_away(character_id: str, request: Request):
+        """Close her desktop window — what the window's own ✕ calls (SPEC §6.5).
+
+        The page cannot close a frameless window it did not open, so it asks the
+        host, which spawned the process and can end it. `closed: false` means
+        there was no window of the host's to close, and the page falls back to
+        `window.close()`, which is right for a frame the host did not open.
+        """
+        _on_this_machine(request)
+        require(character_id)
+        closed = await asyncio.to_thread(app.state.desktop_windows.close, character_id)
+        return {"id": character_id, "closed": closed}
+
+    @app.post("/api/characters/{character_id}/desktop")
+    async def float_on_desktop(character_id: str, request: Request):
+        """Float her on this machine's desktop (SPEC §6.5), from the board or the tray.
+
+        Loopback only, and not merely owner-only: the window opens on the screen
+        of the machine the house runs on, so a phone that is paired and
+        authenticated still has no business putting her there.
+        """
+        _on_this_machine(request)
+        record = require(character_id)
+        if record.lifecycle.review_required:
+            raise HTTPException(409, "she still requires review")
+        if host.runtime(character_id) is None:
+            raise HTTPException(409, f"{record.display.name} is not running")
+        try:
+            opened = app.state.desktop_windows.open(character_id,
+                                                    title=record.display.name)
+        except WindowUnavailable as exc:
+            raise HTTPException(503, str(exc)) from exc
+        return {"id": character_id, "opened": opened, "already_open": not opened}
 
     @app.post("/api/characters/{character_id}/clone")
     async def clone(character_id: str, request: Request):
@@ -462,6 +515,7 @@ def register(app: FastAPI, host: CharacterHost, require) -> None:
             host.states.pop(character_id, None)
             if host.primary_id == character_id:
                 host.primary_id = next((r.id for r in registry if r.lifecycle.enabled), None)
+            await _close_window(character_id)
             return {"archived": True, "id": character_id, "archive": target.name}
 
     @app.get("/api/archives")
@@ -607,6 +661,7 @@ def register(app: FastAPI, host: CharacterHost, require) -> None:
             host.states.pop(character_id, None)
             if host.primary_id == character_id:
                 host.primary_id = next((r.id for r in registry if r.lifecycle.enabled), None)
+            await _close_window(character_id)
             cleanup_pending = False
             try:
                 shutil.rmtree(tombstone)

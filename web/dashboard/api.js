@@ -36,6 +36,7 @@ export const charactersApi = Object.freeze({
     body: JSON.stringify(overrides),
   }),
   approve: (id) => request(characterPath(id, "/approve"), { method: "POST" }),
+  desktop: (id) => request(characterPath(id, "/desktop"), { method: "POST" }),
   archive: (id) => request(characterPath(id, "/archive"), { method: "POST" }),
   preparePurge: (id) => request(characterPath(id, "/purge/prepare"), { method: "POST" }),
   purge: (id, challenge) => request(characterPath(id, "/purge"), {

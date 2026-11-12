@@ -7,6 +7,9 @@ Default: serve on HOST/PORT from .env (§11); open the sanctuary in a browser.
 `--body`:   which body the window floats (SPEC §6.6): `vrm` (the 3D stage) or
             `live2d` (the Build #2 client). Default: DESKTOP_BODY
             from .env.
+`--attach ID`: the window alone, for one character on the house that is
+            already running — what the switchboard's and the tray's Desktop
+            buttons spawn (world/desktop_windows.py, SPEC §6.5).
 """
 from __future__ import annotations
 
@@ -51,6 +54,9 @@ def main(argv: list[str] | None = None) -> None:
                     help="float her on the desktop in a native transparent window (§6.5)")
     ap.add_argument("--body", choices=("vrm", "live2d"), default=None,
                     help="which body --window floats (§6.6; default: DESKTOP_BODY)")
+    ap.add_argument("--attach", metavar="CHARACTER", default=None,
+                    help="float one character from the running house; starts no server (§6.5)")
+    ap.add_argument("--title", default=None, help=argparse.SUPPRESS)
     ap.add_argument("--check", action="store_true",
                     help="print the dependency check (yurios.doctor) and exit")
     args = ap.parse_args(argv)
@@ -66,9 +72,14 @@ def main(argv: list[str] | None = None) -> None:
     # than refusing to boot (§3), so say up front which ones .env selected but
     # can't have — one line before the log fills with warmup chatter. Cheap:
     # find_spec only, nothing heavy is imported.
-    _warn_missing(cfg)
     if args.body:
         cfg = cfg.model_copy(update={"desktop_body": args.body})
+    if args.attach:
+        # Only a frame: the seams are the running house's, so their warnings are too.
+        from .window import attach
+        attach(cfg, args.attach, title=args.title)
+        return
+    _warn_missing(cfg)
     if args.window:
         from .window import run
         run(cfg)

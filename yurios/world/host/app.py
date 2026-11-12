@@ -23,6 +23,7 @@ from starlette.staticfiles import StaticFiles
 from yurios.characters import CharacterRecord, CharacterRegistry
 
 from ..config import Config
+from ..desktop_windows import DesktopWindows
 from ..main import DIST_DIR, WEB_DIR, _RawAssetNoCache
 from . import brains, checkpoints, house, modules, pages, studio, switchboard
 from . import debug as debug_routes
@@ -36,6 +37,10 @@ def create_host_app(base: Config, registry: CharacterRegistry | None = None, *,
     if registry is None:
         registry = CharacterRegistry(base.data_dir)
     host = CharacterHost(base, registry, embedder=embedder)
+    # Her on the desktop from the running house (SPEC §6.5): the switchboard's
+    # Desktop button and the tray's menu both spawn through this one object, so
+    # either can see a window the other opened.
+    windows = DesktopWindows(base.host, base.port)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -48,7 +53,8 @@ def create_host_app(base: Config, registry: CharacterRegistry | None = None, *,
         tray = None
         if base.tray_enabled:
             from ..tray import Tray
-            tray = Tray(host, base_url=f"http://{base.host}:{base.port}")
+            tray = Tray(host, base_url=f"http://{base.host}:{base.port}",
+                        windows=windows)
             try:
                 log.info("tray: %s", await tray.start())
             except Exception:            # noqa: BLE001
@@ -58,6 +64,7 @@ def create_host_app(base: Config, registry: CharacterRegistry | None = None, *,
         yield
         if tray is not None:
             await tray.stop()
+        await asyncio.to_thread(windows.close_all)
         # a download's thread is a daemon and its .part file resumes next time;
         # this only stops it writing while the house goes down
         app.state.checkpoint_downloads.stop_all()
@@ -66,6 +73,7 @@ def create_host_app(base: Config, registry: CharacterRegistry | None = None, *,
     app = FastAPI(title="YuriOS Host", docs_url=None, redoc_url=None,
                   openapi_url=None, lifespan=lifespan)
     app.state.host = host
+    app.state.desktop_windows = windows
     app.state.lifecycle_lock = asyncio.Lock()
     app.state.purge_challenges = {}
 

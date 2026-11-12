@@ -16,12 +16,12 @@ a section are folded into it.
 | **§3** — The body: the VRM stage | `yurios/desktop/voice/protocols.py`<br>`yurios/app/providers/openrouter.py`<br>`web/js/stage/EmoteController.js`<br>`yurios/desktop/config.py`<br>*+23 more* | `tests/test_doctor.py`<br>`tests/test_lmstudio_preload.py`<br>`tests/test_model_setup.py`<br>*+4 more* |
 | **§4** — The control channel (`avatar` events on the bus) | `yurios/world/avatar/controller.py`<br>`web/js/bridge.js`<br>`yurios/desktop/routes/voice_ws.py`<br>`yurios/desktop/voice/turn.py`<br>*+12 more* | `tests/test_avatar_controller.py`<br>`tests/test_events.py` |
 | **§5** — Visemes: real lip-sync | `yurios/desktop/voice/fillers.py`<br>`web/js/stage/VrmStage.js`<br>`web/js/voice.js`<br>`scripts/seed_vault.py`<br>*+6 more* | `tests/test_bootstrap_greeting.py`<br>`tests/test_mind_goals.py`<br>`tests/test_studio_routes.py` |
-| **§6** — The sanctuary scene | `web/js/stage/VrmStage.js`<br>`web/js/main.js`<br>`yurios/desktop/voice/emotion.py`<br>`web/js/stage/SanctuaryScene.js`<br>*+34 more* | `tests/test_boot.py`<br>`tests/test_window.py`<br>`tests/conftest.py`<br>*+3 more* |
+| **§6** — The sanctuary scene | `web/js/stage/VrmStage.js`<br>`web/js/main.js`<br>`yurios/desktop/voice/emotion.py`<br>`web/dashboard/dashboard.js`<br>*+40 more* | `tests/test_boot.py`<br>`tests/test_window.py`<br>`tests/conftest.py`<br>*+5 more* |
 | **§7** — Tools via MCP: the hands | `yurios/world/main.py`<br>`yurios/world/selfies.py`<br>`yurios/world/brain.py`<br>`yurios/world/tools/client.py`<br>*+46 more* | `tests/test_mcp_contract.py`<br>`tests/test_tool_tags.py`<br>`tests/test_fetch.py`<br>*+21 more* |
 | **§8** — Ambient life is the mind's, not a scripted machine | `yurios/app/core/assemble.py`<br>`web/js/stage/GazeController.js`<br>`yurios/world/avatar/controller.py`<br>`yurios/world/brain.py`<br>*+2 more* | `tests/test_mind_loop.py`<br>`tests/test_voice_ws_fork.py` |
 | **§9** — The voice loop | `web/js/voice.js`<br>`yurios/world/routes/voice_ws.py`<br>`yurios/desktop/voice/emotion.py`<br>`yurios/world/main.py`<br>*+9 more* | `tests/test_channels.py`<br>`tests/test_text_style.py`<br>`tests/test_voice_handshake.py`<br>*+2 more* |
 | **§10** — Topology: one event bus + one audio socket | `yurios/world/main.py`<br>`yurios/world/channels/telegram.py`<br>`yurios/envfile.py`<br>`yurios/kernel/hub.py`<br>*+23 more* | `tests/test_channels.py`<br>`tests/test_draft_cadence.py`<br>`tests/test_host.py`<br>*+1 more* |
-| **§11** — Config | `yurios/security.py`<br>`web/settings/settings.js`<br>`web/shared/settings.js`<br>`yurios/forge/civitai.py`<br>*+34 more* | `tests/test_envfile.py`<br>`tests/test_checkpoints.py`<br>`tests/test_config.py`<br>*+7 more* |
+| **§11** — Config | `yurios/security.py`<br>`web/settings/settings.js`<br>`web/shared/settings.js`<br>`yurios/forge/civitai.py`<br>*+36 more* | `tests/test_envfile.py`<br>`tests/test_checkpoints.py`<br>`tests/test_config.py`<br>*+8 more* |
 | **§12** — Omissions → superseded by §26 | — | — |
 | **§13** — Tests → superseded by §27 | — | — |
 | **§14** — Extends to → superseded by §28 | — | — |
@@ -39,7 +39,7 @@ a section are folded into it.
 | **§26** — Omissions (normative) | `yurios/mind/hands.py`<br>`yurios/mind/loop.py`<br>`yurios/mind/handwork.py`<br>`yurios/world/config.py`<br>*+7 more* | `tests/test_mind_hands.py`<br>`tests/test_boot.py`<br>`tests/test_characters_registry.py`<br>*+2 more* |
 | **§27** — Tests (the hard gate) | `scripts/live_check.py`<br>`web/js/stage/sanctuary/Cat.js`<br>`yurios/kernel/clock.py`<br>`yurios/world/tools/client.py`<br>*+4 more* | `tests/conftest.py`<br>`tests/test_forge_diffusers.py`<br>`tests/test_forge_krea2.py`<br>*+2 more* |
 | **§28** — Extends to | `web/dashboard/dashboard.js`<br>`web/dashboard/model.js`<br>`web/vite.config.js`<br>`yurios/app/__main__.py`<br>*+6 more* | `tests/test_card_roundtrip.py`<br>`tests/test_host.py` |
-| **§29** — The host and the character registry | `yurios/world/host/switchboard.py`<br>`yurios/world/host/app.py`<br>`yurios/world/main.py`<br>`yurios/app/routes/chat.py`<br>*+5 more* | `tests/test_host.py`<br>`tests/test_voice_handshake.py` |
+| **§29** — The host and the character registry | `yurios/world/host/switchboard.py`<br>`yurios/world/host/app.py`<br>`yurios/world/main.py`<br>`yurios/app/routes/chat.py`<br>*+6 more* | `tests/test_host.py`<br>`tests/test_voice_handshake.py` |
 | **§30** — Character cards: import, review, edit, export | `scripts/bench_cards.py`<br>`web/dashboard/dashboard.js`<br>`web/dashboard/model.js`<br>`web/studio/optimize.js`<br>*+3 more* | `tests/test_studio_routes.py` |
 | **§31** — Connections and per-character bindings | `yurios/world/host/hosting.py`<br>`yurios/world/main.py`<br>`web/dashboard/dashboard.js`<br>`web/shared/settings.js`<br>*+6 more* | `tests/test_host.py`<br>`tests/test_character_overrides.py`<br>`tests/test_one_rule_hands.py`<br>*+2 more* |
 | **§32** — The switchboard | `yurios/world/host/hosting.py`<br>`yurios/world/host/pages.py`<br>`web/dashboard/dashboard.js`<br>`web/dashboard/model.js`<br>*+2 more* | `tests/test_host.py`<br>`tests/test_raw_assets.py` |
@@ -51,4 +51,4 @@ a section are folded into it.
 | **§38** — How long her replies run | `web/js/chat.js`<br>`yurios/app/config.py`<br>`scripts/live_check.py`<br>`web/shared/reply-length.js`<br>*+2 more* | `tests/test_mind_soul.py`<br>`tests/test_reply_length.py` |
 | **§39** — Another reply in her last one's place | `yurios/desktop/brain.py`<br>`yurios/world/main.py`<br>`yurios/world/routes/chat.py`<br>`yurios/world/turns.py`<br>*+13 more* | `tests/test_swipes.py` |
 
-*1130 citation sites over 145 sections.*
+*1149 citation sites over 146 sections.*

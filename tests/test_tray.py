@@ -73,19 +73,141 @@ def test_update_reports_only_real_movement():
     assert model.update(rows) is True
 
 
-def test_the_menu_is_one_row_per_character_then_the_board():
+def _house(*rows):
+    return [{"unread": {"count": 0, "selfies": 0}, "runtime_state": "ready", **row}
+            for row in rows]
+
+
+def test_the_menu_lists_each_character_once_then_the_board_then_close():
+    """One row per name: no second list of the same names under a submenu."""
     model = TrayModel()
-    model.update([
-        {"id": "yuri", "name": "Yuri", "state": "ready",
-         "unread": {"count": 1, "selfies": 0}},
-        {"id": "adia", "name": "Adia", "state": "ready",
-         "unread": {"count": 0, "selfies": 0}},
-    ])
+    model.update(_house(
+        {"id": "yuri", "name": "Yuri", "state": "idle",
+         "unread": {"count": 2, "selfies": 0}},
+        {"id": "adia", "name": "Adia", "state": "dormant", "desktop": True},
+    ))
     rows = model.menu()
     assert [r.get("label") for r in rows] == [
-        "Yuri — a message", "Adia", None, "Switchboard"]
-    assert rows[0]["url"] == "/characters/yuri/sanctuary/"
+        "Yuri · 2 messages", "Adia · dormant", None,
+        "Open the switchboard", "Close the tray"]
+    assert [r.get("toggle") for r in rows[:2]] == ["yuri", "adia"]
+    assert [r["checked"] for r in rows[:2]] == [False, True]
     assert rows[2] == {"separator": True}
+    assert rows[3]["url"] == "/dashboard/"
+    assert rows[4]["close"] is True
+    assert not any("children" in r for r in rows)
+
+
+def test_a_row_says_the_ladder_word_and_who_wrote():
+    """The switchboard's words (web/shared/activity-state.js), not new ones."""
+    model = TrayModel()
+    model.update(_house(
+        {"id": "a", "name": "A", "state": "engaged"},
+        {"id": "b", "name": "B", "state": "failed", "runtime_state": "failed"},
+        {"id": "c", "name": "C", "state": "idle",
+         "unread": {"count": 1, "selfies": 1}},
+    ))
+    rows = model.menu()
+    assert [r["label"] for r in rows[:3]] == ["A · engaged", "B · attention", "C · a picture"]
+    assert [r["dot"] for r in rows[:3]] == ["engaged", "attention", "waiting"]
+
+
+def test_someone_not_running_is_greyed_unless_she_is_out():
+    """A window over a character who is not up opens on nothing (SPEC §6.5) —
+    but one already out can always be put away."""
+    model = TrayModel()
+    model.update(_house(
+        {"id": "yuri", "name": "Yuri", "state": "idle"},
+        {"id": "adia", "name": "Adia", "state": "offline", "runtime_state": "offline"},
+        {"id": "mika", "name": "Mika", "state": "attention", "review_required": True},
+        {"id": "sora", "name": "Sora", "state": "offline", "runtime_state": "offline",
+         "desktop": True},
+    ))
+    assert [r["enabled"] for r in model.menu()[:4]] == [True, False, False, True]
+
+
+def test_the_rows_are_served_as_ticks_with_a_dot_and_a_click_toggles_her():
+    from yurios.world.tray import _build_interfaces
+
+    model = TrayModel()
+    model.update(_house(
+        {"id": "yuri", "name": "Yuri", "state": "idle", "desktop": True},
+        {"id": "adia", "name": "Adia", "state": "idle"},
+        {"id": "sora", "name": "Sora", "state": "offline", "runtime_state": "offline"},
+    ))
+    opened: list[str] = []
+    toggled: list[tuple[str, str]] = []
+    closed: list[bool] = []
+    _, menu = _build_interfaces(model, opened.append,
+                                lambda cid, name: toggled.append((cid, name)),
+                                lambda: closed.append(True))
+    get_layout = _as_the_host_calls_it(menu, "GetLayout")
+    event = _as_the_host_calls_it(menu, "Event")
+
+    _, (root, _, children) = get_layout(0, -1, [])
+    assert root == 0
+    top = [child.value for child in children]
+    yuri, adia, sora = top[:3]
+    assert yuri[1]["toggle-type"].value == "checkmark"
+    assert yuri[1]["toggle-state"].value == 1
+    assert adia[1]["toggle-state"].value == 0
+    assert sora[1]["enabled"].value is False
+    assert yuri[1]["icon-data"].value.startswith(b"\x89PNG\r\n\x1a\n")
+    assert all(not item[2] for item in top)          # no submenus at all
+
+    click = dbus_fast.Variant("s", "")
+    event(adia[0], "clicked", click, 0)
+    event(yuri[0], "clicked", click, 0)
+    event(sora[0], "clicked", click, 0)              # greyed: nothing happens
+    assert toggled == [("adia", "Adia"), ("yuri", "Yuri")]
+    assert opened == []                              # a name is not a room any more
+
+    board, close = top[-2], top[-1]
+    event(board[0], "clicked", click, 0)
+    assert opened == ["/dashboard/"]
+    event(close[0], "clicked", click, 0)
+    assert closed == [True]
+
+
+def test_a_row_icon_is_a_png_gdkpixbuf_can_read():
+    """GNOME decodes `icon-data` with GdkPixbuf from an encoded stream, so it
+    has to be a real PNG, not the raw pixmap the tray icon itself uses."""
+    import struct
+    import zlib
+
+    from yurios.world.tray import ROW_ICON_SIZE, _dot
+
+    png = _dot("idle")
+    assert png[:8] == b"\x89PNG\r\n\x1a\n"
+    width, height, depth, colour = struct.unpack(">IIBB", png[16:26])
+    assert (width, height, depth, colour) == (ROW_ICON_SIZE, ROW_ICON_SIZE, 8, 6)
+    length = struct.unpack(">I", png[33:37])[0]
+    assert png[37:41] == b"IDAT"
+    pixels = zlib.decompress(png[41:41 + length])
+    assert len(pixels) == ROW_ICON_SIZE * (1 + ROW_ICON_SIZE * 4)
+    middle = ROW_ICON_SIZE // 2 * (1 + ROW_ICON_SIZE * 4) + 1 + ROW_ICON_SIZE // 2 * 4
+    assert pixels[middle:middle + 4] == bytes((0x76, 0xE8, 0xBD, 0xFF))   # --mint, opaque
+
+
+def test_opening_the_menu_reads_the_house_fresh():
+    """A window closed from its own ✕ between two polls must not still be
+    ticked the moment you look."""
+    from yurios.world.tray import _build_interfaces
+
+    model = TrayModel()
+    house = _house({"id": "yuri", "name": "Yuri", "state": "idle", "desktop": True})
+    model.update(house)
+    _, menu = _build_interfaces(model, lambda url: None,
+                                refresh=lambda: model.update(house))
+    about_to_show = _as_the_host_calls_it(menu, "AboutToShow")
+    get_layout = _as_the_host_calls_it(menu, "GetLayout")
+    about_to_show(0)
+    get_layout(0, -1, [])
+
+    house[0]["desktop"] = False                     # she was closed from her ✕
+    assert about_to_show(0) is True
+    _, (_, _, children) = get_layout(0, -1, [])
+    assert children[0].value[1]["toggle-state"].value == 0
 
 
 def _as_the_host_calls_it(interface, name):
@@ -302,11 +424,15 @@ async def test_the_tray_registers_and_serves_what_a_host_would_ask_for():
         assert root_id == 0
         labels = [child.value[1]["label"].value for child in children
                   if "label" in child.value[1]]
-        assert labels == ["Yuri — 2 waiting, one a picture", "Adia", "Switchboard"]
+        assert labels == ["Yuri · 2 waiting, one a picture", "Adia · ready",
+                          "Open the switchboard", "Close the tray"]
 
-        # Clicking her row opens her room, not the board.
-        await menu.call_event(1, "clicked", dbus_fast.Variant("s", ""), 0)
-        assert opened == ["http://127.0.0.1:8768/characters/yuri/sanctuary/"]
+        # The board row opens the board.
+        board = next(child.value[0] for child in children
+                     if child.value[1].get("label")
+                     and child.value[1]["label"].value == "Open the switchboard")
+        await menu.call_event(board, "clicked", dbus_fast.Variant("s", ""), 0)
+        assert opened == ["http://127.0.0.1:8768/dashboard/"]
 
         reader.disconnect()
     finally:
@@ -483,3 +609,66 @@ def test_removing_the_tray_host_refuses_to_run_unattended(tmp_path, monkeypatch,
     assert ran == []
     assert "TRAY_ENABLED" not in (tmp_path / ".env").read_text()
     assert "Refusing unattended removal" in capsys.readouterr().err
+
+
+class FakeWindows:
+    """`DesktopWindows`' three calls the tray makes, and nothing else."""
+
+    def __init__(self, *out):
+        self.out = set(out)
+        self.calls: list[tuple] = []
+
+    def is_open(self, character_id):
+        return character_id in self.out
+
+    def open(self, character_id, *, title=None):
+        self.calls.append(("open", character_id, title))
+        self.out.add(character_id)
+        return True
+
+    def close(self, character_id):
+        self.calls.append(("close", character_id))
+        return self.out.discard(character_id) is None
+
+
+def test_the_tray_marks_who_is_out_on_the_desktop():
+    host = FakeHost(_house({"id": "yuri", "name": "Yuri", "state": "idle"},
+                           {"id": "adia", "name": "Adia", "state": "idle"}))
+    tray = Tray(host, opener=lambda _: None, windows=FakeWindows("adia"))
+    tray._refresh()
+    assert [r["checked"] for r in tray.model.menu()[:2]] == [False, True]
+    assert "desktop" not in host.rows[0]           # the host's own rows are untouched
+
+
+@pytest.mark.asyncio
+async def test_a_click_floats_her_and_the_next_puts_her_away():
+    windows = FakeWindows()
+    tray = Tray(FakeHost(_house({"id": "yuri", "name": "Yuri", "state": "idle"})),
+                opener=lambda _: None, windows=windows)
+    await tray._toggle_now("yuri", "Yuri")
+    assert tray.model.menu()[0]["checked"] is True
+    await tray._toggle_now("yuri", "Yuri")
+    assert windows.calls == [("open", "yuri", "Yuri"), ("close", "yuri")]
+    assert tray.model.menu()[0]["checked"] is False
+
+
+@pytest.mark.asyncio
+async def test_a_window_that_cannot_open_does_not_take_the_tray_down():
+    from yurios.world.desktop_windows import WindowUnavailable
+
+    class NoScreen(FakeWindows):
+        def open(self, character_id, *, title=None):
+            raise WindowUnavailable("no graphical session")
+
+    tray = Tray(FakeHost(_house({"id": "yuri", "name": "Yuri", "state": "idle"})),
+                opener=lambda _: None, windows=NoScreen())
+    await tray._toggle_now("yuri", "Yuri")         # logged, not raised
+    assert tray.model.menu()[0]["checked"] is False
+
+
+@pytest.mark.asyncio
+async def test_closing_the_tray_says_so_on_the_boot_panel():
+    tray = Tray(FakeHost([]), opener=lambda _: None)
+    await tray._close_now()
+    assert tray.status()["state"] == "off"
+    assert "closed from its menu" in tray.status()["detail"]

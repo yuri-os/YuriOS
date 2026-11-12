@@ -1,0 +1,15 @@
+/* The desktop window's ✕ (SPEC §6.5, shared/desktop-close.js). Hidden with the
+   rest of the chrome until you hover her; always there for a keyboard. */
+.desktop-close{
+  position:fixed; top:8px; right:8px; z-index:50;
+  width:30px; height:30px; padding:0; display:grid; place-items:center;
+  border:1px solid var(--rule, rgb(232 238 233 / .14)); border-radius:2px;
+  background:rgb(7 10 9 / .82); backdrop-filter:blur(14px);
+  color:var(--soft, #a9b3ac); cursor:pointer;
+  opacity:0; pointer-events:none; transition:opacity .25s, color .18s, border-color .18s;
+}
+.desktop-close svg{ width:14px; height:14px; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; }
+:root.desktop body:hover .desktop-close,
+.desktop-close:focus-visible{ opacity:1; pointer-events:auto; }
+.desktop-close:hover,
+.desktop-close:focus-visible{ color:var(--ink, #e8eee9); border-color:var(--red, #ff6b5b); }

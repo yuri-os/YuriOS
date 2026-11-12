@@ -27,6 +27,7 @@ changes.
 """
 from __future__ import annotations
 
+import importlib
 import os
 import shutil
 import socket
@@ -34,6 +35,7 @@ import subprocess
 import threading
 import time
 from pathlib import Path
+from typing import Any, cast
 from urllib.parse import urlsplit, urlunsplit
 
 import uvicorn
@@ -105,9 +107,12 @@ def _pick_gui(cfg: Config) -> str | None:
     # blurry sway). QT_API must therefore be in the environment before any qtpy
     # import anywhere in the process.
     os.environ.setdefault("QT_API", "pyqt6")
+    # By name rather than by `import` statement: these are probes for whether the
+    # extra is installed, and a static import is one mypy follows into PyQt6's own
+    # stubs — whose QtGui.pyi (6.12) it cannot parse, which stops the whole run.
     try:
-        import PyQt6.QtWebEngineWidgets          # noqa: F401  (the Chromium widget)
-        import qtpy                              # noqa: F401  (pywebview's qt shim)
+        importlib.import_module("PyQt6.QtWebEngineWidgets")   # the Chromium widget
+        qtpy = importlib.import_module("qtpy")                # pywebview's qt shim
     except ImportError as e:
         if gui == "qt":                          # explicitly requested — fail loud
             raise SystemExit(
@@ -462,4 +467,7 @@ def run(cfg: Config | None = None) -> None:
     # on WebKitGTK that session has NO localStorage global at all — which used to
     # crash voice.js on load (no body, no voice, "· offline"). Persistent storage
     # also means the session id survives relaunches: same someone every time.
-    webview.start(private_mode=False, gui=_pick_gui(cfg))   # blocks until the window closes
+    # `gui` is WINDOW_GUI, a free string from .env that pywebview validates itself;
+    # its signature wants the Literal of names it knows, hence the cast.
+    webview.start(private_mode=False,
+                  gui=cast(Any, _pick_gui(cfg)))   # blocks until the window closes

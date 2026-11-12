@@ -770,11 +770,31 @@ to every new subscriber before its first live event. Malformed JSON is logged an
   `yurios/world/window.py`) pointed at `?desktop=1`, so she floats on the desktop. What the flag
   *means* is the page's decision: in desktop mode the page **MUST NOT** build the sanctuary (no
   room — the desktop is the room), the renderer **MUST** clear to alpha 0, a neutral light rig
-  **MUST** replace the lamp, and the camera frames the full body. Both sockets, every §4 command,
+  **MUST** replace the lamp, and the camera frames the full body. The window is frameless, so it
+  has no title bar to close it from: both bodies **MUST** carry their own close control
+  (`web/shared/desktop-close.js`), shown with the rest of the hover chrome. It asks the host —
+  `DELETE /api/characters/<id>/desktop`, loopback only — to end a window the host spawned, and
+  falls back to `window.close()` when the answer is `closed: false`. It **MUST NOT** depend on a
+  script bridge into the window: pywebview builds its `js_api` with `new Function`, which this
+  page's CSP (§11.6) forbids, and that CSP is not to be loosened for it. Both sockets, every §4 command,
   the tools, and ambient life are unchanged; `rain` arrives as sound only. Not required for the
   DoD. The Electron shell **MUST** run sandboxed without Node integration, grant only
   the selected HTTP(S) origin's main-frame microphone, and deny camera, screen capture,
   popups and foreign-origin navigation in both permission-check and request phases.
+  A house that is **already running** floats a character the other way: `--attach <id>` starts
+  no server and opens the same window on `/characters/<id>/sanctuary/?desktop=1` (or the Live2D
+  body by `?character=`), going in through the §11.1 pairing link with the token from its own
+  `.env` when the bind is not loopback. The host spawns it (`yurios/world/desktop_windows.py`)
+  from `POST /api/characters/<id>/desktop`, which the switchboard's tile and drawer call, and
+  directly from the tray's character rows (§18.4.7), which share the same rules. That route **MUST** answer only a loopback peer — the
+  window opens on the host's own screen, so a paired remote device has no business there — and
+  the board **MUST NOT** offer the button off this machine. It **MUST** refuse a character who is
+  not running or still in review, **MUST** answer 503 with the reason when this machine cannot
+  open a window at all (no pywebview, no graphical session) rather than spawn a process that
+  dies in the log, **MUST NOT** open a second window for one who is already out,
+  and the host **MUST** close a character's window when she is stopped, archived or purged from
+  the board, and every window when the house goes down. Each attached window keeps its own
+  browser profile under `.yurios/windows/<id>/`.
 - §6.6 **The second body.** A Live2D web client is served at `/live2d/` (`web/live2d/`); its
   Cubism runtime and rig ship with the build. It carries the §2.6 chat column and one
   `events.js` that maps
@@ -2224,7 +2244,14 @@ arrives.
 - §18.4.7 **The tray icon.** `TRAY_ENABLED` (**on** by default, unlike the doorbell — a tray is a
   thing you look at, not a thing that interrupts you) publishes an
   `org.kde.StatusNotifierItem` plus a `com.canonical.dbusmenu` menu: one icon, a tooltip naming who
-  is waiting, and a row per character that opens her room. It **MUST** read the host in-process
+  is waiting, then the menu. That menu **MUST** list each character once — her name, her state in
+  the switchboard's own word (or who wrote, when someone did) and a dot in that state's colour —
+  and her row is the switch for her desktop window (§6.5): ticked while she is out, a click floats
+  her or puts her away, greyed while she is not running unless she is out. It **MUST NOT** list
+  the names a second time for another action: a dbusmenu row is one target — GNOME's host draws a
+  tick and an icon but makes neither a separate button — so her room is the switchboard's to
+  open, the row beneath. The last row closes the icon for the rest of this run, leaving the house
+  and anyone on the desktop running; the next start brings it back. It **MUST** read the host in-process
   (`CharacterHost.summary`), never over HTTP and never `/api/events` — an icon that sits in the
   corner for days would otherwise post `user_present` for all of them (§18.4.5). Reading a Python
   object cannot post a signal, so the constraint holds by construction rather than by discipline.

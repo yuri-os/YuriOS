@@ -140,6 +140,8 @@ h1, h2, p { margin-top: 0; }
 .button-quiet:hover { border-color: var(--soft); color: var(--ink); }
 .button-danger { border-color: var(--red); background: var(--red); color: #180c0b; font-weight: 700; }
 .button:disabled { opacity: .45; cursor: wait; box-shadow: none; }
+/* `display` above outranks the UA's `[hidden]`, so a hidden button would still show. */
+.button[hidden] { display: none; }
 
 .notice { margin: -23px 0 24px; padding: 11px 14px; border-left: 2px solid var(--amber); background: rgb(244 189 98 / .07); color: var(--amber); font: 11px/1.5 var(--font-mono); }
 .name-ask {
@@ -224,6 +226,8 @@ h1, h2, p { margin-top: 0; }
 /* the three ways in: the room by name, her other two bodies as marks beside it */
 .card-ways { display: flex; align-items: center; gap: 2px; }
 .card-way { width: 32px; height: 38px; display: grid; place-items: center; color: var(--dim); }
+button.card-way { padding: 0; border: 0; background: transparent; cursor: pointer; }
+button.card-way:disabled { cursor: progress; opacity: .5; }
 .card-way:hover, .card-way:focus-visible { color: var(--acid); }
 .card-way svg { width: 15px; height: 15px; }
 .open-detail { width: 38px; height: 38px; display: grid; place-items: center; border: 1px solid var(--rule); background: transparent; color: var(--soft); cursor: pointer; }

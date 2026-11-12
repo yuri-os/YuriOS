@@ -123,6 +123,12 @@ function rooms(character) {
   };
 }
 
+/* Her on the desktop (SPEC §6.5): the host spawns a frameless window of its
+ * own, on the screen of the machine it runs on — so the button is only offered
+ * to a board opened on that machine, which is also the only place the host
+ * will do it from. A paired phone would be putting her on a screen it cannot see. */
+const ON_THIS_MACHINE = ["localhost", "127.0.0.1", "[::1]"].includes(location.hostname);
+
 function statusChip(character) {
   const chip = element("span", { className: "status-chip" },
     element("i", { className: "status-dot", attrs: { "aria-hidden": "true" } }),
@@ -224,9 +230,17 @@ function characterCard(character) {
   // precisely the one you want to look inside before deciding about her.
   const debug = way("mind", "Debug mind", rooms(character).mind);
   debug.setAttribute("data-no-gate", "");
+  // Not a room you walk into but one that comes out to you: a button, because
+  // it asks the host to do something rather than taking you anywhere.
+  const desktop = ON_THIS_MACHINE ? [element("button", {
+    className: "card-way",
+    attrs: { type: "button", "data-action": "desktop", title: "On the desktop",
+      "aria-label": `Float ${character.name} on the desktop` },
+  }, icon("desktop"))] : [];
   const ways = element("div", { className: "card-ways" }, enter,
     way("live2d", "Live2D body", rooms(character).live2d),
     way("text", "Text only", rooms(character).text),
+    ...desktop,
     debug);
   const controls = element("div", { className: "loop-stack" },
     loopLabel("mind", "Mind"), loopLabel("utility", "Utility"), loopLabel("dream", "Dream"),
@@ -985,6 +999,24 @@ async function approveCharacter(id, { button, errorSlot, goTo = null } = {}) {
   }
 }
 
+async function floatOnDesktop(event, character, button) {
+  if (!character) return;
+  // A parked character is offered review first, as at every other way in — but
+  // approving her leaves you on the board: there is no page to go on to.
+  if (guardRoom(event, character, null)) return;
+  button.disabled = true;
+  try {
+    const result = await charactersApi.desktop(character.id);
+    toast(result?.already_open
+      ? `${character.name} is already on your desktop.`
+      : `${character.name} is on her way to your desktop.`);
+  } catch (error) {
+    toast(errorMessage(error), "error");
+  } finally {
+    button.disabled = false;
+  }
+}
+
 /* Every route into a character's rooms — the three links on her card, the three
  * in her drawer — runs through here first. A parked character's rooms are served
  * but empty (SPEC §28), so walking in gives a dead page and a socket that closes
@@ -1036,6 +1068,10 @@ function wireEvents() {
     const id = card?.dataset.characterId;
     if (!id) return;
     if (event.target.closest('[data-action="details"]')) return openDrawer(id);
+    const floatButton = event.target.closest('[data-action="desktop"]');
+    if (floatButton) {
+      return floatOnDesktop(event, state.characters.find((item) => item.id === id), floatButton);
+    }
     // Enter / Live2D / Text on the card itself — the same three doors as the
     // drawer's. The mind link rides along but opts out of the gate.
     const link = event.target.closest("a[href]");
@@ -1082,6 +1118,10 @@ function wireEvents() {
   for (const link of [elements.drawerEnter, $("#drawer-live2d"), $("#drawer-text")]) {
     link.addEventListener("click", (event) => guardRoom(event, selectedCharacter(), link.href));
   }
+  const drawerDesktop = $("#drawer-desktop");
+  drawerDesktop.hidden = !ON_THIS_MACHINE;
+  drawerDesktop.addEventListener("click", (event) =>
+    floatOnDesktop(event, selectedCharacter(), drawerDesktop));
   elements.approve.addEventListener("click", () => approveCharacter(state.selectedId, {
     button: elements.approve, errorSlot: elements.approveError }));
   elements.reviewDialogApprove.addEventListener("click", () => approveCharacter(state.reviewId, {

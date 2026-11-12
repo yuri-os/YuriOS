@@ -16,7 +16,7 @@ import pytest
 
 from yurios.world.tray import (
     ICON_SIZE, ITEM_PATH, MENU_PATH, WATCHER, WATCHER_PATH, Tray, TrayModel,
-    _circle_argb,
+    _gem_argb,
 )
 
 dbus_fast = pytest.importorskip("dbus_fast")
@@ -281,12 +281,26 @@ def test_the_item_offers_no_activate_so_the_menu_opens_on_the_press():
 def test_the_icon_is_a_well_formed_argb_pixmap():
     """SNI takes raw ARGB32, not a PNG — a wrong length is a blank tray icon
     and no error anywhere."""
-    px = _circle_argb(ICON_SIZE, (0xD7, 0xFF, 0x58))
-    assert len(px) == ICON_SIZE * ICON_SIZE * 4
-    assert px[0] == 0                          # corner is outside the circle
-    centre = (ICON_SIZE // 2 * ICON_SIZE + ICON_SIZE // 2) * 4
-    assert px[centre] == 255                   # …and the middle is opaque
-    assert px[centre + 1:centre + 4] == bytes((0xD7, 0xFF, 0x58))
+    for size in (ICON_SIZE, ICON_SIZE * 2):
+        for lit in (False, True):
+            px = _gem_argb(size, lit=lit)
+            assert len(px) == size * size * 4
+            assert px[0] == 0                      # corner is outside the ◇
+            centre = (size // 2 * size + size // 2) * 4
+            assert px[centre] == 255               # …and its heart is opaque
+    heart = (ICON_SIZE // 2 * ICON_SIZE + ICON_SIZE // 2) * 4
+    assert _gem_argb(ICON_SIZE, lit=True)[heart + 1:heart + 4] == bytes((0xD7, 0xFF, 0x58))
+    assert _gem_argb(ICON_SIZE)[heart + 1:heart + 4] != bytes((0xD7, 0xFF, 0x58))
+
+
+def test_the_lit_icon_glows_and_the_resting_one_does_not():
+    """Waiting is the same mark switched on: at the very edge of the canvas,
+    past the ink, the lit one has a halo the resting one has not — and the menu
+    row's copy, drawn without it, is as clear there as the resting one."""
+    edge = ICON_SIZE // 2 * ICON_SIZE * 4              # the middle row's first pixel
+    resting = _gem_argb(ICON_SIZE)[edge]
+    assert _gem_argb(ICON_SIZE, lit=True)[edge] > resting + 32
+    assert _gem_argb(ICON_SIZE, lit=True, glow=False)[edge] == resting
 
 
 # --- the wire ----------------------------------------------------------------
@@ -405,9 +419,11 @@ async def test_the_tray_registers_and_serves_what_a_host_would_ask_for():
         assert await item.get_status() == "NeedsAttention"      # two are waiting
         assert await item.get_menu() == MENU_PATH
 
-        width, height, pixels = (await item.get_icon_pixmap())[0]
-        assert (width, height) == (ICON_SIZE, ICON_SIZE)
-        assert len(pixels) == ICON_SIZE * ICON_SIZE * 4
+        pixmaps = await item.get_icon_pixmap()
+        assert [(w, h) for w, h, _ in pixmaps] == [(ICON_SIZE, ICON_SIZE),
+                                                   (ICON_SIZE * 2, ICON_SIZE * 2)]
+        for width, height, pixels in pixmaps:
+            assert len(pixels) == width * height * 4
 
         _, _, title, body = await item.get_tool_tip()
         assert title == "YuriOS — 2 waiting"

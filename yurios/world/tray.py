@@ -53,8 +53,11 @@ MENU_PATH = "/MenuBar"
 #: at which the icon can lie to you, so it is seconds rather than minutes.
 POLL_SECONDS = 5
 
-#: 22px is the size every panel asks for first. The host scales what it gets.
+#: 22px is the size every panel asks for first. The host scales what it gets,
+#: so a second, doubled pixmap is what keeps a HiDPI panel from blowing the
+#: 22px one up into a blur; the host picks whichever fits.
 ICON_SIZE = 22
+ICON_SIZES = (ICON_SIZE, ICON_SIZE * 2)
 
 # Her two states, as colours. Idle is the muted violet the switchboard uses for
 # a character at rest; waiting is the acid the unread badge is drawn in, so the
@@ -62,22 +65,35 @@ ICON_SIZE = 22
 IDLE_RGB = (0x8B, 0x7F, 0xA8)
 WAITING_RGB = (0xD7, 0xFF, 0x58)
 
+# The mark itself, in each of those two lights: (top of the ring, bottom of the
+# ring, the heart). The ring shades top to bottom so it reads as a cut stone
+# rather than a line drawing; lit, it takes the acid all the way through.
+_GEM_RGB = {
+    False: ((0xCF, 0xC6, 0xF0), IDLE_RGB, (0xCF, 0xC6, 0xF0)),
+    True: (WAITING_RGB, (0xA8, 0xD9, 0x30), WAITING_RGB),
+}
+# The near-black that edges every band. Panels come dark, light and blue; the
+# acid alone vanishes into a light one, and an edge is what keeps the mark a
+# shape on all of them.
+_INK_RGB = (0x12, 0x0F, 0x17)
+_INK_ALPHA = 0.75
+_GLOW_ALPHA = 0.45
 
-def _circle_argb(size: int, rgb: tuple[int, int, int], *, dot: bool = False) -> bytes:
-    """A filled circle as ARGB32, big-endian, row-major — what SNI wants.
 
-    Drawn rather than shipped, which keeps the icon out of the package data and
-    lets its colour follow the model instead of needing one file per state.
-    Pillow is a base dependency and could do this, but 484 pixels of circle is
-    less code than the import and it keeps this module importable in a test
-    environment with nothing installed at all. Coverage is sampled on a 3x3 grid
-    per pixel, which is enough antialiasing that it does not look like 1998 at
-    22 pixels across.
+def _circle_argb(size: int, rgb: tuple[int, int, int]) -> bytes:
+    """A filled circle as ARGB32, big-endian, row-major — a menu row's state dot.
+
+    Drawn rather than shipped, which keeps the icons out of the package data and
+    lets a colour follow the model instead of needing one file per state.
+    Pillow is a base dependency and could do this, but a few hundred pixels of
+    circle is less code than the import and it keeps this module importable in
+    a test environment with nothing installed at all. Coverage is sampled on a
+    3x3 grid per pixel, which is enough antialiasing that it does not look like
+    1998 at 16 pixels across.
     """
     red, green, blue = rgb
     centre = (size - 1) / 2
     radius = size / 2 - 1.5
-    inner = radius * 0.42            # the bite taken out of the "waiting" mark
     out = bytearray()
     for y in range(size):
         for x in range(size):
@@ -86,32 +102,86 @@ def _circle_argb(size: int, rgb: tuple[int, int, int], *, dot: bool = False) -> 
                 for sub_x in range(3):
                     px = x + (sub_x + 0.5) / 3 - 0.5
                     py = y + (sub_y + 0.5) / 3 - 0.5
-                    distance = math.hypot(px - centre, py - centre)
-                    if distance > radius:
-                        continue
-                    if dot and distance < inner:
-                        continue     # a ring, so "waiting" reads differently at a glance
-                    hits += 1
+                    if math.hypot(px - centre, py - centre) <= radius:
+                        hits += 1
             alpha = round(255 * hits / 9)
             out += bytes((alpha, red, green, blue))
     return bytes(out)
 
 
-_ICON_CACHE: dict[tuple[int, tuple[int, int, int], bool], bytes] = {}
+def _gem_argb(size: int, *, lit: bool = False, glow: bool = True) -> bytes:
+    """Her ◇ — the favicon's mark — as ARGB32, big-endian, row-major: what SNI wants.
+
+    A diamond ring around a diamond heart, each edged in ink, measured in the
+    L1 distance from the centre (a diamond is the circle of that metric, so every
+    band is one comparison). At rest it is violet; *lit*, when someone is
+    waiting, it is the acid with a glow round it, so "waiting" is the same mark
+    switched on rather than a second symbol to learn. Proportions are set at 22px
+    and scale with `size`. Sampled 4x4 per pixel: the diagonals are all edge.
+    `glow=False` drops the halo, which at a menu row's 16px is only a smudge.
+    """
+    scale = size / 22
+    outer, band, heart = 9.4 * scale, 2.9 * scale, 3.3 * scale
+    ink = 1.3 * scale
+    halo = 2.0 * scale if lit and glow else 0.0
+    top, bottom, core = _GEM_RGB[lit]
+    centre = (size - 1) / 2
+    samples = 4
+
+    def sample(distance: float, dy: float) -> tuple[float, tuple[int, int, int]]:
+        if distance <= heart:
+            return 1.0, core
+        if distance <= heart + ink:
+            return _INK_ALPHA, _INK_RGB
+        if distance < outer - band - ink:
+            return 0.0, _INK_RGB                # the gap between heart and ring
+        if distance < outer - band:
+            return _INK_ALPHA, _INK_RGB
+        if distance <= outer:
+            t = min(1.0, max(0.0, (dy + outer) / (2 * outer)))
+            return 1.0, tuple(round(a + (b - a) * t) for a, b in zip(top, bottom))  # type: ignore[return-value]
+        if distance <= outer + ink:
+            return _INK_ALPHA, _INK_RGB
+        beyond = distance - outer - ink
+        if beyond < halo:
+            return _GLOW_ALPHA * (1 - beyond / halo) ** 2, WAITING_RGB
+        return 0.0, _INK_RGB
+
+    out = bytearray()
+    for y in range(size):
+        for x in range(size):
+            alpha = red = green = blue = 0.0     # premultiplied, so edges blend true
+            for sub_y in range(samples):
+                for sub_x in range(samples):
+                    dx = x + (sub_x + 0.5) / samples - 0.5 - centre
+                    dy = y + (sub_y + 0.5) / samples - 0.5 - centre
+                    a, (r, g, b) = sample(abs(dx) + abs(dy), dy)
+                    alpha += a
+                    red += a * r
+                    green += a * g
+                    blue += a * b
+            if alpha:
+                red, green, blue = red / alpha, green / alpha, blue / alpha
+            out += bytes((round(255 * alpha / samples ** 2),
+                          round(red), round(green), round(blue)))
+    return bytes(out)
 
 
-def _icon(size: int, rgb: tuple[int, int, int], *, dot: bool = False) -> bytes:
-    """`_circle_argb`, drawn once per appearance.
+_ICON_CACHE: dict[tuple[int, bool], bytes] = {}
 
-    There are exactly two circles in the whole program and neither ever changes,
+
+def _icon(size: int, *, lit: bool = False) -> bytes:
+    """`_gem_argb`, drawn once per appearance.
+
+    There are exactly two icons in the whole program and neither ever changes,
     but the properties that return them are read on the host's schedule, not
-    ours — a redraw asks for every property at once, so a 3ms rasterisation was
+    ours — a redraw asks for every property at once, so a rasterisation was
     being paid twice each time, on the loop the D-Bus replies come off.
     """
-    key = (size, rgb, dot)
+    key = (size, lit)
     icon = _ICON_CACHE.get(key)
     if icon is None:
-        icon = _ICON_CACHE[key] = _circle_argb(size, rgb, dot=dot)
+        icon = _ICON_CACHE[key] = _gem_argb(size, lit=lit)
     return icon
 
 
@@ -294,12 +364,12 @@ _DOT_CACHE: dict[str, bytes] = {}
 
 
 def _dot(kind: str) -> bytes:
-    """The PNG beside a name: a ring in the waiting colour for someone who
-    wrote — the tray icon's own mark — and otherwise a dot in her state's."""
+    """The PNG beside a name: the tray icon's own mark, lit, for someone who
+    wrote — and otherwise a dot in her state's colour."""
     png = _DOT_CACHE.get(kind)
     if png is None:
         if kind == "waiting":
-            argb = _circle_argb(ROW_ICON_SIZE, WAITING_RGB, dot=True)
+            argb = _gem_argb(ROW_ICON_SIZE, lit=True, glow=False)
         else:
             argb = _circle_argb(ROW_ICON_SIZE, STATE_RGB.get(kind, STATE_RGB["offline"]))
         png = _DOT_CACHE[kind] = _png(ROW_ICON_SIZE, argb)
@@ -356,9 +426,8 @@ def _build_interfaces(model: "TrayModel", on_open, on_toggle=None, on_close=None
 
         @dbus_property(access=PropertyAccess.READ)
         def IconPixmap(self) -> "a(iiay)":    # noqa: N802
-            waiting = bool(model.waiting)
-            rgb = WAITING_RGB if waiting else IDLE_RGB
-            return [[ICON_SIZE, ICON_SIZE, _icon(ICON_SIZE, rgb, dot=waiting)]]
+            lit = bool(model.waiting)
+            return [[size, size, _icon(size, lit=lit)] for size in ICON_SIZES]
 
         @dbus_property(access=PropertyAccess.READ)
         def AttentionIconName(self) -> "s":   # noqa: N802
@@ -366,7 +435,7 @@ def _build_interfaces(model: "TrayModel", on_open, on_toggle=None, on_close=None
 
         @dbus_property(access=PropertyAccess.READ)
         def AttentionIconPixmap(self) -> "a(iiay)":   # noqa: N802
-            return [[ICON_SIZE, ICON_SIZE, _icon(ICON_SIZE, WAITING_RGB, dot=True)]]
+            return [[size, size, _icon(size, lit=True)] for size in ICON_SIZES]
 
         @dbus_property(access=PropertyAccess.READ)
         def OverlayIconName(self) -> "s":     # noqa: N802

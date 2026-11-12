@@ -952,7 +952,17 @@ to every new subscriber before its first live event. Malformed JSON is logged an
   to: what she has been reading is one click from the chip rather than a tab away. The popup shows
   the note as it is now and says so. A refused or failed call's path is a control too — what she
   tried to do to a note is the case most worth a look — and a note that is not there says so in
-  the popup. A `delete_note`'s path is not: there is nothing to open.
+  the popup. A `delete_note`'s path is not: there is nothing to open. A `web_search` notice
+  **MUST** carry the query and the rows that came back (`results`: at most 10 of
+  `{title, url, snippet}`, each field clipped), taken from the tool's whole answer — which the
+  guard hands its observers as `full` and **MUST NOT** write to `calls.jsonl`, whose line keeps
+  200 characters — because nothing else keeps them and a search run again later is a different
+  search; its query is the control, and the popup lists the rows, each a link out. A `read_page`
+  notice **MUST** carry the address the page landed on (`url`, the one its shelf copy is filed
+  under); its address is the control, and the popup shows the shelf copy
+  (`GET /api/mind/research/page?url=`, found by the URL's digest) with a link out to the page,
+  and says so plainly when no copy was kept. A link out **MUST** open a new tab with no referrer,
+  and only an `http(s)` address is ever a link.
 
   **One reply is one dedupe scope** (`Guard.turn()`): the same tool with byte-identical arguments
   twice in one reply is refused as *already done this turn*, costing no rate budget. The read-only

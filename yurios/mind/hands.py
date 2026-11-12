@@ -663,7 +663,7 @@ class Hands:
             self.guard.audit(tool, args, "error", dt, why)
             return "error", f"error ({why})"
         dt = (self.guard.clock.now() - t0) * 1000
-        self.guard.audit(tool, args, "ok", dt, self.guard.truncate(text))
+        self.guard.audit(tool, args, "ok", dt, self.guard.truncate(text), full=text)
         return "ok", text
 
     def deny(self, tool: str, args: dict, reason: str) -> None:

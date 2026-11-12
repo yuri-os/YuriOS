@@ -251,6 +251,90 @@ def test_a_notice_on_a_note_carries_the_note_so_the_page_can_open_it(cfg):
     assert "note" not in searched
 
 
+def test_a_search_notice_keeps_what_came_back_and_the_log_does_not(cfg):
+    """SPEC §7.3: nothing else keeps a search's rows, so the chip does — from
+    the whole answer, which reaches the observers and never the audit log."""
+    rt = create_app(cfg, brain=FakeBrain()).state.rt
+    rows = [{"title": f"Result {i}", "url": f"https://example.com/{i}",
+             "snippet": "words " * 200} for i in range(12)]
+    full = json.dumps({"query": "tile adhesive", "results": rows})
+    rt.guard.audit("web_search", {"query": "tile  adhesive"}, "ok", 1.0,
+                   rt.guard.truncate(full), full=full)
+    rt.guard.audit("web_search", {"query": "nothing"}, "ok", 1.0, "{}")
+
+    found, empty = [m for m in rt.transcript if m["role"] == "tool"]
+    assert found["query"] == "tile adhesive"
+    assert len(found["results"]) == 10                      # bounded like a line is
+    assert found["results"][3]["url"] == "https://example.com/3"
+    assert len(found["results"][0]["snippet"]) <= 400
+    assert "results" not in empty                           # nothing to show, no control
+    logged = [json.loads(line) for line in rt.guard.log_path.read_text().splitlines()]
+    assert all("full" not in line and len(line["result"]) <= 200 for line in logged)
+
+
+def test_a_page_notice_carries_the_address_it_landed_on(cfg):
+    rt = create_app(cfg, brain=FakeBrain()).state.rt
+    full = json.dumps({"url": "https://example.com/final", "title": "T",
+                       "gist": "g", "text": "x" * 5000})
+    rt.guard.audit("read_page", {"url": "https://example.com/start"}, "ok", 1.0,
+                   full[:600], full=full)
+    rt.guard.audit("read_page", {"url": "https://example.com/refused"},
+                   "denied: rate limit", 0.0, "")
+    landed, refused = [m for m in rt.transcript if m["role"] == "tool"]
+    assert landed["url"] == "https://example.com/final"
+    assert refused["url"] == "https://example.com/refused"
+
+
+def test_a_page_she_read_is_found_on_her_shelf_by_its_address(cfg):
+    from fastapi.testclient import TestClient
+
+    from yurios.world.research import _doc_name, as_document
+
+    app = create_app(cfg, brain=FakeBrain())
+    shelf = cfg.vault_dir / "knowledge" / "reference"
+    shelf.mkdir(parents=True, exist_ok=True)
+    page = {"url": "https://example.com/a", "title": "A page", "text": "body"}
+    (shelf / _doc_name(page)).write_text(as_document(page, retrieved="2026-11-12T22:00:00"))
+    client = TestClient(app)
+
+    got = client.get("/api/mind/research/page", params={"url": page["url"]})
+    assert got.status_code == 200 and got.json()["text"].startswith("# A page")
+    assert client.get("/api/mind/research/page",
+                      params={"url": "https://example.com/b"}).status_code == 404
+    assert client.get("/api/mind/research/page",
+                      params={"url": "file:///etc/passwd"}).status_code == 400
+
+
+def test_both_ways_her_hands_run_hand_the_observers_the_whole_answer(
+        cfg, clock, timers, controller):
+    """The chat's `ToolBrain._execute` and the mind's `Hands.call` each have the
+    untruncated answer in hand when they audit; each must pass it on, or a
+    search chip has nothing past the first 600 characters to draw."""
+    import asyncio
+
+    from yurios.mind.hands import Hands
+    from yurios.world.brain import ToolCall
+    from yurios.world.tools.guard import Guard
+
+    rows = [{"title": f"R{i}", "url": f"https://e.com/{i}", "snippet": "s" * 300}
+            for i in range(5)]
+    runner = FakeToolRunner(results={"web_search": {"query": "q", "results": rows}})
+    guard = Guard(rates_per_min={"web_search": 60}, log_dir=cfg.tool_log_dir, clock=clock)
+    seen: list[dict] = []
+    guard.observe(seen.append)
+
+    tb = make_toolbrain(cfg, guard, timers, controller, ScriptedChat([]), runner=runner)
+    asyncio.run(tb._execute(ToolCall("web_search", {"query": "q"})))
+    hands = Hands(cfg, guard.clock, guard=guard, runner=lambda: runner)
+    asyncio.run(hands.execute("web_search", {"query": "q2"}, timeout_s=5))
+
+    assert len(seen) == 2
+    for line in seen:
+        assert line["verdict"] == "ok", line
+        assert len(line["result"]) <= 200
+        assert json.loads(line["full"])["results"][4]["url"] == "https://e.com/4"
+
+
 # ---- her own work: a step chains ---------------------------------------------------
 
 def _hands(rig, **extra):

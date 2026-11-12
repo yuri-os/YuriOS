@@ -82,11 +82,16 @@ it('puts a chip that lands mid-reply above the words still arriving', async () =
 
 /* A chip on one of her notes opens it (SPEC §7.3): the path is the control,
  * and the popup is the note now, on the lines a read covered. */
-async function roomWithDesk(history, files) {
+async function roomWithDesk(history, files, shelf = {}) {
   const send = await room(history);
   const listing = fetch.getMockImplementation();
   fetch.mockImplementation(async (url) => {
     const at = String(url);
+    if (at.startsWith('/api/mind/research/page?url=')) {
+      const page = decodeURIComponent(at.split('=')[1]);
+      if (!(page in shelf)) return { ok: false, status: 404, json: async () => ({}) };
+      return { ok: true, json: async () => ({ url: page, text: shelf[page] }) };
+    }
     if (at.startsWith('/api/mind/workspace/file?path=')) {
       const path = decodeURIComponent(at.split('=')[1]);
       if (!(path in files)) return { ok: false, status: 404, json: async () => ({}) };
@@ -151,4 +156,61 @@ it('says so when the note a chip names is gone', async () => {
   const dialog = document.querySelector('dialog.note-peek');
   await vi.waitFor(() =>
     expect(dialog.querySelector('.note-peek-status').textContent).toContain("isn't on her desk"));
+});
+
+it('opens a search chip on the results that came back', async () => {
+  await roomWithDesk([
+    { id: 't1', role: 'tool', tool: 'web_search', text: 'web_search · tile adhesive',
+      query: 'tile adhesive', verdict: 'ok', ts: '2026-11-12T01:00:00',
+      results: [
+        { title: 'Choosing an adhesive', url: 'https://example.com/a', snippet: 'Cement-based…' },
+        { title: '<b>not markup</b>', url: 'javascript:alert(1)', snippet: '' },
+      ] },
+    { id: 't2', role: 'tool', tool: 'web_search', text: 'web_search · older',
+      verdict: 'ok', ts: '2026-11-12T02:00:00' },
+  ], {});
+  await vi.waitFor(() => expect(document.querySelectorAll('.msg.tool')).toHaveLength(2));
+  // an older chip kept no results, so it has nothing to open
+  expect(document.querySelectorAll('.tool-file')).toHaveLength(1);
+
+  document.querySelector('.tool-file').click();
+  const dialog = document.querySelector('dialog.note-peek');
+  expect(dialog.open).toBe(true);
+  expect(dialog.querySelector('.note-peek-path').textContent).toBe('“tile adhesive”');
+  expect(dialog.querySelector('.note-peek-span').textContent).toBe('2 results came back');
+  const [first, second] = dialog.querySelectorAll('.peek-results li');
+  const link = first.querySelector('a.peek-result-title');
+  expect(link.href).toBe('https://example.com/a');
+  expect(link.target).toBe('_blank');
+  expect(link.rel).toContain('noreferrer');
+  // a row's words are text, and only a web address becomes a link
+  expect(second.querySelector('a')).toBeNull();
+  expect(second.textContent).toContain('<b>not markup</b>');
+});
+
+it('opens a page chip on her shelf copy, or says she kept none', async () => {
+  const kept = '# A page about tiles\n\nSource: https://example.com/tiles\n' +
+    'Retrieved: 2026-11-12T21:00:00\n\nGrout goes last.\n';
+  await roomWithDesk([
+    { id: 't1', role: 'tool', tool: 'read_page', url: 'https://example.com/tiles',
+      text: 'read_page · https://example.com/tiles', verdict: 'ok', ts: '2026-11-12T01:00:00' },
+    { id: 't2', role: 'tool', tool: 'read_page',
+      text: 'read_page · https://example.com/unkept', verdict: 'ok', ts: '2026-11-12T02:00:00' },
+  ], {}, { 'https://example.com/tiles': kept });
+  await vi.waitFor(() => expect(document.querySelectorAll('.tool-file')).toHaveLength(2));
+  const [shelved, unkept] = document.querySelectorAll('.tool-file');
+  const dialog = () => document.querySelector('dialog.note-peek');
+
+  shelved.click();
+  await vi.waitFor(() => expect(dialog().querySelector('.peek-prose')).not.toBeNull());
+  expect(dialog().querySelector('.note-peek-path').textContent).toBe('A page about tiles');
+  expect(dialog().querySelector('.peek-prose').textContent).toBe('Grout goes last.');
+  expect(dialog().querySelector('.note-peek-foot').textContent).toContain('2026-11-12 21:00:00');
+  expect(dialog().querySelector('a.peek-out').href).toBe('https://example.com/tiles');
+
+  // an older chip names its page in its text; this one was never shelved
+  unkept.click();
+  await vi.waitFor(() =>
+    expect(dialog().querySelector('.note-peek-status').textContent).toContain("isn't on her shelf"));
+  expect(dialog().querySelector('a.peek-out').href).toBe('https://example.com/unkept');
 });

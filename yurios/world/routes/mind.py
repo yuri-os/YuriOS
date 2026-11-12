@@ -25,6 +25,7 @@ from yurios.mind.documents import (MAX_UPLOAD_BYTES, DocumentRefused, read_docum
 from yurios.mind.handed import INBOX
 from yurios.mind.selfedit import SoulShapeError
 from yurios.mind.workspace import DeskFull, OutsideTheDesk, Workspace
+from yurios.world.research import shelf_digest
 
 router = APIRouter()
 
@@ -204,6 +205,27 @@ async def research_file(request: Request, name: str = "") -> dict:
     """Read an original research source without making its provenance editable."""
     path = _research_file(request, name)
     return {"name": path.name, "text": path.read_text(encoding="utf-8", errors="replace")}
+
+
+@router.get("/api/mind/research/page")
+async def research_page(request: Request, url: str = "") -> dict:
+    """A page she read, found on the shelf by its address (SPEC §7.3).
+
+    What a `read_page` chip opens. Every page she reads is filed under a name
+    ending in its URL's digest (`world/research.py`), so the address alone
+    finds it — the title half of the name is not something the chip knows. A
+    page that is not there was read without being kept: no mind to keep it, a
+    filing still under way, or an ingest that failed."""
+    if not url.startswith(("http://", "https://")):
+        raise HTTPException(400, "that is not a web address")
+    root = (request.app.state.rt.cfg.vault_dir / "knowledge" / "reference").resolve()
+    found = sorted(root.glob(f"web-*-{shelf_digest(url)}.md")) if root.is_dir() else []
+    if not found:
+        raise HTTPException(404, "that page is not on her shelf")
+    path = found[0]
+    return {"name": path.name, "url": url,
+            "text": await asyncio.to_thread(path.read_text, encoding="utf-8",
+                                            errors="replace")}
 
 
 @router.get("/api/mind/reading")

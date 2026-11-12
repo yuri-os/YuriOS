@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime
+import json
 import logging
 import re
 import threading
@@ -114,6 +115,53 @@ def _lines_read(args: object, result: str) -> str:
     if not end:
         return f"from line {start}"
     return f"lines {start}–{end}" + (f" of {count}" if count is not None else "")
+
+
+#: How much of a search the chip keeps (SPEC §7.3): the rows, and enough of each
+#: to recognise it by. The notice lives in the conversation log, so this is
+#: bounded the way a line of it is, not the way the search was.
+SEARCH_ROWS_KEPT = 10
+_SEARCH_FIELD_CHARS = {"title": 200, "url": 600, "snippet": 400}
+_URL_FIELD = re.compile(r'"url":\s*"((?:[^"\\]|\\.)*)"')
+
+
+def _search_rows(full: str) -> list[dict]:
+    """What a `web_search` returned, as `{title, url, snippet}` rows — from the
+    whole answer, which only the observers see. Unparseable is no rows."""
+    try:
+        data = json.loads(full)
+    except (TypeError, ValueError):
+        return []
+    rows = data.get("results") if isinstance(data, dict) else None
+    if not isinstance(rows, list):
+        return []
+    kept = []
+    for row in rows[:SEARCH_ROWS_KEPT]:
+        if not isinstance(row, dict) or not isinstance(row.get("url"), str):
+            continue
+        kept.append({k: " ".join(str(row.get(k) or "").split())[:cap]
+                     for k, cap in _SEARCH_FIELD_CHARS.items()})
+    return kept
+
+
+def _page_url(args: object, full: str, result: str) -> str:
+    """The address a `read_page` landed on: the answer's `url` (after any
+    redirect, and the one its shelf copy is filed under), else what she asked."""
+    for text in (full, result):
+        if not text:
+            continue
+        try:
+            data = json.loads(text)
+            if isinstance(data, dict) and isinstance(data.get("url"), str):
+                return data["url"]
+        except ValueError:
+            if match := _URL_FIELD.search(text):
+                try:
+                    return json.loads(f'"{match.group(1)}"')
+                except ValueError:
+                    pass
+    url = args.get("url") if isinstance(args, dict) else None
+    return url.strip() if isinstance(url, str) else ""
 
 
 #: The hands that name one note on her desk by `path` — a notice for one of
@@ -680,6 +728,16 @@ class Runtime:
             entry["note"] = args["path"].strip()
             if tool == "read_note" and (span := _span_read(args, str(line.get("result") or ""))):
                 entry["lines"] = [span[0], span[1]]
+        full = line.get("full")
+        full = full if isinstance(full, str) else ""
+        if tool == "web_search" and isinstance(args, dict):
+            # The results ride on the chip (SPEC §7.3): nothing else keeps them,
+            # and a search re-run later is a different search.
+            entry["query"] = " ".join(str(args.get("query") or "").split())
+            if (rows := _search_rows(full)):
+                entry["results"] = rows
+        elif tool == "read_page" and (url := _page_url(args, full, str(line.get("result") or ""))):
+            entry["url"] = url                      # its shelf copy is filed under this
         if line.get("origin") not in REPLY_ORIGINS:
             entry["background"] = True
         self.transcript.append(entry)

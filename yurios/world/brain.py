@@ -724,7 +724,7 @@ class ToolBrain(BrainAdapter):
         full_text = text
         text = self.guard.truncate(full_text, tool=call.tool)
         dt = (self.guard.clock.now() - t0) * 1000
-        self.guard.audit(call.tool, call.args, "ok", dt, text)
+        self.guard.audit(call.tool, call.args, "ok", dt, text, full=full_text)
         if outcomes is not None:
             outcomes.append({"tool": call.tool, "args": call.args,
                               "verdict": "ok", "result": text})

@@ -17,8 +17,8 @@
  *      her (§35), which are one lane and one renderer because they are one
  *      conversation — and a desk path she named in the line as a control that
  *      opens that file in place (SPEC §2.6), the same GET a report card uses.
- *      A tool chip that names one of her notes makes that path a control too,
- *      opening the note in a popup on the lines she read (SPEC §7.3).
+ *      A tool chip that names one of her notes, a search or a web page makes
+ *      that target a control too, opening it in a popup (SPEC §7.3).
  *
  *   3. draw the "read it out" button on her committed lines (SPEC §9.11) and
  *      report which one is lit. Only the affordance: pressing it hands a
@@ -588,38 +588,62 @@
     scroll();
   });
 
-  /* A chip on one of her notes (SPEC §7.3): its path is a control that opens
-   * the note in a popup, on the lines she read — so "what has she been
-   * reading" is a click on the chip rather than a trip to the FILES tab. A
-   * failed call links too: what she was trying to do to a note is the case
-   * most worth a look, and a note that isn't there says so in the popup. */
+  /* A chip that names something she looked at (SPEC §7.3) is a control that
+   * shows it in a popup, so "what has she been reading" is a click on the chip
+   * rather than a trip to another tab:
+   *   - a note: the note as it is now, on the lines she read. A failed call
+   *     links too — what she was trying to do to a note is the case most worth
+   *     a look — and a note that isn't there says so in the popup;
+   *   - a web_search: the results that came back, which ride on the chip
+   *     because nothing else keeps them;
+   *   - a read_page: her shelf copy of the page, with the way out to it. */
   const NOTE_TOOLS = new Set(['read_note', 'write_note', 'append_note', 'edit_note',
                               'count_note_lines']);
+  const isWeb = (url) => typeof url === 'string' && /^https?:\/\//i.test(url);
 
-  // `{ path, lines }` for a chip that names a note, else null. The host sends
-  // `note` (and, for a read, `lines`); a chip from before it did still names
-  // the path in its text — unless that was clipped, and a clipped path is not
-  // one to fetch.
-  function noteOf(m) {
-    if (typeof m.note === 'string' && m.note) {
-      return { path: m.note, lines: Array.isArray(m.lines) ? m.lines : null };
-    }
-    if (!NOTE_TOOLS.has(m.tool)) return null;
+  // What a chip opens, or null. The host sends `note`/`lines`, `results`/
+  // `query` and `url`; a note or page chip from before it did still names its
+  // target in its text — unless that was clipped, and a clipped path is not one
+  // to fetch. An older search chip has nothing to show and stays text.
+  function peekOf(m) {
     const parts = String(m.text || '').split(' · ');
-    if (parts.length < 2 || parts[0] !== m.tool || !parts[1] || parts[1].endsWith('…')) return null;
-    const span = /^lines (\d+)–(\d+)/.exec(parts[2] || '') || /^from line (\d+)/.exec(parts[2] || '');
-    return { path: parts[1], lines: span ? [Number(span[1]), Number(span[2] || 0)] : null };
+    const named = parts.length >= 2 && parts[0] === m.tool && parts[1] && !parts[1].endsWith('…')
+      ? parts[1] : '';
+    if (typeof m.note === 'string' && m.note) {
+      return { kind: 'note', path: m.note, lines: Array.isArray(m.lines) ? m.lines : null };
+    }
+    if (NOTE_TOOLS.has(m.tool) && named) {
+      const span = /^lines (\d+)–(\d+)/.exec(parts[2] || '') || /^from line (\d+)/.exec(parts[2] || '');
+      return { kind: 'note', path: named,
+               lines: span ? [Number(span[1]), Number(span[2] || 0)] : null };
+    }
+    if (m.tool === 'web_search' && Array.isArray(m.results) && m.results.length) {
+      return { kind: 'search', query: m.query || named || '', results: m.results };
+    }
+    if (m.tool === 'read_page') {
+      const url = isWeb(m.url) ? m.url : isWeb(named) ? named : '';
+      if (url) return { kind: 'page', url };
+    }
+    return null;
   }
 
-  // The chip's words, with the path segment as the button when there is a note.
-  function chipLabel(m, note) {
+  // What each control opens, by the key on its button — a search's rows are
+  // too much to carry in an attribute, and this is the one place that reads it.
+  const peeks = new Map();
+  let peekKeys = 0;
+
+  // The chip's words, with the target segment as the button when there is one.
+  function chipLabel(m, peek) {
     const text = m.text || m.tool || '';
     const parts = text.split(' · ');
-    if (!note || parts.length < 2 || parts[0] !== m.tool) return esc(text);
-    const lines = note.lines ? ` data-lines="${note.lines.map(Number).join('-')}"` : '';
-    return `${esc(parts[0])} · <button type="button" class="tool-file"` +
-      ` data-note="${esc(note.path)}"${lines} title="open ${esc(note.path)}">` +
-      `${esc(parts[1])}</button>` +
+    if (!peek || parts.length < 2 || parts[0] !== m.tool) return esc(text);
+    const key = `p${++peekKeys}`;
+    peeks.set(key, peek);
+    const title = peek.kind === 'note' ? `open ${peek.path}`
+      : peek.kind === 'search' ? 'see what came back' : 'see the page she read';
+    const note = peek.kind === 'note' ? ` data-note="${esc(peek.path)}"` : '';
+    return `${esc(parts[0])} · <button type="button" class="tool-file" data-peek="${key}"` +
+      `${note} title="${esc(title)}">${esc(parts[1])}</button>` +
       (parts.length > 2 ? esc(' · ' + parts.slice(2).join(' · ')) : '');
   }
 
@@ -639,7 +663,7 @@
           '<button type="button" class="note-peek-x" aria-label="close"></button>' +
         '</div>' +
         '<div class="note-peek-body" tabindex="0"></div>' +
-        '<div class="note-peek-foot">her desk, as it is now — it may have changed since</div>' +
+        '<div class="note-peek-foot"></div>' +
       '</div>';
     peek.querySelector('.note-peek-x').addEventListener('click', () => peek.close());
     // a press on the backdrop is a press on the <dialog> itself; the frame
@@ -653,31 +677,52 @@
     return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
 
-  async function openNote(path, lines) {
+  // A way out to the web: a new tab, telling the page nothing about this one.
+  function outLink(url, label, cls = '') {
+    return isWeb(url)
+      ? `<a class="${cls}" href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(label)}</a>`
+      : `<span class="${cls}">${esc(label)}</span>`;
+  }
+
+  // Open the popup with a title, and hand back the parts a kind fills in —
+  // plus `stale()`, true once another chip has been opened over this one.
+  function showPeek(title, foot) {
     const dlg = peekDialog();
     const token = ++peekSerial;
-    const body = dlg.querySelector('.note-peek-body');
-    const spanEl = dlg.querySelector('.note-peek-span');
-    dlg.querySelector('.note-peek-path').textContent = path;
-    spanEl.textContent = '';
-    body.innerHTML = '<p class="note-peek-status">opening…</p>';
+    const parts = { body: dlg.querySelector('.note-peek-body'),
+                    sub: dlg.querySelector('.note-peek-span'),
+                    title: dlg.querySelector('.note-peek-path'),
+                    stale: () => token !== peekSerial };
+    parts.title.textContent = title;
+    parts.sub.innerHTML = '';
+    dlg.querySelector('.note-peek-foot').textContent = foot;
+    parts.body.innerHTML = '<p class="note-peek-status">opening…</p>';
+    parts.body.scrollTop = 0;
     if (!dlg.open) {
       if (typeof dlg.showModal === 'function') dlg.showModal();
       else dlg.setAttribute('open', '');
     }
+    return parts;
+  }
+
+  async function getJson(path) {
+    const resp = await fetch(apiPath(path), { credentials: 'same-origin', cache: 'no-store' });
+    if (!resp.ok) throw new Error(String(resp.status));
+    return resp.json();
+  }
+
+  async function openNote({ path, lines }) {
+    const { body, sub, stale } = showPeek(path, 'her desk, as it is now — it may have changed since');
     let text;
     try {
-      const resp = await fetch(apiPath('/api/mind/workspace/file?path=' + encodeURIComponent(path)),
-                               { credentials: 'same-origin', cache: 'no-store' });
-      if (!resp.ok) throw new Error(String(resp.status));
-      text = (await resp.json()).text ?? '';
+      text = (await getJson('/api/mind/workspace/file?path=' + encodeURIComponent(path))).text ?? '';
     } catch {
-      if (token !== peekSerial) return;
+      if (stale()) return;
       // a chip is a record of a call, and the note it named can be gone since
       body.innerHTML = '<p class="note-peek-status">that note isn\'t on her desk any more.</p>';
       return;
     }
-    if (token !== peekSerial) return;
+    if (stale()) return;
     if (!text) {
       body.innerHTML = '<p class="note-peek-status">(it is empty)</p>';
       return;
@@ -685,7 +730,7 @@
     const rows = text.replace(/\n$/, '').split('\n');
     const first = lines ? Math.max(1, lines[0]) : 0;
     const last = lines ? (lines[1] || rows.length) : 0;
-    spanEl.textContent = lines
+    sub.textContent = lines
       ? `she read lines ${first}–${Math.min(last, rows.length)} of ${rows.length}`
       : `${rows.length} line${rows.length === 1 ? '' : 's'}`;
     body.innerHTML = rows.map((row, i) => {
@@ -698,11 +743,61 @@
     body.scrollTop = mark ? Math.max(0, mark.offsetTop - body.clientHeight / 4) : 0;
   }
 
+  function openSearch({ query, results }) {
+    const { body, sub } = showPeek(query ? `“${query}”` : 'her search',
+                                   'what her search returned, kept when she made it');
+    sub.textContent = `${results.length} result${results.length === 1 ? '' : 's'} came back`;
+    body.innerHTML = '<ol class="peek-results">' + results.map((row) =>
+      '<li>' + outLink(row.url, row.title || row.url, 'peek-result-title') +
+      `<span class="peek-result-url">${esc(row.url)}</span>` +
+      (row.snippet ? `<p class="peek-result-snippet">${esc(row.snippet)}</p>` : '') +
+      '</li>').join('') + '</ol>';
+  }
+
+  // The shelf copy's header (world/research.py `as_document`): `# title`, then
+  // `Source:` and `Retrieved:` lines, then the page.
+  function shelfPage(text) {
+    const page = { title: '', retrieved: '', body: text };
+    const head = /^# (.*)\n\n(?:Source: .*\n)?(?:Retrieved: (.*)\n)?\n?/.exec(text);
+    if (head) {
+      page.title = head[1].trim();
+      page.retrieved = (head[2] || '').trim();
+      page.body = text.slice(head[0].length);
+    }
+    return page;
+  }
+
+  async function openPage({ url }) {
+    const { body, sub, title, stale } = showPeek(url, 'her shelf copy of the page');
+    sub.innerHTML = outLink(url, 'open the page ↗', 'peek-out');
+    let text;
+    try {
+      text = (await getJson('/api/mind/research/page?url=' + encodeURIComponent(url))).text ?? '';
+    } catch {
+      if (stale()) return;
+      // read is not the same as kept: with no mind running there is no shelf,
+      // and a page is filed a moment after the turn that read it
+      body.innerHTML = '<p class="note-peek-status">this page isn\'t on her shelf — ' +
+        'she read it without keeping a copy. The link above is the page itself.</p>';
+      return;
+    }
+    if (stale()) return;
+    const page = shelfPage(text);
+    if (page.title) title.textContent = page.title;
+    if (page.retrieved) {
+      peek.querySelector('.note-peek-foot').textContent =
+        `her shelf copy of the page, kept ${page.retrieved.replace('T', ' ')}`;
+    }
+    body.innerHTML = `<div class="peek-prose">${escLine(page.body.trim()) || '(no text was kept)'}</div>`;
+  }
+
   messages?.addEventListener('click', (ev) => {
     const btn = ev.target.closest?.('.tool-file');
-    if (!btn) return;
-    const span = /^(\d+)-(\d+)$/.exec(btn.dataset.lines || '');
-    openNote(btn.dataset.note || '', span ? [Number(span[1]), Number(span[2])] : null);
+    const what = btn && peeks.get(btn.dataset.peek);
+    if (!what) return;
+    if (what.kind === 'note') openNote(what);
+    else if (what.kind === 'search') openSearch(what);
+    else openPage(what);
   });
 
   /* One bubble's classes and contents, wherever it is going to live: the live
@@ -725,7 +820,7 @@
       const said = refused ? ` · ${m.verdict}${m.why ? ` (${m.why})` : ''}` : '';
       div.innerHTML = `<span class="tool-chip" title="${esc(m.tool || '')}">` +
         `<span class="tool-mark" aria-hidden="true">⚙</span>` +
-        `${chipLabel(m, noteOf(m))}${esc(said)}${stamp(m.ts)}</span>`;
+        `${chipLabel(m, peekOf(m))}${esc(said)}${stamp(m.ts)}</span>`;
       return div;
     }
     div.className = 'msg ' + (her ? 'her' : 'you') + (m.proactive ? ' proactive' : '')

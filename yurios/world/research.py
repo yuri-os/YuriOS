@@ -82,8 +82,13 @@ def _doc_name(page: dict) -> str:
     does the deduplication: same doc, chunks refreshed, no pileup.
     """
     url = page.get("url") or ""
-    digest = hashlib.sha1(url.encode("utf-8")).hexdigest()[:10]
-    return f"web-{_slug(page.get('title') or url)}-{digest}.md"
+    return f"web-{_slug(page.get('title') or url)}-{shelf_digest(url)}.md"
+
+
+def shelf_digest(url: str) -> str:
+    """The URL's part of a shelved page's name — all a reader needs to find the
+    page again from its address alone, since the slug half is the title's."""
+    return hashlib.sha1((url or "").encode("utf-8")).hexdigest()[:10]
 
 
 def as_document(page: dict, *, retrieved: str) -> str:

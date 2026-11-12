@@ -175,13 +175,19 @@ class Guard:
     # ---- the audit line (SPEC §7.3) ----
 
     def audit(self, tool: str, args: dict, verdict: str, duration_ms: float,
-              result: str, *, origin: "correlate.Origin | None" = None) -> None:
+              result: str, *, origin: "correlate.Origin | None" = None,
+              full: str | None = None) -> None:
         """One line per call, allowed or denied — plus who asked.
 
         The correlation fields come from whatever unit of work is in scope
         (world/correlate.py) and are all nullable: a call the mind made for
         itself, with no turn in view, still writes a complete line marked
-        `origin: "host"`. That is the ordinary case, not an error case."""
+        `origin: "host"`. That is the ordinary case, not an error case.
+
+        `full` is the tool's whole answer, where the caller has it. It never
+        reaches the log — the line keeps 200 characters, as it always has — and
+        goes only to the observers, as `full`: the chat notice draws a search's
+        results from it (SPEC §7.3), which the first 200 characters cannot hold."""
         line = {"ts": self.clock.now(), "call_id": new_id("call"),
                 "tool": tool, "args": args,
                 "verdict": verdict, "duration_ms": round(duration_ms, 1),
@@ -193,8 +199,9 @@ class Guard:
             # An audit line is an observation. It must never be the reason the
             # turn it is observing fails.
             log.exception("audit write failed")
+        seen = line if full is None else {**line, "full": full}
         for fn in self._observers:
             try:
-                fn(line)
+                fn(seen)
             except Exception:  # noqa: BLE001 — same rule as the write above
                 log.exception("audit observer failed")

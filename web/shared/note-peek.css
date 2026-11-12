@@ -1,10 +1,12 @@
-/* A note she touched, from its tool chip (SPEC §7.3, → web/js/chat.js).
+/* What a tool chip names — a note, a search, a page — opened from the chip
+ * (SPEC §7.3, → web/js/chat.js).
  *
  * ONE stylesheet, served raw at /shared/note-peek.css and linked by all three
  * rooms, leaning on the palette each page defines (--panel, --ink, --acid,
- * --rule, the two font stacks) the way settings.css does. The path on a chip
- * is the control; the popup is the note as it is on her desk now, with the
- * lines a read covered marked and scrolled to. */
+ * --rule, the two font stacks) the way settings.css does. The target on a chip
+ * is the control. A note opens as it is on her desk now, with the lines a read
+ * covered marked and scrolled to; a search opens on the results it returned; a
+ * page on her shelf copy of it, with the way out to the original. */
 
 .msg.tool .tool-file{
   padding:0; border:0; border-bottom:1px dotted currentColor; border-radius:0;
@@ -72,6 +74,39 @@ stroke-width="2.4" stroke-linecap="round"><path d="M5.5 5.5 18.5 18.5M18.5 5.5 5
 }
 .note-peek-line.read .note-peek-n{ color:var(--acid-dark, var(--acid)); }
 .note-peek-status{ margin:0; padding:26px 18px; color:var(--dim); font:11px var(--font-mono); text-align:center; }
+
+/* a search: what came back */
+.peek-results{ margin:0; padding:4px 18px 8px; list-style:none; counter-reset:row; }
+.peek-results li{
+  counter-increment:row; position:relative;
+  padding:12px 0 12px 30px; border-bottom:1px solid var(--rule);
+}
+.peek-results li:last-child{ border-bottom:0; }
+.peek-results li::before{
+  content:counter(row); position:absolute; left:0; top:13px;
+  color:var(--dim); font:10px var(--font-mono);
+}
+.peek-result-title{
+  color:var(--ink); font:14px/1.4 var(--font-sans); text-decoration:none;
+  overflow-wrap:anywhere;
+}
+a.peek-result-title:hover, a.peek-result-title:focus-visible{
+  color:var(--acid); text-decoration:underline; outline:none;
+}
+.peek-result-url{
+  display:block; margin-top:3px; color:var(--dim);
+  font:10px/1.5 var(--font-mono); overflow-wrap:anywhere;
+}
+.peek-result-snippet{ margin:6px 0 0; color:var(--soft); font:12px/1.6 var(--font-sans); }
+
+/* a page: her shelf copy, read as prose */
+.peek-prose{
+  padding:6px 22px 14px; color:var(--soft);
+  font:13px/1.7 var(--font-sans); white-space:pre-wrap; overflow-wrap:anywhere;
+  max-width:72ch;
+}
+.peek-out{ color:var(--acid); text-decoration:none; }
+.peek-out:hover, .peek-out:focus-visible{ text-decoration:underline; outline:none; }
 
 .note-peek-foot{
   padding:9px 18px; border-top:1px solid var(--rule);

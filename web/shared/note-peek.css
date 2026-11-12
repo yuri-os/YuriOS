@@ -1,0 +1,84 @@
+/* A note she touched, from its tool chip (SPEC §7.3, → web/js/chat.js).
+ *
+ * ONE stylesheet, served raw at /shared/note-peek.css and linked by all three
+ * rooms, leaning on the palette each page defines (--panel, --ink, --acid,
+ * --rule, the two font stacks) the way settings.css does. The path on a chip
+ * is the control; the popup is the note as it is on her desk now, with the
+ * lines a read covered marked and scrolled to. */
+
+.msg.tool .tool-file{
+  padding:0; border:0; border-bottom:1px dotted currentColor; border-radius:0;
+  background:none; color:inherit; font:inherit; letter-spacing:inherit;
+  cursor:pointer; overflow-wrap:anywhere; text-align:left;
+}
+.msg.tool .tool-file:hover, .msg.tool .tool-file:focus-visible{
+  color:var(--ink); border-bottom-style:solid; outline:none;
+}
+
+.note-peek{
+  width:min(780px, calc(100vw - 24px)); height:min(720px, calc(100dvh - 24px));
+  margin:auto;                 /* the rooms reset every margin, centring included */
+  padding:0; color:var(--ink); background:var(--panel);
+  border:1px solid var(--rule); border-radius:3px;
+  box-shadow:var(--shadow, 0 24px 80px rgb(0 0 0 / .42));
+  overflow:hidden;
+}
+.note-peek::backdrop{ background:rgb(0 0 0 / .66); backdrop-filter:blur(3px); }
+.note-peek-frame{ display:flex; flex-direction:column; height:100%; }
+
+.note-peek-head{
+  display:flex; align-items:baseline; flex-wrap:wrap; gap:4px 14px;
+  padding:16px 18px 14px; border-bottom:1px solid var(--rule);
+}
+.note-peek-path{
+  min-width:0; flex:1 1 auto; color:var(--ink);
+  font:13px/1.4 var(--font-mono); overflow-wrap:anywhere;
+}
+.note-peek-span{
+  order:3; flex:0 0 100%; color:var(--acid);
+  font:9px var(--font-mono); letter-spacing:.14em; text-transform:uppercase;
+}
+.note-peek-span:empty{ display:none; }
+/* drawn, not typed, for the reason settings.css gives: no glyph to go missing */
+.note-peek-x{
+  --icon:url('data:image/svg+xml;utf8,\
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" stroke="%23000" \
+stroke-width="2.4" stroke-linecap="round"><path d="M5.5 5.5 18.5 18.5M18.5 5.5 5.5 18.5"/>\
+</svg>');
+  align-self:center; width:28px; height:28px; flex:none;
+  padding:0; border:0; cursor:pointer; background:var(--soft);
+  -webkit-mask:var(--icon) center/16px no-repeat;
+          mask:var(--icon) center/16px no-repeat;
+}
+.note-peek-x:hover, .note-peek-x:focus-visible{ background:var(--ink); outline:none; }
+
+.note-peek-body{
+  position:relative;           /* the scroll-to-the-read-lines math measures from here */
+  flex:1; min-height:0; overflow:auto; padding:10px 0;
+  font:12px/1.65 var(--font-mono); color:var(--soft);
+  scrollbar-width:thin; scrollbar-color:var(--rule) transparent;
+}
+.note-peek-body:focus-visible{ outline:none; }
+.note-peek-line{ display:flex; padding:0 18px 0 0; border-left:2px solid transparent; }
+.note-peek-n{
+  flex:none; width:4.5em; padding-right:14px; text-align:right;
+  color:var(--dim); user-select:none;
+}
+.note-peek-t{ flex:1; min-width:0; white-space:pre-wrap; overflow-wrap:anywhere; }
+/* the lines she read */
+.note-peek-line.read{
+  border-left-color:var(--acid); color:var(--ink);
+  background:color-mix(in srgb, var(--acid) 7%, transparent);
+}
+.note-peek-line.read .note-peek-n{ color:var(--acid-dark, var(--acid)); }
+.note-peek-status{ margin:0; padding:26px 18px; color:var(--dim); font:11px var(--font-mono); text-align:center; }
+
+.note-peek-foot{
+  padding:9px 18px; border-top:1px solid var(--rule);
+  color:var(--dim); font:9px var(--font-mono); letter-spacing:.06em;
+}
+
+@media (max-width:560px){
+  .note-peek-n{ width:3.2em; padding-right:10px; }
+  .note-peek-body{ font-size:11px; }
+}

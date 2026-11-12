@@ -943,7 +943,16 @@ to every new subscriber before its first live event. Malformed JSON is logged an
   event like any line. The row **MUST NOT** enter a prompt's window, the inbox, or a channel's
   outbound stream; it is a record on the page, not something she said. A call she made working on
   her own (any correlate kind but a reply, a greeting, a murmur or a reach-out) is marked
-  `background` and drawn quieter. A call made mid-reply lands above the words still arriving.
+  `background` and drawn quieter. A call made mid-reply lands above the words still arriving. A
+  notice for a call on one note of her desk (`read_note`, `write_note`, `append_note`,
+  `edit_note`, `count_note_lines`) **MUST** carry that note's whole path as `note` — the text may
+  clip it — and, for a read, the lines it covered as `lines` (`[first, last]`, `last` 0 for "to the
+  end"). The page **MUST** draw that path as a control that opens the note in a popup, through the
+  same `GET /api/mind/workspace/file` the FILES tab reads, with a read's lines marked and scrolled
+  to: what she has been reading is one click from the chip rather than a tab away. The popup shows
+  the note as it is now and says so. A refused or failed call's path is a control too — what she
+  tried to do to a note is the case most worth a look — and a note that is not there says so in
+  the popup. A `delete_note`'s path is not: there is nothing to open.
 
   **One reply is one dedupe scope** (`Guard.turn()`): the same tool with byte-identical arguments
   twice in one reply is refused as *already done this turn*, costing no rate budget. The read-only

@@ -86,23 +86,41 @@ _NOTICE_ARGS = ("path", "query", "url", "label", "topic", "name", "surface",
 _PAGE_FIELD = re.compile(r'"(start_line|end_line|line_count)":\s*(\d+)')
 
 
-def _lines_read(args: object, result: str) -> str:
-    """`lines 49–142 of 206` — what a `read_note` covered, so three reads of
-    one long note look like reading on rather than reading the same thing
-    three times. The answer says what was served; the request is the fallback,
-    for a refused read or a head too long to reach the numbers."""
+def _span_read(args: object, result: str) -> tuple[int, int, int | None] | None:
+    """`(first, last, of)` — the lines a `read_note` covered. The answer says
+    what was served; the request is the fallback, for a refused read or a head
+    too long to reach the numbers. `last` is 0 for "to the end", and `of` is
+    None when only the request was there to go on."""
     got = {k: int(v) for k, v in _PAGE_FIELD.findall(result or "")}
     if {"start_line", "end_line", "line_count"} <= set(got) and got["end_line"]:
-        return f"lines {got['start_line']}–{got['end_line']} of {got['line_count']}"
+        return got["start_line"], got["end_line"], got["line_count"]
     if not isinstance(args, dict):
-        return ""
+        return None
     try:
         start, end = int(args.get("start_line") or 1), int(args.get("end_line") or 0)
     except (TypeError, ValueError):
+        return None
+    return (start, end, None) if end or start > 1 else None
+
+
+def _lines_read(args: object, result: str) -> str:
+    """`lines 49–142 of 206` — what a `read_note` covered, so three reads of
+    one long note look like reading on rather than reading the same thing
+    three times."""
+    span = _span_read(args, result)
+    if span is None:
         return ""
-    if end:
-        return f"lines {start}–{end}"
-    return f"from line {start}" if start > 1 else ""
+    start, end, count = span
+    if not end:
+        return f"from line {start}"
+    return f"lines {start}–{end}" + (f" of {count}" if count is not None else "")
+
+
+#: The hands that name one note on her desk by `path` — a notice for one of
+#: these links to the note (SPEC §7.3). `delete_note` is not here: what it
+#: names is gone.
+NOTE_TOOLS = frozenset({"read_note", "write_note", "append_note", "edit_note",
+                        "count_note_lines"})
 
 
 def tool_notice_text(tool: str, args: object, result: str = "") -> str:
@@ -653,6 +671,15 @@ class Runtime:
         }
         if verdict.startswith("denied"):
             entry["why"] = verdict.partition(":")[2].strip()
+        args = line.get("args")
+        if tool in NOTE_TOOLS and isinstance(args, dict) and isinstance(args.get("path"), str) \
+                and args["path"].strip():
+            # The page opens the note from here (SPEC §7.3): the whole path,
+            # where the text may have clipped it, and for a read the lines it
+            # covered, so the note opens on what she was looking at.
+            entry["note"] = args["path"].strip()
+            if tool == "read_note" and (span := _span_read(args, str(line.get("result") or ""))):
+                entry["lines"] = [span[0], span[1]]
         if line.get("origin") not in REPLY_ORIGINS:
             entry["background"] = True
         self.transcript.append(entry)

@@ -79,3 +79,76 @@ it('puts a chip that lands mid-reply above the words still arriving', async () =
   expect(rows.map((el) => el.className)).toEqual(['msg tool', 'msg her draft']);
   expect(rows[1].textContent).toContain('Let me look');
 });
+
+/* A chip on one of her notes opens it (SPEC §7.3): the path is the control,
+ * and the popup is the note now, on the lines a read covered. */
+async function roomWithDesk(history, files) {
+  const send = await room(history);
+  const listing = fetch.getMockImplementation();
+  fetch.mockImplementation(async (url) => {
+    const at = String(url);
+    if (at.startsWith('/api/mind/workspace/file?path=')) {
+      const path = decodeURIComponent(at.split('=')[1]);
+      if (!(path in files)) return { ok: false, status: 404, json: async () => ({}) };
+      return { ok: true, json: async () => ({ path, text: files[path] }) };
+    }
+    return listing(url);
+  });
+  return send;
+}
+
+it('makes the path on a note chip a control that opens the note on the lines she read', async () => {
+  const note = Array.from({ length: 60 }, (_, i) => `line ${i + 1}`).join('\n');
+  await roomWithDesk([
+    { id: 't1', role: 'tool', tool: 'read_note', note: 'notes/post.md', lines: [30, 48],
+      text: 'read_note · notes/post.md · lines 30–48 of 60', verdict: 'ok',
+      ts: '2026-11-12T22:12:00' },
+  ], { 'notes/post.md': note });
+  await vi.waitFor(() => expect(document.querySelector('.tool-file')).not.toBeNull());
+
+  const link = document.querySelector('.tool-file');
+  expect(link.textContent).toBe('notes/post.md');
+  expect(link.closest('.tool-chip').textContent).toContain('lines 30–48 of 60');
+
+  link.click();
+  const dialog = document.querySelector('dialog.note-peek');
+  await vi.waitFor(() => expect(dialog.querySelectorAll('.note-peek-line')).toHaveLength(60));
+  expect(dialog.open).toBe(true);
+  expect(dialog.querySelector('.note-peek-path').textContent).toBe('notes/post.md');
+  const read = [...dialog.querySelectorAll('.note-peek-line.read')];
+  expect(read).toHaveLength(19);
+  expect(read[0].textContent).toContain('line 30');
+  expect(read.at(-1).textContent).toContain('line 48');
+  expect(dialog.querySelector('.note-peek-span').textContent).toBe('she read lines 30–48 of 60');
+});
+
+it('links an older chip from its text, a refusal too, but not a clipped path or another tool', async () => {
+  await roomWithDesk([
+    { id: 't1', role: 'tool', tool: 'write_note', text: 'write_note · notes/old.md',
+      verdict: 'ok', ts: '2026-11-12T01:00:00' },
+    { id: 't2', role: 'tool', tool: 'write_note', text: 'write_note · research/aaaaaaaa…',
+      verdict: 'ok', ts: '2026-11-12T02:00:00' },
+    { id: 't3', role: 'tool', tool: 'read_note', text: 'read_note · notes/x.md',
+      verdict: 'denied', why: 'rate limit', ts: '2026-11-12T03:00:00' },
+    { id: 't4', role: 'tool', tool: 'web_search', text: 'web_search · notes/a.md',
+      verdict: 'ok', ts: '2026-11-12T04:00:00' },
+  ], {});
+  await vi.waitFor(() => expect(document.querySelectorAll('.msg.tool')).toHaveLength(4));
+
+  const links = [...document.querySelectorAll('.tool-file')];
+  expect(links.map((el) => el.dataset.note)).toEqual(['notes/old.md', 'notes/x.md']);
+  // the reason still follows the path
+  expect(links[1].closest('.tool-chip').textContent).toContain('denied (rate limit)');
+});
+
+it('says so when the note a chip names is gone', async () => {
+  await roomWithDesk([
+    { id: 't1', role: 'tool', tool: 'write_note', note: 'notes/gone.md',
+      text: 'write_note · notes/gone.md', verdict: 'ok', ts: '2026-11-12T01:00:00' },
+  ], {});
+  await vi.waitFor(() => expect(document.querySelector('.tool-file')).not.toBeNull());
+  document.querySelector('.tool-file').click();
+  const dialog = document.querySelector('dialog.note-peek');
+  await vi.waitFor(() =>
+    expect(dialog.querySelector('.note-peek-status').textContent).toContain("isn't on her desk"));
+});

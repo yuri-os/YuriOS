@@ -17,6 +17,8 @@
  *      her (§35), which are one lane and one renderer because they are one
  *      conversation — and a desk path she named in the line as a control that
  *      opens that file in place (SPEC §2.6), the same GET a report card uses.
+ *      A tool chip that names one of her notes makes that path a control too,
+ *      opening the note in a popup on the lines she read (SPEC §7.3).
  *
  *   3. draw the "read it out" button on her committed lines (SPEC §9.11) and
  *      report which one is lit. Only the affordance: pressing it hands a
@@ -586,6 +588,123 @@
     scroll();
   });
 
+  /* A chip on one of her notes (SPEC §7.3): its path is a control that opens
+   * the note in a popup, on the lines she read — so "what has she been
+   * reading" is a click on the chip rather than a trip to the FILES tab. A
+   * failed call links too: what she was trying to do to a note is the case
+   * most worth a look, and a note that isn't there says so in the popup. */
+  const NOTE_TOOLS = new Set(['read_note', 'write_note', 'append_note', 'edit_note',
+                              'count_note_lines']);
+
+  // `{ path, lines }` for a chip that names a note, else null. The host sends
+  // `note` (and, for a read, `lines`); a chip from before it did still names
+  // the path in its text — unless that was clipped, and a clipped path is not
+  // one to fetch.
+  function noteOf(m) {
+    if (typeof m.note === 'string' && m.note) {
+      return { path: m.note, lines: Array.isArray(m.lines) ? m.lines : null };
+    }
+    if (!NOTE_TOOLS.has(m.tool)) return null;
+    const parts = String(m.text || '').split(' · ');
+    if (parts.length < 2 || parts[0] !== m.tool || !parts[1] || parts[1].endsWith('…')) return null;
+    const span = /^lines (\d+)–(\d+)/.exec(parts[2] || '') || /^from line (\d+)/.exec(parts[2] || '');
+    return { path: parts[1], lines: span ? [Number(span[1]), Number(span[2] || 0)] : null };
+  }
+
+  // The chip's words, with the path segment as the button when there is a note.
+  function chipLabel(m, note) {
+    const text = m.text || m.tool || '';
+    const parts = text.split(' · ');
+    if (!note || parts.length < 2 || parts[0] !== m.tool) return esc(text);
+    const lines = note.lines ? ` data-lines="${note.lines.map(Number).join('-')}"` : '';
+    return `${esc(parts[0])} · <button type="button" class="tool-file"` +
+      ` data-note="${esc(note.path)}"${lines} title="open ${esc(note.path)}">` +
+      `${esc(parts[1])}</button>` +
+      (parts.length > 2 ? esc(' · ' + parts.slice(2).join(' · ')) : '');
+  }
+
+  let peek = null;
+  let peekSerial = 0;
+
+  function peekDialog() {
+    if (peek) return peek;
+    peek = document.createElement('dialog');
+    peek.className = 'note-peek';
+    peek.setAttribute('aria-labelledby', 'note-peek-path');
+    peek.innerHTML =
+      '<div class="note-peek-frame">' +
+        '<div class="note-peek-head">' +
+          '<span class="note-peek-path" id="note-peek-path"></span>' +
+          '<span class="note-peek-span"></span>' +
+          '<button type="button" class="note-peek-x" aria-label="close"></button>' +
+        '</div>' +
+        '<div class="note-peek-body" tabindex="0"></div>' +
+        '<div class="note-peek-foot">her desk, as it is now — it may have changed since</div>' +
+      '</div>';
+    peek.querySelector('.note-peek-x').addEventListener('click', () => peek.close());
+    // a press on the backdrop is a press on the <dialog> itself; the frame
+    // covers everything inside it
+    peek.addEventListener('click', (ev) => { if (ev.target === peek) peek.close(); });
+    document.body.appendChild(peek);
+    return peek;
+  }
+
+  function escLine(s) {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  async function openNote(path, lines) {
+    const dlg = peekDialog();
+    const token = ++peekSerial;
+    const body = dlg.querySelector('.note-peek-body');
+    const spanEl = dlg.querySelector('.note-peek-span');
+    dlg.querySelector('.note-peek-path').textContent = path;
+    spanEl.textContent = '';
+    body.innerHTML = '<p class="note-peek-status">opening…</p>';
+    if (!dlg.open) {
+      if (typeof dlg.showModal === 'function') dlg.showModal();
+      else dlg.setAttribute('open', '');
+    }
+    let text;
+    try {
+      const resp = await fetch(apiPath('/api/mind/workspace/file?path=' + encodeURIComponent(path)),
+                               { credentials: 'same-origin', cache: 'no-store' });
+      if (!resp.ok) throw new Error(String(resp.status));
+      text = (await resp.json()).text ?? '';
+    } catch {
+      if (token !== peekSerial) return;
+      // a chip is a record of a call, and the note it named can be gone since
+      body.innerHTML = '<p class="note-peek-status">that note isn\'t on her desk any more.</p>';
+      return;
+    }
+    if (token !== peekSerial) return;
+    if (!text) {
+      body.innerHTML = '<p class="note-peek-status">(it is empty)</p>';
+      return;
+    }
+    const rows = text.replace(/\n$/, '').split('\n');
+    const first = lines ? Math.max(1, lines[0]) : 0;
+    const last = lines ? (lines[1] || rows.length) : 0;
+    spanEl.textContent = lines
+      ? `she read lines ${first}–${Math.min(last, rows.length)} of ${rows.length}`
+      : `${rows.length} line${rows.length === 1 ? '' : 's'}`;
+    body.innerHTML = rows.map((row, i) => {
+      const n = i + 1;
+      const read = lines && n >= first && n <= last ? ' read' : '';
+      return `<div class="note-peek-line${read}"><span class="note-peek-n">${n}</span>` +
+        `<span class="note-peek-t">${escLine(row) || ' '}</span></div>`;
+    }).join('');
+    const mark = body.querySelector('.note-peek-line.read');
+    body.scrollTop = mark ? Math.max(0, mark.offsetTop - body.clientHeight / 4) : 0;
+  }
+
+  messages?.addEventListener('click', (ev) => {
+    const btn = ev.target.closest?.('.tool-file');
+    if (!btn) return;
+    const span = /^(\d+)-(\d+)$/.exec(btn.dataset.lines || '');
+    openNote(btn.dataset.note || '', span ? [Number(span[1]), Number(span[2])] : null);
+  });
+
   /* One bubble's classes and contents, wherever it is going to live: the live
    * append below, the optimistic line it lands on, and a restored one prepended
    * above the column all draw the same thing.
@@ -606,7 +725,7 @@
       const said = refused ? ` · ${m.verdict}${m.why ? ` (${m.why})` : ''}` : '';
       div.innerHTML = `<span class="tool-chip" title="${esc(m.tool || '')}">` +
         `<span class="tool-mark" aria-hidden="true">⚙</span>` +
-        `${esc(m.text || m.tool || '')}${esc(said)}${stamp(m.ts)}</span>`;
+        `${chipLabel(m, noteOf(m))}${esc(said)}${stamp(m.ts)}</span>`;
       return div;
     }
     div.className = 'msg ' + (her ? 'her' : 'you') + (m.proactive ? ' proactive' : '')

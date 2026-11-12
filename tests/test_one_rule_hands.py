@@ -232,6 +232,25 @@ def test_a_read_notice_says_which_lines_it_read():
     assert tool_notice_text("read_note", {"path": "a.md"}, empty) == "read_note · a.md"
 
 
+def test_a_notice_on_a_note_carries_the_note_so_the_page_can_open_it(cfg):
+    """SPEC §7.3: the chip's path is a link to the note. The text clips a long
+    path, so the whole one rides beside it, and a read says which lines."""
+    rt = create_app(cfg, brain=FakeBrain()).state.rt
+    long_path = "research/" + "a" * 70 + ".md"
+    head = '{"path": "notes/a.md", "start_line": 30, "end_line": 48, "line_count": 48,'
+    rt.guard.audit("read_note", {"path": "notes/a.md", "start_line": 30}, "ok", 1.0, head)
+    rt.guard.audit("write_note", {"path": long_path, "text": "x"}, "ok", 1.0, "{}")
+    rt.guard.audit("delete_note", {"path": "notes/b.md"}, "ok", 1.0, "{}")
+    rt.guard.audit("web_search", {"query": "notes/a.md"}, "ok", 1.0, "{}")
+
+    read, wrote, deleted, searched = [m for m in rt.transcript if m["role"] == "tool"]
+    assert read["note"] == "notes/a.md" and read["lines"] == [30, 48]
+    assert wrote["note"] == long_path and "lines" not in wrote
+    assert wrote["text"].endswith("…")              # the chip clipped it; the link did not
+    assert "note" not in deleted                    # nothing left to open
+    assert "note" not in searched
+
+
 # ---- her own work: a step chains ---------------------------------------------------
 
 def _hands(rig, **extra):

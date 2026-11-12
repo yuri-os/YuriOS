@@ -3652,7 +3652,9 @@ changes; a runtime does not know it has neighbours.
   changing it re-indexes the Vault (§4.3). `GET|PATCH /api/brain` (and `/api/characters/<id>/brain`,
   which is what the gear in her room calls) is the surface. A profile save (§30.4) **MUST** take
   the same path rather than restarting whenever it left everything the runtime was *built* with —
-  her name, her voice, her body, the utility and dream loops — where it found it. That decision is
+  her name, her voice, her Live2D rig, the utility and dream loops — where it found it. Her body
+  *backend* is not among them: the desktop window and her rooms read it from the record when
+  they open (§6.5, §6.8), so choosing VRM or Live2D **MUST NOT** rebuild her. That decision is
   made by comparing the record before and after the save, not by which keys were sent: a client
   may post the whole form, and re-submitting an unchanged voice is not a reason to take her
   conversation down.

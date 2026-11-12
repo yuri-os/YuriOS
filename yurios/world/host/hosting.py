@@ -386,8 +386,9 @@ _OPTION_KEYS = frozenset(
 def _construction_fingerprint(record: CharacterRecord) -> tuple:
     """What a runtime bakes in when it is built (SPEC §31.4).
 
-    Her name (it is the runtime's `companion_name`), her voice, her body, the
-    two loops that are wired rather than switched, and her doorbell — the
+    Her name (it is the runtime's `companion_name`), her voice, her Live2D rig
+    (the room reads it from her config), the two loops that are wired rather
+    than switched, and her doorbell — the
     NotifyChannel is built once by the channel manager at start, so a change here
     is invisible until she is rebuilt. Everything else a profile save
     can touch reaches her while she runs: her brain settings through `retune`,
@@ -396,9 +397,14 @@ def _construction_fingerprint(record: CharacterRecord) -> tuple:
 
     Compared before and after the save rather than by which keys were *sent* —
     a client may post every field on every save, and re-submitting the same
-    voice is not a reason to take her conversation down."""
+    voice is not a reason to take her conversation down.
+
+    Her body *backend* is not here: nothing a running runtime holds reads it.
+    The desktop window asks the record when it opens (`desktop_body`), and her
+    VRM rooms ask `/body` (SPEC §6.8) — so choosing VRM or Live2D must not take
+    her conversation down for a setting she never sees."""
     return (record.display.name, record.voice.tts_backend, record.voice.stt_backend,
-            record.voice.voice_id, record.body.backend, record.body.model,
+            record.voice.voice_id, record.body.model,
             record.loops.utility, record.loops.dream, record.notify.enabled)
 
 

@@ -1247,6 +1247,25 @@ def test_a_model_change_on_the_profile_form_also_skips_the_restart(tmp_path, mon
         assert host.runtime("yuri") is not before
 
 
+def test_choosing_vrm_or_live2d_does_not_rebuild_her(tmp_path, monkeypatch):
+    """Nothing a running runtime holds reads her body backend — the window and
+    her rooms ask the record (SPEC §6.5, §6.8) — so the switch must not cost her
+    the conversation. Her Live2D rig is read from her config, so it still does."""
+    registry = CharacterRegistry(tmp_path)
+    registry.add(record(tmp_path, "yuri"))
+    monkeypatch.setattr("yurios.world.host.hosting.create_app", fake_character_app)
+
+    with TestClient(create_host_app(Config(data_dir=tmp_path, _env_file=None),
+                                    registry)) as client:
+        host = client.app.state.host
+        before = host.runtime("yuri")
+        client.patch("/api/characters/yuri/profile", json={"body_backend": "live2d"})
+        assert host.runtime("yuri") is before
+        assert host.desktop_body("yuri") == "live2d"
+        client.patch("/api/characters/yuri/profile", json={"body_model": "miara"})
+        assert host.runtime("yuri") is not before
+
+
 def test_the_primary_answers_the_unprefixed_brain_route(tmp_path, monkeypatch):
     """The single-companion install's pages carry no character in the URL."""
     registry = CharacterRegistry(tmp_path)

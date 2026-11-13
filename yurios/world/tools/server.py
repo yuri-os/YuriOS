@@ -553,7 +553,9 @@ def build_server(*, max_minutes: float | None = None,
         @mcp.tool()
         def read_note(path: str, start_line: int = 1, end_line: int = 0) -> dict:
             """Read one of your own notes back. `path` is what `list_notes`
-            showed you, like "research/paddleboards.md". `start_line` is a
+            showed you, like "research/paddleboards.md". For a guessed path,
+            first use `list_notes` with its folder to find what exists. A
+            known path can be read directly. `start_line` is a
             1-based first line; `end_line` is an inclusive last line, or 0 for
             the rest of the note. A long note comes back one page at a time:
             when `next_start_line` is a number, read again with that as

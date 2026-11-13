@@ -288,7 +288,17 @@ async def context(loop, goal: Goal) -> str:
     # Its own desk file, by name (§22.3). Unnamed, the newest goals/… path in
     # the desk digest looked like it: live, 4 Oct, a skill goal's first step
     # read the finished diary goal's file as its own and appended to it twice.
-    meta.append(f"its desk file: {desk_path(loop, goal)} — what each step "
+    path = desk_path(loop, goal)
+    availability = "desk unavailable"
+    if loop.workspace is not None:
+        try:
+            availability = ("exists" if loop.workspace.exists(path) else
+                            "no progress file exists yet; do not read it; "
+                            "this step's conclusion will create it")
+        except OSError:
+            availability = "availability could not be checked"
+            log.warning("goal desk availability check failed", exc_info=True)
+    meta.append(f"its desk file: {path} — {availability}; what each step "
                 "works out is written there for you when the step ends, so you "
                 "never need to log your progress yourself; every other goals/… "
                 "file on your desk belongs to a different goal")
@@ -329,6 +339,13 @@ async def context(loop, goal: Goal) -> str:
     except Exception:  # noqa: BLE001
         log.debug("goal work: no situation", exc_info=True)
     if loop.workspace is not None:
+        # SPEC §22.4: diary dates come from files, not the current calendar.
+        day, _ = loop.workspace.latest_dated("diary")
+        diary = (f"Latest diary: diary/{day}.md." if day else
+                 "No dated diary entry exists on your desk.")
+        parts.append("YOUR DIARY\n\n" + diary + " DREAM writes diary entries "
+                     "for finished days; today's date does not mean today's "
+                     "entry exists.")
         digest = loop.workspace.digest(limit=12, labels=loop.goals.desk_labels(
             loop.GOAL_DESK, this=goal.id))
         if digest:

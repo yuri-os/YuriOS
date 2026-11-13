@@ -42,7 +42,9 @@ SPECS = [
     ToolSpec("list_notes", "List what's on your desk — the notes and drafts "
              "you've written for yourself. `folder` narrows it to one subfolder.",
              {"properties": {"folder": {"type": "string"}}, "required": []}),
-    ToolSpec("read_note", "Read one of your own notes back. `start_line` and "
+    ToolSpec("read_note", "Read one of your own notes back. For a guessed path, "
+             "first use `list_notes` with its folder to find what exists. A "
+             "known path can be read directly. `start_line` and "
              "`end_line` select an inclusive 1-based range.",
              {"properties": {"path": {"type": "string"},
                              "start_line": {"type": "integer"},

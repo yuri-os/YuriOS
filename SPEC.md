@@ -2890,8 +2890,12 @@ optional due time, **provenance**, and a **commitment strategy**; lifecycle
   work the entries before them recorded. Readers that want her words (§34.5's block, a follow-up's
   cue, §18) **MUST** stop at that line. A step **MUST** be told its own desk file by path — in what
   it is told about the goal, from its first step, before the file exists — and that the file is
-  written for it, and the section that reads the file back **MUST** name the path too; wherever the
-  desk is listed with the goal store in reach (a step, free time, a handed document, a reply), each
+  written for it. That context **MUST** check the file's actual existence and say whether it
+  exists; when absent, it **MUST** say not to read it and that this step's conclusion will create
+  it. An empty existing file is still present; the step count is not an existence check. Checking
+  availability **MUST NOT** create a placeholder. The section that reads the file back **MUST**
+  name the path too; wherever the desk is listed with the goal store in reach (a step, free time,
+  a handed document, a reply), each
   `goals/<id>.md` **MUST** say whose goal it is and in what state. Unnamed, and with five goal
   files listed by id alone, a skill goal's first step took the newest — the finished diary goal's —
   for its own and logged its progress there twice. The horizon is bounded by `MIND_GOAL_MAX_STEPS`
@@ -2910,6 +2914,10 @@ optional due time, **provenance**, and a **commitment strategy**; lifecycle
   The preamble is droppable to `brief` (voice law + backbone + personality) under
   `MIND_SOUL_IN_PROMPTS`, in §7.2's order — what places her goes before what she is — and a soul
   that cannot be read **MUST** cost the block and never the call (§20.2's rule for the shelf).
+  A working step **MUST** also be told the latest existing dated diary path, selected from the
+  desk by date in the filename, or that no dated diary exists. It **MUST** explain that DREAM
+  writes entries for finished days: the current date does not imply a diary for that date exists.
+  This is a path and lifecycle hint, not an extra copy of the diary's contents.
   **A chained step sends that context once.** `MIND_COMPACT_FOLLOWUPS` (**true**) keeps the
   preamble and the bulk of the step — desk, skills, situation, facts, recall — on the first model
   call of a chain only. Each later round in that same chain **MUST** still carry the step's own
@@ -3845,6 +3853,10 @@ the things she *is* and the wrong shape for the things she is *doing*.
   `line_count`, `next_start_line`, `truncated`), and `next_start_line` **MUST** name the line the
   note goes on from, or be null at its end, so reading the rest is one more call and never an
   edit. A single line longer than a page comes back as its start, with a `note` saying so.
+  Both the conversational and autonomous descriptions of `read_note` **MUST** direct her to
+  `list_notes` with the relevant folder before reading a guessed path when that hand is offered;
+  a known path may be read directly. A missing file **MUST** remain an error, never an empty
+  successful read.
 
   The tool server is a separate process writing straight to disk, so a desk write **MUST** be
   reported back to the host (`_realise` → `MindLoop._desk_written`), which marks the Vault dirty

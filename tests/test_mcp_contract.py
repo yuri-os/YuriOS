@@ -475,6 +475,20 @@ async def test_a_note_round_trips_through_the_tools(tmp_path):
     assert (tmp_path / "workspace" / "research" / "boards.md").is_file()
 
 
+async def test_read_note_teaches_discovery_and_keeps_missing_files_as_errors(tmp_path):
+    async with create_connected_server_and_client_session(
+            desk_server(tmp_path)._mcp_server) as s:
+        tools = (await s.list_tools()).tools
+        read = next(t for t in tools if t.name == "read_note")
+        description = " ".join((read.description or "").split())
+        assert "For a guessed path, first use `list_notes` with its folder" in description
+        assert "known path can be read directly" in description
+        result = await s.call_tool("read_note", {"path": "diary/2026-11-13.md"})
+        assert result.isError
+        assert "nothing on your desk" in result_text(result)
+    assert not (tmp_path / "workspace" / "diary" / "2026-11-13.md").exists()
+
+
 async def test_list_notes_says_when_the_folder_is_not_on_the_desk(tmp_path):
     """An empty listing of a phantom folder is how 'kept-memory is empty'
     became a fact. Name the miss."""

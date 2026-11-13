@@ -397,6 +397,57 @@ async def test_goal_work_gets_the_same_context_as_conversation(cfg, seeded_vault
     assert "notes/paddleboards.md" in context
 
 
+@pytest.mark.parametrize("present", [False, True])
+async def test_goal_file_availability_comes_from_disk_not_step_count(
+        cfg, seeded_vault, present):
+    rig = make_mind(cfg, seeded_vault)
+    goal = rig.mind.goals.add("study the image model", kind="task")
+    # A resumed goal can have lost its file; a new one can already have an
+    # empty file. Neither step count nor nonempty text proves existence.
+    rig.mind.goals.update(goal.id, meta={"steps": 3 if not present else 0})
+    path = f"goals/{goal.id}.md"
+    if present:
+        rig.mind.workspace.write(path, "")
+    context = await rig.mind._goal_context(rig.mind.goals.get(goal.id))
+    if present:
+        assert f"its desk file: {path} — exists;" in context
+        assert "no progress file exists yet" not in context
+        assert rig.mind.workspace.read(path) == ""
+    else:
+        assert f"its desk file: {path} — no progress file exists yet" in context
+        assert "do not read it; this step's conclusion will create it" in context
+        assert not rig.mind.workspace.exists(path), "context created a placeholder"
+
+
+@pytest.mark.parametrize("latest", [None, "2026-07-01", "today"])
+async def test_goal_context_names_the_diary_that_actually_exists(
+        cfg, seeded_vault, latest):
+    from yurios.mind.util import day_of
+
+    rig = make_mind(cfg, seeded_vault)
+    today = day_of(rig.clock.now())
+    if latest == "today":
+        latest = today
+    if latest:
+        rig.mind.workspace.write(f"diary/{latest}.md", "private diary contents")
+        # A later write of an older entry or a README must not win by mtime
+        # or lexicographic order across nondated files.
+        rig.mind.workspace.write("diary/2026-06-01.md", "older entry")
+    rig.mind.workspace.write("diary/README.md", "instructions")
+    goal = rig.mind.goals.add("study the image model", kind="task")
+    context = await rig.mind._goal_context(goal)
+    assert "DREAM writes diary entries for finished days" in context
+    assert "today's date does not mean today's entry exists" in context
+    assert "private diary contents" not in context
+    if latest:
+        assert f"Latest diary: diary/{latest}.md." in context
+    else:
+        assert "No dated diary entry exists on your desk." in context
+    if latest != today:
+        assert f"diary/{today}.md" not in context
+        assert not rig.mind.workspace.exists(f"diary/{today}.md")
+
+
 async def test_goal_work_is_handed_the_plan_she_filed_it_with(cfg, seeded_vault):
     """Strategy asks for a first step, the evidence and an observable finish,
     and files them on the goal — a step given only the title reconsiders the

@@ -115,7 +115,8 @@ HANDS: dict[str, Hand] = {
     # step sees this line, never the tool's description. Shown only `path`,
     # she read a long inbox document by deleting each page she had read.
     "read_note": Hand(
-        "cheap", "read one of her notes back",
+        "cheap", "read one of her notes back; for a guessed path, first use "
+        "list_notes with its folder",
         '{"path": "notes/x.md", "start_line": 1}'),
     "list_notes": Hand(
         "cheap", "see what is on her desk",
@@ -694,10 +695,15 @@ class Hands:
         rows = self.rows(tools)
         limit = int(cap if cap is not None
                     else getattr(self.cfg, "tool_max_calls_per_turn", 1))
+        discovery = ("For a guessed note path, first use list_notes with its "
+                     "folder to find what exists. A known path can be read "
+                     "directly.\n\n"
+                     if "read_note" in tools and "list_notes" in tools else "")
         return (
             "Answer with one line, in one of these forms:\n\n"
             "  think <a short note to yourself about this goal>\n"
             f"{rows}\n\n"
+            + discovery +
             # She writes the reason beside the call anyway; asking for it is
             # cheaper than parsing around it, and the note is what the next tick
             # reads off the desk.

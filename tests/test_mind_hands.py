@@ -1635,6 +1635,8 @@ async def test_a_step_is_told_which_desk_file_is_its_own(cfg, seeded_vault):
     first = utility.calls[0][1]["content"]
     # its own file, by name, even before it exists — and that it is kept for her
     assert f"its desk file: goals/{skill.id}.md" in first
+    assert "no progress file exists yet; do not read it" in first
+    assert "this step's conclusion will create it" in first
     assert "never need to log your progress yourself" in first
     # every other goal file says whose it is
     assert (f"goals/{diary.id}.md (" in first
@@ -1645,6 +1647,16 @@ async def test_a_step_is_told_which_desk_file_is_its_own(cfg, seeded_vault):
     second = utility.calls[-1][1]["content"]
     assert f"WHAT YOU HAVE ALREADY WORKED OUT ON THIS (goals/{skill.id}.md)" in second
     assert f"goals/{skill.id}.md (" in second and "— this goal" in second
+    assert f"its desk file: goals/{skill.id}.md — exists;" in second
+    assert "no progress file exists yet" not in second
+
+
+def test_read_note_teaches_path_discovery_to_the_autonomous_mind(cfg, seeded_vault):
+    rig = rig_with_hands(cfg, seeded_vault, allow="read_note,list_notes")
+    catalog = rig.mind.hands.catalog(("read_note", "list_notes"))
+    assert "For a guessed note path, first use list_notes with its folder" in catalog
+    assert "known path can be read directly" in catalog
+    assert "list_notes" not in rig.mind.hands.catalog(("read_note",))
 
 
 # --- a night job's hands (§21.2, `max_hands`) ----------------------------------

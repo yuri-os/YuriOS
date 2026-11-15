@@ -57,10 +57,10 @@ def test_the_kernel_imports_nothing_from_yurios():
         "\n".join(f"  {f}: {', '.join(sorted(n))}" for f, n in sorted(offenders.items())))
 
 
-def test_the_kernel_still_holds_the_three_primitives():
+def test_the_kernel_still_holds_its_primitives():
     """A guard on the guard: the test above passes trivially on an empty package."""
     assert {p.name for p in KERNEL.glob("*.py")} == {
-        "__init__.py", "clock.py", "correlate.py", "hub.py"}
+        "__init__.py", "clock.py", "correlate.py", "heap.py", "hub.py"}
 
 
 # --- import cycles ------------------------------------------------------------

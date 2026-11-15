@@ -18,4 +18,5 @@ reaching sideways.
   clock.py      `Clock` / `VirtualClock` — no wall-clock reads in the mind
   correlate.py  `Origin` and one `corr_id` per unit of work
   hub.py        `EventHub` — every host→frontend event, typed, on one bus
+  heap.py       `trim_heap` — freed weights back to the OS, for every unloader
 """

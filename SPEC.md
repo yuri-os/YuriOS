@@ -1240,6 +1240,16 @@ to every new subscriber before its first live event. Malformed JSON is logged an
   `VOICE_UNLOAD_AFTER_S`. A new render **MUST** cancel a pending unload so a shot taken fifty-nine
   minutes later still hits a warm pipeline. A hosted backend holds no weights and **MUST NOT**
   arm a timer.
+
+  Dropping a pipeline **MUST** hand back the host memory its weights held, not just the VRAM. A
+  checkpoint is read into RAM on a worker thread — and under model CPU offload it lives there — so
+  glibc files it in per-thread arenas that `free` keeps for reuse: a teardown that releases every
+  reference, collects and empties the CUDA cache still leaves the process the checkpoint's size.
+  Every local backend's teardown **MUST** end with `kernel/heap.trim_heap` (`malloc_trim(0)` on
+  Linux, a no-op elsewhere) — observed as ~15 GB, most of it in swap, after two unloads in one
+  process, of which the one call returned 13 GB. The rule is not the camera's alone: the voice
+  stack's empty-room unload and the GGUF park drop weights the same way and **MUST** end with the
+  same call.
 - §7.7 **The web: `web_search` / `read_page` / `research`, and what she reads she keeps.** The
   three hands arrive together or not at all — searching with no way to open what you found is half
   a capability — behind one `SEARCH_BACKEND` knob whose default is `off`.

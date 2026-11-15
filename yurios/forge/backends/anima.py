@@ -37,6 +37,7 @@ import secrets
 from pathlib import Path
 from typing import Any, Optional
 
+from ...kernel.heap import trim_heap
 from ..types import Capabilities, GenRequest, ImageResult
 from .base import ImageBackend
 from .sniff import ANIMA_PREFIXES
@@ -325,7 +326,7 @@ class AnimaBackend(ImageBackend):
         self._guidance = cfg
 
     def _teardown(self) -> None:
-        """Drop the pipeline and hand the VRAM back (the parker's reset)."""
+        """Drop the pipeline and hand the VRAM and host RAM back (the parker's reset)."""
         self._pipe = None
         self._offloading = None                # the next load decides afresh
         self._guidance = None
@@ -337,6 +338,7 @@ class AnimaBackend(ImageBackend):
                 torch.cuda.empty_cache()
         except ImportError:
             pass
+        trim_heap()                    # SPEC §7.6a: the freed weights, back to the OS
 
     def _make_generator(self, seed: int):
         import torch

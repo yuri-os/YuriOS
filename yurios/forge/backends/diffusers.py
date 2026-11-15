@@ -34,6 +34,7 @@ from pathlib import Path
 
 from PIL import Image                       # Pillow is a core dep (see mock.py)
 
+from ...kernel.heap import trim_heap
 from ..types import Capabilities, GenRequest, ImageResult
 from .base import ImageBackend
 
@@ -217,7 +218,7 @@ class DiffusersBackend(ImageBackend):
             return False        # can't measure → behave exactly as before
 
     def _teardown(self) -> None:
-        """Drop the pipeline and hand the VRAM back (the OOM retry's reset)."""
+        """Drop the pipeline and hand the VRAM and host RAM back (the OOM retry's reset)."""
         self._pipe = None
         self._offloading = None                 # the next load decides afresh
         import gc
@@ -230,6 +231,7 @@ class DiffusersBackend(ImageBackend):
                 torch.mps.empty_cache()
         except ImportError:
             pass
+        trim_heap()                    # SPEC §7.6a: the freed weights, back to the OS
 
     def _make_img2img(self, pipe):
         """The hires-fix second pass rides the same weights, no double load."""

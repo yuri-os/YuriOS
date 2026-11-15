@@ -33,6 +33,7 @@ from typing import AsyncIterator
 
 from yurios.app.providers.admission import inference_admission
 from yurios.app.providers.usage import StreamTally
+from yurios.kernel.heap import trim_heap
 
 
 log = logging.getLogger(__name__)
@@ -558,6 +559,7 @@ def park() -> list[tuple[str, object]]:
             torch.cuda.empty_cache()
     except Exception:
         pass
+    trim_heap()                          # the host side of a closed context
     if handles:
         log.info("GGUF park: closed %d context(s) — the card belongs to the "
                  "camera for one render", len(handles))

@@ -36,7 +36,6 @@ single-companion install that would rather spend the memory than the wait.
 from __future__ import annotations
 
 import asyncio
-import ctypes
 import gc
 import logging
 import sys
@@ -45,6 +44,7 @@ import time
 
 from yurios.desktop.main import build_stt, build_tts, build_vad
 from yurios.desktop.voice.fillers import FillerBank
+from yurios.kernel.heap import trim_heap
 
 from .boot import BootBoard, FAILED, PENDING, READY, SKIPPED
 
@@ -211,7 +211,11 @@ class VoiceStack:
         # else may touch the stack until it's actually gone anyway.
         gc.collect()
         _release_torch_cache()
-        _return_heap_to_os()
+        # Recovers less than the load cost — see the honest accounting in
+        # docs/voice.md: most of a CPU stack's footprint is torch's own
+        # allocator, which keeps and *reuses* its arena, so a reload costs
+        # nothing extra rather than compounding. Free to call, so called.
+        trim_heap()
         log.info("voice: unloaded — nobody is in the room")
 
     # ---- the room's door ----------------------------------------------------
@@ -307,21 +311,3 @@ def _release_torch_cache() -> None:
     except Exception:                          # a driver blip must not fail a release
         log.debug("could not empty the CUDA cache", exc_info=True)
 
-
-def _return_heap_to_os() -> None:
-    """…and ask glibc for the freed arenas back.
-
-    Dropping a couple of gigabytes of weights does not lower the process's RSS
-    on its own: glibc holds the freed pages in its arenas for the next
-    allocation. `malloc_trim` is what actually hands them back. It recovers less
-    than the load cost — see the honest accounting in `docs/voice.md`; most of a
-    CPU stack's footprint is torch's own allocator, which keeps and *reuses* its
-    arena, so a reload costs nothing extra rather than compounding. Free to
-    call, so worth calling. glibc-only; anywhere else this is a no-op.
-    """
-    if sys.platform != "linux":
-        return
-    try:
-        ctypes.CDLL(None).malloc_trim(0)
-    except (OSError, AttributeError):          # musl, or no libc symbols here
-        pass

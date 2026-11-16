@@ -33,10 +33,9 @@ from yurios.characters import (
     clone_character,
 )
 from yurios.characters import archive as archive_model
-from yurios.characters.connections import (MODEL_KEY_ENV_PREFIX, key_env_for_profile,
-                                           valid_saved_key)
-from yurios.app.providers.catalog import (SERVER_URL_FIELDS, provider_for_route,
-                                          provider_models)
+from yurios.characters.connections import (MODEL_KEY_ENV_PREFIX, is_model_key_env,
+                                           key_env_for_profile, valid_saved_key)
+from yurios.app.providers.catalog import SERVER_URL_FIELDS, provider_for_route
 from yurios.envfile import update_env
 from yurios.security import is_loopback
 
@@ -45,7 +44,7 @@ from ..desktop_windows import WindowUnavailable
 from .hosting import (_OPTION_KEYS, PURGE_CHALLENGE_TTL_S,
                       CharacterBusy, CharacterHost, _env_values, _card_values, _construction_fingerprint,
                       _update_soul, config_for_character, config_for_listing, env_file_path,
-                      save_brain_overrides)
+                      models_for, save_brain_overrides)
 
 log = logging.getLogger("world.host")
 
@@ -99,8 +98,15 @@ def register(app: FastAPI, host: CharacterHost, require) -> None:
 
     @app.get("/api/connections")
     async def connections():
+        """The profiles, and the names — never the values — of the model keys
+        already set on this node, so a profile can be pointed at one rather
+        than have the same key pasted into a second line."""
         env = _env_values(base, None)
-        return {"profiles": [_profile_row(item, env) for item in host.connections.list()]}
+        keys = sorted(name for name, value in env.items()
+                      if name.startswith(MODEL_KEY_ENV_PREFIX) and is_model_key_env(name)
+                      and str(value or "").strip())
+        return {"profiles": [_profile_row(item, env) for item in host.connections.list()],
+                "key_envs": keys}
 
     @app.put("/api/connections/{profile_name}")
     async def save_connection(profile_name: str, request: Request):
@@ -124,9 +130,9 @@ def register(app: FastAPI, host: CharacterHost, require) -> None:
                 raise HTTPException(400, "an API key is one line of printable characters, "
                                          "with no spaces, quotes or backslashes")
             # A key typed on the board is this profile's own: it never lands in
-            # the house OpenRouter line, or in another profile's variable.
-            if not key_env.startswith(MODEL_KEY_ENV_PREFIX):
-                key_env = key_env_for_profile(profile_name)
+            # the house OpenRouter line, or in a variable another profile may
+            # be pointed at — choosing an existing key is `api_key_env` alone.
+            key_env = key_env_for_profile(profile_name)
         try:
             profile = ConnectionProfile(
                 name=profile_name,
@@ -191,7 +197,7 @@ def register(app: FastAPI, host: CharacterHost, require) -> None:
                     "error": "her model is not served by a server this profile can point at"}
         cfg = config_for_listing(base, record, profile, provider)
         field = SERVER_URL_FIELDS.get(provider)
-        result = await provider_models(cfg, provider)
+        result = await models_for(base, record, profile, provider)
         return {"provider": provider, "url": str(getattr(cfg, field) or "") if field else "",
                 **result}
 

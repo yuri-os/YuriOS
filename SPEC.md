@@ -3731,9 +3731,12 @@ changes; a runtime does not know it has neighbours.
   A server that requires a key **MUST** be reachable from the switchboard alone, without editing a
   file by hand: `PUT /api/connections/<name>` accepts a write-only `api_key`, which the host writes
   to the `.env` it reads (never to `connections.json`, the registry, or a response) under the
-  profile's own variable — `YURIOS_MODEL_API_KEY_<NAME>`, from its name, unless the profile
-  already names one in that namespace — and then retunes every running character on the profile
-  (§31.4). A key typed for a profile **MUST NOT** be written to `OPENROUTER_API_KEY` or to any
+  profile's own variable, `YURIOS_MODEL_API_KEY_<NAME>` from its name — never one another
+  profile may be pointed at — and then retunes every running character on the profile (§31.4).
+  A key already on the node is chosen instead by `api_key_env` alone: `GET /api/connections`
+  **MUST** list the names — never the values — of the `YURIOS_MODEL_API_KEY_*` variables set,
+  and the switchboard **MUST** offer them beside "no key" and "a new key", so one key is not
+  pasted into a second line. A key typed for a profile **MUST NOT** be written to `OPENROUTER_API_KEY` or to any
   variable outside that namespace, and is refused unless it is one line of printable characters
   with no whitespace, quotes or backslash, so the line reads back as exactly the value. A profile
   still selected by a character **MUST NOT** be deleted. `GET /api/connections/<name>/check?character=<id>`
@@ -3742,8 +3745,10 @@ changes; a runtime does not know it has neighbours.
   picker, the studio's, this check — **MUST** resolve url and key as if her chat model were
   already on the provider being listed, since her running config carries a key only for the
   provider she is on, and the listing is what she needs in order to move. A 401/403 from any model
-  listing **MUST** be reported as a key the server wants — naming the profile and the house
-  variable as where it goes — never as an unreachable server.
+  listing **MUST** be reported as a key the server wants, never as an unreachable server, and
+  say where the key goes: for a character, her connection profile by name — and the house
+  variable (`LMSTUDIO_API_KEY`…) only when it is the key she would be sent, her profile naming
+  none and her address being the house's own; for the house's own listing, the house variable.
 - §31.2 **A character's record overrides the host default, field by field.** `config_for_character`
   builds a runtime `Config` from the host's, always replacing the character-scoped identity and
   paths (name, vault, corpus, traces, tool logs, selfies, the loop switches, her Telegram pair),

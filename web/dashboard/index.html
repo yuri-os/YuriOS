@@ -326,10 +326,10 @@
     </form>
   </dialog>
 
-  <!-- A connection profile: a server address, and the key it wants. The key is
-       write-only — the host saves it to its .env under the profile's own
-       YURIOS_MODEL_API_KEY_* line and never sends it back. Opens over the
-       profile panel, so nothing typed there is lost. -->
+  <!-- A connection profile: a server address, and the key it wants — none, a
+       YURIOS_MODEL_API_KEY_* key already in .env (named, never shown), or a new
+       one, which the host saves under the profile's own name and never sends
+       back. Opens over the profile panel, so nothing typed there is lost. -->
   <dialog id="connection-dialog" class="modal">
     <form id="connection-form" class="modal-card" autocomplete="off">
       <header class="modal-head">
@@ -339,13 +339,13 @@
       <div class="field-grid">
         <label class="field-wide"><span>Name</span><input name="name" type="text" maxlength="64" pattern="[a-z0-9_\-]+" required placeholder="gpu-box"><small class="field-help">lowercase letters, digits, - and _</small></label>
         <label class="field-wide"><span>Server address</span><input name="endpoint" type="text" maxlength="400" inputmode="url" placeholder="http://localhost:1234/v1"><small class="field-help">LM Studio, Ollama or an OpenAI-compatible server. Blank inherits the house address for her model's provider.</small></label>
-        <label class="field-wide"><span>API key</span><input name="api_key" type="password" maxlength="4096" autocomplete="new-password" spellcheck="false"><small id="connection-key-note" class="field-help"></small></label>
+        <label class="field-wide"><span>API key</span><select name="key_source"></select><small id="connection-key-note" class="field-help"></small></label>
+        <label id="connection-new-key" class="field-wide"><span>New key</span><input name="api_key" type="password" maxlength="4096" autocomplete="new-password" spellcheck="false" placeholder="paste the server's key"><small class="field-help">Saved to this node's .env under this profile's own name, never into her card or the profile file, and never shown again.</small></label>
       </div>
       <p id="connection-check" class="form-note" role="status"></p>
       <div id="connection-error" class="form-error" role="alert"></div>
       <footer class="modal-actions">
         <button id="connection-delete" class="button button-quiet modal-aside" type="button"><span>Delete profile</span></button>
-        <button id="connection-forget" class="button button-quiet" type="button"><span>Forget key</span></button>
         <button id="connection-check-button" class="button button-quiet" type="button"><svg><use href="#i-check"></use></svg><span>Check</span></button>
         <button id="connection-submit" class="button button-primary" type="submit"><span>Save connection</span></button>
       </footer>

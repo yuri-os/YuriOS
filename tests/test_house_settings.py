@@ -339,8 +339,13 @@ def test_a_401_says_the_server_wants_a_key_and_where_it_goes(monkeypatch):
     monkeypatch.setattr(catalog, "_fetch_json", _refusing(401))
     keyless = NS(lmstudio_base_url="http://localhost:1234/v1", lmstudio_api_key="")
     error = asyncio.run(catalog.provider_models(keyless, "lmstudio"))["error"]
-    assert "requires an API key" in error and "connection profile" in error
-    assert "LMSTUDIO_API_KEY" in error and "couldn't reach" not in error
+    assert "requires an API key" in error and "LMSTUDIO_API_KEY" in error
+    assert "couldn't reach" not in error
+    # listed for a character, the caller says where her key goes instead
+    hinted = asyncio.run(catalog.provider_models(
+        keyless, "lmstudio", key_hint="give her “gpu” connection profile its key"))["error"]
+    assert hinted.endswith("give her “gpu” connection profile its key")
+    assert "LMSTUDIO_API_KEY" not in hinted
 
     keyed = NS(lmstudio_base_url="http://localhost:1234/v1", lmstudio_api_key="sk-old")
     assert "refused the API key" in asyncio.run(
@@ -367,17 +372,18 @@ def test_her_room_browses_a_provider_through_her_profile(tmp_path, monkeypatch):
         asked.append((url, headers))
         return {"data": [{"id": "gemma"}]}
 
-    def listing(provider, base):
+    async def listing(provider, base):
         resolved.append((provider, base is not None))
-        return house.model_copy(update={"lmstudio_base_url": "http://gpu.lan:1234/v1",
-                                        "lmstudio_api_key": "sk-profile"})
+        return await catalog.provider_models(
+            house.model_copy(update={"lmstudio_base_url": "http://gpu.lan:1234/v1",
+                                     "lmstudio_api_key": "sk-profile"}), provider)
 
     monkeypatch.setattr(catalog, "_fetch_json", fetch)
     app = FastAPI()
     app.include_router(panel.router)
     app.state.rt = SimpleNamespace(cfg=house.model_copy(update={"lmstudio_api_key": ""}))
     app.state.house_config = house
-    app.state.listing_config = listing
+    app.state.list_models = listing
     monkeypatch.setattr(panel, "_require_local", lambda request: None)
 
     body = TestClient(app).get("/api/models", params={"provider": "lmstudio"}).json()

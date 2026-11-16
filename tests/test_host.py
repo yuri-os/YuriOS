@@ -1286,6 +1286,57 @@ def test_a_board_key_is_refused_whole_when_it_could_not_read_back(tmp_path, monk
     assert "OPENROUTER_API_KEY" not in (tmp_path / ".env").read_text()
 
 
+def test_a_profile_can_take_a_key_already_on_the_node_by_name(tmp_path, monkeypatch):
+    """The board lists the model keys already set — names, never values — so a
+    profile is pointed at one rather than given a second copy of the same key;
+    and a key typed for a profile never overwrites a variable it was sharing."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text("YURIOS_MODEL_API_KEY_LMSTUDIO=sk-shared\n"
+                                   "YURIOS_MODEL_API_KEY_EMPTY=\n"
+                                   "OPENROUTER_API_KEY=sk-or\n")
+    registry = CharacterRegistry(tmp_path / "data")
+    app = create_host_app(Config(data_dir=tmp_path / "data", _env_file=None), registry)
+
+    with TestClient(app) as client:
+        listed = client.get("/api/connections").json()
+        pointed = client.put("/api/connections/default", json={
+            "endpoint": "http://localhost:1234/v1",
+            "api_key_env": "YURIOS_MODEL_API_KEY_LMSTUDIO"}).json()
+        typed = client.put("/api/connections/gpu", json={
+            "endpoint": "http://gpu.lan:1234/v1",
+            "api_key_env": "YURIOS_MODEL_API_KEY_LMSTUDIO", "api_key": "sk-gpu"}).json()
+
+    assert listed["key_envs"] == ["YURIOS_MODEL_API_KEY_LMSTUDIO"]
+    assert "sk-shared" not in json.dumps(listed)
+    assert pointed["profile"]["api_key_env"] == "YURIOS_MODEL_API_KEY_LMSTUDIO"
+    assert pointed["profile"]["secret_configured"] is True
+    assert typed["profile"]["api_key_env"] == "YURIOS_MODEL_API_KEY_GPU"
+    env = (tmp_path / ".env").read_text()
+    assert "YURIOS_MODEL_API_KEY_LMSTUDIO=sk-shared" in env
+    assert "YURIOS_MODEL_API_KEY_GPU=sk-gpu" in env
+
+
+def test_a_refused_listing_names_the_house_key_only_where_it_is_the_one_sent(tmp_path):
+    """Her profile is always where her key goes; LMSTUDIO_API_KEY is offered too
+    only when it is the key she would be sent — no profile key, and the house's
+    own address (SPEC §31.2)."""
+    from yurios.world.host.hosting import listing_hint
+    house = Config(data_dir=tmp_path, _env_file=None, lmstudio_base_url="http://localhost:1234/v1")
+    her = record(tmp_path, "yuri", enabled=False)
+
+    def hint(profile):
+        cfg = config_for_listing(house, her, profile, "lmstudio", environ={})
+        return listing_hint(house, profile, cfg, "lmstudio")
+
+    home = hint(ConnectionProfile(name="legacy-default", endpoint="http://localhost:1234/v1"))
+    assert "“legacy-default” connection profile" in home and "LMSTUDIO_API_KEY" in home
+    away = hint(ConnectionProfile(name="gpu", endpoint="http://gpu.lan:1234/v1"))
+    assert "“gpu” connection profile" in away and "LMSTUDIO_API_KEY" not in away
+    keyed = hint(ConnectionProfile(name="default", endpoint="http://localhost:1234/v1",
+                                   api_key_env="YURIOS_MODEL_API_KEY_LMSTUDIO"))
+    assert "LMSTUDIO_API_KEY" not in keyed.replace("YURIOS_MODEL_API_KEY_LMSTUDIO", "")
+
+
 def test_a_profile_in_use_cannot_be_deleted(tmp_path):
     registry = CharacterRegistry(tmp_path)
     registry.add(record(tmp_path, "yuri", enabled=False))
@@ -1311,11 +1362,11 @@ def test_check_lists_her_server_through_the_profile_as_she_would(tmp_path, monke
     monkeypatch.setenv("YURIOS_MODEL_API_KEY_GPU", "sk-gpu")
     seen = {}
 
-    async def listing(cfg, provider):
+    async def listing(cfg, provider, **kwargs):
         seen.update(provider=provider, url=cfg.lmstudio_base_url, key=cfg.lmstudio_api_key)
         return {"models": ["gemma"]}
 
-    monkeypatch.setattr("yurios.world.host.switchboard.provider_models", listing)
+    monkeypatch.setattr("yurios.app.providers.catalog.provider_models", listing)
     app = create_host_app(Config(data_dir=tmp_path, _env_file=None), registry)
     app.state.host.connections.upsert(ConnectionProfile(
         name="gpu", endpoint="http://gpu.lan:1234/v1", api_key_env="YURIOS_MODEL_API_KEY_GPU"))
@@ -1344,12 +1395,11 @@ def test_browsing_lm_studio_for_her_sends_its_key_before_she_is_on_it(tmp_path, 
                    openai_compatible_base_url="https://gateway.example/v1")
     seen = []
 
-    async def listing(cfg, provider):
+    async def listing(cfg, provider, **kwargs):
         seen.append((provider, cfg.lmstudio_base_url, cfg.lmstudio_api_key))
         return {"models": ["gemma"]}
 
-    monkeypatch.setattr("yurios.world.host.switchboard.provider_models", listing)
-    monkeypatch.setattr("yurios.world.host.studio.provider_models", listing)
+    monkeypatch.setattr("yurios.app.providers.catalog.provider_models", listing)
     app = create_host_app(house, registry)
     app.state.host.connections.upsert(ConnectionProfile(
         name="lms", endpoint="http://localhost:1234/v1", api_key_env="YURIOS_MODEL_API_KEY_LMS"))

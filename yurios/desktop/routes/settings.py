@@ -170,9 +170,9 @@ async def list_models(request: Request, provider: str = ""):
     # On a host, her room browses through her connection profile as if her
     # model were already on this provider (SPEC §31.2) — otherwise a keyed LM
     # Studio refuses the listing she needs in order to move onto it.
-    listing = getattr(request.app.state, "listing_config", None)
+    listing = getattr(request.app.state, "list_models", None)
     if listing is not None:
-        return await provider_models(listing(provider, _as_saved(cfg, cfg)), provider)
+        return await listing(provider, _as_saved(cfg, cfg))
     return await provider_models(_as_saved(cfg, _key_config(request, cfg)), provider)
 
 

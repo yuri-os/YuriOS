@@ -134,12 +134,15 @@ her conversation alive. `mind` and `hands` are applied live rather than rebuildi
 
 `GET /api/connections` lists `{ name, backend, endpoint, api_key_env,
 secret_configured, used_by }` — the profile picker in Settings, and the line under
-it saying where she points and whether a key goes with it.
+it saying where she points and whether a key goes with it — plus `key_envs`, the
+names (never the values) of the `YURIOS_MODEL_API_KEY_*` keys set on this node,
+which the Edit connection dialog offers beside "no key" and "type a new key".
 
 `PUT /api/connections/{name}` saves `{ endpoint, api_key_env, api_key? }`. `api_key`
-is write-only: the host saves it to its `.env` as `YURIOS_MODEL_API_KEY_<NAME>`, sets
-the profile's `api_key_env` to that, and never returns it. Leave it out to keep the
-key the profile has; send `api_key_env: ""` with no `api_key` to stop sending one.
+is write-only: the host saves it to its `.env` as `YURIOS_MODEL_API_KEY_<NAME>` —
+always the profile's own, whatever `api_key_env` says — sets the profile's
+`api_key_env` to that, and never returns it. Without it, `api_key_env` picks a key
+already on the node by name, or `""` sends none.
 The response is `{ profile, applied: { id: [...] }, warning }` — `warning` is set when
 the server's environment shadows the `.env` line just written.
 

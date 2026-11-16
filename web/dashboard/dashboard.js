@@ -869,12 +869,14 @@ async function submitProfile(event) {
  * with "Require API key" on was reachable only by editing two files by hand.
  * The dialog opens *over* the profile panel, so a half-edited profile survives. */
 
-const connectionState = { profiles: [], editing: null };
+const connectionState = { profiles: [], keyEnvs: [], editing: null };
+const NEW_KEY = "__new__";
 
 function fillConnectionPicker(payload, selected) {
   const select = $("#profile-form").elements.connection_profile;
   const current = selected ?? select.value;
   connectionState.profiles = Array.isArray(payload?.profiles) ? payload.profiles : [];
+  connectionState.keyEnvs = Array.isArray(payload?.key_envs) ? payload.key_envs : [];
   select.replaceChildren(...connectionState.profiles.map((profile) => element("option", {
     text: profile.name, attrs: { value: profile.name },
   })));
@@ -888,7 +890,32 @@ function chosenConnection() {
 
 function describeKey(profile) {
   if (!profile.api_key_env) return "no API key";
-  return profile.secret_configured ? "API key saved" : `${profile.api_key_env} is not set — no key is sent`;
+  return profile.secret_configured ? `key: ${profile.api_key_env}`
+    : `${profile.api_key_env} is not set — no key is sent`;
+}
+
+/** No key · a key already on this node (by name) · a new one, typed here. */
+function fillKeySource(profile) {
+  const select = $("#connection-form").elements.key_source;
+  const names = [...connectionState.keyEnvs];
+  const current = profile?.api_key_env || "";
+  if (current && !names.includes(current)) names.push(current);
+  select.replaceChildren(
+    element("option", { text: "No key — the server doesn't ask for one", attrs: { value: "" } }),
+    ...names.map((name) => element("option", {
+      text: name + (name === current ? (profile.secret_configured ? " — in use" : " — not set") : ""),
+      attrs: { value: name },
+    })),
+    element("option", { text: "Type a new key…", attrs: { value: NEW_KEY } }));
+  select.value = current;
+  showNewKey();
+}
+
+function showNewKey() {
+  const form = $("#connection-form");
+  const typing = form.elements.key_source.value === NEW_KEY;
+  $("#connection-new-key").hidden = !typing;
+  if (!typing) form.elements.api_key.value = "";
 }
 
 function renderConnectionSummary() {
@@ -908,14 +935,12 @@ function openConnection(mode) {
   form.elements.name.value = profile?.name || "";
   form.elements.name.readOnly = Boolean(profile);
   form.elements.endpoint.value = profile?.endpoint || "";
-  form.elements.api_key.placeholder = profile?.secret_configured
-    ? "saved — leave blank to keep it" : "only if the server requires one";
+  fillKeySource(profile);
   $("#connection-title").textContent = profile ? `Edit ${profile.name}` : "New connection";
   const users = profile?.used_by?.length || 0;
   $("#connection-key-note").textContent = profile && users > 1
     ? `${users} characters use this profile — a change here reaches all of them.`
-    : "Saved to this node's .env, never into her card or the profile file.";
-  $("#connection-forget").hidden = !profile?.api_key_env;
+    : "A key already on this node is chosen by name; its value is never shown.";
   $("#connection-check-button").hidden = !profile;
   $("#connection-delete").hidden = !profile || users > 0;
   $("#connection-check").textContent = "";
@@ -967,10 +992,16 @@ async function submitConnection(event) {
     error.textContent = `There is already a profile named ${name} — edit it instead.`;
     return;
   }
-  const payload = { endpoint: form.elements.endpoint.value.trim(),
-    api_key_env: editing?.api_key_env || "" };
+  const source = form.elements.key_source.value;
   const key = form.elements.api_key.value.trim();
-  if (key) payload.api_key = key;
+  if (source === NEW_KEY && !key) {
+    error.textContent = "Paste the server's key, or choose one already on this node.";
+    return;
+  }
+  // a typed key always lands under this profile's own name, host-side
+  const payload = { endpoint: form.elements.endpoint.value.trim(),
+    api_key_env: source === NEW_KEY ? "" : source };
+  if (source === NEW_KEY) payload.api_key = key;
   const button = $("#connection-submit");
   setBusy(button, true, "Saving...");
   try {
@@ -983,6 +1014,7 @@ async function submitConnection(event) {
       renderConnectionSummary();
     }
     connectionState.editing = connectionState.profiles.find((item) => item.name === name) || null;
+    fillKeySource(connectionState.editing);
     const result = await checkConnection(name);
     if (response?.warning) {
       error.textContent = response.warning;
@@ -994,22 +1026,6 @@ async function submitConnection(event) {
     error.textContent = errorMessage(apiError);
   } finally {
     setBusy(button, false, "Saving...");
-  }
-}
-
-async function forgetConnectionKey() {
-  const profile = connectionState.editing;
-  if (!profile) return;
-  const error = $("#connection-error");
-  error.textContent = "";
-  try {
-    await saveConnection(profile.name, { endpoint: profile.endpoint, api_key_env: "" });
-    connectionState.editing = connectionState.profiles.find((item) => item.name === profile.name) || null;
-    $("#connection-forget").hidden = true;
-    $("#connection-form").elements.api_key.placeholder = "only if the server requires one";
-    $("#connection-check").textContent = `${profile.name} no longer sends a key.`;
-  } catch (apiError) {
-    error.textContent = errorMessage(apiError);
   }
 }
 
@@ -1743,7 +1759,7 @@ function wireEvents() {
   $("#connection-edit").addEventListener("click", () => openConnection("edit"));
   $("#connection-new").addEventListener("click", () => openConnection("new"));
   $("#connection-form").addEventListener("submit", submitConnection);
-  $("#connection-forget").addEventListener("click", forgetConnectionKey);
+  $("#connection-form").elements.key_source.addEventListener("change", showNewKey);
   $("#connection-check-button").addEventListener("click", () => {
     if (connectionState.editing) void checkConnection(connectionState.editing.name);
   });

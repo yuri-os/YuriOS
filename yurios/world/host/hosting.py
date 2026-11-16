@@ -35,7 +35,8 @@ from yurios.characters import (
     CardLimits, CharacterRecord, CharacterRegistry,
     ConnectionProfile, ConnectionProfiles,
 )
-from yurios.app.providers.catalog import provider_prefix
+from yurios.app.providers import catalog
+from yurios.app.providers.catalog import SERVER_URL_FIELDS, key_advice, provider_prefix
 from yurios.characters import overrides as model_overrides
 from yurios.characters import studio as studio_model
 from yurios.characters.appearance import ensure_appearance
@@ -349,6 +350,28 @@ def config_for_listing(base: Config, record: CharacterRecord,
     return config_for_character(base, probe, profile, environ=environ)
 
 
+def listing_hint(base: Config, profile: ConnectionProfile | None, cfg: Config,
+                 provider: str) -> str:
+    """Where her key goes, for a 401 on a listing made for her (SPEC §31.1): her
+    profile always, and the house line only when it is the key she would be
+    sent — her profile names none and she reaches the house's own address."""
+    field = SERVER_URL_FIELDS.get(provider)
+    on_house = field is None or (
+        str(getattr(cfg, field) or "").rstrip("/")
+        == str(getattr(base, field) or "").rstrip("/"))
+    return key_advice(provider, profile.name if profile else "default",
+                      house_address=on_house and not (profile and profile.api_key_env))
+
+
+async def models_for(base: Config, record: CharacterRecord,
+                     profile: ConnectionProfile | None, provider: str) -> dict:
+    """What *provider* serves her, reached the way she would reach it on
+    *profile* — every model listing made for a character goes through this."""
+    cfg = config_for_listing(base, record, profile, provider)
+    return await catalog.provider_models(
+        cfg, provider, key_hint=listing_hint(base, profile, cfg, provider))
+
+
 def config_for_character(base: Config, record: CharacterRecord,
                          profile: ConnectionProfile | None = None,
                          *, environ: Mapping[str, str] | None = None) -> Config:
@@ -593,12 +616,12 @@ class CharacterHost:
             raise ValueError(f"unknown connection profile: {record.connection.profile}")
         return config_for_character(self.base, record, profile)
 
-    def listing_config(self, record: CharacterRecord, provider: str,
-                       base: Config | None = None) -> Config:
-        """`config_for_listing` for her current profile, against *base* — the
-        house as saved, when the caller has newer values than the boot's."""
-        return config_for_listing(base or self.base, record,
-                                  self.connections.get(record.connection.profile), provider)
+    async def list_models(self, record: CharacterRecord, provider: str,
+                          base: Config | None = None) -> dict:
+        """`models_for` on her current profile, against *base* — the house as
+        saved, when the caller has newer values than the boot's."""
+        return await models_for(base or self.base, record,
+                                self.connections.get(record.connection.profile), provider)
 
     async def retune(self, record: CharacterRecord) -> dict[str, Any]:
         """Move a *running* character onto her current brain settings, live.
@@ -679,8 +702,8 @@ class CharacterHost:
                 app.state.owner_boundary = self.owner_boundary
                 # Her room's model picker browses a provider through her
                 # profile, not through the config of the model she is on now.
-                app.state.listing_config = (
-                    lambda provider, house, _id=character_id: self.listing_config(
+                app.state.list_models = (
+                    lambda provider, house, _id=character_id: self.list_models(
                         self.registry.require(_id), provider, house))
                 app.state.rt.voice_ws_limiter = self.voice_ws_limiter
                 # The second of the two switches, before the first tick can run

@@ -53,17 +53,31 @@ SERVER_URL_FIELDS = {"lmstudio": "lmstudio_base_url", "ollama": "ollama_base_url
                      "openai_compatible": "openai_compatible_base_url"}
 
 
-def _key_refused(provider: str, status: int, sent_key: bool) -> str:
+def _key_refused(provider: str, status: int, sent_key: bool, where: str | None) -> str:
     """A 401 is not "unreachable": the server is there and wants a key. Say
-    which, and where the key goes — a character's own server takes it on her
-    connection profile, the house's on its .env line (SPEC §31.1–§31.2)."""
+    which, and where the key goes. A caller listing *for a character* knows
+    that — her connection profile, and the house key only when she is on the
+    house's own address (SPEC §31.2) — and passes it as `where`; without one
+    this is the house's own listing, whose key is the house line."""
     label = next((name for pid, name, _ in PROVIDERS if pid == provider), provider)
-    house = _HOUSE_KEYS.get(provider)
-    where = ("give her connection profile the key on the switchboard"
-             + (f", or set {house} for the house" if house else ""))
+    if where is None:
+        house = _HOUSE_KEYS.get(provider)
+        where = (f"set {house}, the house's key for this address"
+                 if house else "set the server's key")
     if sent_key:
         return f"{label} refused the API key it was sent (HTTP {status}) — {where}"
     return f"{label} requires an API key (HTTP {status}) — {where}"
+
+
+def key_advice(provider: str, profile_name: str, *, house_address: bool) -> str:
+    """Where a key goes for a character's listing: her connection profile, and
+    the house line too only when the address she reaches is the house's."""
+    where = (f"give her “{profile_name}” connection profile its key on the "
+             "switchboard (Edit connection)")
+    house = _HOUSE_KEYS.get(provider)
+    if house and house_address:
+        where += f", or set {house} for every character on this address"
+    return where
 
 
 async def _fetch_json(url: str, headers: dict | None = None) -> dict:
@@ -73,7 +87,8 @@ async def _fetch_json(url: str, headers: dict | None = None) -> dict:
         return response.json()
 
 
-async def provider_models(cfg, provider: str) -> dict[str, Any]:
+async def provider_models(cfg, provider: str, *,
+                          key_hint: str | None = None) -> dict[str, Any]:
     """`{"models": [...]}`, or `{"models": [], "error": "..."}`.
 
     lm_studio, ollama and an OpenAI-compatible gateway are asked directly on the
@@ -118,7 +133,8 @@ async def provider_models(cfg, provider: str) -> dict[str, Any]:
         status = exc.response.status_code
         if status in (401, 403):
             return {"models": [], "error": _key_refused(
-                "lmstudio" if provider == "lm_studio" else provider, status, bool(headers))}
+                "lmstudio" if provider == "lm_studio" else provider, status,
+                bool(headers), key_hint)}
         return {"models": [], "error": f"couldn't reach {provider}: {str(exc)[:120]}"}
     except Exception as exc:      # unreachable server, bad json, timeout…
         return {"models": [], "error": f"couldn't reach {provider}: {str(exc)[:120]}"}

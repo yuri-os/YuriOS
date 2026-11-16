@@ -177,8 +177,9 @@ def register(app: FastAPI, host: CharacterHost, require) -> None:
         `/api/models`, because the studio is a host surface: it opens for a
         character under review, who by definition has no runtime yet."""
         record = registry.get(character) if character else None
-        cfg = host.listing_config(record, provider) if record else base
-        return await provider_models(cfg, provider)
+        if record is not None:
+            return await host.list_models(record, provider)
+        return await provider_models(base, provider)
 
     @app.post("/api/studio/optimize")
     async def studio_optimize(request: Request):

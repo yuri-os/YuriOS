@@ -27,7 +27,7 @@ beforeEach(async () => {
   routes = {
     'GET /api/characters': () => json({ characters: [{ id: 'yuri', name: 'Yuri', connection_profile: 'default' }] }),
     'GET /api/characters/yuri/profile': () => json({ settings: { name: 'Yuri', connection_profile: 'default' } }),
-    'GET /api/connections': () => json({ profiles }),
+    'GET /api/connections': () => json({ profiles, key_envs: ['YURIOS_MODEL_API_KEY_LMSTUDIO'] }),
     'PUT /api/connections/default': () => {
       profiles[0] = { ...profiles[0], api_key_env: 'YURIOS_MODEL_API_KEY_DEFAULT', secret_configured: true };
       return json({ profile: profiles[0], applied: {}, warning: '' });
@@ -61,6 +61,10 @@ afterEach(() => {
 
 const sent = (key) => calls.filter((call) => call.key === key);
 const form = () => document.getElementById('connection-form');
+const choose = (value) => {
+  form().elements.key_source.value = value;
+  form().elements.key_source.dispatchEvent(new Event('change'));
+};
 
 describe('her connection, beside the picker', () => {
   it('says where she points and that no key goes with it', () => {
@@ -72,6 +76,9 @@ describe('her connection, beside the picker', () => {
     document.getElementById('connection-edit').click();
     expect(document.getElementById('connection-dialog').open).toBe(true);
     expect(document.getElementById('connection-key-note').textContent).toMatch(/2 characters use this profile/);
+    expect(document.getElementById('connection-new-key').hidden).toBe(true);
+    choose('__new__');
+    expect(document.getElementById('connection-new-key').hidden).toBe(false);
     form().elements.api_key.value = 'sk-lm-secret';
     form().requestSubmit();
 
@@ -80,7 +87,7 @@ describe('her connection, beside the picker', () => {
       endpoint: 'http://localhost:1234/v1', api_key_env: '', api_key: 'sk-lm-secret',
     });
     await vi.waitFor(() => expect(document.getElementById('connection-dialog').open).toBe(false));
-    expect(document.getElementById('connection-summary').textContent).toContain('API key saved');
+    expect(document.getElementById('connection-summary').textContent).toContain('key: YURIOS_MODEL_API_KEY_DEFAULT');
     expect(document.getElementById('toast-region').textContent).toContain('LM Studio at http://localhost:1234/v1 answered — 2 models');
     expect(form().elements.api_key.value).toBe('');
   });
@@ -91,6 +98,7 @@ describe('her connection, beside the picker', () => {
       error: 'LM Studio refused the API key it was sent (HTTP 401)',
     });
     document.getElementById('connection-edit').click();
+    choose('__new__');
     form().elements.api_key.value = 'sk-wrong';
     form().requestSubmit();
     await vi.waitFor(() => expect(document.getElementById('connection-check').textContent).toMatch(/refused the API key/));
@@ -103,6 +111,28 @@ describe('her connection, beside the picker', () => {
     form().requestSubmit();
     await vi.waitFor(() => expect(sent('PUT /api/connections/default')).toHaveLength(1));
     expect(JSON.parse(sent('PUT /api/connections/default')[0].body)).not.toHaveProperty('api_key');
+  });
+
+  it('points the profile at a key already on this node, without its value', async () => {
+    document.getElementById('connection-edit').click();
+    const options = [...form().elements.key_source.options].map((option) => option.value);
+    expect(options).toEqual(['', 'YURIOS_MODEL_API_KEY_LMSTUDIO', '__new__']);
+    choose('YURIOS_MODEL_API_KEY_LMSTUDIO');
+    expect(document.getElementById('connection-new-key').hidden).toBe(true);
+    form().requestSubmit();
+    await vi.waitFor(() => expect(sent('PUT /api/connections/default')).toHaveLength(1));
+    expect(JSON.parse(sent('PUT /api/connections/default')[0].body)).toEqual({
+      endpoint: 'http://localhost:1234/v1', api_key_env: 'YURIOS_MODEL_API_KEY_LMSTUDIO',
+    });
+  });
+
+  it('asks for the key when a new one was chosen and none was typed', async () => {
+    document.getElementById('connection-edit').click();
+    choose('__new__');
+    form().requestSubmit();
+    await Promise.resolve();
+    expect(document.getElementById('connection-error').textContent).toMatch(/Paste the server's key/);
+    expect(sent('PUT /api/connections/default')).toHaveLength(0);
   });
 
   it('offers to delete only a profile nobody uses, and only on the second press', async () => {

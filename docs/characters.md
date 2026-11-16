@@ -386,8 +386,9 @@ authenticated custom profile uses its own named variable as one endpoint/credent
 You never have to edit either file by hand. In a character's **Settings** on the switchboard,
 **Edit connection** and **New connection** sit beside the profile picker: give the server address
 and, for a server that requires one (LM Studio with "Require API key" on, a hosted gateway), its
-API key. The host writes the key to `.env` as `YURIOS_MODEL_API_KEY_<PROFILE>` — the field is
-write-only, so it is never shown again — points the profile at it, moves every running character
+API key: either one already in `.env` under a `YURIOS_MODEL_API_KEY_*` name (picked by name; the
+value is never shown), or a new one, which the host writes to `.env` as
+`YURIOS_MODEL_API_KEY_<PROFILE>` and never shows again. It points the profile at it, moves every running character
 on that profile onto it at once, and then asks her server for its model list, so a wrong key
 shows up there rather than on her next turn. A profile is shared: a key saved on `default` reaches
 every character who uses `default`. A profile nobody uses can be deleted from the same dialog.

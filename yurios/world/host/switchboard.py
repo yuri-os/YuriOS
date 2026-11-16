@@ -33,13 +33,19 @@ from yurios.characters import (
     clone_character,
 )
 from yurios.characters import archive as archive_model
+from yurios.characters.connections import (MODEL_KEY_ENV_PREFIX, key_env_for_profile,
+                                           valid_saved_key)
+from yurios.app.providers.catalog import (SERVER_URL_FIELDS, provider_for_route,
+                                          provider_models)
+from yurios.envfile import update_env
 from yurios.security import is_loopback
 
 from .. import rewire
 from ..desktop_windows import WindowUnavailable
 from .hosting import (_OPTION_KEYS, PURGE_CHALLENGE_TTL_S,
                       CharacterBusy, CharacterHost, _env_values, _card_values, _construction_fingerprint,
-                      _update_soul, save_brain_overrides)
+                      _update_soul, config_for_character, config_for_listing, env_file_path,
+                      save_brain_overrides)
 
 log = logging.getLogger("world.host")
 
@@ -83,42 +89,111 @@ def register(app: FastAPI, host: CharacterHost, require) -> None:
         return {"version": "0.2.0", "primary": host.primary_id,
                 "characters": [host.summary(record) for record in registry]}
 
+    def _profile_row(item: ConnectionProfile, env: Mapping[str, str]) -> dict:
+        return {"name": item.name, "backend": item.backend, "endpoint": item.endpoint,
+                "api_key_env": item.api_key_env,
+                "secret_configured": bool(item.api_key_env
+                                          and env.get(item.api_key_env, "").strip()),
+                "used_by": [record.id for record in registry
+                            if record.connection.profile == item.name]}
+
     @app.get("/api/connections")
     async def connections():
         env = _env_values(base, None)
-        return {"profiles": [
-            {"name": item.name, "backend": item.backend, "endpoint": item.endpoint,
-             "api_key_env": item.api_key_env, "secret_configured":
-             bool(item.api_key_env and env.get(item.api_key_env, "").strip())}
-            for item in host.connections.list()
-        ]}
+        return {"profiles": [_profile_row(item, env) for item in host.connections.list()]}
 
     @app.put("/api/connections/{profile_name}")
     async def save_connection(profile_name: str, request: Request):
+        """Save a profile, and with it — when `api_key` is sent — its key (SPEC §31.1).
+
+        The key is write-only: it goes to the host `.env` under the profile's
+        `YURIOS_MODEL_API_KEY_*` variable and is never stored in the profile,
+        never returned, and never written to the registry. Without this, a
+        server with "Require API key" on could only be reached by hand-editing
+        two files the switchboard otherwise owns."""
         body = await request.json()
         if not isinstance(body, Mapping):
             raise HTTPException(400, "connection profile must be a JSON object")
+        api_key = body.get("api_key")
+        if api_key is not None and not isinstance(api_key, str):
+            raise HTTPException(400, "api_key must be a string")
+        api_key = (api_key or "").strip()
+        key_env = str(body.get("api_key_env") or "").strip()
+        if api_key:
+            if not valid_saved_key(api_key):
+                raise HTTPException(400, "an API key is one line of printable characters, "
+                                         "with no spaces, quotes or backslashes")
+            # A key typed on the board is this profile's own: it never lands in
+            # the house OpenRouter line, or in another profile's variable.
+            if not key_env.startswith(MODEL_KEY_ENV_PREFIX):
+                key_env = key_env_for_profile(profile_name)
         try:
             profile = ConnectionProfile(
                 name=profile_name,
                 backend=str(body.get("backend") or "litellm").strip(),
                 endpoint=str(body.get("endpoint") or "").strip(),
-                api_key_env=str(body.get("api_key_env") or "").strip(),
+                api_key_env=key_env,
             )
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
+        warning = ""
+        if api_key:
+            await asyncio.to_thread(update_env, env_file_path(base), {key_env: api_key})
+            shadow = os.environ.get(key_env)
+            if shadow is not None and shadow.strip() != api_key:
+                warning = (f"{key_env} is also set in the server's environment, which "
+                           "wins over .env — the saved key is not the one in use")
         host.connections.upsert(profile)
         applied: dict[str, list[str]] = {}
         for record in registry:
             if record.connection.profile == profile.name and host.runtime(record.id) is not None:
                 applied[record.id] = (await host.retune(record))["applied"]
         env = _env_values(base, None)
-        return {"profile": {
-            "name": profile.name, "backend": profile.backend,
-            "endpoint": profile.endpoint, "api_key_env": profile.api_key_env,
-            "secret_configured": bool(
-                profile.api_key_env and env.get(profile.api_key_env, "").strip()),
-        }, "applied": applied}
+        return {"profile": _profile_row(profile, env), "applied": applied,
+                "warning": warning}
+
+    @app.delete("/api/connections/{profile_name}")
+    async def delete_connection(profile_name: str):
+        if host.connections.get(profile_name) is None:
+            raise HTTPException(404, f"no connection profile named {profile_name}")
+        users = [record.display.name or record.id for record in registry
+                 if record.connection.profile == profile_name]
+        if users:
+            raise HTTPException(409, f"{', '.join(users)} still use{'s' if len(users) == 1 else ''} "
+                                     f"{profile_name} — move them to another profile first")
+        host.connections.remove(profile_name)
+        return {"deleted": profile_name}
+
+    @app.get("/api/connections/{profile_name}/check")
+    async def check_connection(profile_name: str, character: str, provider: str = ""):
+        """Ask the profile's server what it serves, as she would reach it (SPEC §31.1).
+
+        The same listing her model picker reads (SPEC §11), through the config
+        she would have on this profile with her model on that server — so a key
+        that is missing, wrong, or meant for another url shows up here, before
+        her next turn. The server is the one named (`provider`), else the house
+        server whose url the profile names, else the one her model is on."""
+        record = require(character)
+        profile = host.connections.get(profile_name)
+        if profile is None:
+            raise HTTPException(404, f"no connection profile named {profile_name}")
+        if not provider:
+            endpoint = profile.endpoint.rstrip("/")
+            provider = next((name for name, field in SERVER_URL_FIELDS.items()
+                             if endpoint and str(getattr(base, field) or "").rstrip("/") == endpoint),
+                            "")
+        if not provider:
+            mine = provider_for_route(config_for_character(base, record, profile).chat_model)
+            provider = mine if mine in SERVER_URL_FIELDS or not profile.endpoint \
+                else "openai_compatible"
+        if not provider:
+            return {"provider": "", "url": "", "models": [],
+                    "error": "her model is not served by a server this profile can point at"}
+        cfg = config_for_listing(base, record, profile, provider)
+        field = SERVER_URL_FIELDS.get(provider)
+        result = await provider_models(cfg, provider)
+        return {"provider": provider, "url": str(getattr(cfg, field) or "") if field else "",
+                **result}
 
     @app.get("/api/characters/{character_id}/profile")
     async def get_settings(character_id: str):

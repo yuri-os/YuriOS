@@ -44,8 +44,10 @@ Websockets follow the same shape: `/ws/voice` and `/ws/characters/<id>/voice`.
 | `GET /characters/{id}/live2d` | redirects to `/live2d/?character={id}` |
 | `GET /studio/` | the card studio — `?character={id}` edits her, no parameter creates one |
 | `GET /api/characters` | `{version, primary, characters: […]}` |
-| `GET /api/connections` | named connection profiles; `secret_configured` says whether the key env var is set |
-| `PUT /api/connections/{name}` | validate and save a host-owned `{backend, endpoint, api_key_env}` profile; retunes bound runtimes |
+| `GET /api/connections` | named connection profiles; `secret_configured` says whether the key env var is set, `used_by` which characters pick it |
+| `PUT /api/connections/{name}` | validate and save a host-owned `{backend, endpoint, api_key_env}` profile; an optional write-only `api_key` is saved to `.env` as `YURIOS_MODEL_API_KEY_<NAME>`; retunes bound runtimes |
+| `DELETE /api/connections/{name}` | delete a profile no character uses (409 while one does) |
+| `GET /api/connections/{name}/check?character={id}` | list that profile's server as she would reach it — `{provider, url, models, error?}`; `provider=` picks the server, else the house server the profile's url names, else her model's |
 | `GET /api/characters/{id}/brain` | the character's effective brain connection and tuning settings |
 | `PATCH /api/characters/{id}/brain` | save model/tuning overrides and apply them immediately; direct `endpoint`/`api_key_env` writes are rejected |
 | `GET /api/brain` | the primary character's brain settings |

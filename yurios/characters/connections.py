@@ -23,6 +23,24 @@ def is_model_key_env(name: str) -> bool:
         _ENV_NAME_RE.fullmatch(name) is not None)
 
 
+def key_env_for_profile(name: str) -> str:
+    """The variable a profile's key is saved under when the board saves it (SPEC §31.1).
+
+    One per profile, derived from its name, so two profiles never overwrite each
+    other's key and the name alone says which profile a line in `.env` serves."""
+    return MODEL_KEY_ENV_PREFIX + re.sub(r"[^A-Z0-9_]", "_", name.upper())
+
+
+#: What a key saved from the board may contain: one printable ASCII token. No
+#: whitespace, quotes or backslash, so the `KEY=value` line it becomes reads
+#: back as exactly the value, by python-dotenv and by a person.
+_SAVED_KEY_RE = re.compile(r"^[!#-&(-\[\]-~]{1,4096}$")
+
+
+def valid_saved_key(value: str) -> bool:
+    return _SAVED_KEY_RE.fullmatch(value) is not None
+
+
 @dataclass(frozen=True, slots=True)
 class ConnectionProfile:
     name: str
@@ -95,4 +113,13 @@ class ConnectionProfiles:
                 del self._profiles[profile.name]
             else:
                 self._profiles[profile.name] = previous
+            raise
+
+    def remove(self, name: str) -> None:
+        previous = self._profiles.pop(name)
+        try:
+            atomic_write_json(self.path, {"schema_version": 1,
+                              "profiles": [asdict(item) for item in self.list()]})
+        except Exception:
+            self._profiles[name] = previous
             raise

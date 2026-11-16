@@ -281,7 +281,17 @@
       <div class="field-grid">
         <label><span>Display name</span><input name="name" type="text" maxlength="80" required></label>
         <label><span>Voice</span><input name="voice" type="text" maxlength="120" placeholder="default"></label>
-        <label><span>Connection profile</span><select name="connection_profile"><option value="default">default</option></select></label>
+        <!-- Which server she speaks to, and with which key (SPEC §31.1). The two
+             buttons sit beside the picker they act on: a server with "Require API
+             key" on is given its key here, not by editing .env by hand. -->
+        <div class="field-wide connection-field">
+          <label><span>Connection profile</span><select name="connection_profile"><option value="default">default</option></select></label>
+          <div class="connection-actions">
+            <button id="connection-edit" class="button button-quiet" type="button"><svg><use href="#i-tune"></use></svg><span>Edit connection</span></button>
+            <button id="connection-new" class="button button-quiet" type="button"><svg><use href="#i-plus"></use></svg><span>New connection</span></button>
+          </div>
+          <p id="connection-summary" class="field-help"></p>
+        </div>
         <label class="field-wide"><span>Model route</span><input name="model" type="text" maxlength="240" placeholder="inherit node default"></label>
         <label class="field-wide"><span>Utility model route</span><input name="utility_model" type="text" maxlength="240" placeholder="inherit node default"></label>
         <!-- Her body (SPEC §6.8) is chosen on the studio's Body page, from the
@@ -306,12 +316,38 @@
           <p class="field-note">Off, she still reaches out — it waits in her inbox and marks her tile. This is only whether it also raises a desktop notification.</p>
         </fieldset>
       </div>
-      <p class="form-note">Blank model fields inherit the node's .env. Endpoints and credential variables are granted only by host-owned connection profiles. A model or profile change reaches a running character at once.</p>
+      <p class="form-note">Blank model fields inherit the node's .env. Her server address and its API key come from the connection profile she uses — edit it beside the picker. A model or profile change reaches a running character at once.</p>
       <div id="profile-error" class="form-error" role="alert"></div>
       <footer class="modal-actions">
         <button id="brain-open" class="button button-quiet modal-aside" type="button"><svg><use href="#i-brain"></use></svg><span>Her brain</span></button>
         <button class="button button-quiet modal-close" type="button">Cancel</button>
         <button id="profile-submit" class="button button-primary" type="submit">Save profile</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <!-- A connection profile: a server address, and the key it wants. The key is
+       write-only — the host saves it to its .env under the profile's own
+       YURIOS_MODEL_API_KEY_* line and never sends it back. Opens over the
+       profile panel, so nothing typed there is lost. -->
+  <dialog id="connection-dialog" class="modal">
+    <form id="connection-form" class="modal-card" autocomplete="off">
+      <header class="modal-head">
+        <div><p class="eyebrow">Connection profile</p><h2 id="connection-title">Edit connection</h2></div>
+        <button class="icon-button modal-close" type="button" aria-label="Close connection dialog"><svg><use href="#i-close"></use></svg></button>
+      </header>
+      <div class="field-grid">
+        <label class="field-wide"><span>Name</span><input name="name" type="text" maxlength="64" pattern="[a-z0-9_\-]+" required placeholder="gpu-box"><small class="field-help">lowercase letters, digits, - and _</small></label>
+        <label class="field-wide"><span>Server address</span><input name="endpoint" type="text" maxlength="400" inputmode="url" placeholder="http://localhost:1234/v1"><small class="field-help">LM Studio, Ollama or an OpenAI-compatible server. Blank inherits the house address for her model's provider.</small></label>
+        <label class="field-wide"><span>API key</span><input name="api_key" type="password" maxlength="4096" autocomplete="new-password" spellcheck="false"><small id="connection-key-note" class="field-help"></small></label>
+      </div>
+      <p id="connection-check" class="form-note" role="status"></p>
+      <div id="connection-error" class="form-error" role="alert"></div>
+      <footer class="modal-actions">
+        <button id="connection-delete" class="button button-quiet modal-aside" type="button"><span>Delete profile</span></button>
+        <button id="connection-forget" class="button button-quiet" type="button"><span>Forget key</span></button>
+        <button id="connection-check-button" class="button button-quiet" type="button"><svg><use href="#i-check"></use></svg><span>Check</span></button>
+        <button id="connection-submit" class="button button-primary" type="submit"><span>Save connection</span></button>
       </footer>
     </form>
   </dialog>

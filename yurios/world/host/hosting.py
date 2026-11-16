@@ -16,6 +16,7 @@ The routes that used to live below all this are in the sibling modules, and
 from __future__ import annotations
 
 import asyncio
+import copy
 import datetime
 import json
 import logging
@@ -34,6 +35,7 @@ from yurios.characters import (
     CardLimits, CharacterRecord, CharacterRegistry,
     ConnectionProfile, ConnectionProfiles,
 )
+from yurios.app.providers.catalog import provider_prefix
 from yurios.characters import overrides as model_overrides
 from yurios.characters import studio as studio_model
 from yurios.characters.appearance import ensure_appearance
@@ -214,6 +216,17 @@ def telegram_env_suffix(character_id: str) -> str:
     return re.sub(r"[^A-Z0-9]+", "_", character_id.upper()).strip("_")
 
 
+def env_file_path(base: Config) -> Path:
+    """The `.env` this host reads its configuration from — and so the one a key
+    saved from the board must be written to, or it would be saved and never read."""
+    # pydantic-settings allows a sequence of files here; `dotenv_values` takes one,
+    # and this project configures exactly one. Take the first rather than guess.
+    configured = base.model_config.get("env_file") or ".env"
+    if isinstance(configured, (str, Path)):
+        return Path(configured)
+    return Path(next(iter(configured), ".env"))
+
+
 def _env_values(base: Config, environ: Mapping[str, str] | None) -> Mapping[str, str]:
     """Every variable in play, `.env` under the real environment.
 
@@ -226,15 +239,7 @@ def _env_values(base: Config, environ: Mapping[str, str] | None) -> Mapping[str,
     """
     if environ is not None:
         return environ
-    # pydantic-settings allows a sequence of files here; `dotenv_values` takes one,
-    # and this project configures exactly one. Take the first rather than guess.
-    configured = base.model_config.get("env_file") or ".env"
-    env_file: str | Path
-    if isinstance(configured, (str, Path)):
-        env_file = configured
-    else:
-        env_file = next(iter(configured), ".env")
-    values = {k: v for k, v in dotenv_values(env_file).items() if v is not None}
+    values = {k: v for k, v in dotenv_values(env_file_path(base)).items() if v is not None}
     values.update(os.environ)
     return values
 
@@ -322,6 +327,26 @@ def _apply_connection(update: dict[str, Any], base: Config, record: CharacterRec
             base.openrouter_api_key if key_env == "OPENROUTER_API_KEY"
             else env.get(key_env, "").strip()
         )
+
+
+def config_for_listing(base: Config, record: CharacterRecord,
+                       profile: ConnectionProfile | None, provider: str,
+                       *, environ: Mapping[str, str] | None = None) -> Config:
+    """Her config as it would be were her chat model on *provider* (SPEC §31.2).
+
+    What a model picker browsing that provider for her has to ask with. Her
+    running config carries a server's url and key only for the provider her
+    model is on now, so browsing LM Studio for a character still on a hosted
+    route would go out with no key at all — and a server with "Require API
+    key" on would refuse the very listing she needs to move onto it. The same
+    profile rules apply: the profile's key, or the house's only for the
+    house's own url."""
+    prefix = provider_prefix(provider)
+    if not prefix:
+        return config_for_character(base, record, profile, environ=environ)
+    probe = copy.deepcopy(record)
+    probe.models.chat = f"{prefix}listing"
+    return config_for_character(base, probe, profile, environ=environ)
 
 
 def config_for_character(base: Config, record: CharacterRecord,
@@ -568,6 +593,13 @@ class CharacterHost:
             raise ValueError(f"unknown connection profile: {record.connection.profile}")
         return config_for_character(self.base, record, profile)
 
+    def listing_config(self, record: CharacterRecord, provider: str,
+                       base: Config | None = None) -> Config:
+        """`config_for_listing` for her current profile, against *base* — the
+        house as saved, when the caller has newer values than the boot's."""
+        return config_for_listing(base or self.base, record,
+                                  self.connections.get(record.connection.profile), provider)
+
     async def retune(self, record: CharacterRecord) -> dict[str, Any]:
         """Move a *running* character onto her current brain settings, live.
 
@@ -645,6 +677,11 @@ class CharacterHost:
                 # registry-derived effective paths and backend overrides.
                 app.state.house_config = self.base
                 app.state.owner_boundary = self.owner_boundary
+                # Her room's model picker browses a provider through her
+                # profile, not through the config of the model she is on now.
+                app.state.listing_config = (
+                    lambda provider, house, _id=character_id: self.listing_config(
+                        self.registry.require(_id), provider, house))
                 app.state.rt.voice_ws_limiter = self.voice_ws_limiter
                 # The second of the two switches, before the first tick can run
                 # (§26.1). It lives on the runtime rather than in the config so

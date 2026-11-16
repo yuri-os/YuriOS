@@ -48,6 +48,7 @@ const elements = {
   importDialog: $("#import-dialog"),
   profileDialog: $("#profile-dialog"),
   brainDialog: $("#brain-dialog"),
+  connectionDialog: $("#connection-dialog"),
   archiveDialog: $("#archive-dialog"),
   restoreDialog: $("#restore-dialog"),
   toastRegion: $("#toast-region"),
@@ -797,11 +798,7 @@ async function openProfile() {
     ]);
     const settings = payload?.settings ?? payload;
     if (state.selectedId !== character.id || !settings || typeof settings !== "object") return;
-    const profileSelect = form.elements.connection_profile;
-    const profiles = Array.isArray(connections?.profiles) ? connections.profiles : [];
-    profileSelect.replaceChildren(...profiles.map((profile) => element("option", {
-      text: profile.name, attrs: { value: profile.name },
-    })));
+    fillConnectionPicker(connections);
     for (const name of ["name", "voice", "model", "utility_model", "description",
       "connection_profile", "personality", "scenario", "first_mes"]) {
       if (settings[name] != null) form.elements[name].value = settings[name];
@@ -816,6 +813,7 @@ async function openProfile() {
       setNotifyAvailability(form, Boolean(settings.notify_available));
     }
     snapshotSettings();          // the loaded record, not the registry summary
+    renderConnectionSummary();
   } catch (error) {
     if (error.name !== "AbortError") $("#profile-error").textContent = `Using registry values. ${errorMessage(error)}`;
   }
@@ -859,6 +857,173 @@ async function submitProfile(event) {
     error.textContent = errorMessage(apiError);
   } finally {
     setBusy(button, false, "Saving...");
+  }
+}
+
+/* ---- connection profiles ---------------------------------------------------
+ *
+ * Which server she speaks to, and the key it wants (SPEC §31.1). A profile is
+ * host-owned and shared by every character that picks it; its key is
+ * write-only — typed here, saved by the host into its .env under the profile's
+ * own YURIOS_MODEL_API_KEY_* line, and never read back. Before this, a server
+ * with "Require API key" on was reachable only by editing two files by hand.
+ * The dialog opens *over* the profile panel, so a half-edited profile survives. */
+
+const connectionState = { profiles: [], editing: null };
+
+function fillConnectionPicker(payload, selected) {
+  const select = $("#profile-form").elements.connection_profile;
+  const current = selected ?? select.value;
+  connectionState.profiles = Array.isArray(payload?.profiles) ? payload.profiles : [];
+  select.replaceChildren(...connectionState.profiles.map((profile) => element("option", {
+    text: profile.name, attrs: { value: profile.name },
+  })));
+  if (connectionState.profiles.some((profile) => profile.name === current)) select.value = current;
+}
+
+function chosenConnection() {
+  const name = $("#profile-form").elements.connection_profile.value;
+  return connectionState.profiles.find((profile) => profile.name === name) || null;
+}
+
+function describeKey(profile) {
+  if (!profile.api_key_env) return "no API key";
+  return profile.secret_configured ? "API key saved" : `${profile.api_key_env} is not set — no key is sent`;
+}
+
+function renderConnectionSummary() {
+  const profile = chosenConnection();
+  $("#connection-edit").disabled = !profile;
+  $("#connection-summary").textContent = profile
+    ? `${profile.endpoint || "house address for her provider"} · ${describeKey(profile)}`
+    : "";
+}
+
+function openConnection(mode) {
+  const profile = mode === "edit" ? chosenConnection() : null;
+  if (mode === "edit" && !profile) return;
+  connectionState.editing = profile;
+  const form = $("#connection-form");
+  form.reset();
+  form.elements.name.value = profile?.name || "";
+  form.elements.name.readOnly = Boolean(profile);
+  form.elements.endpoint.value = profile?.endpoint || "";
+  form.elements.api_key.placeholder = profile?.secret_configured
+    ? "saved — leave blank to keep it" : "only if the server requires one";
+  $("#connection-title").textContent = profile ? `Edit ${profile.name}` : "New connection";
+  const users = profile?.used_by?.length || 0;
+  $("#connection-key-note").textContent = profile && users > 1
+    ? `${users} characters use this profile — a change here reaches all of them.`
+    : "Saved to this node's .env, never into her card or the profile file.";
+  $("#connection-forget").hidden = !profile?.api_key_env;
+  $("#connection-check-button").hidden = !profile;
+  $("#connection-delete").hidden = !profile || users > 0;
+  $("#connection-check").textContent = "";
+  $("#connection-error").textContent = "";
+  openModal(elements.connectionDialog);
+}
+
+const SERVER_NAMES = { lmstudio: "LM Studio", ollama: "Ollama",
+  openai_compatible: "The OpenAI-compatible server", openrouter: "OpenRouter" };
+
+function checkText(result) {
+  if (result?.error) return result.error;
+  const count = result?.models?.length || 0;
+  const server = SERVER_NAMES[result?.provider] || "Her server";
+  const where = result?.url ? ` at ${result.url}` : "";
+  return `${server}${where} answered — ${count} model${count === 1 ? "" : "s"} to choose from.`;
+}
+
+async function checkConnection(name) {
+  const character = selectedCharacter();
+  const slot = $("#connection-check");
+  if (!character) return null;
+  slot.textContent = "Asking her server...";
+  try {
+    const result = await charactersApi.checkConnection(name, character.id);
+    slot.textContent = checkText(result);
+    return result;
+  } catch (error) {
+    slot.textContent = errorMessage(error);
+    return { error: errorMessage(error) };
+  }
+}
+
+async function saveConnection(profile, payload) {
+  const response = await charactersApi.saveConnection(profile, payload);
+  fillConnectionPicker(await charactersApi.connections());
+  renderConnectionSummary();
+  return response;
+}
+
+async function submitConnection(event) {
+  event.preventDefault();
+  const form = $("#connection-form");
+  const editing = connectionState.editing;
+  const name = editing ? editing.name : form.elements.name.value.trim();
+  const error = $("#connection-error");
+  error.textContent = "";
+  if (!editing && connectionState.profiles.some((profile) => profile.name === name)) {
+    error.textContent = `There is already a profile named ${name} — edit it instead.`;
+    return;
+  }
+  const payload = { endpoint: form.elements.endpoint.value.trim(),
+    api_key_env: editing?.api_key_env || "" };
+  const key = form.elements.api_key.value.trim();
+  if (key) payload.api_key = key;
+  const button = $("#connection-submit");
+  setBusy(button, true, "Saving...");
+  try {
+    const response = await saveConnection(name, payload);
+    form.elements.api_key.value = "";
+    if (!editing) {
+      // A new profile is offered to her, not given: picking it is a profile
+      // edit like any other, saved with the panel underneath.
+      $("#profile-form").elements.connection_profile.value = name;
+      renderConnectionSummary();
+    }
+    connectionState.editing = connectionState.profiles.find((item) => item.name === name) || null;
+    const result = await checkConnection(name);
+    if (response?.warning) {
+      error.textContent = response.warning;
+    } else if (!result?.error) {
+      closeModal(elements.connectionDialog);
+      toast(`${name} saved. ${checkText(result)}`);
+    }
+  } catch (apiError) {
+    error.textContent = errorMessage(apiError);
+  } finally {
+    setBusy(button, false, "Saving...");
+  }
+}
+
+async function forgetConnectionKey() {
+  const profile = connectionState.editing;
+  if (!profile) return;
+  const error = $("#connection-error");
+  error.textContent = "";
+  try {
+    await saveConnection(profile.name, { endpoint: profile.endpoint, api_key_env: "" });
+    connectionState.editing = connectionState.profiles.find((item) => item.name === profile.name) || null;
+    $("#connection-forget").hidden = true;
+    $("#connection-form").elements.api_key.placeholder = "only if the server requires one";
+    $("#connection-check").textContent = `${profile.name} no longer sends a key.`;
+  } catch (apiError) {
+    error.textContent = errorMessage(apiError);
+  }
+}
+
+async function deleteConnection(button) {
+  const profile = connectionState.editing;
+  if (!profile || !confirmClick(button, "Delete — press again")) return;
+  try {
+    await charactersApi.deleteConnection(profile.name);
+    fillConnectionPicker(await charactersApi.connections());
+    renderConnectionSummary();
+    closeModal(elements.connectionDialog);
+    toast(`${profile.name} deleted.`);
+  } catch (apiError) {
+    $("#connection-error").textContent = errorMessage(apiError);
   }
 }
 
@@ -1574,6 +1739,15 @@ function wireEvents() {
   $("#profile-open").addEventListener("click", openProfile);
   $("#profile-form").addEventListener("submit", submitProfile);
   $("#brain-open").addEventListener("click", leaveForBrain);
+  $("#profile-form").elements.connection_profile.addEventListener("change", renderConnectionSummary);
+  $("#connection-edit").addEventListener("click", () => openConnection("edit"));
+  $("#connection-new").addEventListener("click", () => openConnection("new"));
+  $("#connection-form").addEventListener("submit", submitConnection);
+  $("#connection-forget").addEventListener("click", forgetConnectionKey);
+  $("#connection-check-button").addEventListener("click", () => {
+    if (connectionState.editing) void checkConnection(connectionState.editing.name);
+  });
+  $("#connection-delete").addEventListener("click", (event) => deleteConnection(event.currentTarget));
   $("#brain-form").addEventListener("submit", submitBrain);
   // Every way out of the brain panel goes back where it came from — including
   // Esc, which fires `close` without passing through either button.

@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import asyncio
 import io
+import json
 import threading
 from pathlib import Path
 from types import SimpleNamespace
@@ -24,7 +25,7 @@ from yurios.world.config import Config
 from yurios.world.host import (
     config_for_character, create_host_app, telegram_for_character,
 )
-from yurios.world.host.hosting import CharacterHost
+from yurios.world.host.hosting import CharacterHost, config_for_listing
 from yurios.world.main import create_app as create_character_app
 from yurios.desktop.voice.backends.fakes import FakeBrain
 
@@ -1222,6 +1223,166 @@ def test_authenticated_profile_update_applies_endpoint_and_key_together(
         "connection_api_key", "ollama_base_url"]
     assert runtime.cfg.ollama_base_url == "https://gpu.example/v1"
     assert runtime.cfg.connection_api_key == "sk-gpu"
+
+
+def test_a_key_typed_on_the_board_reaches_her_server_and_no_file_but_env(
+        tmp_path, monkeypatch):
+    """A server with "Require API key" on must be reachable from the board alone
+    (SPEC §31.1): the key lands in the host .env under the profile's own
+    variable, is applied to her running runtime, and is never stored in the
+    profile, the registry, or a response."""
+    monkeypatch.chdir(tmp_path)              # the host's .env is cwd-relative
+    (tmp_path / ".env").write_text("CHAT_MODEL=lm_studio/house\n")
+    monkeypatch.delenv("YURIOS_MODEL_API_KEY_GPU_BOX", raising=False)
+    registry = CharacterRegistry(tmp_path / "data")
+    her = record(tmp_path / "data", "yuri")
+    her.models.chat = "lm_studio/gemma"
+    her.connection.profile = "gpu-box"
+    registry.add(her)
+    monkeypatch.setattr("yurios.world.host.hosting.create_app", fake_character_app)
+    app = create_host_app(Config(data_dir=tmp_path / "data", _env_file=None), registry)
+    app.state.host.connections.upsert(ConnectionProfile(
+        name="gpu-box", endpoint="http://gpu.lan:1234/v1"))
+
+    with TestClient(app) as client:
+        runtime = client.app.state.host.runtime("yuri")
+        saved = client.put("/api/connections/gpu-box", json={
+            "endpoint": "http://gpu.lan:1234/v1", "api_key": "sk-lm-secret"})
+        listed = client.get("/api/connections").json()["profiles"]
+
+    assert saved.status_code == 200, saved.text
+    body = saved.json()
+    assert body["profile"]["api_key_env"] == "YURIOS_MODEL_API_KEY_GPU_BOX"
+    assert body["profile"]["secret_configured"] is True
+    assert body["profile"]["used_by"] == ["yuri"]
+    assert "sk-lm-secret" not in saved.text
+    assert "sk-lm-secret" not in json.dumps(listed)
+    assert "YURIOS_MODEL_API_KEY_GPU_BOX=sk-lm-secret" in (tmp_path / ".env").read_text()
+    assert "CHAT_MODEL=lm_studio/house" in (tmp_path / ".env").read_text()
+    assert "sk-lm-secret" not in (tmp_path / "data" / "connections.json").read_text()
+    assert "sk-lm-secret" not in (tmp_path / "data" / "characters.json").read_text()
+    assert runtime.cfg.lmstudio_base_url == "http://gpu.lan:1234/v1"
+    assert runtime.cfg.lmstudio_api_key == "sk-lm-secret"
+
+
+def test_a_board_key_is_refused_whole_when_it_could_not_read_back(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text("")
+    registry = CharacterRegistry(tmp_path / "data")
+    app = create_host_app(Config(data_dir=tmp_path / "data", _env_file=None), registry)
+
+    with TestClient(app) as client:
+        spaced = client.put("/api/connections/gpu", json={
+            "endpoint": "http://gpu.lan/v1", "api_key": "sk two\nCHAT_MODEL=x"})
+        quoted = client.put("/api/connections/gpu", json={
+            "endpoint": "http://gpu.lan/v1", "api_key": 'sk"x'})
+        house = client.put("/api/connections/gpu", json={
+            "endpoint": "", "api_key_env": "OPENROUTER_API_KEY", "api_key": "sk-or"})
+
+    assert [spaced.status_code, quoted.status_code] == [400, 400]
+    # a key typed for a profile never overwrites the house OpenRouter line
+    assert house.status_code == 200
+    assert house.json()["profile"]["api_key_env"] == "YURIOS_MODEL_API_KEY_GPU"
+    assert "OPENROUTER_API_KEY" not in (tmp_path / ".env").read_text()
+
+
+def test_a_profile_in_use_cannot_be_deleted(tmp_path):
+    registry = CharacterRegistry(tmp_path)
+    registry.add(record(tmp_path, "yuri", enabled=False))
+    app = create_host_app(Config(data_dir=tmp_path, _env_file=None), registry)
+    app.state.host.connections.upsert(ConnectionProfile(name="spare"))
+
+    with TestClient(app) as client:
+        in_use = client.delete("/api/connections/default")
+        spare = client.delete("/api/connections/spare")
+        missing = client.delete("/api/connections/spare")
+
+    assert in_use.status_code == 409 and "Yuri" in in_use.json()["detail"]
+    assert spare.status_code == 200 and missing.status_code == 404
+    assert app.state.host.connections.get("default") is not None
+    assert app.state.host.connections.get("spare") is None
+
+
+def test_check_lists_her_server_through_the_profile_as_she_would(tmp_path, monkeypatch):
+    registry = CharacterRegistry(tmp_path)
+    her = record(tmp_path, "yuri", enabled=False)
+    her.models.chat = "lm_studio/gemma"
+    registry.add(her)
+    monkeypatch.setenv("YURIOS_MODEL_API_KEY_GPU", "sk-gpu")
+    seen = {}
+
+    async def listing(cfg, provider):
+        seen.update(provider=provider, url=cfg.lmstudio_base_url, key=cfg.lmstudio_api_key)
+        return {"models": ["gemma"]}
+
+    monkeypatch.setattr("yurios.world.host.switchboard.provider_models", listing)
+    app = create_host_app(Config(data_dir=tmp_path, _env_file=None), registry)
+    app.state.host.connections.upsert(ConnectionProfile(
+        name="gpu", endpoint="http://gpu.lan:1234/v1", api_key_env="YURIOS_MODEL_API_KEY_GPU"))
+
+    with TestClient(app) as client:
+        checked = client.get("/api/connections/gpu/check", params={"character": "yuri"})
+
+    assert checked.json() == {"provider": "lmstudio", "url": "http://gpu.lan:1234/v1",
+                              "models": ["gemma"]}
+    assert seen == {"provider": "lmstudio", "url": "http://gpu.lan:1234/v1", "key": "sk-gpu"}
+
+
+def test_browsing_lm_studio_for_her_sends_its_key_before_she_is_on_it(tmp_path, monkeypatch):
+    """The case that sent a keyed LM Studio's 401 to the picker: she is still on
+    a hosted route, so her running config carries no LM Studio key — yet the
+    listing is what she needs in order to move onto it (SPEC §31.2). Browsing,
+    the studio's picker and the check all resolve as if she were already there."""
+    registry = CharacterRegistry(tmp_path)
+    her = record(tmp_path, "yuri", enabled=False)
+    her.models.chat = "openai_compatible/hosted"
+    her.connection.profile = "lms"
+    registry.add(her)
+    monkeypatch.setenv("YURIOS_MODEL_API_KEY_LMS", "sk-lms")
+    house = Config(data_dir=tmp_path, _env_file=None,
+                   lmstudio_base_url="http://localhost:1234/v1",
+                   openai_compatible_base_url="https://gateway.example/v1")
+    seen = []
+
+    async def listing(cfg, provider):
+        seen.append((provider, cfg.lmstudio_base_url, cfg.lmstudio_api_key))
+        return {"models": ["gemma"]}
+
+    monkeypatch.setattr("yurios.world.host.switchboard.provider_models", listing)
+    monkeypatch.setattr("yurios.world.host.studio.provider_models", listing)
+    app = create_host_app(house, registry)
+    app.state.host.connections.upsert(ConnectionProfile(
+        name="lms", endpoint="http://localhost:1234/v1", api_key_env="YURIOS_MODEL_API_KEY_LMS"))
+
+    running = app.state.host.effective_config(her)
+    assert running.lmstudio_api_key == ""          # what the old picker went out with
+
+    with TestClient(app) as client:
+        studio = client.get("/api/studio/models", params={"provider": "lmstudio",
+                                                          "character": "yuri"})
+        checked = client.get("/api/connections/lms/check", params={"character": "yuri"})
+
+    assert studio.json() == {"models": ["gemma"]}
+    assert checked.json()["provider"] == "lmstudio"     # the house server the profile names
+    assert seen == [("lmstudio", "http://localhost:1234/v1", "sk-lms")] * 2
+    assert registry.require("yuri").models.chat == "openai_compatible/hosted"
+
+
+def test_a_listing_never_carries_the_house_lm_studio_key_to_another_url(tmp_path, monkeypatch):
+    her = record(tmp_path, "yuri", enabled=False)
+    her.models.chat = "openai_compatible/hosted"
+    house = Config(data_dir=tmp_path, _env_file=None, lmstudio_api_key="sk-house",
+                   lmstudio_base_url="http://localhost:1234/v1")
+    elsewhere = ConnectionProfile(name="gpu", endpoint="http://gpu.lan:1234/v1")
+
+    cfg = config_for_listing(house, her, elsewhere, "lmstudio", environ={})
+    home = config_for_listing(house, her, ConnectionProfile(
+        name="default", endpoint="http://localhost:1234/v1"), "lmstudio", environ={})
+
+    assert (cfg.lmstudio_base_url, cfg.lmstudio_api_key) == ("http://gpu.lan:1234/v1", "")
+    assert (home.lmstudio_base_url, home.lmstudio_api_key) == (
+        "http://localhost:1234/v1", "sk-house")
+    assert her.models.chat == "openai_compatible/hosted"     # a probe, not an edit
 
 
 def test_a_model_change_on_the_profile_form_also_skips_the_restart(tmp_path, monkeypatch):

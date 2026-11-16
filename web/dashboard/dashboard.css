@@ -406,6 +406,11 @@ button.card-way:disabled { cursor: progress; opacity: .5; }
 #export-review-list code { color: var(--dim); font-size: 10px; }
 /* a way out of this panel into another, not an action on this form — it sits
    on the far side of the footer so it reads apart from cancel/save */
+/* Her connection: the picker with its two buttons beside it, and one line saying
+   where it points and whether a key goes with it. */
+.connection-field { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 10px; align-items: end; }
+.connection-field .connection-actions { display: flex; gap: 8px; }
+.connection-field .field-help { grid-column: 1 / -1; margin: 0; overflow-wrap: anywhere; }
 .modal-aside { margin-right: auto; }
 .modal-aside svg { width: 13px; height: 13px; }
 .field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 19px 14px; }
@@ -517,6 +522,8 @@ button.card-way:disabled { cursor: progress; opacity: .5; }
   .modal-card { padding: 24px 19px; }
   .field-grid { grid-template-columns: 1fr; }
   .field-grid .field-wide { grid-column: auto; }
+  .connection-field { grid-template-columns: 1fr; }
+  .connection-field .connection-actions { flex-wrap: wrap; }
   .modal-actions .button { flex: 1; padding-inline: 9px; }
   .toast-region { left: 12px; right: 12px; bottom: 12px; }
   .toast { max-width: none; }

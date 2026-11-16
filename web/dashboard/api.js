@@ -11,6 +11,16 @@ function characterPath(id, suffix = "") {
 export const charactersApi = Object.freeze({
   list: ({ signal } = {}) => request(ROOT, { signal }),
   connections: ({ signal } = {}) => request("/api/connections", { signal }),
+  /** `api_key` is write-only: the host saves it to its .env and never returns it. */
+  saveConnection: (name, profile) => request(`/api/connections/${encodeURIComponent(name)}`, {
+    method: "PUT",
+    body: JSON.stringify(profile),
+  }),
+  deleteConnection: (name) => request(`/api/connections/${encodeURIComponent(name)}`, {
+    method: "DELETE",
+  }),
+  checkConnection: (name, character) => request(
+    `/api/connections/${encodeURIComponent(name)}/check?character=${encodeURIComponent(character)}`),
   detail: (id, section, { signal } = {}) => request(
     characterPath(id, section === "context" ? "/context-history" : `/${section}`), { signal }),
   journalDays: (id, page = 0, { signal } = {}) => request(

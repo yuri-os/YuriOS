@@ -130,6 +130,26 @@ actually changed something wired at construction — her name, voice, body, or t
 utility/dream loops — so posting the whole form with one new model value keeps
 her conversation alive. `mind` and `hands` are applied live rather than rebuilding her.
 
+## Connection profiles
+
+`GET /api/connections` lists `{ name, backend, endpoint, api_key_env,
+secret_configured, used_by }` — the profile picker in Settings, and the line under
+it saying where she points and whether a key goes with it.
+
+`PUT /api/connections/{name}` saves `{ endpoint, api_key_env, api_key? }`. `api_key`
+is write-only: the host saves it to its `.env` as `YURIOS_MODEL_API_KEY_<NAME>`, sets
+the profile's `api_key_env` to that, and never returns it. Leave it out to keep the
+key the profile has; send `api_key_env: ""` with no `api_key` to stop sending one.
+The response is `{ profile, applied: { id: [...] }, warning }` — `warning` is set when
+the server's environment shadows the `.env` line just written.
+
+`DELETE /api/connections/{name}` removes a profile; 409 while a character uses it.
+
+`GET /api/connections/{name}/check?character={id}` asks the profile's server for
+its list, exactly as she would reach it: `{ provider, url, models, error? }`. The
+server is `provider=` if given, else the house server whose url the profile names,
+else the one her model is on. The Edit connection dialog runs it after every save.
+
 ## Her brain
 
 `GET /api/characters/{id}/brain` returns the same fields as a form:

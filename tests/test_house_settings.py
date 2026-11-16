@@ -8,6 +8,10 @@ out as files.
 """
 from __future__ import annotations
 
+import asyncio
+
+import httpx
+
 import io
 import json
 import zipfile
@@ -315,3 +319,69 @@ def test_import_limits_count_replacement_decoded_text(monkeypatch):
         modules._read_job_upload(b"\xff" * 5, "job.md", remaining_bytes=100,
                                  remaining_files=1)
     assert exc.value.status_code == 413
+
+
+def _refusing(status):
+    async def fetch(url, headers=None):
+        request = httpx.Request("GET", url)
+        raise httpx.HTTPStatusError(str(status), request=request,
+                                    response=httpx.Response(status, request=request))
+    return fetch
+
+
+def test_a_401_says_the_server_wants_a_key_and_where_it_goes(monkeypatch):
+    """"couldn't reach" for a server that answered is the wrong diagnosis: a
+    401 names the missing key and both places it can be set (SPEC §31)."""
+    from types import SimpleNamespace as NS
+
+    from yurios.app.providers import catalog
+
+    monkeypatch.setattr(catalog, "_fetch_json", _refusing(401))
+    keyless = NS(lmstudio_base_url="http://localhost:1234/v1", lmstudio_api_key="")
+    error = asyncio.run(catalog.provider_models(keyless, "lmstudio"))["error"]
+    assert "requires an API key" in error and "connection profile" in error
+    assert "LMSTUDIO_API_KEY" in error and "couldn't reach" not in error
+
+    keyed = NS(lmstudio_base_url="http://localhost:1234/v1", lmstudio_api_key="sk-old")
+    assert "refused the API key" in asyncio.run(
+        catalog.provider_models(keyed, "lmstudio"))["error"]
+
+    monkeypatch.setattr(catalog, "_fetch_json", _refusing(500))
+    assert "couldn't reach" in asyncio.run(catalog.provider_models(keyless, "lmstudio"))["error"]
+
+
+def test_her_room_browses_a_provider_through_her_profile(tmp_path, monkeypatch):
+    """The room's picker (her brain panel) asks the host how she would reach the
+    provider being browsed, rather than reading the config of the model she is
+    on now — which carries no key for a server she has not moved to yet."""
+    from fastapi import FastAPI
+
+    from yurios.app.providers import catalog
+    from yurios.desktop.routes import settings as panel
+
+    monkeypatch.setattr(panel, "ENV_PATH", tmp_path / ".env")
+    house = Config(data_dir=tmp_path, _env_file=None)
+    asked, resolved = [], []
+
+    async def fetch(url, headers=None):
+        asked.append((url, headers))
+        return {"data": [{"id": "gemma"}]}
+
+    def listing(provider, base):
+        resolved.append((provider, base is not None))
+        return house.model_copy(update={"lmstudio_base_url": "http://gpu.lan:1234/v1",
+                                        "lmstudio_api_key": "sk-profile"})
+
+    monkeypatch.setattr(catalog, "_fetch_json", fetch)
+    app = FastAPI()
+    app.include_router(panel.router)
+    app.state.rt = SimpleNamespace(cfg=house.model_copy(update={"lmstudio_api_key": ""}))
+    app.state.house_config = house
+    app.state.listing_config = listing
+    monkeypatch.setattr(panel, "_require_local", lambda request: None)
+
+    body = TestClient(app).get("/api/models", params={"provider": "lmstudio"}).json()
+
+    assert body == {"models": ["gemma"]}
+    assert resolved == [("lmstudio", True)]
+    assert asked == [("http://gpu.lan:1234/v1/models", {"Authorization": "Bearer sk-profile"})]

@@ -383,6 +383,15 @@ A character can select a profile by name but cannot submit an endpoint or key-va
 own. In particular, `OPENROUTER_API_KEY` is never paired with or sent to a custom endpoint; an
 authenticated custom profile uses its own named variable as one endpoint/credential pair.
 
+You never have to edit either file by hand. In a character's **Settings** on the switchboard,
+**Edit connection** and **New connection** sit beside the profile picker: give the server address
+and, for a server that requires one (LM Studio with "Require API key" on, a hosted gateway), its
+API key. The host writes the key to `.env` as `YURIOS_MODEL_API_KEY_<PROFILE>` — the field is
+write-only, so it is never shown again — points the profile at it, moves every running character
+on that profile onto it at once, and then asks her server for its model list, so a wrong key
+shows up there rather than on her next turn. A profile is shared: a key saved on `default` reaches
+every character who uses `default`. A profile nobody uses can be deleted from the same dialog.
+
 Each character binds to a profile by name. On a first run with no file, the host seeds `default`
 and `legacy-default` from your existing `.env` route, so an upgraded single-companion install
 already points at something that works.

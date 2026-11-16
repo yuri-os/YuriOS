@@ -3710,6 +3710,22 @@ changes; a runtime does not know it has neighbours.
   **MUST** be `OPENROUTER_API_KEY` or use the dedicated `YURIOS_MODEL_API_KEY_*` namespace, so a
   profile cannot select unrelated process secrets. A custom endpoint **MUST NOT** be paired with
   `OPENROUTER_API_KEY`.
+  A server that requires a key **MUST** be reachable from the switchboard alone, without editing a
+  file by hand: `PUT /api/connections/<name>` accepts a write-only `api_key`, which the host writes
+  to the `.env` it reads (never to `connections.json`, the registry, or a response) under the
+  profile's own variable — `YURIOS_MODEL_API_KEY_<NAME>`, from its name, unless the profile
+  already names one in that namespace — and then retunes every running character on the profile
+  (§31.4). A key typed for a profile **MUST NOT** be written to `OPENROUTER_API_KEY` or to any
+  variable outside that namespace, and is refused unless it is one line of printable characters
+  with no whitespace, quotes or backslash, so the line reads back as exactly the value. A profile
+  still selected by a character **MUST NOT** be deleted. `GET /api/connections/<name>/check?character=<id>`
+  lists that profile's server through the config she would run with on it, so a missing or
+  refused key shows before her next turn. Any model listing made for a character — her room's
+  picker, the studio's, this check — **MUST** resolve url and key as if her chat model were
+  already on the provider being listed, since her running config carries a key only for the
+  provider she is on, and the listing is what she needs in order to move. A 401/403 from any model
+  listing **MUST** be reported as a key the server wants — naming the profile and the house
+  variable as where it goes — never as an unreachable server.
 - §31.2 **A character's record overrides the host default, field by field.** `config_for_character`
   builds a runtime `Config` from the host's, always replacing the character-scoped identity and
   paths (name, vault, corpus, traces, tool logs, selfies, the loop switches, her Telegram pair),
@@ -3796,7 +3812,8 @@ changes; a runtime does not know it has neighbours.
   per-character Settings, a page of its own (§11.2) whose API the host serves itself, so it
   answers with nothing running.
 - §32.4 **The API is same-origin JSON** (`web/dashboard/API.md`): `GET /api/characters`,
-  `GET /api/connections`, `POST /api/characters/import`, `GET|PATCH /api/characters/<id>/profile`,
+  `GET /api/connections`, `PUT|DELETE /api/connections/<name>`,
+  `GET /api/connections/<name>/check` (§31.1), `POST /api/characters/import`, `GET|PATCH /api/characters/<id>/profile`,
   `GET|PATCH /api/characters/<id>/brain` (§31.4 — also unprefixed, for the primary),
   `PATCH /api/characters/<id>/loop`, `PATCH /api/characters/<id>/controls`,
   `GET /api/characters/<id>/{portrait,export,journal,log,context-history}`,

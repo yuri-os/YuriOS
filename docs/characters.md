@@ -48,6 +48,7 @@ data/
 ├── characters.json              # the registry (atomic, schema-versioned)
 ├── connections.json             # named provider profiles
 ├── archives/                    # archived characters, kept
+├── snapshots/<id>/              # whole-character snapshots, kept (see below)
 └── characters/<id>/
     ├── source-card.png          # the PNG she was imported from, verbatim
     ├── card.json                # her card fields, the interchange format
@@ -398,6 +399,37 @@ with her registry id upper-cased — `TELEGRAM_BOT_TOKEN_MIA`, `TELEGRAM_CHAT_ID
 
 The gear in *her own room* edits exactly that pair and nobody else's, so pasting a token there
 can never take over another companion's chat. Full detail in [Channels](channels.md#telegram).
+
+## Snapshots, backups and restoring
+
+A card is who she is. A **backup** is all of her: her Vault and its git history, memory, journal,
+dreams, corpus, traces, tool log, selfies, the pictures you sent her, her registry row (models,
+voice, loops, lifecycle), and any body she wears that you uploaded to the house library. It is one
+`.zip` file. Her `.env` keys (Telegram and the like) are left out, because they are secrets. Her
+connection profile is carried by name.
+
+All of this is on the **Backups** tab of her drawer on the switchboard:
+
+- **Take snapshot** keeps that file on this node, under `data/snapshots/<id>/`. Snapshots outlive
+  an archive or a purge, so a character you deleted can still come back.
+- **Download backup** writes the same file and hands it to your browser as a download.
+- **Clone** copies her under a new name on this node (see below).
+- Each snapshot can be **rolled back to**, which puts her back in place, or **restored as a copy**
+  beside her. You can also download or delete it. Rolling back and deleting both take a second
+  click to confirm.
+
+If she is running while the copy is taken, she pauses and then comes back.
+
+**Restore** in the switchboard's header brings a character back. You can upload a backup file,
+restore an archived character, or restore a snapshot of someone no longer on the board. An
+uploaded file is read first and you are shown what it holds. If a character with that id already
+lives here, you get two buttons: **Replace** her, or **Restore as new**. Replacing her never
+deletes her: what she was goes to the archive first, so the replace is one unarchive away from
+being undone. A backup restored from a file arrives **under review**, the same as an imported
+card. Approve her on the board to start her. A snapshot this node took comes back with the
+lifecycle it had.
+
+The full rules, including the limits on an uploaded file, are in SPEC §29.8.
 
 ## Archiving, cloning and purging
 

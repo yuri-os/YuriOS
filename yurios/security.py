@@ -18,6 +18,7 @@ import ipaddress
 import json
 import secrets
 import socket
+from collections.abc import Mapping
 from http.cookies import SimpleCookie
 from urllib.parse import parse_qs, quote, urlsplit
 
@@ -171,16 +172,25 @@ class _RequestBodyTooLarge(Exception):
 
 
 class HTTPBodyLimitMiddleware:
-    """Reject oversized HTTP bodies without buffering or wrapping responses."""
+    """Reject oversized HTTP bodies without buffering or wrapping responses.
 
-    def __init__(self, app, *, maximum: int = MAX_HTTP_BODY_BYTES):
+    `larger` names the exact paths allowed a bigger ceiling than the rest: a
+    character backup (SPEC §29.8) is routinely hundreds of megabytes, and lifting
+    the limit for every route to admit it would lift it for every route. Those
+    handlers stream the body to disk with a bound of their own.
+    """
+
+    def __init__(self, app, *, maximum: int = MAX_HTTP_BODY_BYTES,
+                 larger: Mapping[str, int] | None = None):
         self.app = app
-        self.maximum = max(1, int(maximum))
+        self.default_maximum = max(1, int(maximum))
+        self.larger = {path: max(1, int(limit)) for path, limit in (larger or {}).items()}
 
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
+        maximum = self.larger.get(scope.get("path", ""), self.default_maximum)
 
         lengths = [value.decode("latin-1").strip()
                    for key, value in scope.get("headers", [])
@@ -198,7 +208,7 @@ class HTTPBodyLimitMiddleware:
                                         status_code=400)
                 await response(scope, receive, send)
                 return
-            if parsed[0] > self.maximum:
+            if parsed[0] > maximum:
                 response = JSONResponse({"detail": "request body too large"},
                                         status_code=413)
                 await response(scope, receive, send)
@@ -211,7 +221,7 @@ class HTTPBodyLimitMiddleware:
             message = await receive()
             if message.get("type") == "http.request":
                 consumed += len(message.get("body", b""))
-                if consumed > self.maximum:
+                if consumed > maximum:
                     raise _RequestBodyTooLarge
             return message
 
@@ -458,12 +468,13 @@ def install_owner_security(app, cfg) -> OwnerBoundary:
     return boundary
 
 
-def install_http_boundaries(app, *, maximum: int = MAX_HTTP_BODY_BYTES) -> None:
+def install_http_boundaries(app, *, maximum: int = MAX_HTTP_BODY_BYTES,
+                            larger: Mapping[str, int] | None = None) -> None:
     """Install process-facing HTTP limits and overload mapping once per app."""
     if getattr(app.state, "http_boundaries_installed", False):
         return
     app.state.http_boundaries_installed = True
-    app.add_middleware(HTTPBodyLimitMiddleware, maximum=maximum)
+    app.add_middleware(HTTPBodyLimitMiddleware, maximum=maximum, larger=larger)
 
     from yurios.app.providers.admission import InferenceBusy
 

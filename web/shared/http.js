@@ -40,7 +40,10 @@ export function detailMessage(payload, fallback = "") {
 
 export async function request(path, options = {}) {
   const headers = new Headers(options.headers);
-  if (options.body && !(options.body instanceof FormData)) headers.set("Content-Type", "application/json");
+  // A FormData sets its own multipart boundary, and a File or Blob is sent as
+  // the bytes it is (a backup upload); only a string body is ours to label.
+  const raw = options.body instanceof FormData || options.body instanceof Blob;
+  if (options.body && !raw && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
   headers.set("Accept", "application/json");
   const response = await fetch(path, { ...options, headers });
   const contentType = response.headers.get("content-type") || "";

@@ -90,6 +90,21 @@ restart that fails is reported as `source_error` beside the 201. `POST /api/char
 `data/archives/` with an `archive.json` snapshot; `GET /api/archives` lists
 those folders and `POST /api/archives/{name}/restore` puts one back.
 
+Snapshots and backups carry the whole character (SPEC §29.8). See `docs/api.md` for the
+route table. The board uses:
+
+- `GET /api/characters/{id}/snapshots` returns `{ "snapshots": [{ "id", "name", "snapshot",
+  "created_at", "size", "files", "bodies": [{ "kind", "title" }], "error"? }] }`, newest first.
+- `POST /api/characters/{id}/snapshots` returns 201 `{ "snapshot", "source_error" }`.
+- `POST /api/characters/{id}/backup` returns `{ "url", "filename", "size", "source_error" }`.
+  The board navigates an anchor to `url` so the browser streams the download.
+- `POST /api/characters/{id}/snapshots/{name}/restore` and
+  `POST /api/backups/uploads/{token}/restore` take `{ "mode": "new" | "replace" }` and return 201
+  `{ "character", "started", "error", "archived", "warnings" }`.
+- `POST /api/backups/uploads` takes the file as the raw request body and returns
+  `{ "upload", "backup": { "id", "name", "created_at", "files", "bytes", "bodies" },
+  "exists", "existing_name" }`.
+
 The log route may return an array, `{ "entries": [...] }`, or `{ "logs": [...] }`.
 Entry fields are normalized from `title`, `event`, `type`, `body`, `content`,
 `message`, `text`, `timestamp`, `created_at`, or `time`.

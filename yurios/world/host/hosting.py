@@ -482,7 +482,7 @@ def save_brain_overrides(record: CharacterRecord, body: Mapping[str, Any],
 
 
 class CharacterBusy(RuntimeError):
-    """She is mid-way through a lifecycle act (a clone) and cannot start yet.
+    """She is mid-way through a lifecycle act (a clone, a snapshot) and cannot start yet.
 
     A conflict, not a failure: the board answers it 409 wherever it surfaces."""
 
@@ -537,7 +537,10 @@ class CharacterHost:
             and not r.lifecycle.review_required
         ), None)
         self._lock = asyncio.Lock()
-        self._cloning: set[str] = set()
+        #: Characters whose tree is being copied (a clone, a snapshot, a backup),
+        #: mapped to what is happening. A start while one is listed is refused,
+        #: because a mind waking mid-copy writes into the tree being copied.
+        self._busy: dict[str, str] = {}
 
     def runtime(self, character_id: str):
         app = self.apps.get(character_id)
@@ -604,8 +607,8 @@ class CharacterHost:
 
     async def start(self, character_id: str) -> None:
         async with self._lock:
-            if character_id in self._cloning:
-                raise CharacterBusy("character is being cloned")
+            if character_id in self._busy:
+                raise CharacterBusy(f"character is being {self._busy[character_id]}")
             if character_id in self.apps:
                 return
             record = self.registry.require(character_id)

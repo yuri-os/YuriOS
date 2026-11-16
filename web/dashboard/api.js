@@ -1,4 +1,4 @@
-import { ApiError, request } from "../shared/http.js";
+import { ApiError, detailMessage, request } from "../shared/http.js";
 
 export { ApiError };
 
@@ -39,6 +39,23 @@ export const charactersApi = Object.freeze({
   desktop: (id) => request(characterPath(id, "/desktop"), { method: "POST" }),
   body: (id, { signal } = {}) => request(characterPath(id, "/body"), { signal }),
   archive: (id) => request(characterPath(id, "/archive"), { method: "POST" }),
+  // The whole companion, not her card (SPEC §29.8, §36.3): a copy under a new
+  // id, a snapshot kept on this node, a backup handed to you.
+  clone: (id, name) => request(characterPath(id, "/clone"), {
+    method: "POST",
+    body: JSON.stringify(name ? { name } : {}),
+  }),
+  snapshots: (id, { signal } = {}) => request(characterPath(id, "/snapshots"), { signal }),
+  takeSnapshot: (id) => request(characterPath(id, "/snapshots"), { method: "POST" }),
+  snapshotUrl: (id, name) => characterPath(id, `/snapshots/${encodeURIComponent(name)}`),
+  deleteSnapshot: (id, name) => request(
+    characterPath(id, `/snapshots/${encodeURIComponent(name)}`), { method: "DELETE" }),
+  restoreSnapshot: (id, name, mode) => request(
+    characterPath(id, `/snapshots/${encodeURIComponent(name)}/restore`), {
+      method: "POST",
+      body: JSON.stringify({ mode }),
+    }),
+  prepareBackup: (id) => request(characterPath(id, "/backup"), { method: "POST" }),
   preparePurge: (id) => request(characterPath(id, "/purge/prepare"), { method: "POST" }),
   purge: (id, challenge) => request(characterPath(id, "/purge"), {
     method: "DELETE",
@@ -49,4 +66,44 @@ export const charactersApi = Object.freeze({
     body.append("file", file, file.name);
     return request(`${ROOT}/import`, { method: "POST", body });
   },
+});
+
+/* Bringing a character back: an uploaded backup, an archived one, or a snapshot
+ * of someone no longer on the board. */
+export const backupsApi = Object.freeze({
+  snapshots: ({ signal } = {}) => request("/api/snapshots", { signal }),
+  archives: ({ signal } = {}) => request("/api/archives", { signal }),
+  restoreArchive: (name) => request(`/api/archives/${encodeURIComponent(name)}/restore`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  }),
+  /* XHR rather than fetch for the one thing fetch cannot do: say how far an
+   * upload of a few hundred megabytes has got. The file is sent as its own
+   * bytes, and the server streams it to disk. */
+  upload: (file, { onProgress } = {}) => new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", "/api/backups/uploads");
+    xhr.setRequestHeader("Content-Type", "application/zip");
+    xhr.setRequestHeader("Accept", "application/json");
+    xhr.upload.addEventListener("progress", (event) => {
+      if (event.lengthComputable) onProgress?.(event.loaded / event.total);
+    });
+    xhr.addEventListener("load", () => {
+      let payload = xhr.responseText;
+      try { payload = JSON.parse(xhr.responseText); } catch { /* plain text */ }
+      if (xhr.status >= 200 && xhr.status < 300) resolve(payload);
+      else reject(new ApiError(detailMessage(payload, `Upload failed (${xhr.status})`),
+        xhr.status, payload));
+    });
+    xhr.addEventListener("error", () => reject(new ApiError("The upload did not reach the node.", 0, null)));
+    xhr.addEventListener("abort", () => reject(new DOMException("Upload cancelled", "AbortError")));
+    xhr.send(file);
+  }),
+  restoreUpload: (token, mode) => request(`/api/backups/uploads/${encodeURIComponent(token)}/restore`, {
+    method: "POST",
+    body: JSON.stringify({ mode }),
+  }),
+  cancelUpload: (token) => request(`/api/backups/uploads/${encodeURIComponent(token)}`, {
+    method: "DELETE",
+  }),
 });

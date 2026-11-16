@@ -28,6 +28,7 @@ from fastapi.responses import (JSONResponse)
 
 from yurios.characters import (
     CharacterCloneError,
+    CharacterRecord,
     ConnectionProfile,
     clone_character,
 )
@@ -314,13 +315,7 @@ def register(app: FastAPI, host: CharacterHost, require) -> None:
         return {"character": host.summary(record), "stopped": True}
 
     async def _close_window(character_id: str) -> None:
-        """A window left floating over a character who is gone is a broken one.
-
-        Only where *you* took her down — stop, archive, purge. A restart for a
-        profile change also passes through `host.stop`, and the page rides that
-        out on its own reconnect, so the host's stop is not the place for this.
-        """
-        await asyncio.to_thread(app.state.desktop_windows.close, character_id)
+        await close_window(app, character_id)
 
     def _on_this_machine(request: Request) -> None:
         peer = request.client.host if request.client else None
@@ -372,7 +367,7 @@ def register(app: FastAPI, host: CharacterHost, require) -> None:
             raise HTTPException(400, "clone request must be a JSON object")
         body = body or {}
         async with app.state.lifecycle_lock:
-            host._cloning.add(character_id)
+            host._busy[character_id] = "cloned"
             was_running = host.runtime(character_id) is not None
             source_error = None
             try:
@@ -402,7 +397,7 @@ def register(app: FastAPI, host: CharacterHost, require) -> None:
                 except CharacterCloneError as exc:
                     raise HTTPException(400, str(exc)) from exc
             finally:
-                host._cloning.discard(character_id)
+                host._busy.pop(character_id, None)
                 if was_running:
                     # Reported, never raised: raising here would replace the
                     # clone's own answer — a 201 for a copy already in the
@@ -474,49 +469,8 @@ def register(app: FastAPI, host: CharacterHost, require) -> None:
     @app.post("/api/characters/{character_id}/archive")
     async def archive(character_id: str):
         async with app.state.lifecycle_lock:
-            record = require(character_id)
-            was_running = host.runtime(character_id) is not None
-            await host.stop(character_id)
-            archive_root = registry.data_root / "archives"
-            archive_root.mkdir(parents=True, exist_ok=True)
-            stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-            target = archive_root / f"{record.id}-{stamp}"
-            if target.exists():
-                if was_running:
-                    await host.start(character_id)
-                raise HTTPException(409, "archive target already exists")
-            snapshot = archive_model.snapshot_payload(record, registry.data_root)
-            try:
-                os.replace(record.paths.root, target)
-            except OSError as exc:
-                if was_running:
-                    await host.start(character_id)
-                raise HTTPException(500, "could not move character into archive") from exc
-            try:
-                archive_model.write_snapshot(target, snapshot)
-            except OSError:
-                log.exception("could not write archive snapshot for %s", character_id)
-            try:
-                registry.remove(character_id)
-            except Exception as exc:
-                try:
-                    os.replace(target, record.paths.root)
-                except OSError as rollback:
-                    log.exception("archive rollback failed for %s", character_id)
-                    raise HTTPException(
-                        500, "archive registry update failed and data rollback failed") \
-                        from rollback
-                if was_running:
-                    try:
-                        await host.start(character_id)
-                    except Exception:
-                        log.exception("archive runtime restore failed for %s", character_id)
-                raise HTTPException(500, "archive registry update failed; data restored") from exc
-            host.states.pop(character_id, None)
-            if host.primary_id == character_id:
-                host.primary_id = next((r.id for r in registry if r.lifecycle.enabled), None)
-            await _close_window(character_id)
-            return {"archived": True, "id": character_id, "archive": target.name}
+            target = await archive_character(app, host, require(character_id))
+            return {"archived": True, "id": character_id, "archive": target}
 
     @app.get("/api/archives")
     async def archives():
@@ -670,3 +624,67 @@ def register(app: FastAPI, host: CharacterHost, require) -> None:
                 log.exception("purge tombstone cleanup failed for %s", character_id)
             return {"purged": True, "id": character_id,
                     "cleanup_pending": cleanup_pending}
+
+
+async def close_window(app: FastAPI, character_id: str) -> None:
+    """A window left floating over a character who is gone is a broken one.
+
+    Only where *you* took her down — stop, archive, purge. A restart for a
+    profile change also passes through `host.stop`, and the page rides that
+    out on its own reconnect, so the host's stop is not the place for this.
+    """
+    await asyncio.to_thread(app.state.desktop_windows.close, character_id)
+
+
+async def archive_character(app: FastAPI, host: CharacterHost,
+                            record: CharacterRecord) -> str:
+    """Stop her and move her root under `archives/` with its row (SPEC §29.6).
+
+    The caller holds `app.state.lifecycle_lock`. Restoring a backup in her place
+    archives her through this first, so the state it replaces is one unarchive
+    away rather than gone. Answers the archive folder's name.
+    """
+    registry = host.registry
+    character_id = record.id
+    was_running = host.runtime(character_id) is not None
+    await host.stop(character_id)
+    archive_root = registry.data_root / "archives"
+    archive_root.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    target = archive_root / f"{record.id}-{stamp}"
+    if target.exists():
+        if was_running:
+            await host.start(character_id)
+        raise HTTPException(409, "archive target already exists")
+    snapshot = archive_model.snapshot_payload(record, registry.data_root)
+    try:
+        os.replace(record.paths.root, target)
+    except OSError as exc:
+        if was_running:
+            await host.start(character_id)
+        raise HTTPException(500, "could not move character into archive") from exc
+    try:
+        archive_model.write_snapshot(target, snapshot)
+    except OSError:
+        log.exception("could not write archive snapshot for %s", character_id)
+    try:
+        registry.remove(character_id)
+    except Exception as exc:
+        try:
+            os.replace(target, record.paths.root)
+        except OSError as rollback:
+            log.exception("archive rollback failed for %s", character_id)
+            raise HTTPException(
+                500, "archive registry update failed and data rollback failed") \
+                from rollback
+        if was_running:
+            try:
+                await host.start(character_id)
+            except Exception:
+                log.exception("archive runtime restore failed for %s", character_id)
+        raise HTTPException(500, "archive registry update failed; data restored") from exc
+    host.states.pop(character_id, None)
+    if host.primary_id == character_id:
+        host.primary_id = next((r.id for r in registry if r.lifecycle.enabled), None)
+    await close_window(app, character_id)
+    return target.name

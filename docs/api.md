@@ -77,6 +77,15 @@ Websockets follow the same shape: `/ws/voice` and `/ws/characters/<id>/voice`.
 | `GET /api/archives` | parked companions under `data/archives/` |
 | `POST /api/archives/{name}/restore` | `{id?, start?}` — move her back onto the board |
 | `POST /api/characters/{id}/clone` | duplicate the whole companion under a new id |
+| `GET\|POST /api/characters/{id}/snapshots` | list her snapshots / take one (she is paused for the copy if running) |
+| `GET\|DELETE /api/characters/{id}/snapshots/{name}` | download / delete one snapshot |
+| `POST /api/characters/{id}/snapshots/{name}/restore` | `{mode: "new"\|"replace"}`. `replace` archives her first |
+| `GET /api/snapshots` | every snapshot on the node, with `on_board` |
+| `POST /api/characters/{id}/backup` | write a whole-character backup; answers a one-time `url` to fetch it |
+| `GET /api/backups/downloads/{token}` | the backup file, once |
+| `POST /api/backups/uploads` | raw `.zip` body, streamed to disk; answers what it holds, restores nothing |
+| `POST /api/backups/uploads/{token}/restore` | `{mode}`. An uploaded backup restores under review |
+| `DELETE /api/backups/uploads/{token}` | forget an upload that will not be restored |
 | `POST /api/characters/{id}/start` | start a reviewed, enabled character |
 | `POST /api/characters/{id}/stop` | stop her runtime without archiving |
 | `POST /api/characters/{id}/purge/prepare` | issue a high-entropy, short-lived, single-use deletion challenge |

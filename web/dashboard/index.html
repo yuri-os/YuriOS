@@ -26,6 +26,10 @@
     <symbol id="i-card" viewBox="0 0 24 24"><path d="M4 4h16v16H4zM4 15l4-4 5 5M14 13l2-2 4 4"/><circle cx="9.5" cy="8.5" r="1.5"/></symbol>
     <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v12m0 0 5-5m-5 5-5-5M5 19h14"/></symbol>
     <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 13 5 5L20 7"/></symbol>
+    <!-- the whole companion (SPEC §29.8): a copy beside her, a layer kept, a turn back -->
+    <symbol id="i-clone" viewBox="0 0 24 24"><path d="M9 9h11v11H9zM5 15H4V4h11v1"/></symbol>
+    <symbol id="i-snapshot" viewBox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5zM3 13l9 5 9-5"/></symbol>
+    <symbol id="i-restore" viewBox="0 0 24 24"><path d="M5 9a8 8 0 1 1-1 5M5 4v5h5"/></symbol>
     <!-- her other two rooms: the Live2D body (SPEC §6.6) — a face, because that
          is all a Live2D rig is — and the bodyless text room (SPEC §6.7), a
          transcript in a speech bubble -->
@@ -55,6 +59,12 @@
       <button class="button button-quiet import-open" type="button">
         <svg><use href="#i-upload"></use></svg>
         <span>Import</span>
+      </button>
+      <!-- Import reads a card: identity only. Restore brings back a whole
+           character — a backup file, an archived one, a kept snapshot (§29.8). -->
+      <button id="restore-open" class="button button-quiet" type="button">
+        <svg><use href="#i-restore"></use></svg>
+        <span>Restore</span>
       </button>
       <!-- The house's settings, not a character's: models, the bind and its
            owner token, voice, keys — the `.env` every character inherits (§11).
@@ -194,6 +204,7 @@
       <button type="button" role="tab" aria-selected="true" data-tab="journal">Journal</button>
       <button type="button" role="tab" aria-selected="false" data-tab="log">Log</button>
       <button type="button" role="tab" aria-selected="false" data-tab="context">Context</button>
+      <button type="button" role="tab" aria-selected="false" data-tab="backups">Backups</button>
     </nav>
     <div id="detail-content" class="detail-content" role="tabpanel" aria-live="polite"></div>
     <footer class="drawer-foot">
@@ -339,6 +350,48 @@
         <button id="archive-submit" class="button button-danger" type="submit">Archive character</button>
       </footer>
     </form>
+  </dialog>
+
+  <!-- Bringing a whole character back (SPEC §29.8). An uploaded file is read and
+       shown before anything is restored from it, because the choice — beside
+       her, or in her place — depends on who it turns out to be. -->
+  <dialog id="restore-dialog" class="modal" aria-labelledby="restore-title">
+    <div class="modal-card">
+      <header class="modal-head">
+        <div><p class="eyebrow">Whole character</p><h2 id="restore-title">Restore a character</h2></div>
+        <button class="icon-button modal-close" type="button" aria-label="Close restore dialog"><svg><use href="#i-close"></use></svg></button>
+      </header>
+      <form id="restore-form">
+        <label id="restore-drop" class="drop-zone">
+          <input id="backup-file" type="file" name="file" accept=".zip,application/zip">
+          <span class="drop-symbol"><svg><use href="#i-upload"></use></svg></span>
+          <strong>Drop a YuriOS backup</strong>
+          <span>the .zip a backup or snapshot downloads</span>
+          <output id="backup-file-name"></output>
+        </label>
+        <progress id="restore-progress" class="restore-progress" max="1" value="0" hidden></progress>
+        <div id="restore-found" class="restore-found" hidden>
+          <p class="eyebrow">In this file</p>
+          <h3 id="restore-found-name">Character</h3>
+          <p id="restore-found-detail" class="form-note"></p>
+          <p id="restore-found-copy" class="restore-copy"></p>
+          <div class="restore-choices">
+            <button id="restore-replace" class="button button-quiet" type="button" hidden><svg><use href="#i-restore"></use></svg><span>Replace her</span></button>
+            <button id="restore-new" class="button button-primary" type="button"><svg><use href="#i-plus"></use></svg><span>Restore as new</span></button>
+          </div>
+        </div>
+        <div id="restore-error" class="form-error" role="alert"></div>
+        <footer class="modal-actions">
+          <button class="button button-quiet modal-close" type="button">Close</button>
+          <button id="restore-submit" class="button button-primary" type="submit">Read backup</button>
+        </footer>
+      </form>
+      <section class="restore-kept" aria-labelledby="restore-kept-title">
+        <p id="restore-kept-title" class="eyebrow">Kept on this node</p>
+        <p class="form-note">Archived characters, and snapshots of characters no longer on the board.</p>
+        <ul id="restore-kept-list" class="kept-list"></ul>
+      </section>
+    </div>
   </dialog>
 
   <div id="toast-region" class="toast-region" aria-live="polite" aria-atomic="true"></div>

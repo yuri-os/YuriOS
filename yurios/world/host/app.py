@@ -21,11 +21,12 @@ from fastapi.responses import JSONResponse
 from starlette.staticfiles import StaticFiles
 
 from yurios.characters import CharacterRecord, CharacterRegistry
+from yurios.characters.backup import DEFAULT_LIMITS as backup_limits
 
 from ..config import Config
 from ..desktop_windows import DesktopWindows
 from ..main import DIST_DIR, WEB_DIR, _RawAssetNoCache
-from . import bodies, brains, checkpoints, house, modules, pages, studio, switchboard
+from . import backups, bodies, brains, checkpoints, house, modules, pages, studio, switchboard
 from . import debug as debug_routes
 from .hosting import CharacterBusy, CharacterHost, _RuntimeDispatcher, _turn_away
 
@@ -83,7 +84,10 @@ def create_host_app(base: Config, registry: CharacterRegistry | None = None, *,
         # a create — meets a clone in progress the same way.
         return JSONResponse({"detail": str(exc)}, status_code=409)
     from yurios.security import install_http_boundaries, install_owner_security
-    install_http_boundaries(app)
+    # One route may carry more than the house ceiling: a character's backup
+    # (SPEC §29.8), which streams to disk under a bound of its own.
+    install_http_boundaries(app, larger={
+        backups.UPLOAD_PATH: backup_limits.archive_bytes})
     host.owner_boundary = install_owner_security(app, base)
 
     # The house `.env` panel (SPEC §11), on the board as well as in every room.
@@ -110,6 +114,8 @@ def create_host_app(base: Config, registry: CharacterRegistry | None = None, *,
     brains.register(app, host, require)
     studio.register(app, host, require)
     bodies.register(app, host, require)
+    # …after `bodies`, whose library a backup carries the worn bodies out of
+    backups.register(app, host, require)
     debug_routes.register(app, host, require)
     # House settings' own surfaces (SPEC §11.3, §11.4): the restart, the files
     # `.env` only names, and the files a character carries as modules.

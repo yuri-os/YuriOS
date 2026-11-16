@@ -1,11 +1,13 @@
 import { $, $$, element, errorMessage, setBusy, showToast } from "../shared/dom.js";
-import { charactersApi } from "./api.js";
+import { backupsApi, charactersApi } from "./api.js";
 import { request } from "../shared/http.js";
 import { ApiError, studioApi } from "../studio/api.js";
 import {
   changedFields,
   contextEntries,
+  describeBackup,
   filterCharacters,
+  formatBytes,
   formatDiaryDay,
   formatRelativeTime,
   initials,
@@ -15,6 +17,7 @@ import {
   normalizeDetailItems,
   normalizeJournalDay,
   normalizeJournalDays,
+  normalizeSnapshots,
   normalizeUserName,
 } from "./model.js";
 
@@ -46,6 +49,7 @@ const elements = {
   profileDialog: $("#profile-dialog"),
   brainDialog: $("#brain-dialog"),
   archiveDialog: $("#archive-dialog"),
+  restoreDialog: $("#restore-dialog"),
   toastRegion: $("#toast-region"),
   exportButton: $("#drawer-export"),
   exportError: $("#export-error"),
@@ -454,6 +458,7 @@ function detailCacheKey(id, tab) {
 
 async function loadDetail(tab, force = false) {
   if (tab === "journal") return loadJournal(force);
+  if (tab === "backups") return loadBackups(force);
   const character = selectedCharacter();
   if (!character) return;
   const id = character.id;
@@ -1077,6 +1082,400 @@ async function submitArchive(event) {
   }
 }
 
+// ---- the whole companion: clone, snapshot, backup (SPEC §29.8, §36.3) ------
+
+/* A browser download of a URL the host serves as an attachment. The browser's
+ * own download manager streams it, so a backup of a few hundred megabytes is
+ * never held in this page. */
+function download(url, filename = "") {
+  const anchor = element("a", { attrs: { href: url, download: filename } });
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+}
+
+/* The second click is the one that acts. For the two that lose something:
+ * rolling her back (what she is now goes to the archive) and deleting a
+ * snapshot. Arming lapses on its own, so a stray click never waits loaded. */
+function confirmClick(button, armedLabel) {
+  const slot = $("span", button) || button;
+  if (button.dataset.armed === "true") {
+    button.dataset.armed = "";
+    clearTimeout(Number(button.dataset.armTimer));
+    if (slot.dataset.unarmed) slot.textContent = slot.dataset.unarmed;
+    return true;
+  }
+  button.dataset.armed = "true";
+  slot.dataset.unarmed = slot.textContent;
+  slot.textContent = armedLabel;
+  button.dataset.armTimer = String(setTimeout(() => {
+    button.dataset.armed = "";
+    slot.textContent = slot.dataset.unarmed;
+  }, 4000));
+  return false;
+}
+
+function snapshotWhen(snapshot) {
+  const date = new Date(snapshot.createdAt);
+  return Number.isNaN(date.getTime()) ? snapshot.file : formatDetailTime(snapshot.createdAt);
+}
+
+function backupButton(action, iconName, label, className = "button button-quiet") {
+  return element("button", { className, attrs: { type: "button", "data-backup-action": action } },
+    icon(iconName), element("span", { text: label }));
+}
+
+async function loadBackups(force = false) {
+  const character = selectedCharacter();
+  if (!character) return;
+  const id = character.id;
+  const key = detailCacheKey(id, "backups");
+  if (!force && state.detailCache.has(key)) {
+    renderBackups(character, state.detailCache.get(key));
+    return;
+  }
+  state.detailRequest?.abort();
+  state.detailRequest = new AbortController();
+  elements.detailContent.replaceChildren(element("div", { className: "detail-placeholder", text: "Loading snapshots..." }));
+  try {
+    const payload = await charactersApi.snapshots(id, { signal: state.detailRequest.signal });
+    if (state.selectedId !== id || state.tab !== "backups") return;
+    state.detailCache.set(key, payload);
+    renderBackups(character, payload);
+  } catch (error) {
+    if (error.name === "AbortError") return;
+    const retry = element("button", { className: "detail-retry", text: "Try again", attrs: { type: "button" } });
+    retry.addEventListener("click", () => loadBackups(true));
+    elements.detailContent.replaceChildren(element("div", { className: "detail-error" },
+      document.createTextNode(errorMessage(error)), element("br"), retry));
+  }
+}
+
+function renderBackups(character, payload) {
+  const snapshots = normalizeSnapshots(payload);
+  const actions = element("section", { className: "backup-actions" },
+    element("p", { className: "backup-copy", text:
+      "All of her, not just her card: her Vault and its history, memory, journal, selfies, " +
+      "traces, the pictures you sent her, her settings, and any body she wears from the " +
+      "library. A snapshot stays on this node. A backup is the same file, downloaded. " +
+      "If she is running, she pauses while the copy is taken." }),
+    element("div", { className: "backup-buttons" },
+      backupButton("snapshot", "snapshot", "Take snapshot", "button button-primary"),
+      backupButton("backup", "download", "Download backup")),
+    element("form", { className: "clone-form", attrs: { "data-clone-form": "" } },
+      element("label", {},
+        element("span", { text: "Clone as" }),
+        element("input", { attrs: {
+          name: "name", type: "text", maxlength: "80", value: `${character.name} (copy)`,
+          "aria-label": "Name for the clone", autocomplete: "off", spellcheck: "false",
+        } })),
+      element("button", { className: "button button-quiet", attrs: { type: "submit" } },
+        icon("clone"), element("span", { text: "Clone" }))),
+    element("div", { className: "form-error", attrs: { role: "alert", "data-backup-error": "" } }));
+  if (!snapshots.length) {
+    elements.detailContent.replaceChildren(actions,
+      element("div", { className: "detail-placeholder", text: "No snapshots of her yet." }));
+    return;
+  }
+  const list = element("ol", { className: "timeline snapshot-list" });
+  for (const snapshot of snapshots) {
+    const facts = snapshot.error ? snapshot.error : [
+      formatBytes(snapshot.size),
+      snapshot.files ? `${snapshot.files.toLocaleString()} files` : "",
+      snapshot.bodies.length ? `wearing ${snapshot.bodies.join(" and ")}` : "",
+    ].filter(Boolean).join(" / ");
+    const row = element("li", { attrs: { "data-snapshot": snapshot.file } },
+      element("time", { text: snapshotWhen(snapshot) }),
+      element("strong", { text: snapshot.name }),
+      element("p", { text: facts }),
+      element("div", { className: "snapshot-actions" },
+        snapshot.error ? null : backupButton("rollback", "restore", "Roll back to this"),
+        snapshot.error ? null : backupButton("restore-copy", "plus", "Restore as copy"),
+        snapshot.error ? null : backupButton("download-snapshot", "download", "Download"),
+        backupButton("delete-snapshot", "close", "Delete", "button button-quiet snapshot-delete")));
+    if (snapshot.error) row.style.setProperty("--event-color", "var(--red)");
+    list.append(row);
+  }
+  elements.detailContent.replaceChildren(actions, list);
+}
+
+function backupError(message) {
+  const slot = $("[data-backup-error]", elements.detailContent);
+  if (slot) slot.textContent = message;
+}
+
+/* A copy stops her and starts her again. That restart failing is reported
+ * beside the result, never in place of it. */
+function reportSourceError(character, result) {
+  if (result?.source_error) {
+    toast(`${character.name} did not come back up: ${result.source_error}`, "error");
+  }
+}
+
+async function afterWholeCharacterChange(id) {
+  state.detailCache.delete(detailCacheKey(id, "backups"));
+  await loadCharacters({ quiet: true });
+  if (state.selectedId === id && state.tab === "backups") loadBackups(true);
+}
+
+async function runBackupAction(button, busyLabel, work) {
+  if (button.disabled) return;
+  backupError("");
+  setBusy(button, true, busyLabel);
+  try {
+    await work();
+  } catch (error) {
+    const message = errorMessage(error);
+    backupError(message);
+    toast(message, "error");
+  } finally {
+    if (button.isConnected) setBusy(button, false, busyLabel);
+  }
+}
+
+async function handleBackupClick(button) {
+  const character = selectedCharacter();
+  if (!character) return;
+  const id = character.id;
+  const action = button.dataset.backupAction;
+  const file = button.closest("[data-snapshot]")?.dataset.snapshot;
+  if (action === "snapshot") {
+    return runBackupAction(button, "Taking snapshot…", async () => {
+      const result = await charactersApi.takeSnapshot(id);
+      toast(`Snapshot of ${character.name} kept — ${formatBytes(result.snapshot?.size)}.`);
+      reportSourceError(character, result);
+      await afterWholeCharacterChange(id);
+    });
+  }
+  if (action === "backup") {
+    return runBackupAction(button, "Packing…", async () => {
+      const result = await charactersApi.prepareBackup(id);
+      download(result.url, result.filename);
+      toast(`${result.filename} (${formatBytes(result.size)}) — download started.`);
+      reportSourceError(character, result);
+      await loadCharacters({ quiet: true });
+    });
+  }
+  if (!file) return;
+  if (action === "download-snapshot") return download(charactersApi.snapshotUrl(id, file), `yurios-${file}`);
+  if (action === "rollback") {
+    if (!confirmClick(button, "Click again to roll back")) return;
+    return runBackupAction(button, "Rolling back…", async () => {
+      const result = await charactersApi.restoreSnapshot(id, file, "replace");
+      toast(`${character.name} rolled back. What she was is in the archive (${result.archived}).`);
+      reportRestore(result);
+      await afterWholeCharacterChange(id);
+    });
+  }
+  if (action === "restore-copy") {
+    return runBackupAction(button, "Restoring…", async () => {
+      const result = await charactersApi.restoreSnapshot(id, file, "new");
+      toast(`Restored as ${result.character?.name ?? "a new character"}.`);
+      reportRestore(result);
+      await afterWholeCharacterChange(id);
+    });
+  }
+  if (action === "delete-snapshot") {
+    if (!confirmClick(button, "Click again to delete")) return;
+    return runBackupAction(button, "Deleting…", async () => {
+      await charactersApi.deleteSnapshot(id, file);
+      toast("Snapshot deleted.");
+      await afterWholeCharacterChange(id);
+    });
+  }
+}
+
+async function submitClone(form) {
+  const character = selectedCharacter();
+  if (!character) return;
+  const button = $('button[type="submit"]', form);
+  const name = form.elements.name.value.trim();
+  return runBackupAction(button, "Cloning…", async () => {
+    const result = await charactersApi.clone(character.id, name);
+    toast(`${result.character?.name ?? name} cloned from ${character.name}.`);
+    if (result.error) toast(`The clone did not start: ${result.error}`, "error");
+    reportSourceError(character, result);
+    await loadCharacters({ quiet: true });
+  });
+}
+
+/* What a restore had to leave behind — a body the library refused, say — and
+ * whether she came up. */
+function reportRestore(result) {
+  for (const warning of result?.warnings ?? []) toast(warning, "error");
+  if (result?.error) toast(`She is back but did not start: ${result.error}`, "error");
+}
+
+// ---- the restore dialog -------------------------------------------------------
+
+const restoreState = { upload: null, uploading: false };
+
+function resetRestoreForm() {
+  $("#restore-form").reset();
+  $("#backup-file-name").textContent = "";
+  $("#restore-error").textContent = "";
+  $("#restore-progress").hidden = true;
+  $("#restore-found").hidden = true;
+  $("#restore-submit").hidden = false;
+}
+
+function dropUpload() {
+  const token = restoreState.upload;
+  restoreState.upload = null;
+  if (token) backupsApi.cancelUpload(token).catch(() => {});
+}
+
+async function openRestore() {
+  dropUpload();
+  resetRestoreForm();
+  openModal(elements.restoreDialog);
+  await loadKept();
+}
+
+async function loadKept() {
+  const list = $("#restore-kept-list");
+  list.replaceChildren(element("li", { className: "kept-empty", text: "Reading what this node keeps..." }));
+  try {
+    const [archives, snapshots] = await Promise.all([backupsApi.archives(), backupsApi.snapshots()]);
+    const rows = [];
+    for (const item of archives?.archives ?? []) {
+      const when = item.archived_at ? formatDetailTime(item.archived_at) : item.stamp;
+      rows.push(element("li", {},
+        element("div", {}, element("strong", { text: item.id }),
+          element("small", { text: `archived ${when}` })),
+        element("button", { className: "button button-quiet", attrs: {
+          type: "button", "data-kept": "archive", "data-name": item.name } },
+        icon("restore"), element("span", { text: "Restore" }))));
+    }
+    for (const snapshot of normalizeSnapshots(snapshots).filter((row) => !row.onBoard && !row.error)) {
+      rows.push(element("li", {},
+        element("div", {}, element("strong", { text: snapshot.name }),
+          element("small", { text: `snapshot ${snapshotWhen(snapshot)} / ${formatBytes(snapshot.size)}` })),
+        element("button", { className: "button button-quiet", attrs: {
+          type: "button", "data-kept": "snapshot", "data-id": snapshot.id, "data-name": snapshot.file } },
+        icon("restore"), element("span", { text: "Restore" }))));
+    }
+    list.replaceChildren(...(rows.length ? rows
+      : [element("li", { className: "kept-empty", text: "Nothing archived, and no snapshots of anyone who has gone." })]));
+  } catch (error) {
+    list.replaceChildren(element("li", { className: "kept-empty", text: errorMessage(error) }));
+  }
+}
+
+async function restoreKept(button) {
+  const kind = button.dataset.kept;
+  const name = button.dataset.name;
+  setBusy(button, true, "Restoring…");
+  $("#restore-error").textContent = "";
+  try {
+    const result = kind === "archive"
+      ? await backupsApi.restoreArchive(name)
+      : await charactersApi.restoreSnapshot(button.dataset.id, name, "new");
+    toast(`${result.character?.name ?? "She"} is back on the board.`);
+    reportRestore(result);
+    await loadCharacters({ quiet: true });
+    await loadKept();
+  } catch (error) {
+    $("#restore-error").textContent = errorMessage(error);
+    if (button.isConnected) setBusy(button, false, "Restoring…");
+  }
+}
+
+async function submitRestoreUpload(event) {
+  event.preventDefault();
+  if (restoreState.uploading) return;
+  const file = $("#backup-file").files[0];
+  const error = $("#restore-error");
+  if (!file || !/\.zip$/i.test(file.name)) {
+    error.textContent = "Choose the .zip a YuriOS backup or snapshot downloads.";
+    return;
+  }
+  dropUpload();
+  error.textContent = "";
+  $("#restore-found").hidden = true;
+  const progress = $("#restore-progress");
+  progress.value = 0;
+  progress.hidden = false;
+  const button = $("#restore-submit");
+  restoreState.uploading = true;
+  setBusy(button, true, "Uploading…");
+  try {
+    const result = await backupsApi.upload(file, { onProgress: (share) => {
+      progress.value = share;
+      if (share >= 1) setBusy(button, true, "Reading…");
+    } });
+    restoreState.upload = result.upload;
+    showFound(result);
+  } catch (apiError) {
+    error.textContent = errorMessage(apiError);
+  } finally {
+    restoreState.uploading = false;
+    progress.hidden = true;
+    setBusy(button, false, "Uploading…");
+  }
+}
+
+function showFound(result) {
+  const summary = result.backup ?? {};
+  const name = summary.name || summary.id || "This character";
+  $("#restore-found-name").textContent = name;
+  $("#restore-found-detail").textContent = describeBackup(summary);
+  const replace = $("#restore-replace");
+  const restoreNew = $("#restore-new");
+  replace.hidden = !result.exists;
+  $("span", replace).textContent = `Replace ${result.existing_name || name}`;
+  $("span", restoreNew).textContent = result.exists ? "Restore as new" : `Restore ${name}`;
+  $("#restore-found-copy").textContent = (result.exists
+    ? `A character with this id (${summary.id}) already lives here. Replacing her moves ` +
+      "what she is now into the archive, so it can still be brought back. "
+    : "") +
+    "A backup from a file arrives under review, like an imported card: read her through, " +
+    "then approve her on the board to start her.";
+  $("#restore-found").hidden = false;
+  $("#restore-submit").hidden = true;
+}
+
+async function restoreFound(mode, button) {
+  const token = restoreState.upload;
+  if (!token) return;
+  const error = $("#restore-error");
+  error.textContent = "";
+  setBusy(button, true, "Restoring…");
+  try {
+    const result = await backupsApi.restoreUpload(token, mode);
+    restoreState.upload = null;
+    closeModal(elements.restoreDialog);
+    const note = result.archived ? ` What was here is in the archive (${result.archived}).` : "";
+    toast(`${result.character?.name ?? "She"} restored.${note}`);
+    reportRestore(result);
+    await loadCharacters({ quiet: true });
+    if (result.character?.id && state.selectedId === result.character.id) loadDetail(state.tab, true);
+  } catch (apiError) {
+    error.textContent = errorMessage(apiError);
+  } finally {
+    if (button.isConnected) setBusy(button, false, "Restoring…");
+  }
+}
+
+/* A drop zone around a file input: drag a file on, or click through to browse. */
+function wireDropZone(zone, input, output) {
+  input.addEventListener("change", () => { output.textContent = input.files[0]?.name || ""; });
+  for (const type of ["dragenter", "dragover"]) zone.addEventListener(type, (event) => {
+    event.preventDefault(); zone.classList.add("dragging");
+  });
+  for (const type of ["dragleave", "drop"]) zone.addEventListener(type, () => zone.classList.remove("dragging"));
+  zone.addEventListener("drop", (event) => {
+    event.preventDefault();
+    const file = event.dataTransfer.files[0];
+    if (!file) return;
+    const transfer = new DataTransfer();
+    transfer.items.add(file);
+    input.files = transfer.files;
+    output.textContent = file.name;
+    input.dispatchEvent(new Event("change"));
+  });
+}
+
 function wireEvents() {
   elements.grid.addEventListener("change", (event) => {
     if (event.target.dataset.action !== "control") return;
@@ -1122,8 +1521,33 @@ function wireEvents() {
     if (pageButton) return changeJournalPage(Number(pageButton.dataset.journalPage));
     if (event.target.closest("[data-journal-back]")) return backToJournalDays();
     const moreButton = event.target.closest("[data-toggle-entry]");
-    if (moreButton) toggleDiaryEntry(moreButton);
+    if (moreButton) return toggleDiaryEntry(moreButton);
+    const backupButton = event.target.closest("[data-backup-action]");
+    if (backupButton) handleBackupClick(backupButton);
   });
+  elements.detailContent.addEventListener("submit", (event) => {
+    const form = event.target.closest("[data-clone-form]");
+    if (!form) return;
+    event.preventDefault();
+    submitClone(form);
+  });
+  $("#restore-open").addEventListener("click", openRestore);
+  $("#restore-form").addEventListener("submit", submitRestoreUpload);
+  $("#restore-new").addEventListener("click", (event) => restoreFound("new", event.currentTarget));
+  $("#restore-replace").addEventListener("click", (event) => restoreFound("replace", event.currentTarget));
+  $("#restore-kept-list").addEventListener("click", (event) => {
+    const button = event.target.closest("[data-kept]");
+    if (button) restoreKept(button);
+  });
+  // A file read and never restored is not left waiting on the node for an hour.
+  elements.restoreDialog.addEventListener("close", dropUpload);
+  $("#backup-file").addEventListener("change", () => {
+    dropUpload();
+    $("#restore-found").hidden = true;
+    $("#restore-submit").hidden = false;
+    $("#restore-error").textContent = "";
+  });
+  wireDropZone($("#restore-drop"), $("#backup-file"), $("#backup-file-name"));
   $$(".import-open").forEach((button) => button.addEventListener("click", () => {
     $("#import-error").textContent = "";
     openModal(elements.importDialog);
@@ -1169,22 +1593,7 @@ function wireEvents() {
   });
   $("#archive-form").addEventListener("submit", submitArchive);
   $("#user-name-form").addEventListener("submit", submitUserName);
-  const fileInput = $("#png-file");
-  fileInput.addEventListener("change", () => $("#file-name").textContent = fileInput.files[0]?.name || "");
-  const dropZone = $("#drop-zone");
-  for (const type of ["dragenter", "dragover"]) dropZone.addEventListener(type, (event) => {
-    event.preventDefault(); dropZone.classList.add("dragging");
-  });
-  for (const type of ["dragleave", "drop"]) dropZone.addEventListener(type, () => dropZone.classList.remove("dragging"));
-  dropZone.addEventListener("drop", (event) => {
-    event.preventDefault();
-    const file = event.dataTransfer.files[0];
-    if (!file) return;
-    const transfer = new DataTransfer();
-    transfer.items.add(file);
-    fileInput.files = transfer.files;
-    $("#file-name").textContent = file.name;
-  });
+  wireDropZone($("#drop-zone"), $("#png-file"), $("#file-name"));
   document.addEventListener("keydown", (event) => {
     if (event.key === "/" && !/INPUT|TEXTAREA/.test(document.activeElement.tagName)) {
       event.preventDefault(); elements.search.focus();

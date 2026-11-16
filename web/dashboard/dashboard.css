@@ -433,6 +433,37 @@ button.card-way:disabled { cursor: progress; opacity: .5; }
 .toast { max-width: 360px; padding: 13px 16px; border: 1px solid var(--rule); border-left: 2px solid var(--acid); background: var(--panel-2); box-shadow: var(--shadow); color: var(--ink); font: 10px/1.5 var(--font-mono); animation: toast-in .22s ease-out; }
 .toast.error { border-left-color: var(--red); }
 
+/* The whole companion (SPEC §29.8): the drawer's Backups tab and the restore dialog. */
+.backup-actions { display: grid; gap: 14px; margin-bottom: 28px; padding-bottom: 24px; border-bottom: 1px solid var(--rule); }
+.backup-copy { margin: 0; color: var(--soft); font-size: 12px; line-height: 1.6; }
+.backup-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.clone-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 8px; }
+.clone-form label { display: grid; gap: 8px; min-width: 0; color: var(--soft); font: 9px var(--font-mono); text-transform: uppercase; letter-spacing: .08em; }
+.clone-form input { width: 100%; height: 40px; border: 1px solid var(--rule); border-radius: 2px; outline: 0; padding: 0 12px; background: var(--ground); color: var(--ink); font: 11px var(--font-mono); text-transform: none; letter-spacing: 0; }
+.clone-form input:focus { border-color: var(--acid-dark); }
+.backup-actions .form-error:empty { display: none; }
+.snapshot-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 11px; }
+.snapshot-actions .button { min-height: 30px; padding: 0 10px; font-size: 9px; }
+.snapshot-actions svg { width: 12px; height: 12px; }
+.snapshot-actions .button[data-armed="true"] { border-color: var(--red); color: var(--red); }
+.snapshot-delete { margin-left: auto; }
+.restore-progress { width: 100%; height: 4px; margin-top: 14px; accent-color: var(--acid); }
+.restore-found { margin-top: 18px; padding: 16px 18px; border: 1px solid var(--rule); border-left: 2px solid var(--acid); background: var(--ground); }
+.restore-found .eyebrow { margin-bottom: 8px; }
+.restore-found h3 { margin: 0; font-size: 20px; font-weight: 540; letter-spacing: -.03em; }
+.restore-found .form-note { margin-top: 6px; }
+.restore-copy { margin: 12px 0 0; color: var(--soft); font-size: 12px; line-height: 1.6; }
+.restore-choices { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+.restore-kept { margin-top: 26px; padding-top: 22px; border-top: 1px solid var(--rule); }
+.restore-kept .form-note { margin: -4px 0 12px; }
+.kept-list { display: grid; gap: 1px; margin: 0; padding: 0; list-style: none; background: var(--rule); border: 1px solid var(--rule); }
+.kept-list li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; background: var(--ground); }
+.kept-list li > div { display: grid; gap: 3px; min-width: 0; }
+.kept-list strong { overflow: hidden; font-size: 12px; font-weight: 560; text-overflow: ellipsis; white-space: nowrap; }
+.kept-list small { color: var(--dim); font: 9px var(--font-mono); }
+.kept-list .button { min-height: 30px; padding: 0 10px; font-size: 9px; flex: none; }
+.kept-list .kept-empty { color: var(--dim); font: 10px var(--font-mono); }
+
 @keyframes shimmer { to { background-position: -120% 0; } }
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes toast-in { from { opacity: 0; transform: translateY(7px); } }
@@ -479,6 +510,8 @@ button.card-way:disabled { cursor: progress; opacity: .5; }
   .character-grid.list .loop-stack { grid-column: 1 / -1; gap: 7px 10px; }
   .detail-drawer { padding: 25px 20px 0; }
   .drawer-actions, .review-actions { grid-template-columns: 1fr; }
+  .backup-buttons, .clone-form { grid-template-columns: 1fr; }
+  .restore-choices .button { flex: 1; }
   .detail-tabs { margin-top: 28px; }
   .modal { width: calc(100vw - 20px); }
   .modal-card { padding: 24px 19px; }

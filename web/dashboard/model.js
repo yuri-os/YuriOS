@@ -279,3 +279,60 @@ export function contextEntries(payload) {
     value: typeof value === "object" ? JSON.stringify(value, null, 2) : text(value),
   }));
 }
+
+/* Sizes as a person reads them. Binary units, because that is what a file
+ * manager on the same disk will say. */
+export function formatBytes(value) {
+  const bytes = Number(value);
+  if (!Number.isFinite(bytes) || bytes < 0) return "";
+  if (bytes < 1024) return `${Math.round(bytes)} B`;
+  const units = ["KB", "MB", "GB", "TB"];
+  let size = bytes / 1024;
+  let unit = 0;
+  while (size >= 1024 && unit < units.length - 1) {
+    size /= 1024;
+    unit += 1;
+  }
+  return `${size >= 10 ? Math.round(size) : size.toFixed(1)} ${units[unit]}`;
+}
+
+/* One snapshot or backup as the board shows it (SPEC §29.8). A file the node
+ * could not read still lists, with its reason, so it can be deleted. */
+export function normalizeSnapshot(raw) {
+  const row = raw && typeof raw === "object" ? raw : {};
+  const file = text(row.snapshot).trim();
+  if (!file) return null;
+  const id = text(row.id).trim();
+  return {
+    file,
+    id,
+    name: text(row.name, id).trim() || id,
+    createdAt: text(row.created_at),
+    size: Number(row.size ?? row.bytes) || 0,
+    files: Number(row.files) || 0,
+    bodies: Array.isArray(row.bodies) ? row.bodies.map((body) => text(body?.title)).filter(Boolean) : [],
+    error: text(row.error),
+    onBoard: row.on_board == null ? true : boolean(row.on_board),
+  };
+}
+
+export function normalizeSnapshots(payload) {
+  const rows = Array.isArray(payload?.snapshots) ? payload.snapshots : [];
+  return rows.map(normalizeSnapshot).filter(Boolean);
+}
+
+/* What an uploaded file says it holds, before anything is restored from it. */
+export function describeBackup(summary) {
+  const row = summary && typeof summary === "object" ? summary : {};
+  const parts = [];
+  const when = new Date(row.created_at);
+  if (!Number.isNaN(when.getTime())) {
+    parts.push(`taken ${when.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}`);
+  }
+  const size = Number(row.size) > 0 ? row.size : row.bytes;
+  if (Number(size) > 0) parts.push(formatBytes(size));
+  if (Number(row.files) > 0) parts.push(`${Number(row.files).toLocaleString()} files`);
+  const bodies = Array.isArray(row.bodies) ? row.bodies.map((body) => text(body?.title)).filter(Boolean) : [];
+  if (bodies.length) parts.push(`wearing ${bodies.join(" and ")}`);
+  return parts.join(" / ");
+}

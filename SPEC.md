@@ -3570,6 +3570,43 @@ changes; a runtime does not know it has neighbours.
   answers the unprefixed Part I routes, which is what keeps the single-companion install, the
   terminal channel and the desktop window working with no character in the URL. With no character
   running, those routes answer 503.
+- §29.8 **Snapshots, backups and restore carry the whole character.** Export is identity (§30.5)
+  and clone is a copy on this node (§36.3). A backup is the third act: everything she is, in one
+  file (`characters/backup.py`). The file is a zip holding `manifest.json` (format
+  `yurios-character-backup`, a version, her registry row as §29.2 persists it, and the bodies
+  listed below), her root under `character/`, and under `bodies/` every **uploaded** library body
+  (§6.8) she wears. Without the row a restore brings back her memories wired to the house
+  defaults, and without the bodies she comes back in a stranger's body. Builtin bodies stay out,
+  because every install ships them. `cache/` stays out because it is derived from files the
+  archive carries. Links and special files in her tree **MUST NOT** be followed. Her `.env` keys
+  (§11.4.1) **MUST NOT** be included: they are secrets and belong to the house file, and the
+  connection profile is carried by name only (§31.1). A backup carries every `PRIVATE_SURFACES`
+  record on purpose, so it **MUST** only be served to the owner, like every other `/api` route. It
+  is not a card and is never offered as one.
+  A **snapshot** is that file kept on this node at `snapshots/<id>/<id>-<stamp>.zip`. A **backup**
+  is the same file prepared under `DATA_DIR/.backups/` and fetched once by a one-time URL, so the
+  browser's download manager streams it to disk. Neither a purge nor an archive reaches the
+  snapshot shelf. The copy **MUST** be of a quiet tree: a running character is stopped for it and
+  started again afterward, she is marked busy so nothing can start her mid-copy, and the copy runs
+  off the event loop under the lifecycle lock. A source that fails to come back **MUST** be
+  reported beside the result, never in place of it. These are the same rules as clone (§36.3).
+  **Restore** reads the manifest first and **MUST** refuse an unknown format version rather than
+  guess (§29.2's rule). It then unpacks into a staging folder on the same filesystem and makes it
+  visible with one rename followed by the registry row (§30.2's transaction). Unpacking **MUST**
+  refuse absolute paths, `..`, backslashes, links, encrypted entries and members outside the
+  format, and **MUST** bound the archive size, the entry count and the bytes actually
+  decompressed rather than trust the zip's own claims (§11.6's posture). Restore runs in one of
+  two modes. *new* lands under her own id when it is free, else under a derived one named
+  "(restored)". *replace* lands in her place, and **MUST** archive the character it replaces
+  (§29.6) rather than delete her, so a roll-back is itself one unarchive away. The file **MUST**
+  be unpacked *before* she is archived, so a backup that will not restore costs nothing, and a
+  failed install after the archive **MUST** put her back. A body the library lacks is re-added
+  through the library's own upload checks and worn under the id that gives. A refused body costs
+  her the body, never the restore. An **uploaded** backup is a file from outside the node, so it
+  **MUST** restore disabled and under review whatever lifecycle it recorded (§30.3). A snapshot
+  this node wrote keeps its recorded lifecycle. An upload streams to disk under its own ceiling,
+  the one route allowed past the house request limit, and is answered with what it holds before
+  anything is restored from it. An unrestored upload expires, as does an unfetched download.
 
 ## §30 — Character cards: import, review, edit, export
 
@@ -3763,8 +3800,12 @@ changes; a runtime does not know it has neighbours.
   `GET|PATCH /api/characters/<id>/brain` (§31.4 — also unprefixed, for the primary),
   `PATCH /api/characters/<id>/loop`, `PATCH /api/characters/<id>/controls`,
   `GET /api/characters/<id>/{portrait,export,journal,log,context-history}`,
-  `POST /api/characters/<id>/{archive,start,stop,clone,approve}`,
+  `POST /api/characters/<id>/{archive,start,stop,clone,approve,backup}`,
   `GET /api/archives`, `POST /api/archives/<name>/restore`,
+  `GET|POST /api/characters/<id>/snapshots`, `GET|DELETE /api/characters/<id>/snapshots/<name>`,
+  `POST /api/characters/<id>/snapshots/<name>/restore`, `GET /api/snapshots`,
+  `GET /api/backups/downloads/<token>`, `POST /api/backups/uploads`,
+  `POST|DELETE /api/backups/uploads/<token>[/restore]` (§29.8),
   `DELETE /api/characters/<id>/purge?confirm=…`,
   and the house's own `GET|POST /api/settings` with `GET /api/pairing` +
   `POST /api/pairing/token` beside it (§11, §11.1). The portrait
@@ -3997,7 +4038,8 @@ The terminal is a first-class client of the host, not a second implementation of
   still under review stays under review. A running source **MUST** be stopped for the copy and
   restarted afterward so the duplicate sees a quiet tree. The recursive copy **MUST** run off
   the shared event loop; publishing the new registry row stays on the event loop. A source that
-  fails to restart is reported beside the clone's own answer, never in place of it.
+  fails to restart is reported beside the clone's own answer, never in place of it. The board
+  offers it from her drawer's Backups tab, beside her snapshots and backups (§29.8).
 - §36.4 **The optimiser still proposes.** `yurios character optimize` (and `improve-setting`)
   **MUST NOT** write unless `--apply` is given. That is §30.6, applied to the terminal: a model
   pass on a card from the internet is a proposal a person then accepts.

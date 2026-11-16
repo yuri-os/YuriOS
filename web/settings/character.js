@@ -30,7 +30,8 @@ const BRAIN_LABELS = {
   chat_model: "Chat model", utility_model: "Utility model",
   chat_thinking: "Think before replying", chat_reasoning_effort: "Reply reasoning effort",
   utility_thinking: "Think during utility work", temperature: "Temperature",
-  max_reply_tokens: "Reply token ceiling", context_length: "Context window (tokens)",
+  max_reply_tokens: "Reply token ceiling", reply_length: "Reply length",
+  context_length: "Context window (tokens)",
 };
 
 /* ---- settings ------------------------------------------------------------------ */

@@ -849,6 +849,30 @@ export function initVoice({ viseme, els }) {
     return true;
   }
 
+  /** Send a line of yours that got no reply again (SPEC §2.6) — a fresh turn
+   *  at the bottom, run by the composer like any other: locked, Stop offered,
+   *  and the old line taken off by the host as the new one is drawn. */
+  function resend(messageId, text, imageUrl) {
+    if (!messageId || processing || warming) return false;
+    endReplay();
+    const clientId = newRequestId();
+    window.WorldChat?.beginResend?.(clientId, messageId);
+    window.WorldChat?.addPendingUser?.(text, clientId, imageUrl);
+    beginProcessing(clientId, 'http');
+    sendHttp('/api/chat/resend', {
+      id: messageId, session_id: sessionId, channel: 'web', client_id: clientId,
+    }, clientId);
+    return true;
+  }
+
+  /** Say these words again, as typed — a line that never reached the host. */
+  function sendAgain(text) {
+    if (processing || warming || !text) return false;
+    els.text.value = text;
+    sendText();
+    return true;
+  }
+
   els.text.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') { e.preventDefault(); sendText(); }
   });
@@ -858,7 +882,7 @@ export function initVoice({ viseme, els }) {
   // that answers it. A global handle, like WorldChat and WorldControls, for the
   // reason those are: one room runs one voice client, and the three pages that
   // load this file must not each grow their own way of reaching it.
-  window.WorldVoice = { speak, regenerate };
+  window.WorldVoice = { speak, regenerate, resend, send: sendAgain };
 
   if (wantsVoice()) connect();
   else {

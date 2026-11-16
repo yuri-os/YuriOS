@@ -134,6 +134,11 @@ class NotSwipeable(Exception):
     reply she made in a turn, not from a room, or no longer the last thing said."""
 
 
+class NotUnanswered(Exception):
+    """A line that cannot be sent again or deleted (SPEC §2.6): not yours, or
+    answered — only a line whose turn never happened can be."""
+
+
 class EmptyReply(RuntimeError):
     """The model answered with nothing to show — a turn that didn't happen (SPEC §10.5).
 
@@ -244,7 +249,8 @@ class TextTurns:
     async def run(self, text: str, *, channel: str,
                   session_id: str | None = None,
                   client_id: str | None = None,
-                  image_id: str | None = None) -> dict:
+                  image_id: str | None = None,
+                  replaces: str | None = None) -> dict:
         """Drive one text turn. Returns {"session_id": …, "message": entry}
         (`message` is None for an empty reply). Raises on a mid-stream brain
         failure — the caller decides how to surface it; nothing was committed.
@@ -255,7 +261,12 @@ class TextTurns:
         the brain gets the bytes for this one prompt. An id that no longer
         resolves raises `LookupError` rather than quietly sending the words
         alone — a picture that silently didn't arrive is the worst of the three
-        outcomes."""
+        outcomes.
+
+        `replaces` is a line of yours whose turn never happened, being sent
+        again (SPEC §2.6): it leaves the conversation the moment this one is
+        drawn, under the same lock — so the words are on the page throughout,
+        and a send refused before then leaves the old line where it was."""
         rt = self.rt
         attachment = None
         if image_id:
@@ -265,61 +276,89 @@ class TextTurns:
         async with self._lock:
             if rt.stopping.is_set():
                 raise RuntimeStopping("character is stopping")
+            if replaces:
+                # checked again under the lock: another room may have sent or
+                # deleted it since the route looked
+                await asyncio.to_thread(rt.unanswered_line, replaces)
             session_id = rt.brain.resolve_session(session_id)
             user_entry = rt.post_message("user", text, channel=channel,
                                          client_id=client_id,
                                          session_id=session_id,
                                          image_url=attachment.url
                                          if attachment else None)
-            rt.signals.post("user_message", {"text": text}, source=channel)
-            # A selfie may be holding her brain's VRAM right now (§7.6): wait
-            # at the door rather than loading the chat model back onto a card
-            # the render hasn't finished with. Her line is already in the chat
-            # above, so the wait is visible as her thinking, not as a freeze.
-            # BEFORE `turn_started`, always: the park's quiet gate waits on
-            # that very counter, so a turn that announced itself and then
-            # blocked here would be waiting on a park waiting on it.
-            await rt.park_gate.wait()
-            rt.turn_started()
-            # The image part is the brain's business, not the runner's: what
-            # this passes is the data url, and only when there is one, so a
-            # brain seam that never heard of pictures (the route tests' fake)
-            # keeps its two-argument signature.
-            reply_kw = {"image": rt.uploads.data_url(attachment)} \
-                if attachment else {}
-            raw, drafts = await self._pump(
-                rt.brain.stream_reply(session_id, text, **reply_kw),
-                session_id=session_id, channel=channel, client_id=client_id)
+            if replaces:
+                rt.discard_line(replaces)
+            committed: list[bool] = []
+            try:
+                return await self._answer(user_entry, text, attachment, committed,
+                                          session_id=session_id, channel=channel,
+                                          client_id=client_id)
+            except BaseException:
+                # The turn on your line broke, was stopped, or came back empty.
+                # The line stays — you said it — and every room is told it
+                # never got its answer, so it can be sent again or deleted.
+                # Not once the turn committed: her reply is drawn by then, and
+                # a failure in filing it is not a line of yours left unanswered.
+                if not committed:
+                    rt.mark_unanswered(user_entry["id"])
+                raise
 
-            entry = None
-            reply = drafts.text
-            if not reply and not ACTED.get():
-                self._empty(session_id, channel)
-            # No words, but a hand ran: the act is the reply. It is committed —
-            # her memory keeps the call, REFLECT gets its outcome — and nothing
-            # is drawn, because the tool row already is. Failing it would ask
-            # for a retry that does the act a second time.
-            if reply:
-                entry = rt.post_message("assistant", reply, channel=channel,
-                                        session_id=session_id)
-            rt.committing()                    # Stop waits for the rest (§29.5)
-            # Persisting is another model call — the memory extractor's — and it
-            # runs *after* `turn_ended`, so as far as the parker is concerned the
-            # room has already gone quiet. Held, so a render that starts in this
-            # gap waits for it instead of unloading the model it is talking to
-            # (§7.6). No `wait` first: the turn came through the gate at the
-            # top, and this is the same turn.
-            async with rt.park_gate.hold():
-                tool_outcomes = await rt.brain.persist(
-                    session_id, text, "".join(raw))
-            if entry:
-                rt.turn_filed(entry["id"])     # now it can be rated (§37.1)
-            rt.signals.post("turn_committed",
-                            {"text": text, "reply": reply,
-                             "tool_outcomes": tool_outcomes}, source=channel)
-            selfies = rt.selfies.active_ids(client_id) if rt.selfies else []
-            return {"session_id": session_id, "message": entry,
-                    "user_message": user_entry, "active_selfies": selfies}
+    async def _answer(self, user_entry: dict, text: str, attachment,
+                      committed: list[bool], *, session_id: str, channel: str,
+                      client_id: str | None) -> dict:
+        """The rest of `run`, once your line is drawn: her reply to it.
+        `committed` gains an entry the moment the turn can no longer fail back."""
+        rt = self.rt
+        rt.signals.post("user_message", {"text": text}, source=channel)
+        # A selfie may be holding her brain's VRAM right now (§7.6): wait
+        # at the door rather than loading the chat model back onto a card
+        # the render hasn't finished with. Her line is already in the chat
+        # above, so the wait is visible as her thinking, not as a freeze.
+        # BEFORE `turn_started`, always: the park's quiet gate waits on
+        # that very counter, so a turn that announced itself and then
+        # blocked here would be waiting on a park waiting on it.
+        await rt.park_gate.wait()
+        rt.turn_started()
+        # The image part is the brain's business, not the runner's: what
+        # this passes is the data url, and only when there is one, so a
+        # brain seam that never heard of pictures (the route tests' fake)
+        # keeps its two-argument signature.
+        reply_kw = {"image": rt.uploads.data_url(attachment)} \
+            if attachment else {}
+        raw, drafts = await self._pump(
+            rt.brain.stream_reply(session_id, text, **reply_kw),
+            session_id=session_id, channel=channel, client_id=client_id)
+
+        entry = None
+        reply = drafts.text
+        if not reply and not ACTED.get():
+            self._empty(session_id, channel)
+        # No words, but a hand ran: the act is the reply. It is committed —
+        # her memory keeps the call, REFLECT gets its outcome — and nothing
+        # is drawn, because the tool row already is. Failing it would ask
+        # for a retry that does the act a second time.
+        if reply:
+            entry = rt.post_message("assistant", reply, channel=channel,
+                                    session_id=session_id)
+        rt.committing()                    # Stop waits for the rest (§29.5)
+        committed.append(True)
+        # Persisting is another model call — the memory extractor's — and it
+        # runs *after* `turn_ended`, so as far as the parker is concerned the
+        # room has already gone quiet. Held, so a render that starts in this
+        # gap waits for it instead of unloading the model it is talking to
+        # (§7.6). No `wait` first: the turn came through the gate at the
+        # top, and this is the same turn.
+        async with rt.park_gate.hold():
+            tool_outcomes = await rt.brain.persist(
+                session_id, text, "".join(raw))
+        if entry:
+            rt.turn_filed(entry["id"])     # now it can be rated (§37.1)
+        rt.signals.post("turn_committed",
+                        {"text": text, "reply": reply,
+                         "tool_outcomes": tool_outcomes}, source=channel)
+        selfies = rt.selfies.active_ids(client_id) if rt.selfies else []
+        return {"session_id": session_id, "message": entry,
+                "user_message": user_entry, "active_selfies": selfies}
 
     async def _pump(self, agen, *, session_id: str, channel: str,
                     client_id: str | None,

@@ -49,7 +49,8 @@ from .boot import BootBoard
 from .brain_protocol import AutonomousBrain
 from .channels.manager import ChannelManager
 from yurios.app.config import REPLY_LENGTHS
-from yurios.app.conversation import INTERNAL_FIELDS, ConversationLog, swipeable
+from yurios.app.conversation import (INTERNAL_FIELDS, ConversationLog, swipeable,
+                                    unanswered)
 from yurios.app.corpus import CorpusLogger, UnratableLine
 from ..kernel.clock import Clock
 from .config import Config
@@ -57,7 +58,7 @@ from . import raw_assets, runtime
 from .context import ContextMeter
 from ..kernel.hub import EventHub
 from .inbox import Inbox
-from .turns import NotSwipeable, RuntimeStopping, TextTurns
+from .turns import NotSwipeable, NotUnanswered, RuntimeStopping, TextTurns
 from .selfies import SelfieLab
 from .uploads import Uploads
 from .situation import render_visual_situation
@@ -680,6 +681,45 @@ class Runtime:
         self.hub.publish("swipe", entry)
         return entry
 
+    # ---- a line of yours that never got its answer (SPEC §2.6) ----
+
+    def unanswered_line(self, message_id: str) -> dict:
+        """Your line, when its turn never happened and it can be sent again or
+        deleted. Raises `KeyError` for a line this conversation does not hold
+        and `NotUnanswered` for one that was answered (or is being). Reads the
+        log whole: call it off the event loop."""
+        row = self.chatlog.line(message_id)
+        if row is None:
+            raise KeyError(message_id)
+        if not unanswered(row):
+            raise NotUnanswered(message_id)
+        return row
+
+    def mark_unanswered(self, message_id: str) -> None:
+        """Her turn on your line broke: say so in every room, so the line wears
+        its "no reply" and its two buttons wherever the conversation is open —
+        not only in the tab that sent it. A turn that died before the brain
+        admitted the line is unwound here too, so the log says the same thing
+        the page does."""
+        row = self.chatlog.line(message_id)
+        if row is None or row.get("role") != "user":
+            return
+        if not row.get("unwound"):
+            self.chatlog.unwind(message_id)
+        self.hub.publish("unanswered", {"id": message_id})
+
+    def discard_line(self, message_id: str) -> None:
+        """Delete an unanswered line of yours from the conversation and every
+        room (SPEC §2.6). Nothing but the page ever held it. Her last reply
+        above it is the newest line again, so it may be asked again again.
+        The caller checked `unanswered_line`."""
+        self.chatlog.discard(message_id)
+        self.transcript[:] = [e for e in self.transcript if e.get("id") != message_id]
+        self.hub.publish("message_removed", {"id": message_id})
+        pair = self.chatlog.last_exchange()
+        if pair and pair[1].get("turn_id") and pair[1].get("channel") in SWIPE_CHANNELS:
+            self._publish_swipe(pair[1], regenerable=True)
+
     def hands_permit(self, tool: str) -> bool:
         """May she use `tool` right now — in a reply, a greeting, a reach-out or
         her own work? The one rule (SPEC §26.1), read live: the house switch,
@@ -773,6 +813,9 @@ class Runtime:
             entries = entries[:cut]
         limit = max(1, min(int(limit), HISTORY_MAX))
         window = self._with_swipes(self._with_ratings(entries[-limit:]), redo)
+        # a line of yours whose turn never happened says so after a reload too,
+        # with the same two buttons it had live (SPEC §2.6)
+        window = [{**e, "unanswered": True} if unanswered(e) else e for e in window]
         return {"messages": window, "has_more": len(window) < len(entries)}
 
     @staticmethod

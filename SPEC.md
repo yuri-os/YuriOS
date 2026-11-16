@@ -623,7 +623,25 @@ greeting the other way round), so each patches the row the other made. A row rea
 only when `SessionStore.append_message` admits it: far more is drawn than is prompted with, and
 inferring membership from "has a session" would silently widen the next prompt. The §4.4 rollback
 takes a line *out of the window* and leaves it on the page — you said it, and a chat that deletes
-what you typed is lying about what happened. A reply you had her say again (§39) stays one line: its
+what you typed is lying about what happened.
+
+**A line of yours that never got its answer can be sent again or deleted.** A line is
+*unanswered* when it is yours, drawn, and unwound — her turn on it failed, was stopped, came back
+empty, or was barged in on — and the host **MUST** say so: an `unanswered {id}` event on the bus
+when a text turn breaks before it commits (a failure *after* her reply is drawn is not one), and
+`unanswered: true` on its `GET /api/history` row, so every room and every reload draws it the
+same. Every room with a chat column **MUST** show such a line its receipt ("no reply") and two
+always-visible controls beside it, disabled while the composer has a request in flight:
+**resend** — `POST /api/chat/resend {id, session_id?, client_id?}`, the same words (and picture,
+while it is still on the shelf) as a fresh turn at the bottom of the column, run by the composer
+like any turn, with the old line removed under the turn lock in the same step the new one is
+drawn, so a send refused before then leaves the old one where it was — and **delete** —
+`POST /api/chat/discard {id}`, on a second press, which appends a `discard` record and drops the
+row from every reader. Both publish `message_removed {id}`, and either leaves her previous reply
+the newest line again, so it may be asked again (§39). A line that was answered **MUST** be
+refused (409): only a line nothing else holds — no memory, no corpus record, no window line — may
+be forgotten. A line that never reached the host at all is the page's own: resend says it again
+from the composer and delete simply takes it off. A reply you had her say again (§39) stays one line: its
 alternatives ride the row, and the fold hands every reader the one that stands. `GET /api/history?before=<message id>&limit=` walks back
 through it, which the chat surface **MUST** offer as a single control at the top of the column
 loading **six** older lines a press, holding the reader's scroll position across the insert.

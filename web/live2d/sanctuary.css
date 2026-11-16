@@ -279,6 +279,24 @@ svg{ width:1.1em; height:1.1em; fill:none; stroke:currentColor; stroke-width:1.7
 .msg-swipe.failed button{ color:var(--red); }
 .msg.regenerating > :not(.who){ opacity:.4; transition:opacity .18s ease; }
 
+/* A line of yours that got no reply (SPEC §2.6): send it again, or delete it.
+   Always shown on that line — it is the only thing left to do with it. */
+.msg-retry{
+  flex:none; align-self:center; display:inline-flex; align-items:center; gap:8px;
+  margin-left:4px;
+}
+.msg-retry button{
+  display:inline-flex; align-items:center; gap:3px; padding:0 1px; border:0;
+  background:transparent; color:var(--amber); cursor:pointer;
+  font:inherit; font-size:11px; line-height:1; transition:color .18s ease;
+}
+.msg-retry button:disabled{ opacity:.35; cursor:default; }
+.msg-retry svg{ width:12px; height:12px; fill:none; stroke:currentColor;
+                stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; }
+.msg-retry button:not(:disabled):hover{ color:var(--ink); }
+.msg-retry button[data-armed]{ color:var(--red); }
+.msg-retry.failed button[data-act="discard"]{ color:var(--red); }
+
 .msg-img{
   display:block; max-width:100%; border-radius:2px; margin:2px 0 6px;
   border:1px solid var(--rule);

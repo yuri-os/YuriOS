@@ -290,3 +290,44 @@ it('marks the line when a spoken turn comes back with no reply', async () => {
   expect(els.text.placeholder).toContain('the model refused to answer');
   expect(els.status.textContent).not.toBe('error');
 });
+
+it('sends a line that got no reply again through the composer (SPEC §2.6)', async () => {
+  document.body.innerHTML = `
+    <div class="composer"><details><summary>Options</summary></details>
+      <div class="composer-input"><input id="text"><button id="send">send</button></div></div>
+    <button id="mic"></button><span id="mic-label"></span>
+    <span id="status"></span><span id="caption"></span><span id="latency"></span>
+  `;
+  const bodies = [];
+  let answer;
+  vi.stubGlobal('fetch', vi.fn(async (url, options = {}) => {
+    if (url === '/api/greeting') return { ok: true, json: async () => ({ session_id: 'session-1' }) };
+    if (url === '/api/chat/resend') {
+      bodies.push(JSON.parse(options.body));
+      await new Promise((resolve) => { answer = resolve; });
+      return { ok: true, json: async () => ({ session_id: 'session-1', message: null }) };
+    }
+    throw new Error(`unexpected request: ${url}`);
+  }));
+  window.YuriOSRuntime = { apiPath: (p) => p, wsUrl: (p) => p, sessionKey: () => 'test.session' };
+  window.WorldControls = { isVoiceMuted: () => true };
+  window.WorldChat = {
+    capabilities: {}, addPendingUser: vi.fn(), confirmUser: vi.fn(), receiveMessage: vi.fn(),
+    failPending: vi.fn(), stopPending: vi.fn(), beginResend: vi.fn(), setBusy: vi.fn(),
+  };
+  const { initVoice } = await import('../js/voice.js');
+  const els = Object.fromEntries(['text', 'send', 'mic', 'status', 'caption', 'latency']
+    .map((id) => [id, document.getElementById(id)]));
+  els.micLabel = document.getElementById('mic-label');
+  initVoice({ viseme: { context: vi.fn() }, els });
+  await vi.waitFor(() => expect(window.WorldVoice.resend('u1', 'hello', undefined)).toBe(true));
+
+  const clientId = window.WorldChat.addPendingUser.mock.calls.at(-1)[1];
+  expect(window.WorldChat.beginResend).toHaveBeenCalledWith(clientId, 'u1');
+  expect(window.WorldChat.addPendingUser).toHaveBeenLastCalledWith('hello', clientId, undefined);
+  await vi.waitFor(() => expect(bodies).toHaveLength(1));
+  expect(bodies[0]).toEqual({ id: 'u1', session_id: 'session-1', channel: 'web', client_id: clientId });
+  // a turn like any other: a second press while it runs is refused
+  expect(window.WorldVoice.resend('u1', 'hello', undefined)).toBe(false);
+  answer();
+});

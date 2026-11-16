@@ -341,6 +341,7 @@
   function settleControls() {
     if (!messages) return;
     for (const group of messages.querySelectorAll('.msg-swipe')) settleControl(group);
+    for (const b of messages.querySelectorAll('.msg-retry button')) b.disabled = held();
   }
 
   function markFailed(id, why) {
@@ -348,6 +349,118 @@
     if (!group) return;
     group.classList.add('failed');
     group.title = why;
+  }
+
+  /* A line of yours that never got its answer (SPEC §2.6): her turn on it
+   * broke, was stopped, or came back empty. It stays — you said it — wearing
+   * its receipt and two buttons: send it again (a fresh turn at the bottom,
+   * through the composer, which takes the old line off as the new one lands)
+   * or delete it. The host says which lines these are — live with an
+   * `unanswered` event to every room, and on the history row after a reload —
+   * so the buttons are the same in every room and survive a refresh. */
+  const unansweredIds = new Set();
+  const resendOf = new Map();           // client id -> the line it sends again
+
+  function retryControl() {
+    const off = held() ? ' disabled' : '';
+    return '<span class="msg-retry">' +
+      `<button type="button" data-act="resend" title="send it again"${off}>` +
+      `<svg aria-hidden="true" viewBox="0 0 24 24">${REDO}</svg>resend</button>` +
+      `<button type="button" data-act="discard" title="delete this line"${off}>× delete</button>` +
+      '</span>';
+  }
+
+  function isUnanswered(m, her) {
+    return !her && m.role !== 'tool' && Boolean(m.unanswered || (m.id && unansweredIds.has(m.id)));
+  }
+
+  /** Put the receipt and the buttons on a line already drawn. */
+  function markUnanswered(div, reason = 'no reply') {
+    div.classList.remove('pending');
+    div.classList.add('failed');
+    const who = div.querySelector('.who');
+    if (!who) return;
+    let receipt = who.querySelector('.receipt');
+    if (!receipt) {
+      receipt = document.createElement('em');
+      receipt.className = 'receipt';
+      who.insertBefore(receipt, who.childNodes[1] || null);
+    }
+    // a reason already said stands ("stopped", "not received"); a line that
+    // merely looked delivered now says what became of it
+    if (['', 'received', 'sending…'].includes(receipt.textContent)) receipt.textContent = reason;
+    if (!who.querySelector('.msg-retry')) who.insertAdjacentHTML('beforeend', retryControl());
+  }
+
+  function yourLine(id) {
+    return messages && [...messages.querySelectorAll('.msg.you')]
+      .find((el) => el.dataset.messageId === id);
+  }
+
+  function receiveUnanswered(m) {
+    if (!m?.id) return;
+    unansweredIds.add(m.id);
+    const div = yourLine(m.id);
+    if (div) markUnanswered(div);
+  }
+
+  function removeLine(id) {
+    unansweredIds.delete(id);
+    for (const el of messages ? [...messages.querySelectorAll('.msg')] : []) {
+      if (el.dataset.messageId === id) el.remove();
+    }
+  }
+
+  /** voice.js is sending this line again under this request id. */
+  function beginResend(clientId, id) {
+    resendOf.set(clientId, id);
+  }
+
+  async function retry(button) {
+    const div = button.closest('.msg');
+    if (!div || held() || button.disabled) return;
+    const id = div.dataset.messageId;
+    const said = div.dataset.said || '';
+    if (button.dataset.act === 'resend') {
+      if (id) window.WorldVoice?.resend?.(id, said, div.dataset.image || undefined);
+      // never reached the host: there is nothing there to replace, so it is
+      // simply said again, the way you would retype it
+      else if (window.WorldVoice?.send?.(said)) div.remove();
+      return;
+    }
+    if (!id) { div.remove(); return; }
+    // deleting is the one press here that cannot be taken back: the second
+    // press means it, and the first lapses on its own
+    if (button.dataset.armed !== '1') {
+      button.dataset.armed = '1';
+      button.textContent = 'delete?';
+      setTimeout(() => {
+        if (button.isConnected && button.dataset.armed === '1') {
+          delete button.dataset.armed;
+          button.textContent = '× delete';
+        }
+      }, 4000);
+      return;
+    }
+    button.disabled = true;
+    try {
+      const r = await fetch(apiPath('/api/chat/discard'), {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+      });
+      if (!r.ok) {
+        let why = '';
+        try { why = (await r.json()).detail || ''; } catch { /* not json */ }
+        throw new Error(why || String(r.status));
+      }
+      removeLine(id);                     // the event may be late
+    } catch (err) {
+      button.disabled = false;
+      delete button.dataset.armed;
+      button.textContent = '× delete';
+      button.title = "couldn't delete it" + (err?.message ? ` — ${err.message}` : '');
+      button.closest('.msg-retry')?.classList.add('failed');
+    }
   }
 
   /** Her line, being said again: the words arriving so far in place of the
@@ -431,6 +544,8 @@
     if (thumb) { rate(thumb); return; }
     const swiper = ev.target.closest?.('.msg-swipe button');
     if (swiper) { swipeTo(swiper); return; }
+    const again = ev.target.closest?.('.msg-retry button');
+    if (again) { retry(again); return; }
     const button = ev.target.closest?.('.msg-speak');
     if (button) window.WorldVoice?.speak?.(button.dataset.messageId);
   });
@@ -483,13 +598,15 @@
   }
 
   function body(m, her, receipt = '') {
+    const failed = isUnanswered(m, her);
+    if (failed && (!receipt || receipt === 'received')) receipt = 'no reply';
     // Her name carries `data-char-name`, so the `hello` that brings it renames
     // the rows history drew before it arrived (they would stay "her" otherwise).
     let html = `<span class="who">${her ? herName() : 'you'}` +
                (m.proactive ? '<em>· she spoke first</em>' : '') +
                (receipt ? `<em class="receipt">${esc(receipt)}</em>` : '') +
                stamp(m.ts) + speakButton(m, her) + rateButtons(m, her) +
-               swipeControl(m, her) + '</span>';
+               swipeControl(m, her) + (failed ? retryControl() : '') + '</span>';
     if (m.image_url) {
       // Hers is a selfie (SPEC §7.6); yours is a picture you sent her (§35) —
       // same element, same lane, and only the alt text knows the difference.
@@ -823,8 +940,15 @@
         `${chipLabel(m, peekOf(m))}${esc(said)}${stamp(m.ts)}</span>`;
       return div;
     }
+    if (m.unanswered && m.id && !her) unansweredIds.add(m.id);
     div.className = 'msg ' + (her ? 'her' : 'you') + (m.proactive ? ' proactive' : '')
-      + (m.id && unheard.has(m.id) ? ' unheard' : '');
+      + (m.id && unheard.has(m.id) ? ' unheard' : '')
+      + (isUnanswered(m, her) ? ' failed' : '');
+    // what a resend says again: your words and picture, as you sent them
+    if (!her) {
+      div.dataset.said = m.text || '';
+      if (m.image_url) div.dataset.image = m.image_url; else delete div.dataset.image;
+    }
     delete div.dataset.clientId;
     // …but not out of reach. `clientId` is addMsg's adoption handle and has to
     // stop matching once this line is committed, or the next message carrying
@@ -933,6 +1057,8 @@
     const div = document.createElement('div');
     div.className = 'msg you pending';
     div.dataset.clientId = clientId;
+    div.dataset.said = text || '';
+    if (imageUrl) div.dataset.image = imageUrl;
     div.innerHTML = body(message, false, 'sending…');
     pending.set(clientId, div);
     pendingExpiry.set(clientId, setTimeout(() => {
@@ -962,16 +1088,26 @@
       markFailed(id, "couldn't get another reply" + (detail ? ` — ${detail}` : ''));
       return;
     }
+    const replaced = resendOf.get(clientId);
+    resendOf.delete(clientId);
     const div = pending.get(clientId) || (messages && [...messages.children]
       .find((el) => el.dataset.sentId === clientId));
     if (!div) return;
-    div.classList.remove('pending');
-    div.classList.add('failed');
+    if (replaced && !div.dataset.messageId) {
+      // a resend refused before the host drew it: the line it was sending is
+      // still there, buttons and all — this copy was only ever ours
+      pending.delete(clientId);
+      div.remove();
+      return;
+    }
     const receipt = div.querySelector('.receipt');
     if (receipt) receipt.textContent = reason;
+    if (div.dataset.messageId) unansweredIds.add(div.dataset.messageId);
+    markUnanswered(div, reason);
   }
 
   function stopPending(clientId) {
+    resendOf.delete(clientId);
     if (againAsked.has(clientId)) {
       const id = againAsked.get(clientId);
       againAsked.delete(clientId);
@@ -1339,6 +1475,8 @@
         receiveMessage(m);
       } else if (m.type === 'rating') receiveRating(m);
       else if (m.type === 'swipe') receiveSwipe(m);
+      else if (m.type === 'unanswered') receiveUnanswered(m);
+      else if (m.type === 'message_removed') removeLine(m.id);
       else if (m.type === 'draft') {
         if (m.again) againDraft(m.again, m.text); else addDraft(m.text);
       } else if (m.type === 'draft_cancel') {
@@ -1404,6 +1542,7 @@
     receiveRating,
     receiveSwipe,
     beginAgain,
+    beginResend,
     setBusy,
   };
 })();

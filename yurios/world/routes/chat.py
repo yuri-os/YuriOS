@@ -30,7 +30,7 @@ from pydantic import BaseModel, Field, StrictInt
 from yurios.app.providers.admission import InferenceBusy
 from yurios.desktop.voice.transcript import is_meaningful_transcript
 from yurios.desktop.brain import NothingToRedo
-from yurios.world.turns import EmptyReply, NotSwipeable, RuntimeStopping
+from yurios.world.turns import EmptyReply, NotSwipeable, NotUnanswered, RuntimeStopping
 
 log = logging.getLogger("world.chat")
 router = APIRouter()
@@ -73,6 +73,19 @@ class SwipeRequest(BaseModel):
     """Which of the replies on her last line stands (SPEC §39.3)."""
     id: str = Field(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
     swipe: StrictInt = Field(ge=0, le=999)
+
+
+class LineRequest(BaseModel):
+    """A line of yours that never got its answer (SPEC §2.6), by transcript id."""
+    id: str = Field(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
+
+
+class ResendRequest(LineRequest):
+    session_id: str | None = Field(default=None, max_length=128,
+                                   pattern=r"^[A-Za-z0-9._:-]+$")
+    client_id: str | None = Field(default=None, max_length=64,
+                                  pattern=r"^[A-Za-z0-9_-]+$")
+    channel: str = Field(default="web", max_length=24, pattern=r"^[a-z0-9_-]+$")
 
 
 class CancelRequest(BaseModel):
@@ -189,6 +202,72 @@ async def chat(req: ChatRequest, request: Request):
     except EmptyReply as e:    # already says what happened, in words for the room
         raise HTTPException(502, str(e))
     except Exception as e:  # noqa: BLE001 — the turn left no trace (turns.py)
+        raise HTTPException(502, f"turn failed: {e}")
+
+
+async def _unanswered(rt, message_id: str) -> dict:
+    try:
+        return await asyncio.to_thread(rt.unanswered_line, message_id)
+    except KeyError:
+        raise HTTPException(404, "no such line in this conversation") from None
+    except NotUnanswered:
+        raise HTTPException(409, "only a line of yours that got no reply can be "
+                                 "sent again or deleted") from None
+
+
+@router.post("/api/chat/discard")
+async def discard(req: LineRequest, request: Request):
+    """Delete a line of yours whose turn never happened (SPEC §2.6) — from the
+    conversation and every room. Nothing else held it: no memory, no corpus
+    record, no window line. An answered line is refused."""
+    rt = request.app.state.rt
+    await _unanswered(rt, req.id)
+    rt.discard_line(req.id)
+    return {"discarded": req.id}
+
+
+@router.post("/api/chat/resend")
+async def resend(req: ResendRequest, request: Request):
+    """Send a line of yours that got no reply again (SPEC §2.6): the same words
+    (and picture, while it is still on the shelf) as a new turn at the bottom of
+    the conversation, the old line leaving as the new one is drawn. Answers as
+    `/api/chat` does."""
+    rt = request.app.state.rt
+    if req.channel == "telegram":
+        raise HTTPException(422, "telegram origin is reserved for the bot adapter")
+    row = await _unanswered(rt, req.id)
+    image_url = str(row.get("image_url") or "")
+    image_id = image_url.removeprefix("/api/uploads/") if image_url.startswith(
+        "/api/uploads/") else None
+    if image_id and rt.uploads.get(image_id) is None:
+        raise HTTPException(404, "the picture on that line has left the shelf — "
+                                 "send it again from the composer")
+    if image_id and not rt.image_input:
+        raise HTTPException(409, f"this model can't be sent pictures "
+                                 f"({rt.image_input_status})")
+    text = str(row.get("text") or "")
+    if not image_id and not is_meaningful_transcript(text):
+        raise HTTPException(422, "not a meaningful turn")
+    try:
+        async with request.app.state.turn_admission:
+            return await _tracked(request, req.client_id, rt.turns.run(
+                text, channel=req.channel, session_id=req.session_id,
+                client_id=req.client_id, image_id=image_id, replaces=req.id))
+    except HTTPException:
+        raise
+    except InferenceBusy:
+        raise
+    except RuntimeStopping as e:
+        raise HTTPException(503, str(e)) from e
+    except KeyError:
+        raise HTTPException(404, "no such line in this conversation") from None
+    except NotUnanswered:
+        raise HTTPException(409, "that line was already sent again or deleted") from None
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    except EmptyReply as e:
+        raise HTTPException(502, str(e))
+    except Exception as e:  # noqa: BLE001 — the new line is marked unanswered (turns.py)
         raise HTTPException(502, f"turn failed: {e}")
 
 

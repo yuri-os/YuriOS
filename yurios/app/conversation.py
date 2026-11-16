@@ -23,6 +23,7 @@ record and is folded back on read:
   `{"unwind": "<id>"}`                         it leaves the window, not the page
   `{"swipe_for": "<id>", "text": …}`           another reply in its place (§39)
   `{"pick_for": "<id>", "swipe": n}`           which of those replies stands
+  `{"discard": "<id>"}`                        an unanswered line of yours, deleted
 
 Either half may be written first, so both can create the line and both can patch
 it. A reply is drawn the instant the stream ends and admitted a moment later
@@ -36,6 +37,11 @@ barged-in turn must stop feeding the next prompt, but your own line stays on
 screen where you can see you said it. Two facts about one line that the old
 split expressed by accident — the chat file kept it, the session file dropped it
 — and that a merged store has to say out loud.
+
+`discard` is the deletion, and only ever of a line of yours that an `unwind`
+left unanswered (§2.6): you can see it failed, and you may take it back or send
+it again. Nothing else ever held it — the turn left no memory, no corpus record
+and no window line — so dropping the row is the whole of forgetting it.
 
 **One line, several replies (§39).** A reply you asked her to say again keeps
 its id: the page redraws one bubble, a rating still names one line, and the
@@ -373,6 +379,12 @@ class ConversationLog:
         if message_id:
             self._append({"swipe_for": message_id, "text": text})
 
+    def discard(self, message_id: str) -> None:
+        """Take an unanswered line of yours off the page as well (§2.6). The
+        caller checks `unanswered` first: an answered line is never deleted."""
+        if message_id:
+            self._append({"discard": message_id})
+
     def pick(self, message_id: str, index: int) -> None:
         """Make reply `index` of a line the one that stands (§39)."""
         if message_id:
@@ -595,12 +607,14 @@ def fold(path: Path) -> tuple[list[dict], int | None]:
                 records += 1
                 target = (rec.get("raw_for") or rec.get("drawn_for")
                           or rec.get("unwind") or rec.get("swipe_for")
-                          or rec.get("pick_for"))
+                          or rec.get("pick_for") or rec.get("discard"))
                 if target:
                     row = index.get(target)
                     if row is None:
                         continue
-                    if rec.get("unwind"):
+                    if rec.get("discard"):
+                        row["discarded"] = True
+                    elif rec.get("unwind"):
                         row["unwound"] = True
                     elif rec.get("swipe_for"):
                         alts = _alts(row)
@@ -648,7 +662,15 @@ def fold(path: Path) -> tuple[list[dict], int | None]:
         log.warning("conversation log at %s is unreadable; starting empty",
                     path, exc_info=True)
         return [], None
-    return rows, records
+    return [r for r in rows if not r.get("discarded")], records
+
+
+def unanswered(row: dict) -> bool:
+    """A line of yours on the page whose turn never happened (§2.6): drawn, and
+    unwound out of the window — a failed reply, a Stop, a barge-in. It can be
+    sent again or deleted; an answered line never can."""
+    return (row.get("role") == "user" and bool(row.get("d"))
+            and bool(row.get("unwound")))
 
 
 def _alts(row: dict) -> list[dict]:

@@ -165,6 +165,8 @@ has to act on it — see [Characters → When the export refuses](characters.md#
 |---|---|
 | `POST /api/chat` | `{text, session_id?, channel?, client_id?, image_id?}` → `{session_id, user_message, message, active_selfies}`. Mirrors the voice route minus audio; `telegram` is a reserved origin |
 | `POST /api/chat/cancel` | `{client_id, selfie_ids?}` → cancel that browser turn and its correlated camera work |
+| `POST /api/chat/resend` | `{id, session_id?, client_id?, channel?}` → send a line of yours that got no reply again: a fresh turn at the bottom, the old line removed as the new one is drawn; answers as `/api/chat`. 409 for an answered line |
+| `POST /api/chat/discard` | `{id}` → delete a line of yours that got no reply, from the conversation and every room (`message_removed` event). 409 for an answered line |
 | `POST /api/greeting` | `{session_id?, channel?}` → `{session_id, message}`. She speaks first: the voice route greets on connect, a text client asks. Committed `proactive`, never persisted. A new `session_id` is **not** an arrival if another viewer is already in the room, or if the last one left within 60 s (`GREET_REJOIN_S`) — the skip still marks the session greeted (`message: null`) so a flap does not fire again. The first-ever call plays her cold open |
 | `GET /api/history?limit=&before=` | `{messages, has_more}`, oldest first, `Cache-Control: no-store`. No arguments is the end of the conversation (100 entries) — the catch-up window a reconnecting page asks for. A page *opening* asks for `limit=6`, the same six the walk-back control loads, so one earlier line is enough to offer it. Either way it survives a restart: the ring is seeded from `<vault>/state/conversation.jsonl`, the one log the chat column and the §7.1 window are both read from. `before=<message id>` is the `limit` entries just *older* than that one — the walk back at the top of the column, six a press. `limit` is capped at 200 |
 | `POST /api/rate` | `{id, thumbs}` → `{rating: {id, thumbs}}`. 👍 (`1`) or 👎 (`-1`) on one of her replies, by the transcript id the page drew; `0` takes it back. Appends to `corpus/ratings.jsonl` under the reply's corpus id and publishes a `rating` event. `404` for a line the conversation does not hold, `409` for one with no corpus record (a greeting, a reach-out, a selfie, your own line) |
@@ -214,6 +216,8 @@ claiming a body on a screen.
 | `rating` | `{id, thumbs}` — one of her replies was rated (`0`: taken back), or a text reply was just filed and can now be rated |
 | `gallery` | a picture was scored (`{action: "rate", image, score, by, at}`) — so a second open room stops showing the old number |
 | `draft` / `draft_cancel` | streaming sentence drafts |
+| `unanswered` | `{id}` — her turn on a line of yours broke before it committed; the line stays, with resend and delete |
+| `message_removed` | `{id}` — a line of yours that got no reply was deleted or sent again; take it off the column |
 | `avatar` | expression, gaze, posture, visemes, `rain`, `music` — the puppet lane |
 | `journal` | a new `[she]` journal line |
 | `mind` | activity/budget/goal updates for the inner-life tab |

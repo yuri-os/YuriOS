@@ -502,7 +502,19 @@ code { font: 11px/1.5 var(--font-mono); color: var(--soft); }
 }
 .opt-model-opt:hover { background: rgb(215 255 88 / .1); color: var(--acid); }
 .opt-model-empty { padding: 9px 11px; color: var(--dim); font-size: 12px; }
+.opt-model-opt.is-active { color: var(--acid); }
+.opt-model-active {
+  float: right; margin-left: 10px; color: var(--acid);
+  font: 9px var(--font-mono); letter-spacing: .1em; text-transform: uppercase;
+}
 .opt-model-status { color: var(--dim); font: 10px var(--font-mono); letter-spacing: .08em; }
+/* a server that wants a key, taken under the picker it refused (/shared/key-fix.js) */
+.key-fix-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.key-fix-row > .opt-input { flex: 1 1 12em; }
+.key-fix-row > [hidden] { display: none; }
+.key-fix-note { display: block; margin-top: 6px; color: var(--dim); font: 10px/1.5 var(--font-mono); }
+.key-fix-error { display: block; margin-top: 4px; color: var(--amber); font: 10px/1.5 var(--font-mono); }
+.key-fix-error:empty { display: none; }
 
 .opt-failed { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
 .opt-failed li {

@@ -102,17 +102,51 @@
   // dropdown beside the box; for embeddings it's the EMBED_BACKEND select above.
   // `hints[provider]` short-circuits the fetch with a message for providers that
   // have nothing to list (custom ids; sentence_tf, which is an in-process HF repo).
+  //
+  // A local server that says which models it has in memory (`loaded`, from
+  // LM Studio's or Ollama's own API) gets those first and marked active, so the
+  // one it is running is not a hunt through everything on disk.
   function attachBrowse(input, getProviderId, hints) {
     const browse = el("button", { type: "button", className: "set-browse", textContent: "browse" });
     const status = el("span", { className: "set-model-status" });
     const list = el("div", { className: "set-model-list", hidden: true });
+    // a server that wants a key takes it here (/shared/key-fix.js, SPEC §31.1)
+    const fix = el("div", { className: "set-key-fix", hidden: true });
     let all = [];              // last fetched models
+    let loaded = [];           // which of them the server has in memory
     let fetchedFor = null;     // which provider `all` was fetched for
+
+    function clearFix() { fix.hidden = true; fix.replaceChildren(); }
+
+    // one listing's answer, from browse or from a key just given
+    function accept(data, p, warning = "") {
+      clearFix();
+      if (data.error) {
+        status.textContent = data.error;
+        if (data.key && window.YuriOSKeyFix) {
+          fix.append(window.YuriOSKeyFix.render(data.key, {
+            apiPath, inputClass: "set-input", buttonClass: "set-browse",
+            onListing: (next, said) => accept(next, p, said),
+            retry: () => { fetchedFor = null; browseModels(); },
+          }));
+          fix.hidden = false;
+        }
+        return;
+      }
+      all = data.models || []; fetchedFor = p;
+      loaded = Array.isArray(data.loaded) ? data.loaded : [];
+      status.textContent = (all.length ? `${all.length} available` : "none loaded there")
+        + (warning ? ` — ${warning}` : "");
+      renderList("");                       // browse shows ALL, ignoring the typed value
+      if (all.length) { show(); input.focus(); }
+    }
 
     function renderList(filter) {
       list.replaceChildren();
       const q = (filter || "").trim().toLowerCase();
-      const shown = (q ? all.filter((m) => m.toLowerCase().includes(q)) : all).slice(0, 500);
+      const active = new Set(loaded);
+      const ordered = [...all.filter((m) => active.has(m)), ...all.filter((m) => !active.has(m))];
+      const shown = (q ? ordered.filter((m) => m.toLowerCase().includes(q)) : ordered).slice(0, 500);
       if (!shown.length) {
         list.append(el("div", { className: "set-model-empty",
           textContent: all.length ? "no match" : "nothing to show" }));
@@ -120,6 +154,10 @@
       }
       for (const m of shown) {
         const opt = el("button", { type: "button", className: "set-model-opt", textContent: m });
+        if (active.has(m)) {
+          opt.classList.add("is-active");
+          opt.append(el("span", { className: "set-model-active", textContent: "active" }));
+        }
         // mousedown (not click) so we win the race against the input's blur
         opt.addEventListener("mousedown", (e) => { e.preventDefault(); input.value = m; hide(); });
         list.append(opt);
@@ -131,19 +169,15 @@
     async function browseModels() {
       await runtimeReady;
       const p = getProviderId();
-      if (hints && hints[p] != null) { status.textContent = hints[p]; hide(); return; }
+      if (hints && hints[p] != null) { status.textContent = hints[p]; hide(); clearFix(); return; }
       if (fetchedFor === p && all.length) {   // already have them — just reopen, full list
         renderList(""); show(); input.focus(); return;
       }
       status.textContent = "loading…";
+      clearFix();
       try {
         const r = await fetch(apiPath("/api/models?provider=" + encodeURIComponent(p)));
-        const data = await r.json();
-        if (data.error) { status.textContent = data.error; return; }
-        all = data.models || []; fetchedFor = p;
-        status.textContent = all.length ? `${all.length} available` : "none loaded there";
-        renderList("");                       // browse shows ALL, ignoring the typed value
-        if (all.length) { show(); input.focus(); }
+        accept(await r.json(), p);
       } catch (e) {
         status.textContent = "couldn't load: " + e;
       }
@@ -156,7 +190,7 @@
     });
     input.addEventListener("keydown", (e) => { if (e.key === "Escape") hide(); });
 
-    return { browse, list, status, hide };
+    return { browse, list, status, hide, fix, clearFix };
   }
 
   // the chat/utility model field: a provider dropdown + the browsable box. The
@@ -178,9 +212,11 @@
       placeholder: f.inherited ? `inherit — ${f.inherited}` : "model id (or click browse)",
     });
     const b = attachBrowse(input, () => sel.value, { custom: "custom: type the full id" });
-    sel.addEventListener("change", () => b.hide());   // stale list is for the old provider
+    // a model id belongs to its provider: a new provider starts on an empty
+    // box, and the stale list (and key) for the old one goes with it
+    sel.addEventListener("change", () => { input.value = ""; b.hide(); b.clearFix(); });
     const combo = el("div", { className: "set-model" },
-      el("div", { className: "set-model-row" }, sel, input, b.browse), b.list);
+      el("div", { className: "set-model-row" }, sel, input, b.browse), b.list, b.fix);
     document.addEventListener("mousedown", (e) => { if (!combo.contains(e.target)) b.hide(); });
     return {
       node: combo, status: b.status,
@@ -210,7 +246,7 @@
       sentence_tf: "sentence_tf runs in-process — type a HuggingFace repo id (e.g. BAAI/bge-small-en-v1.5)",
     });
     const combo = el("div", { className: "set-model" },
-      el("div", { className: "set-model-row" }, input, b.browse), b.list);
+      el("div", { className: "set-model-row" }, input, b.browse), b.list, b.fix);
     document.addEventListener("mousedown", (e) => { if (!combo.contains(e.target)) b.hide(); });
     return { node: combo, read: () => input.value, status: b.status,
       write: (value) => { input.value = String(value ?? ""); b.hide(); } };
@@ -681,6 +717,11 @@
   if (!dlg) return;
   const body = document.getElementById("settings-body");
   const note = document.getElementById("settings-note");
+  // A save that waits for a restart offers it right there (the house's own
+  // route, SPEC §11.3) — drawn here rather than in each room's markup.
+  const restartButton = el("button", { type: "button", className: "settings-restart",
+    textContent: "restart YuriOS", hidden: true });
+  document.getElementById("settings-save")?.before(restartButton);
   const pathEl = document.getElementById("settings-path");
   const form = createForm((text) => { note.textContent = text; });
   let loaded = false;
@@ -843,8 +884,54 @@
                : "saved" };
   }
 
+  // The house, asked directly (not through her runtime's path): whether the
+  // supervisor would start it again, and which boot this is.
+  async function houseState() {
+    try {
+      const r = await fetch("/api/house");
+      return r.ok ? await r.json() : null;
+    } catch (_) { return null; }
+  }
+
+  async function offerRestart() {
+    const house = await houseState();
+    if (house?.restartable) { restartButton.hidden = false; restartButton.disabled = false; return; }
+    // nothing would start it again (or no house to ask): say how, once
+    note.textContent += house?.why_not ? ` — ${house.why_not}` : " — restart YuriOS yourself";
+  }
+
+  const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  async function restartHouse() {
+    const before = (await houseState())?.boot_id || "";
+    restartButton.disabled = true;
+    try {
+      const r = await fetch("/api/house/restart", { method: "POST" });
+      if (!r.ok) {
+        const res = await r.json().catch(() => ({}));
+        throw new Error(res.detail || `HTTP ${r.status}`);
+      }
+    } catch (e) {
+      note.textContent = "restart refused: " + (e.message || e);
+      restartButton.disabled = false;
+      return;
+    }
+    note.textContent = "restarting YuriOS — this page reloads when it is back…";
+    // a new boot, not just an open port: the old server answers while it stops
+    const started = Date.now();
+    while (Date.now() - started < 180_000) {
+      await pause(1000);
+      const house = await houseState();
+      if (house?.boot_id && house.boot_id !== before) { location.reload(); return; }
+    }
+    note.textContent = "YuriOS has not come back after three minutes — "
+      + "`yurios status` and `yurios log` say why";
+  }
+  restartButton.addEventListener("click", restartHouse);
+
   async function save() {
     await runtimeReady;
+    restartButton.hidden = true;
     const diffs = form.diffs();
     const changedBrain = Object.keys(diffs.brain).length;
     const changedEnv = Object.keys(diffs.env).length;
@@ -862,6 +949,7 @@
       }
       note.textContent = said.join(" · ");
       note.classList.toggle("restart", restart);
+      if (restart) await offerRestart();
     } catch (e) {
       note.textContent = "save failed: " + e;
     }
@@ -874,6 +962,7 @@
     if (!loaded || brain) await load();
     note.textContent = "";
     note.classList.remove("restart");
+    restartButton.hidden = true;
     dlg.showModal();
   });
   document.getElementById("settings-close").addEventListener("click", () => dlg.close());

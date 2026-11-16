@@ -10,6 +10,7 @@ const json = (body, status = 200) => new Response(JSON.stringify(body), {
 let calls;
 let profiles;
 let routes;
+let keyEnvs;
 
 beforeEach(async () => {
   document.body.innerHTML = PAGE.slice(PAGE.indexOf('<body'), PAGE.lastIndexOf('</body>'))
@@ -21,13 +22,26 @@ beforeEach(async () => {
   };
   calls = [];
   profiles = [
-    { name: 'default', endpoint: 'http://localhost:1234/v1', api_key_env: '', secret_configured: false, used_by: ['yuri', 'iris'] },
-    { name: 'spare', endpoint: 'http://gpu.lan:1234/v1', api_key_env: '', secret_configured: false, used_by: [] },
+    { name: 'default', endpoint: 'http://localhost:1234/v1', api_key_env: '', secret_configured: false,
+      house_key: 'LMSTUDIO_API_KEY', house_key_set: false, used_by: ['yuri', 'iris'] },
+    { name: 'spare', endpoint: 'http://gpu.lan:1234/v1', api_key_env: '', secret_configured: false,
+      house_key: '', house_key_set: false, used_by: [] },
+    { name: 'legacy', endpoint: 'http://localhost:1234/v1', api_key_env: 'YURIOS_MODEL_API_KEY_LEGACY',
+      secret_configured: true, house_key: 'LMSTUDIO_API_KEY', house_key_set: true, used_by: [] },
   ];
+  keyEnvs = ['YURIOS_MODEL_API_KEY_LEGACY', 'YURIOS_MODEL_API_KEY_LMSTUDIO'];
   routes = {
     'GET /api/characters': () => json({ characters: [{ id: 'yuri', name: 'Yuri', connection_profile: 'default' }] }),
     'GET /api/characters/yuri/profile': () => json({ settings: { name: 'Yuri', connection_profile: 'default' } }),
-    'GET /api/connections': () => json({ profiles, key_envs: ['YURIOS_MODEL_API_KEY_LMSTUDIO'] }),
+    'GET /api/connections': () => json({ profiles, key_envs: keyEnvs }),
+    'DELETE /api/connections/keys/YURIOS_MODEL_API_KEY_LEGACY?profile=legacy': () => {
+      profiles[2] = { ...profiles[2], api_key_env: '', secret_configured: false };
+      keyEnvs = ['YURIOS_MODEL_API_KEY_LMSTUDIO'];
+      return json({ forgotten: 'YURIOS_MODEL_API_KEY_LEGACY', removed: true, warning: '' });
+    },
+    'GET /api/connections/legacy/check?character=yuri': () => json({
+      provider: 'lmstudio', url: 'http://localhost:1234/v1', models: ['gemma'],
+    }),
     'PUT /api/connections/default': () => {
       profiles[0] = { ...profiles[0], api_key_env: 'YURIOS_MODEL_API_KEY_DEFAULT', secret_configured: true };
       return json({ profile: profiles[0], applied: {}, warning: '' });
@@ -69,7 +83,39 @@ const choose = (value) => {
 describe('her connection, beside the picker', () => {
   it('says where she points and that no key goes with it', () => {
     expect(document.getElementById('connection-summary').textContent)
-      .toBe('http://localhost:1234/v1 · no API key');
+      .toBe('http://localhost:1234/v1 · no API key (LMSTUDIO_API_KEY is not set)');
+  });
+
+  it("offers the house's key by name on the house's own address", () => {
+    document.getElementById('connection-edit').click();
+    expect(form().elements.key_source.options[0].textContent)
+      .toBe("LMSTUDIO_API_KEY — the house's key for this address (not set)");
+  });
+
+  it('forgets a saved key no other profile uses, on the second press', async () => {
+    const picker = document.getElementById('profile-form').elements.connection_profile;
+    picker.value = 'legacy';
+    picker.dispatchEvent(new Event('change'));
+    document.getElementById('connection-edit').click();
+    expect(form().elements.key_source.value).toBe('YURIOS_MODEL_API_KEY_LEGACY');
+    const forget = document.getElementById('connection-key-forget');
+    expect(forget.hidden).toBe(false);
+    forget.click();
+    expect(calls.some((call) => call.key.startsWith('DELETE'))).toBe(false);
+    forget.click();
+    await vi.waitFor(() => expect(form().elements.key_source.value).toBe(''));
+    expect([...form().elements.key_source.options].map((o) => o.value))
+      .toEqual(['', 'YURIOS_MODEL_API_KEY_LMSTUDIO', '__new__']);
+    expect(document.getElementById('connection-summary').textContent)
+      .toBe('http://localhost:1234/v1 · house key: LMSTUDIO_API_KEY');
+  });
+
+  it('never offers to forget a key another profile points at', () => {
+    document.getElementById('connection-edit').click();          // default, not legacy
+    choose('YURIOS_MODEL_API_KEY_LEGACY');
+    expect(document.getElementById('connection-key-forget').hidden).toBe(true);
+    choose('YURIOS_MODEL_API_KEY_LMSTUDIO');
+    expect(document.getElementById('connection-key-forget').hidden).toBe(false);
   });
 
   it('saves a key typed on the board, checks her server, and never shows the key again', async () => {
@@ -116,7 +162,7 @@ describe('her connection, beside the picker', () => {
   it('points the profile at a key already on this node, without its value', async () => {
     document.getElementById('connection-edit').click();
     const options = [...form().elements.key_source.options].map((option) => option.value);
-    expect(options).toEqual(['', 'YURIOS_MODEL_API_KEY_LMSTUDIO', '__new__']);
+    expect(options).toEqual(['', 'YURIOS_MODEL_API_KEY_LEGACY', 'YURIOS_MODEL_API_KEY_LMSTUDIO', '__new__']);
     choose('YURIOS_MODEL_API_KEY_LMSTUDIO');
     expect(document.getElementById('connection-new-key').hidden).toBe(true);
     form().requestSubmit();

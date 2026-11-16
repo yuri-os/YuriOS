@@ -12,6 +12,7 @@ still a working answer.
 """
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
 import httpx
@@ -28,8 +29,8 @@ PROVIDERS: tuple[tuple[str, str, str], ...] = (
 )
 
 
-#: Where each provider's own key is set for the house, for the refusal message.
-_HOUSE_KEYS = {"lmstudio": "LMSTUDIO_API_KEY",
+#: Where each provider's own key is set for the house, for a refused listing.
+HOUSE_KEYS = {"lmstudio": "LMSTUDIO_API_KEY",
                "openai_compatible": "OPENAI_COMPATIBLE_API_KEY",
                "openrouter": "OPENROUTER_API_KEY"}
 
@@ -53,31 +54,26 @@ SERVER_URL_FIELDS = {"lmstudio": "lmstudio_base_url", "ollama": "ollama_base_url
                      "openai_compatible": "openai_compatible_base_url"}
 
 
-def _key_refused(provider: str, status: int, sent_key: bool, where: str | None) -> str:
-    """A 401 is not "unreachable": the server is there and wants a key. Say
-    which, and where the key goes. A caller listing *for a character* knows
-    that — her connection profile, and the house key only when she is on the
-    house's own address (SPEC §31.2) — and passes it as `where`; without one
-    this is the house's own listing, whose key is the house line."""
+def _key_refused(provider: str, status: int, sent_key: bool,
+                 fix: Mapping[str, Any] | None) -> dict[str, Any]:
+    """A 401 is not "unreachable": the server is there and wants a key.
+
+    The answer says so in a line, and carries `key`, which says where a key for
+    this listing goes so the picker that asked can take it in place (SPEC
+    §31.1). A listing made for a character passes *fix*: her connection
+    profile, which every character on it shares. Without one this is the
+    house's own listing, whose key is the house line, where the provider has
+    one. Never a direction to go and find a setting somewhere else."""
     label = next((name for pid, name, _ in PROVIDERS if pid == provider), provider)
-    if where is None:
-        house = _HOUSE_KEYS.get(provider)
-        where = (f"set {house}, the house's key for this address"
-                 if house else "set the server's key")
-    if sent_key:
-        return f"{label} refused the API key it was sent (HTTP {status}) — {where}"
-    return f"{label} requires an API key (HTTP {status}) — {where}"
-
-
-def key_advice(provider: str, profile_name: str, *, house_address: bool) -> str:
-    """Where a key goes for a character's listing: her connection profile, and
-    the house line too only when the address she reaches is the house's."""
-    where = (f"give her “{profile_name}” connection profile its key on the "
-             "switchboard (Edit connection)")
-    house = _HOUSE_KEYS.get(provider)
-    if house and house_address:
-        where += f", or set {house} for every character on this address"
-    return where
+    error = (f"{label} refused the API key it was sent (HTTP {status})" if sent_key
+             else f"{label} requires an API key (HTTP {status})")
+    if fix is None:
+        house = HOUSE_KEYS.get(provider)
+        fix = {"scope": "house", "field": house} if house else None
+    result: dict[str, Any] = {"models": [], "error": error}
+    if fix is not None:
+        result["key"] = {"provider": provider, "label": label, "refused": sent_key, **fix}
+    return result
 
 
 async def _fetch_json(url: str, headers: dict | None = None) -> dict:
@@ -87,9 +83,47 @@ async def _fetch_json(url: str, headers: dict | None = None) -> dict:
         return response.json()
 
 
+async def _lmstudio_loaded(base: str, headers: dict | None) -> list[str]:
+    """What LM Studio has loaded right now, by the ids `/v1/models` lists.
+
+    The OpenAI-compatible listing says what is on disk, not what is in memory;
+    the developer API beside it says which models have a loaded instance —
+    `/api/v1/models` on 0.4, `/api/v0/models` (`state: loaded`) before that.
+    Never raises: a server that says neither just marks nothing."""
+    root = base[: -len("/v1")] if base.endswith("/v1") else base
+    try:
+        data = await _fetch_json(f"{root}/api/v1/models", headers)
+        loaded = [inst.get("id") or model.get("key", "")
+                  for model in data.get("models") or []
+                  for inst in model.get("loaded_instances") or []]
+        if loaded or "models" in data:
+            return [name for name in loaded if name]
+    except Exception:              # an older build, or none of its business
+        pass
+    try:
+        data = await _fetch_json(f"{root}/api/v0/models", headers)
+        return [item.get("id", "") for item in data.get("data") or []
+                if item.get("state") == "loaded" and item.get("id")]
+    except Exception:
+        return []
+
+
+async def _ollama_loaded(base: str, headers: dict | None) -> list[str]:
+    """What Ollama has in memory now (`/api/ps`), by the names `/api/tags` lists."""
+    try:
+        data = await _fetch_json(f"{base}/api/ps", headers)
+    except Exception:
+        return []
+    return [item.get("name", "") for item in data.get("models") or [] if item.get("name")]
+
+
 async def provider_models(cfg, provider: str, *,
-                          key_hint: str | None = None) -> dict[str, Any]:
+                          key_fix: Mapping[str, Any] | None = None) -> dict[str, Any]:
     """`{"models": [...]}`, or `{"models": [], "error": "..."}`.
+
+    A local server that says which of its models are in memory adds
+    `"loaded": [...]` — the picker lists those first and marks them active,
+    so the one the server is running is not a hunt through everything on disk.
 
     lm_studio, ollama and an OpenAI-compatible gateway are asked directly on the
     base url this config points at; openrouter is asked for its public
@@ -98,6 +132,7 @@ async def provider_models(cfg, provider: str, *,
     """
     provider = (provider or "").strip().lower()
     headers: dict | None = None
+    loaded: list[str] = []
     try:
         if provider in ("lmstudio", "lm_studio"):
             base = cfg.lmstudio_base_url.rstrip("/")
@@ -105,12 +140,14 @@ async def provider_models(cfg, provider: str, *,
                        if cfg.lmstudio_api_key else None)
             data = await _fetch_json(f"{base}/models", headers)
             ids = [item.get("id", "") for item in data.get("data", [])]
+            loaded = await _lmstudio_loaded(base, headers)
         elif provider == "ollama":
             base = cfg.ollama_base_url.rstrip("/")
             headers = ({"Authorization": f"Bearer {cfg.connection_api_key}"}
                        if cfg.connection_api_key else None)
             data = await _fetch_json(f"{base}/api/tags", headers)
             ids = [item.get("name", "") for item in data.get("models", [])]
+            loaded = await _ollama_loaded(base, headers)
         elif provider == "openai_compatible":
             base = cfg.openai_compatible_base_url.rstrip("/")
             if not base:
@@ -132,10 +169,15 @@ async def provider_models(cfg, provider: str, *,
     except httpx.HTTPStatusError as exc:
         status = exc.response.status_code
         if status in (401, 403):
-            return {"models": [], "error": _key_refused(
-                "lmstudio" if provider == "lm_studio" else provider, status,
-                bool(headers), key_hint)}
+            return _key_refused("lmstudio" if provider == "lm_studio" else provider,
+                                status, bool(headers), key_fix)
         return {"models": [], "error": f"couldn't reach {provider}: {str(exc)[:120]}"}
     except Exception as exc:      # unreachable server, bad json, timeout…
         return {"models": [], "error": f"couldn't reach {provider}: {str(exc)[:120]}"}
-    return {"models": sorted({item for item in ids if item})}
+    models = sorted({item for item in ids if item})
+    result: dict[str, Any] = {"models": models}
+    # only ids the listing has: a second instance of one model has its own id
+    active = [name for name in dict.fromkeys(loaded) if name in models]
+    if active:
+        result["loaded"] = active
+    return result

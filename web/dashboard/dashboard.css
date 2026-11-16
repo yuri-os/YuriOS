@@ -411,6 +411,8 @@ button.card-way:disabled { cursor: progress; opacity: .5; }
 .connection-field { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 10px; align-items: end; }
 .connection-field .connection-actions { display: flex; gap: 8px; }
 .connection-field .field-help { grid-column: 1 / -1; margin: 0; overflow-wrap: anywhere; }
+.connection-key-forget { justify-self: start; margin-top: 6px; }
+.connection-key-forget[hidden] { display: none; }
 .modal-aside { margin-right: auto; }
 .modal-aside svg { width: 13px; height: 13px; }
 .field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 19px 14px; }

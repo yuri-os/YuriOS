@@ -158,6 +158,7 @@
             </div>
             <div id="optimize-model-list" class="opt-model-list" hidden></div>
             <span id="optimize-model-status" class="opt-model-status"></span>
+            <div id="optimize-model-key" class="opt-model-key" hidden></div>
           </div>
         </div>
 
@@ -192,6 +193,9 @@
   </dialog>
 
   <div id="toast-region" class="toast-region" aria-live="polite" aria-atomic="true"></div>
+  <!-- a refused model listing takes its key in place (SPEC §31.1), served raw
+       at /shared/ like the rooms' settings panel -->
+  <script src="/shared/key-fix.js"></script>
   <script type="module" src="./studio.js"></script>
 </body>
 </html>

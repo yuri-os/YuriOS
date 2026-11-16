@@ -155,6 +155,29 @@ def test_the_room_nudge_saves_her_own_override(tmp_path, monkeypatch):
     assert registry.require("yuri").models.options["reply_length"] == "brief"
 
 
+def test_stepping_back_to_the_house_rung_is_no_setting_of_hers(tmp_path, monkeypatch):
+    """The room's buttons write as they go, so landing on the house's rung is
+    "back to normal": nothing is kept, and one kept before that rule reads back
+    as inheriting — no reset beside a value that is the house's (§38.3)."""
+    registry = CharacterRegistry(tmp_path)
+    registry.add(record(tmp_path, "yuri"))
+    legacy = record(tmp_path, "yuri_copy")
+    legacy.models.options["reply_length"] = "natural"       # pinned by an old nudge
+    registry.add(legacy)
+    monkeypatch.setattr("yurios.world.host.hosting.create_app", fake_character_app)
+    base = Config(data_dir=tmp_path, _env_file=None)        # the house says natural
+
+    with TestClient(create_host_app(base, registry)) as client:
+        client.patch("/api/characters/yuri/brain", json={"reply_length": "brief"})
+        back = client.patch("/api/characters/yuri/brain", json={"reply_length": "natural"})
+        old = client.get("/api/characters/yuri_copy/brain").json()
+
+    assert back.json()["changed"] == ["reply_length"]
+    assert "reply_length" not in registry.require("yuri").models.options
+    row = next(f for f in old["fields"] if f["key"] == "reply_length")
+    assert row["value"] == "" and row["inherited"] == "natural"
+
+
 # --- the event (§38.3) ---------------------------------------------------------
 
 def events_of(app) -> list[dict]:

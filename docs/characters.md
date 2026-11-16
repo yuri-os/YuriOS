@@ -391,7 +391,16 @@ value is never shown), or a new one, which the host writes to `.env` as
 `YURIOS_MODEL_API_KEY_<PROFILE>` and never shows again. It points the profile at it, moves every running character
 on that profile onto it at once, and then asks her server for its model list, so a wrong key
 shows up there rather than on her next turn. A profile is shared: a key saved on `default` reaches
-every character who uses `default`. A profile nobody uses can be deleted from the same dialog.
+every character who uses `default`. On LM Studio's house address the first choice is the house's
+own key, `LMSTUDIO_API_KEY`, by name. A saved key that no other profile uses has **Forget this
+key**, which takes its line out of `.env`. A profile nobody uses can be deleted from the same dialog.
+
+You rarely need that dialog for a key, though. Wherever you browse a server's models for her — her
+own brain settings in any room, her settings page, the studio's optimize picker — a server that
+answers "API key required" asks for it right under **browse**: pick a key already saved on this
+machine, or paste a new one, and press **use key**. It goes to her connection profile (and so to
+everyone sharing it), and the model list appears in the same step. Browsing on the House settings
+page saves the house's own key (`LMSTUDIO_API_KEY` and its kind) the same way.
 
 Each character binds to a profile by name. On a first run with no file, the host seeds `default`
 and `legacy-default` from your existing `.env` route, so an upgraded single-companion install

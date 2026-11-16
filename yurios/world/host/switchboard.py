@@ -36,7 +36,7 @@ from yurios.characters import archive as archive_model
 from yurios.characters.connections import (MODEL_KEY_ENV_PREFIX, is_model_key_env,
                                            key_env_for_profile, valid_saved_key)
 from yurios.app.providers.catalog import SERVER_URL_FIELDS, provider_for_route
-from yurios.envfile import update_env
+from yurios.envfile import remove_env, update_env
 from yurios.security import is_loopback
 
 from .. import rewire
@@ -44,7 +44,7 @@ from ..desktop_windows import WindowUnavailable
 from .hosting import (_OPTION_KEYS, PURGE_CHALLENGE_TTL_S,
                       CharacterBusy, CharacterHost, _env_values, _card_values, _construction_fingerprint,
                       _update_soul, config_for_character, config_for_listing, env_file_path,
-                      models_for, save_brain_overrides)
+                      house_key_for, model_key_names, models_for, save_brain_overrides)
 
 log = logging.getLogger("world.host")
 
@@ -89,10 +89,14 @@ def register(app: FastAPI, host: CharacterHost, require) -> None:
                 "characters": [host.summary(record) for record in registry]}
 
     def _profile_row(item: ConnectionProfile, env: Mapping[str, str]) -> dict:
+        house_key, house_set = house_key_for(base, item.endpoint)
         return {"name": item.name, "backend": item.backend, "endpoint": item.endpoint,
                 "api_key_env": item.api_key_env,
                 "secret_configured": bool(item.api_key_env
                                           and env.get(item.api_key_env, "").strip()),
+                # the house's key for this address, which a profile here with
+                # no key of its own is sent (SPEC §31.2) — by name, never value
+                "house_key": house_key, "house_key_set": house_set,
                 "used_by": [record.id for record in registry
                             if record.connection.profile == item.name]}
 
@@ -102,11 +106,40 @@ def register(app: FastAPI, host: CharacterHost, require) -> None:
         already set on this node, so a profile can be pointed at one rather
         than have the same key pasted into a second line."""
         env = _env_values(base, None)
-        keys = sorted(name for name, value in env.items()
-                      if name.startswith(MODEL_KEY_ENV_PREFIX) and is_model_key_env(name)
-                      and str(value or "").strip())
         return {"profiles": [_profile_row(item, env) for item in host.connections.list()],
-                "key_envs": keys}
+                "key_envs": model_key_names(base)}
+
+    def _typed_key(body: Mapping) -> str:
+        api_key = body.get("api_key")
+        if api_key is not None and not isinstance(api_key, str):
+            raise HTTPException(400, "api_key must be a string")
+        api_key = (api_key or "").strip()
+        if api_key and not valid_saved_key(api_key):
+            raise HTTPException(400, "an API key is one line of printable characters, "
+                                     "with no spaces, quotes or backslashes")
+        return api_key
+
+    async def _store_key(profile_name: str, api_key: str) -> tuple[str, str]:
+        """Write a typed key to the host `.env` under the profile's own variable
+        — never the house OpenRouter line, or one another profile may be
+        pointed at — and say if the process environment shadows it."""
+        key_env = key_env_for_profile(profile_name)
+        await asyncio.to_thread(update_env, env_file_path(base), {key_env: api_key})
+        shadow = os.environ.get(key_env)
+        warning = ""
+        if shadow is not None and shadow.strip() != api_key:
+            warning = (f"{key_env} is also set in the server's environment, which "
+                       "wins over .env — the saved key is not the one in use")
+        return key_env, warning
+
+    async def _save_profile(profile: ConnectionProfile) -> dict[str, list[str]]:
+        """Upsert, then move every running character on it onto it (§31.4)."""
+        host.connections.upsert(profile)
+        applied: dict[str, list[str]] = {}
+        for record in registry:
+            if record.connection.profile == profile.name and host.runtime(record.id) is not None:
+                applied[record.id] = (await host.retune(record))["applied"]
+        return applied
 
     @app.put("/api/connections/{profile_name}")
     async def save_connection(profile_name: str, request: Request):
@@ -120,19 +153,9 @@ def register(app: FastAPI, host: CharacterHost, require) -> None:
         body = await request.json()
         if not isinstance(body, Mapping):
             raise HTTPException(400, "connection profile must be a JSON object")
-        api_key = body.get("api_key")
-        if api_key is not None and not isinstance(api_key, str):
-            raise HTTPException(400, "api_key must be a string")
-        api_key = (api_key or "").strip()
-        key_env = str(body.get("api_key_env") or "").strip()
-        if api_key:
-            if not valid_saved_key(api_key):
-                raise HTTPException(400, "an API key is one line of printable characters, "
-                                         "with no spaces, quotes or backslashes")
-            # A key typed on the board is this profile's own: it never lands in
-            # the house OpenRouter line, or in a variable another profile may
-            # be pointed at — choosing an existing key is `api_key_env` alone.
-            key_env = key_env_for_profile(profile_name)
+        api_key = _typed_key(body)
+        key_env = key_env_for_profile(profile_name) if api_key \
+            else str(body.get("api_key_env") or "").strip()
         try:
             profile = ConnectionProfile(
                 name=profile_name,
@@ -144,19 +167,87 @@ def register(app: FastAPI, host: CharacterHost, require) -> None:
             raise HTTPException(400, str(exc)) from exc
         warning = ""
         if api_key:
-            await asyncio.to_thread(update_env, env_file_path(base), {key_env: api_key})
-            shadow = os.environ.get(key_env)
-            if shadow is not None and shadow.strip() != api_key:
-                warning = (f"{key_env} is also set in the server's environment, which "
-                           "wins over .env — the saved key is not the one in use")
-        host.connections.upsert(profile)
-        applied: dict[str, list[str]] = {}
-        for record in registry:
-            if record.connection.profile == profile.name and host.runtime(record.id) is not None:
-                applied[record.id] = (await host.retune(record))["applied"]
+            _, warning = await _store_key(profile_name, api_key)
+        applied = await _save_profile(profile)
         env = _env_values(base, None)
         return {"profile": _profile_row(profile, env), "applied": applied,
                 "warning": warning}
+
+    @app.put("/api/characters/{character_id}/connection/key")
+    async def give_her_connection_a_key(character_id: str, request: Request):
+        """Give her connection profile a key, from the picker that was refused
+        for want of one (SPEC §31.1) — her room, her settings page, the studio.
+
+        Either a new key (`api_key`, written under the profile's own variable)
+        or one already on the node by name (`api_key_env`). The profile's
+        address is untouched, every character on it is retuned, and with
+        `provider` the listing that was refused is asked again, so the picker
+        fills in the same step."""
+        record = require(character_id)
+        body = await request.json()
+        if not isinstance(body, Mapping):
+            raise HTTPException(400, "a key must be sent as a JSON object")
+        api_key = _typed_key(body)
+        chosen = str(body.get("api_key_env") or "").strip()
+        house = body.get("house_key") is True       # the house's key: none of its own
+        if not api_key and not chosen and not house:
+            raise HTTPException(400, "send api_key, api_key_env naming a key on this node, "
+                                     "or house_key")
+        if chosen and chosen not in model_key_names(base):
+            raise HTTPException(422, f"{chosen} is not a model key set on this node")
+        name = record.connection.profile
+        current = host.connections.get(name)
+        warning = ""
+        try:
+            profile = ConnectionProfile(
+                name=name, backend=current.backend if current else "litellm",
+                endpoint=current.endpoint if current else "",
+                api_key_env=key_env_for_profile(name) if api_key else chosen)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        if api_key:
+            _, warning = await _store_key(name, api_key)
+        applied = await _save_profile(profile)
+        result: dict = {"profile": _profile_row(profile, _env_values(base, None)),
+                        "applied": applied, "warning": warning}
+        provider = str(body.get("provider") or "").strip()
+        if provider:
+            result["listing"] = await host.list_models(record, provider)
+        return result
+
+    @app.delete("/api/connections/keys/{key_env}")
+    async def forget_model_key(key_env: str, profile: str = ""):
+        """Take a saved model key out of `.env` altogether (SPEC §31.1).
+
+        A key typed on the board is written under a profile's own name; moving
+        that profile to another key used to leave the line there for good, with
+        nothing on the board that could clear it. Only a `YURIOS_MODEL_API_KEY_*`
+        line goes, and only once no profile but *profile* points at it — that
+        one is moved to no key of its own (the house's, on the house's address)
+        and everyone on it retuned."""
+        if not key_env.startswith(MODEL_KEY_ENV_PREFIX) or not is_model_key_env(key_env):
+            raise HTTPException(400, f"only a {MODEL_KEY_ENV_PREFIX}* key can be forgotten here")
+        users = [item.name for item in host.connections.list()
+                 if item.api_key_env == key_env and item.name != profile]
+        if users:
+            raise HTTPException(409, f"{', '.join(users)} still use{'s' if len(users) == 1 else ''} "
+                                     f"{key_env} — point {'it' if len(users) == 1 else 'them'} "
+                                     "at another key first")
+        removed = await asyncio.to_thread(remove_env, env_file_path(base), [key_env])
+        applied: dict[str, list[str]] = {}
+        row = None
+        mine = host.connections.get(profile) if profile else None
+        if mine is not None and mine.api_key_env == key_env:
+            moved = ConnectionProfile(name=mine.name, backend=mine.backend,
+                                      endpoint=mine.endpoint, api_key_env="")
+            applied = await _save_profile(moved)
+            row = _profile_row(moved, _env_values(base, None))
+        warning = ""
+        if key_env in os.environ:
+            warning = (f"{key_env} is also set in the server's environment, which this "
+                       "cannot clear — it stays in use until the server starts without it")
+        return {"forgotten": key_env, "removed": bool(removed), "profile": row,
+                "applied": applied, "key_envs": model_key_names(base), "warning": warning}
 
     @app.delete("/api/connections/{profile_name}")
     async def delete_connection(profile_name: str):

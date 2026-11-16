@@ -19,6 +19,9 @@ export const charactersApi = Object.freeze({
   deleteConnection: (name) => request(`/api/connections/${encodeURIComponent(name)}`, {
     method: "DELETE",
   }),
+  forgetKey: (keyEnv, profile) => request(
+    `/api/connections/keys/${encodeURIComponent(keyEnv)}?profile=${encodeURIComponent(profile || "")}`,
+    { method: "DELETE" }),
   checkConnection: (name, character) => request(
     `/api/connections/${encodeURIComponent(name)}/check?character=${encodeURIComponent(character)}`),
   detail: (id, section, { signal } = {}) => request(

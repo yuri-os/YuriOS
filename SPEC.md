@@ -1788,7 +1788,10 @@ what is saved but waiting for a restart.
   a server nobody would start again (`--foreground`, a bare `python -m`, the desktop window)
   **MUST** refuse with 409 rather than stop, and the button says what to do instead. The button
   takes two presses, and the page waits for a **new** `boot_id` from `GET /api/house` before
-  reloading — an open port alone may still be the old server.
+  reloading — an open port alone may still be the old server. A room's settings dialog whose
+  save waits for a restart **MUST** offer the same restart beside its save button, asking the
+  house directly (not through her runtime's path), and when the house is not restartable say
+  what to do instead; "restart to apply" with nothing to press leaves you stuck.
 - §11.3.2 **Her other people's hands.** `MCP_SERVERS` names a JSON file, and the **MCP servers**
   page edits that file: one card per server (command, one argument per line, `KEY=value`
   environment, rate, on/off), import of a pasted or loaded `{"mcpServers": …}` block, export, and
@@ -3736,7 +3739,13 @@ changes; a runtime does not know it has neighbours.
   A key already on the node is chosen instead by `api_key_env` alone: `GET /api/connections`
   **MUST** list the names — never the values — of the `YURIOS_MODEL_API_KEY_*` variables set,
   and the switchboard **MUST** offer them beside "no key" and "a new key", so one key is not
-  pasted into a second line. A key typed for a profile **MUST NOT** be written to `OPENROUTER_API_KEY` or to any
+  pasted into a second line. On a house server's own address "no key" is the house's key —
+  what a profile there with none of its own is sent (§31.2) — so each profile row carries
+  `house_key` (the variable's name) and `house_key_set`, and the choice **MUST** be named as
+  that key rather than as no key. A saved key **MUST** also be removable from the board:
+  `DELETE /api/connections/keys/<VAR>?profile=<name>` takes a `YURIOS_MODEL_API_KEY_*` line out
+  of `.env` altogether (and the panel's header with it once empty), moves *profile* to no key
+  of its own if it pointed there, and is refused (409) while any other profile points at it. A key typed for a profile **MUST NOT** be written to `OPENROUTER_API_KEY` or to any
   variable outside that namespace, and is refused unless it is one line of printable characters
   with no whitespace, quotes or backslash, so the line reads back as exactly the value. A profile
   still selected by a character **MUST NOT** be deleted. `GET /api/connections/<name>/check?character=<id>`
@@ -3746,9 +3755,19 @@ changes; a runtime does not know it has neighbours.
   already on the provider being listed, since her running config carries a key only for the
   provider she is on, and the listing is what she needs in order to move. A 401/403 from any model
   listing **MUST** be reported as a key the server wants, never as an unreachable server, and
-  say where the key goes: for a character, her connection profile by name — and the house
-  variable (`LMSTUDIO_API_KEY`…) only when it is the key she would be sent, her profile naming
-  none and her address being the house's own; for the house's own listing, the house variable.
+  the picker that was refused **MUST** take the key in place — in her room, on her settings
+  page, in the studio — rather than direct anyone to a setting elsewhere. The answer carries
+  `key`, saying where a key for that listing goes: for a character, her connection profile
+  (`scope: "profile"`, with the names of the model keys already on the node, the other
+  characters sharing the profile, and `save`, `PUT /api/characters/{id}/connection/key`,
+  which gives the profile a key already on the node by name or a new one under its own
+  variable, leaves its address alone, retunes everyone on it, and asks the refused listing
+  again); for the house's own listing, the house line (`scope: "house"`, `field`). A local
+  server's listing **SHOULD** also say which of its models are in memory (`loaded`: LM Studio's
+  developer API, `/api/v1/models` or `/api/v0/models`; Ollama's `/api/ps`), only ids the
+  listing has, and every picker **MUST** list those first, marked active — the OpenAI-style
+  listing is what is on disk, and the one the server is running is the one you came for. A
+  server that cannot say marks nothing; it **MUST NOT** fail the listing.
 - §31.2 **A character's record overrides the host default, field by field.** `config_for_character`
   builds a runtime `Config` from the host's, always replacing the character-scoped identity and
   paths (name, vault, corpus, traces, tool logs, selfies, the loop switches, her Telegram pair),
@@ -4165,6 +4184,10 @@ paragraphs. Length is a setting with a control, not a hope.
   `reply_length` event (`{level, levels}`, §10) at start and whenever a retune moves it, so a room
   opened later starts on the right word and a nudge in one room moves every other open one. The
   control stays hidden until that event arrives. The settings panel edits the same override.
+  A rung equal to the house's is no override: saving it **MUST** clear hers rather than store
+  it, since stepping back to the house's rung is "back to normal", and one already stored
+  **MUST** read back as inheriting — a "reset" beside her own setting that would change nothing
+  is a control that lies.
 
 ## §39 — Another reply in her last one's place
 

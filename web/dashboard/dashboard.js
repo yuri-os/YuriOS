@@ -889,19 +889,28 @@ function chosenConnection() {
 }
 
 function describeKey(profile) {
+  if (!profile.api_key_env && profile.house_key) {
+    return profile.house_key_set ? `house key: ${profile.house_key}`
+      : `no API key (${profile.house_key} is not set)`;
+  }
   if (!profile.api_key_env) return "no API key";
   return profile.secret_configured ? `key: ${profile.api_key_env}`
     : `${profile.api_key_env} is not set — no key is sent`;
 }
 
-/** No key · a key already on this node (by name) · a new one, typed here. */
+/** No key — or, on a house server's own address, the house's key, which is
+ *  what a profile there with none of its own is sent · a key already on this
+ *  node (by name) · a new one, typed here. */
 function fillKeySource(profile) {
   const select = $("#connection-form").elements.key_source;
   const names = [...connectionState.keyEnvs];
   const current = profile?.api_key_env || "";
   if (current && !names.includes(current)) names.push(current);
+  const house = profile?.house_key
+    ? `${profile.house_key} — the house's key for this address${profile.house_key_set ? "" : " (not set)"}`
+    : "No key — the server doesn't ask for one";
   select.replaceChildren(
-    element("option", { text: "No key — the server doesn't ask for one", attrs: { value: "" } }),
+    element("option", { text: house, attrs: { value: "" } }),
     ...names.map((name) => element("option", {
       text: name + (name === current ? (profile.secret_configured ? " — in use" : " — not set") : ""),
       attrs: { value: name },
@@ -913,9 +922,41 @@ function fillKeySource(profile) {
 
 function showNewKey() {
   const form = $("#connection-form");
-  const typing = form.elements.key_source.value === NEW_KEY;
+  const source = form.elements.key_source.value;
+  const typing = source === NEW_KEY;
   $("#connection-new-key").hidden = !typing;
   if (!typing) form.elements.api_key.value = "";
+  $("#connection-key-forget").hidden = !forgettable(source);
+}
+
+/** A saved model key no other profile points at can be taken out of .env. */
+function forgettable(source) {
+  if (!source.startsWith("YURIOS_MODEL_API_KEY_")) return false;
+  if (!connectionState.keyEnvs.includes(source)) return false;
+  const mine = connectionState.editing?.name;
+  return !connectionState.profiles.some((profile) => profile.api_key_env === source
+    && profile.name !== mine);
+}
+
+async function forgetKey(button) {
+  const source = $("#connection-form").elements.key_source.value;
+  const editing = connectionState.editing;
+  if (!forgettable(source) || !confirmClick(button, "Forget — press again")) return;
+  const error = $("#connection-error");
+  error.textContent = "";
+  try {
+    const response = await charactersApi.forgetKey(source, editing?.name);
+    fillConnectionPicker(await charactersApi.connections());
+    renderConnectionSummary();
+    connectionState.editing = editing
+      ? connectionState.profiles.find((item) => item.name === editing.name) || null : null;
+    fillKeySource(connectionState.editing);
+    if (response?.warning) error.textContent = response.warning;
+    toast(`${source} removed from .env.`);
+    if (connectionState.editing) await checkConnection(connectionState.editing.name);
+  } catch (apiError) {
+    error.textContent = errorMessage(apiError);
+  }
 }
 
 function renderConnectionSummary() {
@@ -1764,6 +1805,7 @@ function wireEvents() {
     if (connectionState.editing) void checkConnection(connectionState.editing.name);
   });
   $("#connection-delete").addEventListener("click", (event) => deleteConnection(event.currentTarget));
+  $("#connection-key-forget").addEventListener("click", (event) => forgetKey(event.currentTarget));
   $("#brain-form").addEventListener("submit", submitBrain);
   // Every way out of the brain panel goes back where it came from — including
   // Esc, which fires `close` without passing through either button.

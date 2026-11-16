@@ -1316,25 +1316,110 @@ def test_a_profile_can_take_a_key_already_on_the_node_by_name(tmp_path, monkeypa
     assert "YURIOS_MODEL_API_KEY_GPU=sk-gpu" in env
 
 
-def test_a_refused_listing_names_the_house_key_only_where_it_is_the_one_sent(tmp_path):
-    """Her profile is always where her key goes; LMSTUDIO_API_KEY is offered too
-    only when it is the key she would be sent — no profile key, and the house's
-    own address (SPEC §31.2)."""
-    from yurios.world.host.hosting import listing_hint
-    house = Config(data_dir=tmp_path, _env_file=None, lmstudio_base_url="http://localhost:1234/v1")
-    her = record(tmp_path, "yuri", enabled=False)
+def test_a_listing_refused_for_want_of_a_key_takes_it_in_place(tmp_path, monkeypatch):
+    """Browse LM Studio for her and a keyed server answers 401. The picker that
+    asked — her room, her settings page, the studio — must take the key right
+    there (SPEC §31.1), so the refusal says where a key for her goes and
+    `PUT …/connection/key` gives her profile one: a key already on the node by
+    name, or a new one, with the listing asked again in the same step."""
+    import httpx
 
-    def hint(profile):
-        cfg = config_for_listing(house, her, profile, "lmstudio", environ={})
-        return listing_hint(house, profile, cfg, "lmstudio")
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text("YURIOS_MODEL_API_KEY_LMSTUDIO=sk-shared\n")
+    registry = CharacterRegistry(tmp_path / "data")
+    for name in ("yuri", "yuri_copy"):
+        registry.add(record(tmp_path / "data", name, enabled=False))
 
-    home = hint(ConnectionProfile(name="legacy-default", endpoint="http://localhost:1234/v1"))
-    assert "“legacy-default” connection profile" in home and "LMSTUDIO_API_KEY" in home
-    away = hint(ConnectionProfile(name="gpu", endpoint="http://gpu.lan:1234/v1"))
-    assert "“gpu” connection profile" in away and "LMSTUDIO_API_KEY" not in away
-    keyed = hint(ConnectionProfile(name="default", endpoint="http://localhost:1234/v1",
-                                   api_key_env="YURIOS_MODEL_API_KEY_LMSTUDIO"))
-    assert "LMSTUDIO_API_KEY" not in keyed.replace("YURIOS_MODEL_API_KEY_LMSTUDIO", "")
+    async def server(url, headers=None):
+        if (headers or {}).get("Authorization") == "Bearer sk-good":
+            return {"data": [{"id": "gemma"}]}
+        request = httpx.Request("GET", url)
+        raise httpx.HTTPStatusError("401", request=request,
+                                    response=httpx.Response(401, request=request))
+
+    monkeypatch.setattr("yurios.app.providers.catalog._fetch_json", server)
+    house = Config(data_dir=tmp_path / "data", _env_file=None,
+                   lmstudio_base_url="http://localhost:1234/v1")
+    app = create_host_app(house, registry)
+    app.state.host.connections.upsert(ConnectionProfile(
+        name="default", endpoint="http://localhost:1234/v1"))
+    save = "/api/characters/yuri_copy/connection/key"
+
+    with TestClient(app) as client:
+        refused = client.get("/api/studio/models", params={"provider": "lmstudio",
+                                                           "character": "yuri_copy"}).json()
+        shared = client.put(save, json={"api_key_env": "YURIOS_MODEL_API_KEY_LMSTUDIO",
+                                        "provider": "lmstudio"}).json()
+        typed = client.put(save, json={"api_key": "sk-good", "provider": "lmstudio"})
+        unknown = client.put(save, json={"api_key_env": "YURIOS_MODEL_API_KEY_NOPE"})
+        empty = client.put(save, json={})
+
+    assert refused["error"] == "LM Studio requires an API key (HTTP 401)"
+    assert refused["key"] == {
+        "provider": "lmstudio", "label": "LM Studio", "refused": False,
+        "scope": "profile", "profile": "default", "current": "",
+        "house_key": "LMSTUDIO_API_KEY", "house_key_set": False,
+        "key_envs": ["YURIOS_MODEL_API_KEY_LMSTUDIO"], "shared_with": ["Yuri"],
+        "save": save}
+    # the shared key reaches the server, which refuses it: said, and offered again
+    assert shared["profile"]["api_key_env"] == "YURIOS_MODEL_API_KEY_LMSTUDIO"
+    assert shared["listing"]["key"]["refused"] is True
+    assert shared["listing"]["key"]["current"] == "YURIOS_MODEL_API_KEY_LMSTUDIO"
+    # a new key is the profile's own, never echoed, and the listing comes back
+    assert typed.status_code == 200 and "sk-good" not in typed.text
+    assert typed.json()["listing"] == {"models": ["gemma"]}
+    profile = app.state.host.connections.get("default")
+    assert profile.api_key_env == "YURIOS_MODEL_API_KEY_DEFAULT"
+    assert profile.endpoint == "http://localhost:1234/v1"       # the address is untouched
+    assert "YURIOS_MODEL_API_KEY_DEFAULT=sk-good" in (tmp_path / ".env").read_text()
+    assert "YURIOS_MODEL_API_KEY_LMSTUDIO=sk-shared" in (tmp_path / ".env").read_text()
+    assert unknown.status_code == 422 and empty.status_code == 400
+    with TestClient(app) as client:                     # and back to the house's key
+        house_key = client.put(save, json={"house_key": True}).json()
+    assert house_key["profile"]["api_key_env"] == ""
+
+
+def test_a_saved_key_can_be_forgotten_and_the_house_key_chosen_by_name(tmp_path, monkeypatch):
+    """A key typed on the board is written under the profile's own name; the
+    board must be able to take it out of `.env` again, and to point a profile
+    on the house's own address back at the house's key (SPEC §31.1–§31.2)."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text("LMSTUDIO_API_KEY=sk-house\n"
+                                   "YURIOS_MODEL_API_KEY_LEGACY_DEFAULT=sk-own\n"
+                                   "YURIOS_MODEL_API_KEY_SHARED=sk-shared\n")
+    registry = CharacterRegistry(tmp_path / "data")
+    her = record(tmp_path / "data", "yuri_copy", enabled=False)
+    her.connection.profile = "legacy-default"
+    her.models.chat = "lm_studio/gemma"
+    registry.add(her)
+    house = Config(data_dir=tmp_path / "data", _env_file=None,
+                   lmstudio_base_url="http://localhost:1234/v1", lmstudio_api_key="sk-house")
+    app = create_host_app(house, registry)
+    profiles = app.state.host.connections
+    profiles.upsert(ConnectionProfile(name="legacy-default", endpoint="http://localhost:1234/v1",
+                                      api_key_env="YURIOS_MODEL_API_KEY_LEGACY_DEFAULT"))
+    profiles.upsert(ConnectionProfile(name="gpu", endpoint="http://gpu.lan:1234/v1",
+                                      api_key_env="YURIOS_MODEL_API_KEY_SHARED"))
+
+    with TestClient(app) as client:
+        rows = {row["name"]: row for row in client.get("/api/connections").json()["profiles"]}
+        shared = client.delete("/api/connections/keys/YURIOS_MODEL_API_KEY_SHARED",
+                               params={"profile": "legacy-default"})
+        house_only = client.delete("/api/connections/keys/LMSTUDIO_API_KEY")
+        gone = client.delete("/api/connections/keys/YURIOS_MODEL_API_KEY_LEGACY_DEFAULT",
+                             params={"profile": "legacy-default"}).json()
+
+    assert rows["legacy-default"]["house_key"] == "LMSTUDIO_API_KEY"
+    assert rows["legacy-default"]["house_key_set"] is True
+    assert rows["gpu"]["house_key"] == ""                   # not the house's address
+    assert shared.status_code == 409 and "gpu" in shared.json()["detail"]
+    assert house_only.status_code == 400
+    assert gone["removed"] is True and gone["profile"]["api_key_env"] == ""
+    env = (tmp_path / ".env").read_text()
+    assert "LEGACY_DEFAULT" not in env and "LMSTUDIO_API_KEY=sk-house" in env
+    # with no key of its own on the house's address, she is sent the house's
+    assert app.state.host.effective_config(registry.require("yuri_copy")).lmstudio_api_key \
+        == "sk-house"
 
 
 def test_a_profile_in_use_cannot_be_deleted(tmp_path):

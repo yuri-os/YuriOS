@@ -36,8 +36,9 @@ from yurios.characters import (
     ConnectionProfile, ConnectionProfiles,
 )
 from yurios.app.providers import catalog
-from yurios.app.providers.catalog import SERVER_URL_FIELDS, key_advice, provider_prefix
+from yurios.app.providers.catalog import HOUSE_KEYS, SERVER_URL_FIELDS, provider_prefix
 from yurios.characters import overrides as model_overrides
+from yurios.characters.connections import MODEL_KEY_ENV_PREFIX, is_model_key_env
 from yurios.characters import studio as studio_model
 from yurios.characters.appearance import ensure_appearance
 from yurios.characters.setting import ensure_setting
@@ -279,6 +280,22 @@ def telegram_for_character(base: Config, character_id: str,
                                "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID")
 
 
+_HOUSE_KEY_ATTRS = {"lmstudio": "lmstudio_api_key",
+                    "openai_compatible": "openai_compatible_api_key"}
+
+
+def house_key_for(base: Config, endpoint: str) -> tuple[str, bool]:
+    """`(LMSTUDIO_API_KEY, set?)` when *endpoint* is a house server's own
+    address with a house key — the key a profile there with none of its own
+    is sent (SPEC §31.2), as the house started with it — else `("", False)`."""
+    address = (endpoint or "").rstrip("/")
+    for provider, attr in _HOUSE_KEY_ATTRS.items():
+        house = str(getattr(base, SERVER_URL_FIELDS[provider]) or "").rstrip("/")
+        if address and address == house:
+            return HOUSE_KEYS[provider], bool(str(getattr(base, attr) or "").strip())
+    return "", False
+
+
 def _apply_connection(update: dict[str, Any], base: Config, record: CharacterRecord,
                        profile: ConnectionProfile | None,
                        env: Mapping[str, str]) -> None:
@@ -350,26 +367,37 @@ def config_for_listing(base: Config, record: CharacterRecord,
     return config_for_character(base, probe, profile, environ=environ)
 
 
-def listing_hint(base: Config, profile: ConnectionProfile | None, cfg: Config,
-                 provider: str) -> str:
-    """Where her key goes, for a 401 on a listing made for her (SPEC §31.1): her
-    profile always, and the house line only when it is the key she would be
-    sent — her profile names none and she reaches the house's own address."""
-    field = SERVER_URL_FIELDS.get(provider)
-    on_house = field is None or (
-        str(getattr(cfg, field) or "").rstrip("/")
-        == str(getattr(base, field) or "").rstrip("/"))
-    return key_advice(provider, profile.name if profile else "default",
-                      house_address=on_house and not (profile and profile.api_key_env))
+def model_key_names(base: Config, environ: Mapping[str, str] | None = None) -> list[str]:
+    """The names — never the values — of the model keys set on this node."""
+    env = _env_values(base, environ)
+    return sorted(name for name, value in env.items()
+                  if name.startswith(MODEL_KEY_ENV_PREFIX) and is_model_key_env(name)
+                  and str(value or "").strip())
+
+
+def listing_fix(base: Config, record: CharacterRecord, profile: ConnectionProfile | None,
+                *, shared_with: list[str] | None = None,
+                environ: Mapping[str, str] | None = None) -> dict[str, Any]:
+    """Where a key goes for a listing refused for her (SPEC §31.1): her
+    connection profile, taken in place by the picker that asked — a key
+    already on the node by name, or a new one — through `save`."""
+    house_key, house_set = house_key_for(base, profile.endpoint if profile else "")
+    return {"scope": "profile", "profile": record.connection.profile,
+            "current": profile.api_key_env if profile else "",
+            "house_key": house_key, "house_key_set": house_set,
+            "key_envs": model_key_names(base, environ),
+            "shared_with": list(shared_with or []),
+            "save": f"/api/characters/{record.id}/connection/key"}
 
 
 async def models_for(base: Config, record: CharacterRecord,
-                     profile: ConnectionProfile | None, provider: str) -> dict:
+                     profile: ConnectionProfile | None, provider: str,
+                     *, shared_with: list[str] | None = None) -> dict:
     """What *provider* serves her, reached the way she would reach it on
     *profile* — every model listing made for a character goes through this."""
     cfg = config_for_listing(base, record, profile, provider)
     return await catalog.provider_models(
-        cfg, provider, key_hint=listing_hint(base, profile, cfg, provider))
+        cfg, provider, key_fix=listing_fix(base, record, profile, shared_with=shared_with))
 
 
 def config_for_character(base: Config, record: CharacterRecord,
@@ -518,6 +546,15 @@ def save_brain_overrides(record: CharacterRecord, body: Mapping[str, Any],
                     touched.append(key)
                 continue
             value = rewire.coerce(base, key, raw)
+            if key == "reply_length" and value == base.reply_length:
+                # The room's shorter/longer buttons write this as they go, so
+                # stepping back to the house's rung is "back to normal", not a
+                # pin: kept, it read as her own setting with a reset beside it
+                # that would change nothing (SPEC §38).
+                record.models.options.pop(key, None)
+                if previous is not None:
+                    touched.append(key)
+                continue
             if previous != value:
                 record.models.options[key] = value
                 touched.append(key)
@@ -621,7 +658,15 @@ class CharacterHost:
         """`models_for` on her current profile, against *base* — the house as
         saved, when the caller has newer values than the boot's."""
         return await models_for(base or self.base, record,
-                                self.connections.get(record.connection.profile), provider)
+                                self.connections.get(record.connection.profile), provider,
+                                shared_with=self.sharing_profile(record))
+
+    def sharing_profile(self, record: CharacterRecord) -> list[str]:
+        """The other characters on her connection profile, by name: a key
+        given to it is theirs too, and the picker taking it says so."""
+        return [other.display.name or other.id for other in self.registry
+                if other.id != record.id
+                and other.connection.profile == record.connection.profile]
 
     async def retune(self, record: CharacterRecord) -> dict[str, Any]:
         """Move a *running* character onto her current brain settings, live.

@@ -117,6 +117,7 @@ export function createOptimizer({ getDraft, getCharacterId, onApply }) {
   const browseButton = $("optimize-browse");
   const modelList = $("optimize-model-list");
   const modelStatus = $("optimize-model-status");
+  const modelKey = $("optimize-model-key");
   const errorNote = $("optimize-error");
   const runButton = $("optimize-run");
   const applyButton = $("optimize-apply");
@@ -130,6 +131,7 @@ export function createOptimizer({ getDraft, getCharacterId, onApply }) {
   let proposal = null;      // the last response, pending apply
   let running = false;
   let catalogue = [];       // last fetched model ids
+  let catalogueLoaded = []; // which of them the server has in memory
   let catalogueFor = null;  // which provider they were fetched for
   let ticker = null;        // the 1s interval behind the elapsed clock
   let steps = new Map();    // pass index -> its <li>, built as passes announce
@@ -153,12 +155,20 @@ export function createOptimizer({ getDraft, getCharacterId, onApply }) {
 
   function renderList(filter) {
     const query = filter.trim().toLowerCase();
-    const shown = (query ? catalogue.filter((m) => m.toLowerCase().includes(query))
-                         : catalogue).slice(0, 500);
+    // what the server has in memory first, marked — not a hunt through the disk
+    const active = new Set(catalogueLoaded);
+    const ordered = [...catalogue.filter((m) => active.has(m)),
+                     ...catalogue.filter((m) => !active.has(m))];
+    const shown = (query ? ordered.filter((m) => m.toLowerCase().includes(query))
+                         : ordered).slice(0, 500);
     modelList.replaceChildren(...(shown.length
       ? shown.map((name) => {
           const option = el("button", { type: "button", className: "opt-model-opt",
                                         textContent: name });
+          if (active.has(name)) {
+            option.classList.add("is-active");
+            option.append(el("span", { className: "opt-model-active", textContent: "active" }));
+          }
           // mousedown, not click — the input's blur would otherwise win the race
           option.addEventListener("mousedown", (event) => {
             event.preventDefault();
@@ -171,11 +181,39 @@ export function createOptimizer({ getDraft, getCharacterId, onApply }) {
                      textContent: catalogue.length ? "no match" : "nothing to show" })]));
   }
 
+  function clearKey() { modelKey.hidden = true; modelKey.replaceChildren(); }
+
+  /* One listing's answer, from browse or from a key just given in place: a
+     server that wants a key takes it right here (/shared/key-fix.js). */
+  function accept(data, provider, warning = "") {
+    clearKey();
+    if (data.error) {
+      modelStatus.textContent = data.error;
+      if (data.key && window.YuriOSKeyFix) {
+        modelKey.append(window.YuriOSKeyFix.render(data.key, {
+          inputClass: "opt-input", buttonClass: "opt-browse",
+          onListing: (next, said) => accept(next, provider, said),
+          retry: () => { catalogueFor = null; browse(); },
+        }));
+        modelKey.hidden = false;
+      }
+      return;
+    }
+    catalogue = data.models || [];
+    catalogueLoaded = Array.isArray(data.loaded) ? data.loaded : [];
+    catalogueFor = provider;
+    modelStatus.textContent = (catalogue.length
+      ? `${catalogue.length} available` : "none loaded there") + (warning ? ` — ${warning}` : "");
+    renderList("");
+    if (catalogue.length) { modelList.hidden = false; modelInput.focus(); }
+  }
+
   async function browse() {
     const provider = providerSelect.value;
     if (provider === "custom") {
       modelStatus.textContent = "custom: type the full LiteLLM id";
       hideList();
+      clearKey();
       return;
     }
     if (catalogueFor === provider && catalogue.length) {
@@ -185,19 +223,13 @@ export function createOptimizer({ getDraft, getCharacterId, onApply }) {
       return;
     }
     modelStatus.textContent = "loading…";
+    clearKey();
     try {
       const query = new URLSearchParams({ provider });
       const character = getCharacterId();
       if (character) query.set("character", character);
       const response = await fetch(`/api/studio/models?${query}`);
-      const data = await response.json();
-      if (data.error) { modelStatus.textContent = data.error; return; }
-      catalogue = data.models || [];
-      catalogueFor = provider;
-      modelStatus.textContent = catalogue.length
-        ? `${catalogue.length} available` : "none loaded there";
-      renderList("");
-      if (catalogue.length) { modelList.hidden = false; modelInput.focus(); }
+      accept(await response.json(), provider);
     } catch (error) {
       modelStatus.textContent = `couldn't load: ${error}`;
     }
@@ -374,7 +406,10 @@ export function createOptimizer({ getDraft, getCharacterId, onApply }) {
   }
 
   browseButton.addEventListener("click", browse);
-  providerSelect.addEventListener("change", () => { hideList(); modelStatus.textContent = ""; });
+  // a model id belongs to its provider: a new provider starts on an empty box
+  providerSelect.addEventListener("change", () => {
+    modelInput.value = ""; hideList(); clearKey(); modelStatus.textContent = "";
+  });
   modelInput.addEventListener("input", () => { if (!modelList.hidden) renderList(modelInput.value); });
   modelInput.addEventListener("keydown", (event) => { if (event.key === "Escape") hideList(); });
   document.addEventListener("mousedown", (event) => {

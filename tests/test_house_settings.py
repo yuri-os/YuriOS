@@ -331,21 +331,22 @@ def _refusing(status):
 
 def test_a_401_says_the_server_wants_a_key_and_where_it_goes(monkeypatch):
     """"couldn't reach" for a server that answered is the wrong diagnosis: a
-    401 names the missing key and both places it can be set (SPEC §31)."""
+    401 says a key is wanted and carries where it goes, for the picker to take
+    it in place — the house line for the house's own listing (SPEC §31.1)."""
     from types import SimpleNamespace as NS
 
     from yurios.app.providers import catalog
 
     monkeypatch.setattr(catalog, "_fetch_json", _refusing(401))
     keyless = NS(lmstudio_base_url="http://localhost:1234/v1", lmstudio_api_key="")
-    error = asyncio.run(catalog.provider_models(keyless, "lmstudio"))["error"]
-    assert "requires an API key" in error and "LMSTUDIO_API_KEY" in error
-    assert "couldn't reach" not in error
+    house = asyncio.run(catalog.provider_models(keyless, "lmstudio"))
+    assert house["error"] == "LM Studio requires an API key (HTTP 401)"
+    assert house["key"] == {"provider": "lmstudio", "label": "LM Studio", "refused": False,
+                            "scope": "house", "field": "LMSTUDIO_API_KEY"}
     # listed for a character, the caller says where her key goes instead
-    hinted = asyncio.run(catalog.provider_models(
-        keyless, "lmstudio", key_hint="give her “gpu” connection profile its key"))["error"]
-    assert hinted.endswith("give her “gpu” connection profile its key")
-    assert "LMSTUDIO_API_KEY" not in hinted
+    hers = asyncio.run(catalog.provider_models(
+        keyless, "lmstudio", key_fix={"scope": "profile", "profile": "gpu"}))
+    assert hers["key"]["scope"] == "profile" and "field" not in hers["key"]
 
     keyed = NS(lmstudio_base_url="http://localhost:1234/v1", lmstudio_api_key="sk-old")
     assert "refused the API key" in asyncio.run(
@@ -390,4 +391,48 @@ def test_her_room_browses_a_provider_through_her_profile(tmp_path, monkeypatch):
 
     assert body == {"models": ["gemma"]}
     assert resolved == [("lmstudio", True)]
-    assert asked == [("http://gpu.lan:1234/v1/models", {"Authorization": "Bearer sk-profile"})]
+    # the listing, then which model is loaded — same server, same profile key
+    assert asked[0] == ("http://gpu.lan:1234/v1/models", {"Authorization": "Bearer sk-profile"})
+    assert all(url.startswith("http://gpu.lan:1234/") for url, _ in asked)
+    assert all(headers == {"Authorization": "Bearer sk-profile"} for _, headers in asked)
+
+
+def test_a_listing_says_which_models_the_local_server_has_loaded(monkeypatch):
+    """`/v1/models` is what LM Studio has on disk; which one it is running is on
+    its own API beside it. The picker lists that one first and marks it, so it
+    says which (only ids the listing has), and an older server that cannot say
+    marks nothing rather than failing the listing. Ollama's is `/api/ps`."""
+    from types import SimpleNamespace as NS
+
+    from yurios.app.providers import catalog
+
+    answers = {
+        "http://lms/v1/models": {"data": [{"id": "a@q4"}, {"id": "a@q8"}, {"id": "b"}]},
+        "http://lms/api/v1/models": {"models": [
+            {"key": "a@q8", "loaded_instances": [{"id": "a@q8"}, {"id": "a@q8:2"}]},
+            {"key": "b", "loaded_instances": []}]},
+        "http://old/v1/models": {"data": [{"id": "a"}, {"id": "b"}]},
+        "http://old/api/v0/models": {"data": [{"id": "b", "state": "loaded"},
+                                              {"id": "a", "state": "not-loaded"}]},
+        "http://ollama/api/tags": {"models": [{"name": "llama3:latest"}, {"name": "qwen:7b"}]},
+        "http://ollama/api/ps": {"models": [{"name": "qwen:7b"}]},
+    }
+
+    async def server(url, headers=None):
+        if url not in answers:
+            raise httpx.ConnectError("no such route")
+        return answers[url]
+
+    monkeypatch.setattr(catalog, "_fetch_json", server)
+    lms = asyncio.run(catalog.provider_models(
+        NS(lmstudio_base_url="http://lms/v1", lmstudio_api_key=""), "lmstudio"))
+    assert lms == {"models": ["a@q4", "a@q8", "b"], "loaded": ["a@q8"]}
+    old = asyncio.run(catalog.provider_models(
+        NS(lmstudio_base_url="http://old/v1", lmstudio_api_key=""), "lmstudio"))
+    assert old["loaded"] == ["b"]
+    answers.pop("http://old/api/v0/models")
+    assert "loaded" not in asyncio.run(catalog.provider_models(
+        NS(lmstudio_base_url="http://old/v1", lmstudio_api_key=""), "lmstudio"))
+    ollama = asyncio.run(catalog.provider_models(
+        NS(ollama_base_url="http://ollama", connection_api_key=""), "ollama"))
+    assert ollama == {"models": ["llama3:latest", "qwen:7b"], "loaded": ["qwen:7b"]}

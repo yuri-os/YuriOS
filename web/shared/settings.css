@@ -231,6 +231,13 @@ select.set-input{ cursor:pointer; }
   transition:.18s ease;
 }
 .settings-save:hover{ background:#e1ff7b; box-shadow:0 0 24px rgb(215 255 88 / .13); }
+.settings-restart{
+  min-height:38px; padding:0 16px; cursor:pointer;
+  border:1px solid var(--amber); border-radius:2px; background:transparent; color:var(--amber);
+  font:700 10px var(--font-mono); letter-spacing:.06em; text-transform:uppercase;
+}
+.settings-restart[hidden]{ display:none; }
+.settings-restart:disabled{ opacity:.5; cursor:default; }
 
 /* the pairing panel, under OWNER_TOKEN (SPEC §11.1, → settings.js)
  *
@@ -280,3 +287,19 @@ select.set-input{ cursor:pointer; }
   word-break:break-all; user-select:all;
 }
 .set-pair-token:empty{ display:none; }
+
+/* a server that wants a key, taken under the picker it refused (key-fix.js) */
+.set-key-fix{ margin-top:8px; }
+.key-fix-row{ display:flex; gap:6px; flex-wrap:wrap; }
+.key-fix-row > .set-input{ flex:1 1 12em; }
+.key-fix-row > [hidden]{ display:none; }
+.key-fix-note{ display:block; margin-top:6px; color:var(--dim); font:9px/1.5 var(--font-mono); }
+.key-fix-error{ display:block; margin-top:4px; color:var(--amber, var(--acid)); font:9px/1.5 var(--font-mono); }
+.key-fix-error:empty{ display:none; }
+
+/* what the server has in memory, first in a browse list and marked */
+.set-model-opt.is-active{ color:var(--acid); }
+.set-model-active{
+  float:right; margin-left:10px; color:var(--acid);
+  font:9px var(--font-mono); letter-spacing:.1em; text-transform:uppercase;
+}

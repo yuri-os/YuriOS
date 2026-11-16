@@ -44,9 +44,11 @@ Websockets follow the same shape: `/ws/voice` and `/ws/characters/<id>/voice`.
 | `GET /characters/{id}/live2d` | redirects to `/live2d/?character={id}` |
 | `GET /studio/` | the card studio — `?character={id}` edits her, no parameter creates one |
 | `GET /api/characters` | `{version, primary, characters: […]}` |
-| `GET /api/connections` | named connection profiles; `secret_configured` says whether the key env var is set, `used_by` which characters pick it; `key_envs` names (never values) the `YURIOS_MODEL_API_KEY_*` keys set on the node |
+| `GET /api/connections` | named connection profiles; `secret_configured` says whether the key env var is set, `used_by` which characters pick it; `house_key`/`house_key_set` name the house's key for a profile on a house server's own address; `key_envs` names (never values) the `YURIOS_MODEL_API_KEY_*` keys set on the node |
 | `PUT /api/connections/{name}` | validate and save a host-owned `{backend, endpoint, api_key_env}` profile; an optional write-only `api_key` is saved to `.env` as `YURIOS_MODEL_API_KEY_<NAME>` (always the profile's own); an existing key is chosen by `api_key_env` alone; retunes bound runtimes |
+| `DELETE /api/connections/keys/{VAR}?profile={name}` | take a saved `YURIOS_MODEL_API_KEY_*` key out of `.env`; `profile`, if it pointed there, moves to no key of its own (the house's key on the house's address); 409 while another profile points at it |
 | `DELETE /api/connections/{name}` | delete a profile no character uses (409 while one does) |
+| `PUT /api/characters/{id}/connection/key` | give her connection profile a key from a picker refused for want of one: `{api_key}` (new, written as the profile's own `YURIOS_MODEL_API_KEY_<NAME>`, never echoed), `{api_key_env}` (one already on the node, by name) or `{house_key: true}` (none of its own: the house's key on the house's address); the address is untouched, every character on the profile is retuned, and with `provider` the answer carries `listing`, that listing asked again |
 | `GET /api/connections/{name}/check?character={id}` | list that profile's server as she would reach it — `{provider, url, models, error?}`; `provider=` picks the server, else the house server the profile's url names, else her model's |
 | `GET /api/characters/{id}/brain` | the character's effective brain connection and tuning settings |
 | `PATCH /api/characters/{id}/brain` | save model/tuning overrides and apply them immediately; direct `endpoint`/`api_key_env` writes are rejected |
@@ -355,7 +357,7 @@ dispatches to the child app's `/api/mind` above, and a host route by that name w
 |---|---|
 | `GET /api/settings` | the schema-driven form and current values |
 | `POST /api/settings` | surgical `.env` write of changed fields only |
-| `GET /api/models?provider=` | what a provider can serve right now: `lm_studio` · `ollama` · `openrouter`. A failure returns an empty list plus an `error` string, never a 500 |
+| `GET /api/models?provider=` | what a provider can serve right now: `lm_studio` · `ollama` · `openrouter`. A local server adds `loaded` — the ids it has in memory (LM Studio's developer API, Ollama's `/api/ps`) — which the picker lists first, marked active. A failure returns an empty list plus an `error` string, never a 500; a 401/403 adds `key` — where a key for this listing goes (`scope: "profile"` with `save`, or `scope: "house"` with `field`) — so the picker takes it in place |
 
 **Loopback callers only** — it reads and writes secrets. Non-loopback gets `403`.
 

@@ -197,6 +197,8 @@
   <script type="module" src="./text.js"></script>
   <!-- the .env panel, from the raw /shared/ mount (not bundled): the exact same
        file the other two pages load. Absolute src so Vite leaves it alone. -->
+  <!-- a refused model listing takes its key in place (SPEC §31.1) -->
+  <script src="/shared/key-fix.js"></script>
   <script src="/shared/settings.js"></script>
   <!-- the composer's shorter/longer nudge (SPEC §38), the same raw file -->
   <script src="/shared/reply-length.js"></script>

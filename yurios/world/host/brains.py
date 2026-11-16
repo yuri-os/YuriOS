@@ -52,6 +52,10 @@ def register(app: FastAPI, host: CharacterHost, require) -> None:
     def _brain_payload(record: CharacterRecord) -> dict[str, Any]:
         effective = host.effective_config(record)
         overrides = brain_overrides(record)
+        # a reply length that is the house's own rung is no setting of hers —
+        # one saved before that rule (SPEC §38) reads as inheriting, too
+        if overrides.get("reply_length") == base.reply_length:
+            overrides.pop("reply_length")
         profile = host.connections.get(record.connection.profile)
         # One endpoint names one server: the local provider her models actually
         # route to (hosted routes have a key instead, and no url to show).

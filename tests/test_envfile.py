@@ -380,3 +380,20 @@ def test_a_commented_line_documents_a_knob_but_never_outranks_a_live_one(tmp_pat
     index = envfile.example_index(example)
     assert index["MIND_ENABLED"] == ("the mind", "off = no ambient life")
     assert index["MIND_SEED"] == ("the mind", "0 = unseeded")
+
+
+def test_a_forgotten_key_leaves_no_line_and_no_empty_panel_header(tmp_path):
+    """A secret the board is told to forget goes altogether — an empty `KEY=`
+    would still name it — and the panel's header goes with it once nothing is
+    left under it. Everything else is left exactly as it was."""
+    from yurios.envfile import remove_env
+    env = tmp_path / ".env"
+    env.write_text("A=1\n# KEEP=commented\n\n"
+                   "# --- set from the settings panel ---\nUSER_NAME=Sam\n\n"
+                   "# --- set from the settings panel ---\nYURIOS_MODEL_API_KEY_OLD=sk\n\n"
+                   "# --- set from the settings panel ---\nLMSTUDIO_API_KEY=sk-house\n")
+    assert remove_env(env, ["YURIOS_MODEL_API_KEY_OLD", "KEEP"]) == ["YURIOS_MODEL_API_KEY_OLD"]
+    assert env.read_text() == ("A=1\n# KEEP=commented\n\n"
+                               "# --- set from the settings panel ---\nUSER_NAME=Sam\n\n"
+                               "# --- set from the settings panel ---\nLMSTUDIO_API_KEY=sk-house\n")
+    assert remove_env(env, ["NOT_THERE"]) == []

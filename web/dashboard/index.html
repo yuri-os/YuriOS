@@ -339,7 +339,7 @@
       <div class="field-grid">
         <label class="field-wide"><span>Name</span><input name="name" type="text" maxlength="64" pattern="[a-z0-9_\-]+" required placeholder="gpu-box"><small class="field-help">lowercase letters, digits, - and _</small></label>
         <label class="field-wide"><span>Server address</span><input name="endpoint" type="text" maxlength="400" inputmode="url" placeholder="http://localhost:1234/v1"><small class="field-help">LM Studio, Ollama or an OpenAI-compatible server. Blank inherits the house address for her model's provider.</small></label>
-        <label class="field-wide"><span>API key</span><select name="key_source"></select><small id="connection-key-note" class="field-help"></small></label>
+        <label class="field-wide"><span>API key</span><select name="key_source"></select><button id="connection-key-forget" class="button button-quiet connection-key-forget" type="button" hidden><span>Forget this key</span></button><small id="connection-key-note" class="field-help"></small></label>
         <label id="connection-new-key" class="field-wide"><span>New key</span><input name="api_key" type="password" maxlength="4096" autocomplete="new-password" spellcheck="false" placeholder="paste the server's key"><small class="field-help">Saved to this node's .env under this profile's own name, never into her card or the profile file, and never shown again.</small></label>
       </div>
       <p id="connection-check" class="form-note" role="status"></p>

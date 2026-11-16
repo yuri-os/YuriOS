@@ -137,6 +137,11 @@ secret_configured, used_by }` — the profile picker in Settings, and the line u
 it saying where she points and whether a key goes with it — plus `key_envs`, the
 names (never the values) of the `YURIOS_MODEL_API_KEY_*` keys set on this node,
 which the Edit connection dialog offers beside "no key" and "type a new key".
+A profile on a house server's own address also carries `house_key` and
+`house_key_set`: there "no key" is that house key, and the dialog names it so.
+`DELETE /api/connections/keys/<VAR>?profile=<name>` forgets a saved model key —
+its `.env` line goes, and `profile` moves to no key of its own — refused (409)
+while another profile points at it.
 
 `PUT /api/connections/{name}` saves `{ endpoint, api_key_env, api_key? }`. `api_key`
 is write-only: the host saves it to its `.env` as `YURIOS_MODEL_API_KEY_<NAME>` —

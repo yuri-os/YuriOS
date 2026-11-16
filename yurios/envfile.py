@@ -41,7 +41,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Mapping
+from typing import Any, Iterable, Mapping
 
 from yurios import daemon
 from yurios.app.config import REPLY_LENGTHS
@@ -610,12 +610,58 @@ def update_env(path: Path, updates: Mapping[str, str]) -> list[str]:
     if remaining:
         if lines and lines[-1].strip():
             lines.append("")
-        lines.append("# --- set from the settings panel ---")
+        lines.append(PANEL_HEADER)
         for key, val in remaining.items():
             lines.append(f"{key}={val}")
 
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return list(updates)
+
+
+PANEL_HEADER = "# --- set from the settings panel ---"
+
+
+def remove_env(path: Path, keys: Iterable[str]) -> list[str]:
+    """Take `KEY=value` lines out altogether — not blank them — and the panel's
+    own header with them once nothing is left under it. For a secret the
+    board wrote and is now told to forget, where an empty `KEY=` would still
+    name it. Commented lines are left as they are. Returns the keys removed."""
+    if not path.exists():
+        return []
+    wanted = set(keys)
+    lines = path.read_text(encoding="utf-8").splitlines()
+    removed: list[str] = []
+    kept: list[str] = []
+    skip_blank = False
+    for line in lines:
+        if skip_blank and not line.strip():
+            skip_blank = False
+            continue
+        skip_blank = False
+        name = line.split("=", 1)[0].strip() if "=" in line and not line.lstrip().startswith("#") else ""
+        if name in wanted:
+            removed.append(name)
+            # a line that stood alone between blanks takes one of them with it
+            skip_blank = not kept or not kept[-1].strip()
+            continue
+        kept.append(line)
+    if not removed:
+        return []
+    # a panel header left with nothing under it goes, with the blank after it
+    tidy: list[str] = []
+    i = 0
+    while i < len(kept):
+        line = kept[i]
+        nxt = kept[i + 1] if i + 1 < len(kept) else ""
+        if line.strip() == PANEL_HEADER and (not nxt.strip() or nxt.strip() == PANEL_HEADER):
+            i += 2 if (i + 1 < len(kept) and not nxt.strip()) else 1
+            continue
+        tidy.append(line)
+        i += 1
+    while tidy and not tidy[-1].strip():
+        tidy.pop()
+    path.write_text("\n".join(tidy) + "\n", encoding="utf-8")
+    return removed
 
 
 def apply(cfg: Any, payload: Mapping[str, object], *,

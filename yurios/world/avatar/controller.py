@@ -2,9 +2,9 @@
 
 This is ch. 34's canonical control surface: *all decisions live in Python; the
 browser is a render-and-control client.* The method surface is the vrm-viewer
-reference impl's `VrmController`, kept verbatim — plus Build #4's two scene
-channels (`set_rain`, `music`) — because this exact seam is what Build #5's tick
-loop will hold (SPEC §28): swap the caller, not the wire.
+reference impl's `VrmController`, kept verbatim — plus Build #4's scene
+channel (`set_rain`; its `music` twin went with the hand that drove it) —
+because this exact seam is what Build #5's tick loop will hold (SPEC §28): swap the caller, not the wire.
 
 The transport, though, is no longer its own: every method is one `avatar` event
 published on the **EventHub** (SPEC §10 — the YuriOS shape), fanned out to every
@@ -16,7 +16,7 @@ else. A command dict's internal `type` becomes the event's `op`:
 
 The hub owns what the old controller owned itself: per-subscriber queues, the
 never-block rule, thread-safe publishing, and sticky replay (material colors,
-rain, music survive a reload). `scene_state()` reads the hub's sticky store —
+and rain survive a reload). `scene_state()` reads the hub's sticky store —
 the same bytes a late-joining frontend gets.
 """
 from __future__ import annotations
@@ -40,9 +40,6 @@ HUMANOID_BONES = (
 # The six VRM preset expressions (CS §5.2) — set_expression's guaranteed catalog.
 # The frontend catalog also realises the Build #2 palette names (SPEC §3.4).
 EMOTIONS = ("happy", "sad", "angry", "surprised", "neutral", "relaxed")
-
-# Generative ambience tracks the frontend knows (web/js/music.js, SPEC §7.5).
-MUSIC_TRACKS = ("warm_pad", "night_piano")
 
 
 class VrmController:
@@ -120,29 +117,17 @@ class VrmController:
         """Swap the .vrm — the user's own-body slot (→ ch. 25 licensing)."""
         self._send({"type": "load_model", "url": url})
 
-    # ---- Build #4 scene channels (SPEC §4/§6/§7.5) ----
+    # ---- Build #4 scene channel (SPEC §4/§6) ----
 
     def scene_state(self) -> Dict[str, Any]:
         """The sticky scene, read-side (SPEC §2.5): what the room is doing right
         now, for the situation block. `rain` is the last set intensity (None if
-        never set); `music` is the playing track name (None when silent)."""
+        never set)."""
         rain = self.hub.sticky.get(("rain", ""))
-        music = self.hub.sticky.get(("music", ""))
-        playing = bool(music and music.get("action") == "play")
-        return {"rain": rain["intensity"] if rain else None,
-                "music": (music.get("track") or "warm_pad") if playing else None}
+        return {"rain": rain["intensity"] if rain else None}
 
     def set_rain(self, intensity: float) -> None:
         """Rain on the window + the noise bed, 0..1. Sticky."""
         self._send({"type": "rain", "intensity": max(0.0, min(1.0, float(intensity)))},
                    sticky=("rain", ""))
 
-    def music(self, action: str, track: Optional[str] = None,
-              volume: Optional[float] = None) -> None:
-        """Start/stop the generative ambience (no hand drives it since play_music was retired). Sticky."""
-        cmd: Dict[str, Any] = {"type": "music", "action": action}
-        if track is not None:
-            cmd["track"] = track
-        if volume is not None:
-            cmd["volume"] = max(0.0, min(1.0, float(volume)))
-        self._send(cmd, sticky=("music", ""))

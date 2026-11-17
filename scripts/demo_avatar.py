@@ -2,7 +2,7 @@
 
 Boots the server with fake voice backends, no tools and no mind, then
 drives the in-process `VrmController` through a scripted routine: expressions,
-gaze, bone offsets, rain, music. Open the printed URL, click into the room, and
+gaze, bone offsets, rain. Open the printed URL, click into the room, and
 watch. This is the Phase-1 acceptance check: if she moves here, the event bus
 (/api/events) and the whole stage are wired.
 
@@ -37,11 +37,9 @@ def routine(controller) -> None:
                                  controller.look_at_camera())),
         ("shy", lambda: controller.set_expression("shy", 0.8, reset_ms=2500)),
         ("rain up", lambda: controller.set_rain(1.0)),
-        ("music on", lambda: controller.music("play", track="night_piano", volume=0.35)),
         ("surprised!", lambda: controller.set_expression("surprised", 1.0, reset_ms=2000)),
         ("tender", lambda: controller.set_expression("tender", 0.8, reset_ms=3000)),
-        ("music off, rain down", lambda: (controller.music("stop"),
-                                          controller.set_rain(0.4))),
+        ("rain down", lambda: controller.set_rain(0.4)),
     ]
     while controller.viewers == 0:
         time.sleep(0.5)

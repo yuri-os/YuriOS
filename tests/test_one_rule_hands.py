@@ -443,3 +443,13 @@ def test_a_goal_step_hears_what_was_said_not_the_tool_notices(tmp_path):
     assert "how did the tiles go?" in heard
     assert "list_notes" not in heard
 
+
+
+
+def test_the_read_hand_names_the_soul_path_she_reads_before_an_edit():
+    """A goal step sees this row, never the tool's description: without it,
+    the `propose_edit` row's "first read it with read_note" pointed at a hand
+    that said it only read desk notes."""
+    from yurios.mind.hands import HANDS
+    assert "soul/PERSONA.md" in HANDS["read_note"].does
+    assert "read_note" in HANDS["propose_edit"].does

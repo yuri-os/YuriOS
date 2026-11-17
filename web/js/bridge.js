@@ -2,13 +2,13 @@
  * ControlBridge.ts, re-plumbed onto the one bus: instead of owning a
  * WebSocket, it listens for the `world-ev` events chat.js re-dispatches from
  * /api/events and realises the `avatar` ones on the stage. The dispatch table
- * is the same channel set as ever — Build #4's two scene channels (`rain`,
- * `music`) included; a command's old wire `type` is the event's `op`. */
+ * is the same channel set as ever — Build #4's scene channel (`rain`)
+ * included; a command's old wire `type` is the event's `op`. */
 export class ControlBridge {
-  constructor(stage, { room, music, onRain, onModel } = {}) {
+  constructor(stage, { room, sound, onRain, onModel } = {}) {
     this.stage = stage;
     this.room = room;       // SanctuaryScene (SPEC §6) — rain intensity
-    this.music = music;     // music.js — play/stop ambience (SPEC §7.5)
+    this.sound = sound;     // rain-sound.js — the audible rain bed (SPEC §6.2)
     this.onRain = onRain;   // the page's chrome: the rain switch shows only while it rains
     this.onModel = onModel; // after a `load_model` swap: the page puts her idle back on
     this._handler = null;
@@ -64,12 +64,8 @@ export class ControlBridge {
         break;
       case 'rain':                                     // SPEC §4/§6 — scene channel
         this.room?.setRain(cmd.intensity);
-        this.music?.setRainLevel?.(cmd.intensity);
+        this.sound?.setRainLevel?.(cmd.intensity);
         this.onRain?.(cmd.intensity);
-        break;
-      case 'music':                                    // SPEC §4/§7.5 — ambience
-        if (cmd.action === 'play') this.music?.play(cmd.track, cmd.volume);
-        else this.music?.stop();
         break;
       default:
         console.warn('[ControlBridge] unknown avatar op:', cmd);

@@ -58,6 +58,12 @@
 .il-draft:focus{ outline:none; border-color:var(--acid); }
 .il-edit .il-off{ margin:0 0 12px; }
 .il-err{ margin:0 0 12px; color:var(--red); font-size:12px; line-height:1.5; overflow-wrap:anywhere; }
+/* built against a version of the file that has since changed: approving it as
+   she wrote it would undo what landed in between */
+.il-stale{
+  margin:0 0 12px; padding:8px 10px; border-left:2px solid var(--amber);
+  color:var(--amber); font-size:12px; line-height:1.5; overflow-wrap:anywhere;
+}
 
 .il-actions{ display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
 .il-ok,.il-no,.il-aside{
@@ -73,3 +79,4 @@
 .il-aside{ margin-left:auto; border-color:transparent; color:var(--soft); }
 .il-aside:hover{ border-color:var(--rule); color:var(--acid); }
 .il-ok:disabled,.il-no:disabled{ opacity:.45; cursor:wait; }
+.il-ok[data-stale]:disabled{ cursor:not-allowed; }

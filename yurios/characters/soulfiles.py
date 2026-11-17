@@ -129,11 +129,30 @@ def shape_complaint(soul_dir: Path, fname: str, content: str) -> str:
     missing = [f"## {h}" for h in headings if h not in have]
     missing += [f"`{k}:` in the frontmatter" for k in keys
                 if not str((front or {}).get(k, "")).strip()]
-    if not missing:
-        return ""
-    return (f"{fname} would lose {', '.join(missing)}, which soul.yaml points "
-            f"at — read the file first and keep its headings and its "
-            f"frontmatter, changing only the prose under them")
+    if missing:
+        return (f"{fname} would lose {', '.join(missing)}, which soul.yaml points "
+                f"at — read the file first and keep its headings and its "
+                f"frontmatter, changing only the prose under them")
+    # Twice is the quiet version of losing one: `split_sections` keeps the last
+    # section under a name, so the prose under the first stops reaching her
+    # prompt with nothing refused. Held to the file as it stands, so a file
+    # that already repeats one is not made uneditable by it.
+    try:
+        _cur_front, cur_body = parse_md(Path(soul_dir) / fname)
+    except (OSError, yaml.YAMLError):
+        cur_body = ""
+    doubled = [f"## {h}" for h in headings
+               if _count_heading(body, h) > max(1, _count_heading(cur_body, h))]
+    if doubled:
+        return (f"{fname} would have {', '.join(doubled)} more than once, and "
+                f"soul.yaml points at it — only the last copy would reach her "
+                f"prompt. Keep one, and change the prose under it")
+    return ""
+
+
+def _count_heading(body: str, heading: str) -> int:
+    """How many `## heading` lines `body` has, by the reading `split_sections` uses."""
+    return sum(1 for m in H2_RE.finditer(body) if m.group(1).strip() == heading)
 
 
 #: Where a consumed bootstrap goes to rest (§5.4). One canonical path, so the

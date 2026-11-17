@@ -293,6 +293,44 @@ async def test_you_can_approve_your_own_version_of_her_edit(client_with_mind):
     assert any("in your own words" in p.read_text() for p in day_files)
 
 
+async def test_a_stale_edit_is_refused_to_you_with_why(client_with_mind):
+    """Two patches proposed in a row, each built without the other: once the
+    first is approved, the second no longer lands, and approving it as written
+    would undo the first. The route says so (409) instead of posting a signal
+    the tick would only leave queued; reject and your own version still work."""
+    c, rig = client_with_mind
+    selfedit = rig.mind.selfedit
+    current = selfedit.vault.read("soul/PERSONA.md")
+    line = next(x for x in current.splitlines() if x.strip()
+                and not x.startswith(("#", "-", "---")) and ":" not in x)
+
+    def patch(replace):
+        return selfedit.propose(
+            "soul/PERSONA.md", current.replace(line, replace, 1),
+            reason=replace, patch={"find": line, "replace": replace})
+
+    first, second = patch("First version."), patch("Second version.")
+    assert c.post(f"/api/mind/edits/{first.id}", json={"approve": True}).status_code == 200
+    await rig.mind.tick()
+    assert "First version." in selfedit.vault.read("soul/PERSONA.md")
+
+    r = c.post(f"/api/mind/edits/{second.id}", json={"approve": True})
+    assert r.status_code == 409 and "no longer in it" in r.json()["detail"]
+    sigs = [s for s in rig.mind.bus.next(0)[0] if s.type == "selfedit_decision"
+            and s.payload.get("id") == second.id]
+    assert sigs == [], "refused before anything was posted"
+    (shown,) = c.get("/api/mind").json()["pending_edits"]
+    assert shown["stale"] and shown["diff"] == [f"-{line}", "+Second version."]
+    assert "First version." in shown["draft"]
+
+    mine = shown["draft"].replace("First version.", "Both versions.")
+    r = c.post(f"/api/mind/edits/{second.id}", json={"approve": True, "content": mine})
+    assert r.status_code == 200 and r.json()["revised"] is True
+    await rig.mind.tick()
+    assert selfedit.vault.read("soul/PERSONA.md") == mine
+    assert selfedit.pending() == []
+
+
 def test_unknown_edit_is_404(client_with_mind):
     c, _ = client_with_mind
     assert c.post("/api/mind/edits/nope", json={"approve": True}).status_code == 404

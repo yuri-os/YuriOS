@@ -791,9 +791,35 @@ async def test_read_note_opens_her_soul_files_read_only(tmp_path, monkeypatch):
         bad = await s.call_tool("read_note", {"path": "soul/soul.yaml"})
         assert bad.isError and "soul/PERSONA.md" in result_text(bad)
         assert (await s.call_tool("read_note", {"path": "soul/../../etc/passwd"})).isError
-        # a write to that path lands on her desk (workspace/soul/…), never the soul
-        await s.call_tool("write_note", {"path": "soul/PERSONA.md", "text": "x"})
+        # …and the desk will not take the path at all: a note written there
+        # used to "succeed", and reading it back handed her the soul file
+        for tool, args in (("write_note", {"text": "x"}),
+                           ("append_note", {"text": "x"}),
+                           ("count_note_lines", {})):
+            r = await s.call_tool(tool, {"path": "soul/PERSONA.md", **args})
+            assert r.isError and "not a place on your desk" in result_text(r), tool
+        r = await s.call_tool("list_notes", {"folder": "soul"})
+        assert r.isError and "propose_edit" in result_text(r)
     assert "Dark hair." in (tmp_path / "soul" / "PERSONA.md").read_text()
+    assert not (tmp_path / "workspace" / "soul").exists()
+
+
+async def test_a_desk_soul_folder_from_before_is_out_of_sight(tmp_path, monkeypatch):
+    """A `workspace/soul/` written before the path was reserved is not listed:
+    nothing else on the desk will open it, so listing it advertises a path
+    no hand can use."""
+    srv = _soul_vault(tmp_path, monkeypatch)
+    old = tmp_path / "workspace" / "soul"
+    old.mkdir(parents=True)
+    (old / "PERSONA.md").write_text("an old desk copy")
+    (tmp_path / "workspace" / "notes").mkdir()
+    (tmp_path / "workspace" / "notes" / "a.md").write_text("kept")
+    async with create_connected_server_and_client_session(srv._mcp_server) as s:
+        listing = json.loads(result_text(await s.call_tool("list_notes", {})))
+        assert [f["path"] for f in listing["files"]] == ["notes/a.md"]
+        page = json.loads(result_text(await s.call_tool(
+            "read_note", {"path": "soul/PERSONA.md"})))
+        assert "Dark hair." in page["text"]          # the real one, not the copy
 
 
 @pytest.mark.parametrize("mind_enabled", [True, False])
@@ -867,6 +893,12 @@ async def test_propose_edit_find_replace_builds_the_whole_file(tmp_path, monkeyp
             "surface": "PERSONA.md", "find": "Dark hair.",
             "replace": "Dark hair.\n\n## Manner", "reason": "r"})
         assert dup.isError and "'## Manner'" in result_text(dup)
+        # a referenced heading carried along WITH its prose is not stacked, but
+        # it is twice: only the last copy would reach her prompt (shape check)
+        twice = await s.call_tool("propose_edit", {
+            "surface": "PERSONA.md", "find": "Calls him darling. Calls him darling.",
+            "replace": "Gentle.\n\n## Appearance\n\nTall.", "reason": "r"})
+        assert twice.isError and "more than once" in result_text(twice)
         # a patch that drops a section the soul.yaml points at is still refused
         gone = await s.call_tool("propose_edit", {
             "surface": "PERSONA.md", "find": "## Appearance\n\nDark hair.\n\n",
@@ -874,3 +906,58 @@ async def test_propose_edit_find_replace_builds_the_whole_file(tmp_path, monkeyp
         assert gone.isError and "## Appearance" in result_text(gone)
     # nothing applied: a proposal is queued by the host, never written here
     assert "Dark hair." in (tmp_path / "soul" / "PERSONA.md").read_text()
+
+
+async def test_a_heading_that_recurs_by_design_is_not_a_mistake(tmp_path, monkeypatch):
+    """The stacked-heading refusal is for `## Manner` directly over `## Manner`.
+    A notes file whose every entry has the same heading over its own text is
+    how it was written, and adding one more is the ordinary edit."""
+    srv = _soul_vault(tmp_path, monkeypatch)
+    (tmp_path / "soul" / "NOTES.md").write_text(
+        "# Notes\n\n## Entry\n\nOne.\n\n## Entry\n\nTwo.\n")
+    async with create_connected_server_and_client_session(srv._mcp_server) as s:
+        ok = await s.call_tool("propose_edit", {
+            "surface": "NOTES.md", "find": "Two.\n",
+            "replace": "Two.\n\n## Entry\n\nThree.\n", "reason": "a third"})
+        assert not ok.isError, result_text(ok)
+        stacked = await s.call_tool("propose_edit", {
+            "surface": "NOTES.md", "find": "One.",
+            "replace": "One.\n\n## Entry", "reason": "r"})
+        assert stacked.isError and "'## Entry'" in result_text(stacked)
+
+
+async def test_propose_edit_leads_with_queued_and_carries_its_patch(
+        tmp_path, monkeypatch):
+    """The guard keeps 600 characters of a fact, and `content` is her whole
+    file: with `content` first, all she ever saw was the start of her persona.
+    `patch` rides along for the ruling-time apply (SPEC §23.2)."""
+    from yurios.world.tools.guard import Guard
+    srv = _soul_vault(tmp_path, monkeypatch)
+    (tmp_path / "soul" / "PERSONA.md").write_text(
+        (tmp_path / "soul" / "PERSONA.md").read_text() + "Long. " * 400 + "\n")
+    async with create_connected_server_and_client_session(srv._mcp_server) as s:
+        raw = result_text(await s.call_tool("propose_edit", {
+            "surface": "PERSONA.md", "find": "Dark hair.",
+            "replace": "Short dark hair.", "reason": "I cut it"}))
+    out = json.loads(raw)
+    assert list(out)[:3] == ["status", "surface", "queued"]
+    assert list(out)[-1] == "content"
+    assert out["patch"] == {"find": "Dark hair.", "replace": "Short dark hair."}
+    seen = Guard.truncate(raw, tool="propose_edit")
+    assert len(seen) < len(raw) and '"queued": true' in seen and "I cut it" in seen
+
+
+def test_the_fake_server_answers_in_the_same_order():
+    import asyncio
+
+    from yurios.world.tools.fakes import FakeToolRunner
+    runner = FakeToolRunner()
+    current = json.loads(asyncio.run(runner.call(
+        "read_note", {"path": "soul/PERSONA.md"})))["text"]
+    find = current.splitlines()[0]
+    out = json.loads(asyncio.run(runner.call("propose_edit", {
+        "surface": "PERSONA.md", "find": find, "replace": "x", "reason": "r"})))
+    assert list(out)[:3] == ["status", "surface", "queued"]
+    assert list(out)[-1] == "content" and out["patch"]["find"] == find
+    with pytest.raises(RuntimeError, match="not a place on your desk"):
+        asyncio.run(runner.call("write_note", {"path": "soul/x.md", "text": "y"}))

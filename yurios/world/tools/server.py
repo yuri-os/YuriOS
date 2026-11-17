@@ -13,6 +13,7 @@ shape Build #5 keeps when these same tools move behind a broker (→ ch. 19).
 """
 from __future__ import annotations
 
+import re
 import time
 import uuid
 from typing import Callable, Literal
@@ -23,7 +24,7 @@ from mcp.server.fastmcp import FastMCP
 from yurios.characters.soulfiles import shape_complaint
 from yurios.mind.vaultio import MindVault
 from yurios.mind.workspace import (DeskFull, OutsideTheDesk, SkillStore,
-                                   Workspace)
+                                   SoulIsNotTheDesk, Workspace)
 
 from .fetch import PageFetcher, build_fetcher, gist
 from .guard import RESULT_LIMITS
@@ -161,6 +162,40 @@ def _note_page(path: str, text: str, first: int, count: int) -> dict:
         text, lambda *head: len(_wire(page(*head))) <= limit,
         most=NOTE_READ_MAX_CHARS)
     return page(shown, lines, partial)
+
+
+_HEADING = re.compile(r"^#{1,6}\s+\S")
+
+
+def _stacked_heading(before: str, after: str) -> str:
+    """A heading a patch left stacked on a copy of itself, or "".
+
+    Live, a `replace` carried the next heading along without the `find`
+    reaching it, and the file came out with `## Manner` directly over
+    `## Manner`. Only that shape is refused — the same heading twice with
+    nothing but blank lines between — because it is never what anybody meant.
+    A heading that recurs by design (a dated entry per note) sits over its own
+    text and passes; doubling one `soul.yaml` points at is the shape check's.
+    """
+    def stacked(text: str) -> list[str]:
+        out: list[str] = []
+        last = ""
+        for line in text.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            if _HEADING.match(line) and line == last:
+                out.append(line)
+            last = line if _HEADING.match(line) else ""
+        return out
+
+    was = stacked(before)
+    for heading in stacked(after):
+        if heading in was:
+            was.remove(heading)
+        else:
+            return heading
+    return ""
 
 
 def _skill_page(skill) -> dict:
@@ -488,6 +523,8 @@ def build_server(*, max_minutes: float | None = None,
         will try the same path again next turn; "use a path like notes/x.md"
         ends the loop.
         """
+        if isinstance(exc, SoulIsNotTheDesk):
+            return ValueError(exc.reason)       # already says what to do instead
         if isinstance(exc, OutsideTheDesk):
             return ValueError(
                 f"{exc.reason}. Paths are relative to your workspace, like "
@@ -787,21 +824,11 @@ def build_server(*, max_minutes: float | None = None,
                          "more of the surrounding text so it appears once")
                         + f" — read_note(\"soul/{name}\") shows the exact text")
                 content = current.replace(find, replace or "", 1)
-                # Live, a `replace` carried the next heading along without the
-                # `find` reaching it, so the file came out with that heading
-                # twice. Say so while she can still fix it.
-                def heads(text: str) -> dict[str, int]:
-                    found: dict[str, int] = {}
-                    for line in text.splitlines():
-                        if line.startswith("#"):
-                            found[line.strip()] = found.get(line.strip(), 0) + 1
-                    return found
-                before, after = heads(current), heads(content)
-                doubled = [h for h, n in after.items() if n > 1 and n > before.get(h, 0)]
+                doubled = _stacked_heading(current, content)
                 if doubled:
                     raise ValueError(
-                        f"that would leave {doubled[0]!r} in soul/{name} twice — "
-                        "the file already has it right where your `find` ends. "
+                        f"that would leave {doubled!r} in soul/{name} twice in a "
+                        "row — the file already has it right beside your `find`. "
                         "Leave headings out of `replace` unless `find` "
                         "includes them too")
             if not (content or "").strip():
@@ -822,13 +849,21 @@ def build_server(*, max_minutes: float | None = None,
                 complaint = shape_complaint(vault_dir / "soul", name, content)
                 if complaint:
                     raise ValueError(complaint)
-            return {"status": "proposed", "surface": f"soul/{name}",
-                    "content": content, "reason": reason.strip(),
-                    "chars": len(content),
-                    # She should be able to say which of the two happened
-                    # without waiting for the host: the classification is a
-                    # rule, not a judgement (mind/selfedit.py `classify`).
-                    "risk": "high", "queued": True}
+            # What she reads first, because the guard keeps 600 characters of
+            # this and `content` is her whole file: "queued" must not be the
+            # part that is cut. `content` goes last, for the host, which reads
+            # the untruncated answer (§7.5); `patch` rides along so the queue
+            # can apply it again to the file as it is when it is ruled on.
+            out: dict = {"status": "proposed", "surface": f"soul/{name}",
+                         # She should be able to say which of the two happened
+                         # without waiting for the host: the classification is
+                         # a rule, not a judgement (mind/selfedit.py `classify`).
+                         "queued": True, "risk": "high",
+                         "reason": reason.strip(), "chars": len(content)}
+            if find:
+                out["patch"] = {"find": find, "replace": replace or ""}
+            out["content"] = content
+            return out
 
     return mcp
 

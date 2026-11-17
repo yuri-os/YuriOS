@@ -28,6 +28,9 @@ The sandbox is the whole design, and it is deliberately dull:
     a `..` that climbs out, and any component beginning with `.` — the last one
     because `.git/`, `.gitignore` and `.env` all live within reach of a root
     that is otherwise hers, and none of them are notes.
+  * **`soul/` is not a desk folder.** Her read hand opens her real soul files
+    by that path (SPEC §23.3); a desk folder of the same name would make one
+    path mean two files.
   * **Symlinks are resolved before the check, not after.** A link planted inside
     the desk that points at `soul/CONSTITUTION.md` is caught by the same test as
     a `../` would be.
@@ -108,6 +111,23 @@ class OutsideTheDesk(PermissionError):
     def __init__(self, rel: str, reason: str):
         self.rel, self.reason = rel, reason
         super().__init__(f"{rel!r} is not a place on the desk: {reason}")
+
+
+class SoulIsNotTheDesk(OutsideTheDesk):
+    """`soul/…` named on the desk. The read hand opens her real soul files by
+    that path (SPEC §23.3), so a desk folder of the same name would be one
+    path meaning two files: a note written there "succeeds", and reading it
+    back hands her the soul file instead, as if the write were lost."""
+
+    def __init__(self, rel: str):
+        super().__init__(rel, "soul/ is your soul, not a place on your desk — "
+                              "read a soul file with read_note(\"soul/PERSONA.md\") "
+                              "and change one with propose_edit, where you have them")
+
+
+#: Top-level names the desk never hands out, because a path under them means
+#: something else to her hands (SPEC §34.2).
+RESERVED = ("soul",)
 
 
 class DeskFull(OSError):
@@ -223,6 +243,8 @@ class Workspace:
         parts = [p for p in raw.split("/") if p not in ("", ".")]
         if not parts:
             raise OutsideTheDesk(rel, "no path given")
+        if parts[0].casefold() in RESERVED:
+            raise SoulIsNotTheDesk(rel)
         for part in parts:
             if part == "..":
                 raise OutsideTheDesk(rel, "no climbing out with '..'")
@@ -281,8 +303,9 @@ class Workspace:
     def list(self, sub: str = "", *, recursive: bool = True) -> list[Entry]:
         """Everything under `sub` (the whole desk by default), sorted by path.
 
-        Dotfiles are skipped rather than refused: `resolve()` won't hand one
-        out, so listing one would advertise a path no other method will open.
+        Dotfiles, and anything under a top-level `soul/` left from before it
+        was reserved, are skipped rather than refused: `resolve()` won't hand
+        one out, so listing one would advertise a path no other method opens.
         """
         base = self.resolve(sub) if sub else self.root
         if not base.is_dir():
@@ -294,8 +317,10 @@ class Workspace:
                 rel = self.relative(path)
             except ValueError:
                 continue                    # a symlink out; not ours to report
-            if any(part.startswith(".") for part in Path(rel).parts):
-                continue
+            parts = Path(rel).parts
+            if any(part.startswith(".") for part in parts) or (
+                    parts and parts[0].casefold() in RESERVED):
+                continue                    # as with dotfiles: resolve() won't open it
             try:
                 st = path.stat()
             except OSError:

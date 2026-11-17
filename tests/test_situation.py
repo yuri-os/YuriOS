@@ -64,7 +64,7 @@ def test_the_fixed_laws_say_what_to_answer_not_how_to_feel():
 def test_scene_state_follows_the_sticky_commands():
     clock = VirtualClock()
     c = VrmController()
-    # nothing set yet → no weather or music status lines
+    # nothing set yet → no weather status line
     text = _render(clock, controller=c)
     assert "is falling" not in text and "The window is dry" not in text
     c.set_rain(0.6)
@@ -73,10 +73,7 @@ def test_scene_state_follows_the_sticky_commands():
     assert "A heavy rain is falling" in _render(clock, controller=c)
     c.set_rain(0.0)
     assert "The window is dry" in _render(clock, controller=c)
-    c.music("play", track="night_piano")
-    assert '"night_piano" ambience is playing' in _render(clock, controller=c)
-    c.music("stop")
-    assert "ambience is playing" not in _render(clock, controller=c)
+    assert "ambience" not in _render(clock, controller=c)
 
 
 def test_timers_are_listed_with_time_left():

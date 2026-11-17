@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import threading
+from pathlib import Path
 
 from yurios.world.avatar.controller import VrmController
 from yurios.kernel.hub import EventHub
@@ -31,7 +32,6 @@ async def test_every_command_shape(controller):
     controller.play_animation("/models/idle.vrma")
     controller.load_model("/models/avatar.vrm")
     controller.set_rain(0.8)
-    controller.music("play", track="warm_pad", volume=0.4)
 
     cmds = await drain(q)
     assert all(c["type"] == "avatar" for c in cmds)   # one lane, typed (§10)
@@ -49,7 +49,6 @@ async def test_every_command_shape(controller):
         {"type": "avatar", "op": "animation", "url": "/models/idle.vrma", "loop": True, "fadeIn": 0.3},
         {"type": "avatar", "op": "load_model", "url": "/models/avatar.vrm"},
         {"type": "avatar", "op": "rain", "intensity": 0.8},
-        {"type": "avatar", "op": "music", "action": "play", "track": "warm_pad", "volume": 0.4},
     ]
 
 
@@ -57,20 +56,26 @@ async def test_sticky_state_replays_to_a_new_subscriber(controller):
     controller.hub.subscribe()                     # arms the loop; then the scene
     controller.set_material_color("Hair", "#ff2bd6")
     controller.set_rain(0.3)
-    controller.music("play", track="night_piano")
     q = controller.hub.subscribe()                 # attaches AFTER the commands
     replayed = await drain(q)
     ops = {c["op"] for c in replayed}
-    assert ops == {"material_color", "rain", "music"}   # a reload keeps the scene
+    assert ops == {"material_color", "rain"}       # a reload keeps the scene
 
 
 async def test_scene_state_reads_the_sticky_store(controller):
-    assert controller.scene_state() == {"rain": None, "music": None}
+    assert controller.scene_state() == {"rain": None}
     controller.set_rain(0.8)
-    controller.music("play", track="night_piano")
-    assert controller.scene_state() == {"rain": 0.8, "music": "night_piano"}
-    controller.music("stop")
-    assert controller.scene_state()["music"] is None
+    assert controller.scene_state() == {"rain": 0.8}
+
+
+def test_there_is_no_music_channel_left(controller):
+    """play_music was the only thing that ever started the ambience; with the
+    hand retired the channel went too, rather than staying as a puppet string
+    nothing pulls (SPEC §4)."""
+    assert not hasattr(controller, "music")
+    src = (Path(__file__).resolve().parent.parent / "web" / "js")
+    assert not (src / "music.js").exists()
+    assert "'music'" not in (src / "bridge.js").read_text(encoding="utf-8")
 
 
 async def test_broadcast_reaches_every_subscriber_and_unsubscribe_stops_it():

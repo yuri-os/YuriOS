@@ -515,6 +515,17 @@ async def decide_edit(edit_id: str, request: Request) -> dict:
     approve = bool(body.get("approve"))
     decision = {"id": edit_id, "approve": approve}
     content = body.get("content")
+    if approve and content is None:
+        # Built against a file that has since changed: as written it would
+        # undo what landed in between, so the tick would leave it queued. Say
+        # so now — reject it, or approve your own version of it.
+        try:
+            stale = await asyncio.to_thread(mind.selfedit.stale, edit_id)
+        except KeyError:
+            raise HTTPException(404, f"no pending edit {edit_id}") from None
+        if stale:
+            raise HTTPException(409, f"{stale}. Edit it into your own version, "
+                                     "or reject it.")
     if approve and content is not None:
         if not isinstance(content, str):
             raise HTTPException(422, "content must be the whole file, as text")

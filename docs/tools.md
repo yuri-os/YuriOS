@@ -82,7 +82,7 @@ TOOL_RATE_GOAL=6
 ### Workspace notes and skills
 
 The desk calls operate only inside `vault/workspace/`: relative paths only, no `..`, dotfiles, or
-paths outside the desk. `write_note` replaces a whole file; use `append_note` for a running log.
+paths outside the desk, and no top-level `soul/` (that path is her real soul files, read-only). `write_note` replaces a whole file; use `append_note` for a running log.
 Read an existing note before changing it: `edit_note` replaces one unique passage and refuses a
 no-op; set `new_text` to an empty string to remove one unique obsolete or duplicate passage. It
 can also replace or delete a 1-based inclusive line range using `start_line` and `end_line`.
@@ -119,7 +119,10 @@ She reads the file first with `read_note("soul/PERSONA.md")` — soul files are 
 A change to part of a file is
 `find` (text copied from it, appearing once) plus `replace`; the server realises the patch into the
 whole new file, so the host and the shape check see exactly what a full `content` rewrite would
-give them. `content` alone still rewrites the whole file.
+give them. `content` alone still rewrites the whole file. The patch is kept with the proposal and
+applied again to the file as it stands when you approve it, so two patches approved in a row don't
+undo each other; one that no longer applies is marked out of date in the panel (see
+[The mind → self-edits](mind.md#self-edits)).
 
 ```ini
 TOOL_RATE_SELFEDIT=1

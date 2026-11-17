@@ -17,7 +17,7 @@ It's the same runtime behind all three: the same event bus, the same voice socke
 memory. Open whichever one the machine in front of you can afford.
 
 All of it is driven from Python. The body is a puppet and the brain holds the strings: expression,
-gaze, posture, visemes, weather and music are typed `avatar` events on the one event bus
+gaze, posture, visemes and weather are typed `avatar` events on the one event bus
 ([API](api.md#the-event-bus)), so a frontend is a thin view and never a second brain.
 
 ## The VRM body (default)
@@ -133,7 +133,7 @@ Telegram forwarding is configured with `TELEGRAM_SEND_NON_TELEGRAM`; see
 [Channels → Cross-chat forwarding](channels.md#cross-chat-forwarding).
 
 What you lose: the body and the room, and with them everything addressed to them — `expression`,
-`gaze`, `bone`, `mouth`, and the `rain` and `music` ambience. She still emits all of it; this page
+`gaze`, `bone`, `mouth`, and the `rain` ambience. She still emits all of it; this page
 just has nothing to draw or play it on.
 
 The links in the sub-bar go to her other two rooms, and the tab is titled `<her name> / Text` so

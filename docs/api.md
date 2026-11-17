@@ -220,7 +220,7 @@ claiming a body on a screen.
 | `draft` / `draft_cancel` | streaming sentence drafts |
 | `unanswered` | `{id}` — her turn on a line of yours broke before it committed; the line stays, with resend and delete |
 | `message_removed` | `{id}` — a line of yours that got no reply was deleted or sent again; take it off the column |
-| `avatar` | expression, gaze, posture, visemes, `rain`, `music` — the puppet lane |
+| `avatar` | expression, gaze, posture, visemes, `rain` — the puppet lane |
 | `journal` | a new `[she]` journal line |
 | `mind` | activity/budget/goal updates for the inner-life tab |
 | `timers` | complete `{timers: [{id, label, due}]}` pending-countdown state; sticky and re-published on add or landing |

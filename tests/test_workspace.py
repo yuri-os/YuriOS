@@ -262,3 +262,34 @@ def test_removing_a_skill_takes_its_supporting_files_with_it(skills):
     assert skills.remove("tea-timer") is True
     assert not (skills.root / "tea-timer").exists()
     assert skills.remove("tea-timer") is False
+
+
+# --- soul/ is not a desk folder (SPEC §34.2, §23.3) ----------------------------------
+
+@pytest.mark.parametrize("path", ["soul/PERSONA.md", "Soul/notes.md", "soul",
+                                  "./soul/x.md", "soul/deeper/x.md"])
+def test_the_desk_refuses_a_soul_path(desk, path):
+    """`read_note("soul/…")` opens her real soul files; a desk folder of the
+    same name was one path meaning two files."""
+    from yurios.mind.workspace import OutsideTheDesk, SoulIsNotTheDesk
+    with pytest.raises(SoulIsNotTheDesk) as exc:
+        desk.write(path, "x")
+    assert isinstance(exc.value, OutsideTheDesk)        # every caller's except holds
+    assert "propose_edit" in exc.value.reason
+    assert not desk.exists(path)
+
+
+def test_a_folder_merely_named_like_it_is_still_hers(desk):
+    desk.write("notes/soul/ideas.md", "fine")
+    desk.write("soulful.md", "fine too")
+    assert {e.path for e in desk.list() if not e.is_dir} == {
+        "notes/soul/ideas.md", "soulful.md"}
+
+
+def test_a_soul_folder_from_before_is_skipped_not_counted(desk):
+    old = desk.root / "soul"
+    old.mkdir(parents=True)
+    (old / "PERSONA.md").write_text("an old desk copy")
+    desk.write("notes/a.md", "kept")
+    assert [e.path for e in desk.list() if not e.is_dir] == ["notes/a.md"]
+    assert desk.usage()[0] == 1

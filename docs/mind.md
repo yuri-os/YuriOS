@@ -460,7 +460,8 @@ SENSE, `soul/` only through the gated self-edit flow. That's the right shape for
 **`vault/workspace/`** is her desk: a corner of the Vault with no schema and no ceremony, which she
 reads and writes freely through `list_notes` / `read_note` / `count_note_lines` / `write_note` /
 `append_note` / `edit_note` / `delete_note`. Drafts, research scratch, the middle of a thought.
-You can drop files in too.
+You can drop files in too. One name is taken: `soul/` means her real soul files to `read_note`, so
+the desk never has a folder by that name.
 
 **Handing her a document.** The shelf is for documents she looks things up in; the desk's
 **inbox** is for one you *give* her. Use **add a document** on the workspace volume in the files
@@ -625,6 +626,14 @@ Everything else is risk-gated:
 Your decision comes back as a signal the loop consumes on its next tick. Applied edits are git
 commits, so drift is never silent and `git revert` undoes any of it. Your ruling is journaled too
 — "you applied/rejected my edit to …".
+
+She reads a soul file first with `read_note("soul/PERSONA.md")`, and usually changes one passage
+of it (`find` + `replace`) rather than retyping the whole file. A proposal is ruled on later than
+it was made, so what an approval writes is worked out at that moment: a passage change is applied
+again to the file as it is then, so two of them approved in a row both land. When that can't be
+done — the passage she changed is gone, or she rewrote a whole file that has changed since — the
+panel marks the edit as out of date and offers **reject** or **edit** (your own version) instead of
+approve, because approving it as written would undo whatever landed in between.
 
 ## The journal is the product
 

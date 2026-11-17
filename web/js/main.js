@@ -18,7 +18,7 @@ import { DirectionalLight, HemisphereLight } from 'three';
 
 import { ControlBridge } from './bridge.js';
 import { renderContext } from './context.js';
-import { Music } from './music.js';
+import { RainSound } from './rain-sound.js';
 import { SanctuaryScene } from './stage/SanctuaryScene.js';
 import { VrmStage } from './stage/VrmStage.js';
 import { initVoice } from './voice.js';
@@ -86,13 +86,13 @@ async function boot() {
 
   const viseme = new VisemeDriver();
   stage.setVisemeSource(viseme.level);         // loop step 9 reads this (SPEC §5)
-  const music = new Music(() => viseme.context());
+  const sound = new RainSound(() => viseme.context());
 
   // the rain-mute button (footer): silences just the audible rain bed; the
   // window keeps raining and the brain's `rain` commands still land, they're
   // simply inaudible until you toggle back.
   els.rainMute?.addEventListener('click', () => {
-    const muted = music.setRainMuted();
+    const muted = sound.setRainMuted();
     els.rainMute.classList.toggle('muted', muted);
     els.rainMute.setAttribute('aria-pressed', String(muted));
     els.rainMute.title = muted ? 'unmute the rain' : 'mute the rain';
@@ -134,7 +134,7 @@ async function boot() {
     // new skeleton starts with an empty mixer, so give her the idle back.
     const onModel = () => stage.playAnimation(IDLE_URL)
       .catch((e) => console.warn('idle after a body swap failed:', e));
-    const bridge = new ControlBridge(stage, { room, music, onRain, onModel });
+    const bridge = new ControlBridge(stage, { room, sound, onRain, onModel });
     bridge.listen();
     addEventListener('world-ev', (e) => {
       if (e.detail?.type === 'context') renderContext(els.context, e.detail);

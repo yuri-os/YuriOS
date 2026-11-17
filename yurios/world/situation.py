@@ -212,7 +212,7 @@ def render_visual_situation(clock: Clock, *, controller: VrmController) -> str:
 
     This is what fills the gaps when she doesn't describe a whole picture. It is
     deliberately only the facts a photograph would show: the hour as light, the
-    weather on the glass. Her body, her timers and her music belong in the
+    weather on the glass. Her body and her timers belong in the
     prompt she thinks with, not in the one the renderer paints from — a running
     timer is not visible in a photo, and asking a generator to draw one gets you
     a clock face nobody wanted.
@@ -228,12 +228,12 @@ def render_visual_situation(clock: Clock, *, controller: VrmController) -> str:
 def render_situation(clock: Clock, *, controller: VrmController,
                      timers: TimerBoard, user_name: str = "you",
                      place: str = "", body: bool = True) -> str:
-    """The stage, as prose: time, body, her place, weather, music, timers.
+    """The stage, as prose: time, body, her place, weather, timers.
 
     *place* is her standing setting when she has one — see `embodiment`.
     *body* is whether a page with her body on it is open right now; without
-    one there is no window for the rain and no room for the music, so those
-    lines are left out rather than describing a stage nobody is looking at.
+    one there is no window for the rain, so that line is left
+    out rather than describing a stage nobody is looking at.
     """
     now = datetime.datetime.fromtimestamp(clock.now())
     lines = [_clock_line(now, user_name), embodiment(user_name, place, body=body)]
@@ -241,8 +241,6 @@ def render_situation(clock: Clock, *, controller: VrmController,
     scene = controller.scene_state()
     if body and scene["rain"] is not None:
         lines.append(_rain_line(scene["rain"]))
-    if body and scene["music"]:
-        lines.append(f'Your "{scene["music"]}" ambience is playing softly.')
 
     pending = timers.pending()
     if pending:

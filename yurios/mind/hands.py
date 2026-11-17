@@ -115,7 +115,8 @@ HANDS: dict[str, Hand] = {
     # step sees this line, never the tool's description. Shown only `path`,
     # she read a long inbox document by deleting each page she had read.
     "read_note": Hand(
-        "cheap", "read one of her notes back; for a guessed path, first use "
+        "cheap", "read one of her notes back, or one of her soul files as "
+        "soul/PERSONA.md (read-only); for a guessed desk path, first use "
         "list_notes with its folder",
         '{"path": "notes/x.md", "start_line": 1}'),
     "list_notes": Hand(

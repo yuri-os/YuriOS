@@ -567,16 +567,23 @@ import { detailMessage } from '../shared/http.js';
         `${esc(editDrafts.get(e.id))}</textarea>` +
         '<p class="il-off">approving applies your version instead of hers, ' +
         'checked by the same rules hers passed</p>'
-      : '<p class="il-label">what changes</p>' + diffHtml(e) +
+      : (e.stale ? `<p class="il-stale">${esc(e.stale)} — reject it, or edit it ` +
+          'into your own version</p><p class="il-label">what she asked to change</p>'
+        : '<p class="il-label">what changes</p>') + diffHtml(e) +
         `<details class="il-whole" data-whole="${id}"${wholeOpen.has(e.id) ? ' open' : ''}>` +
-        '<summary>the whole file after</summary>' +
+        `<summary>${e.stale ? 'her whole version, as she wrote it' : 'the whole file after'}</summary>` +
         `<pre class="il-content" data-keep="whole-${id}">${esc(e.content)}</pre></details>`;
     return `<div class="il-edit" data-id="${id}">` +
       `<p class="il-surface">${esc(e.surface)}</p>` +
       `<p class="il-reason">${esc(e.reason)}</p>` + body +
-      (error ? `<p class="il-err" role="alert">${esc(error)}</p>` : '') +
+      // a 409 says what the stale notice above now says; don't say it twice
+      (error && (drafting || !e.stale) ? `<p class="il-err" role="alert">${esc(error)}</p>` : '') +
       '<div class="il-actions">' +
-      `<button class="il-ok" data-id="${id}">${drafting ? 'approve my version' : 'approve'}</button>` +
+      // stale: hers can't be approved as written, only your version of it
+      (e.stale && !drafting
+        ? `<button class="il-ok" data-id="${id}" data-stale disabled ` +
+          'title="the file changed since she asked">approve</button>'
+        : `<button class="il-ok" data-id="${id}">${drafting ? 'approve my version' : 'approve'}</button>`) +
       `<button class="il-no" data-id="${id}">reject</button>` +
       (drafting
         ? `<button class="il-aside" data-unrevise="${id}">discard my changes</button>`
@@ -676,8 +683,9 @@ import { detailMessage } from '../shared/http.js';
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(decision),
       });
-      if (res.status === 422) {
-        // your version was refused: keep it, say why, let you fix it
+      if (res.status === 422 || res.status === 409) {
+        // your version was refused (422), or hers no longer applies to the
+        // file as it is (409): keep what you have, say why, let you fix it
         const why = await res.json().catch(() => ({}));
         editErrors.set(id, `not applied — ${detailMessage(why, 'the server refused it')}`);
         ev.target.disabled = false;
@@ -696,7 +704,8 @@ import { detailMessage } from '../shared/http.js';
     const revise = ev.target?.dataset?.revise;
     const unrevise = ev.target?.dataset?.unrevise;
     if (revise && pendingById.has(revise)) {
-      editDrafts.set(revise, String(pendingById.get(revise).content ?? ''));
+      const e = pendingById.get(revise);
+      editDrafts.set(revise, String(e.draft ?? e.content ?? ''));
       render().then(() => panel.querySelector(
         `[data-draft="${CSS.escape(revise)}"]`)?.focus({ preventScroll: true }));
     } else if (unrevise) {

@@ -527,7 +527,7 @@ once per process, never per call. A call with thinking off keeps its format.
 Every assembled prompt — reply, greeting, and ambient speech alike — **MUST** carry one
 appended `## THE SITUATION RIGHT NOW` block, rendered fresh per prompt from surfaces the host
 owns: the current date and time from the **injected clock** (`yurios/kernel/clock.py`, never
-the wall clock), the room's sticky scene state (rain, music), and the timer board's pending
+the wall clock), the room's sticky scene state (rain), and the timer board's pending
 timers with time remaining. An empty board **MUST** be stated as one, not omitted: the window
 keeps the turn that set a timer but never the proactive line that announced it landing, so
 silence reads to her as a countdown still running. The block **MUST** state the **embodiment truth**: her body is
@@ -545,8 +545,8 @@ Live2D room, counted by the `EventHub` as `body_viewers`; the text room attaches
 with no room open has none. Without one, the block **MUST** instead carry the text truth
 (`TEXT_EMBODIMENT`, the same module): no screen is showing her body right now and she is
 reaching the user as text; her body is still hers, simply not on a screen at this moment; she
-still answers about herself plainly. The scene lines (rain, music) belong to a room somebody is
-looking at and are omitted with it. A companion who lives in a phone must never be told her eyes
+still answers about herself plainly. The scene line (rain) belongs to a room somebody is
+looking at and is omitted with it. A companion who lives in a phone must never be told her eyes
 are blinking on a screen nobody has open.
 
 **Her room is hers.** The place named in that truth **MUST** be the character's own, read from
@@ -693,7 +693,9 @@ chat column; the composer moves to the hover bar.
 The Python-side **`VrmController` method surface is canonical** — the strings the tick loop
 holds (§15.5). It **MUST** expose at least: `set_expression, set_expression_raw,
 look_at_camera, look_forward, look_at, set_bone, reset_bone, set_mouth, set_material_color,
-play_animation, load_model`, plus the scene channels `set_rain` and `music`. It runs in-process
+play_animation, load_model`, plus the scene channel `set_rain`. (A `music` channel stood beside
+it until its only driver, the `play_music` hand, was retired; it was removed with the hand rather
+than kept as a string nothing pulls.) It runs in-process
 on the app's event loop; every method publishes **one `avatar` event on the `EventHub`** (§10),
 fanned out to every attached frontend over `/api/events`.
 
@@ -711,14 +713,13 @@ Command shapes ride the envelope `{"type":"avatar", "op": …}`:
 {"type":"animation",      "url":"/models/idle.vrma", "loop":true, "fadeIn":0.3}
 {"type":"load_model",     "url":"/models/avatar.vrm"}
 {"type":"rain",           "intensity":0.6}                   // scene channel (§6)
-{"type":"music",          "action":"play"|"stop", "track":"warm_pad", "volume":0.4}
 ```
 
 Turn expressions ride this channel too (§10): the voice route realises an expression as
 `set_expression(name, reset_ms=0)` (hold semantics), so one lane carries the face for every
 body and every open page, scripted or spoken. The frontend **MUST** auto-reconnect. Events
 arriving before the model loads **MAY** be dropped, except persistent appearance state
-(material colors, rain intensity, music), which the hub keeps **sticky** and **MUST** replay
+(material colors, rain intensity), which the hub keeps **sticky** and **MUST** replay
 to every new subscriber before its first live event. Malformed JSON is logged and dropped.
 
 ## §5 — Visemes: real lip-sync
@@ -3098,6 +3099,17 @@ reviewably.
   the ruling. It **MUST** pass the same shape check her proposal did, and the route **MUST** answer
   a rewrite that fails it with 422 before posting anything, so the refusal reaches you rather than a
   tick; the journal line says the edit was applied in your words.
+
+  A queued entry also records `base`, a fingerprint of the file it was built against, and — for a
+  `find`/`replace` proposal (§23.3) — the `patch` itself. Approving her proposal as written
+  **MUST** write it against the file *as it is when ruled on*: unchanged since she asked, her
+  content; changed, a patch applied again to the current file, provided its `find` still appears
+  exactly once and the result passes the shape check. A whole-file proposal whose file changed, or
+  a patch that no longer lands, is **stale**: approving it as written would undo whatever came
+  between (two patches proposed in a row, each built without the other, were the live case). A
+  stale entry **MUST NOT** be applied as written — the route answers that approval with 409 and
+  the reason, and the loop leaves the entry queued — while rejecting it, or approving your own
+  rewrite of it, works as ever. An entry queued before `base` was recorded is taken as written.
 - §23.3 **The door has a caller: `propose_edit`.** A conversational MCP tool (`surface`, `reason`, and
   `find`/`replace` or `content`), advertised only where the mind runs — the queue it writes into is only ever read there
   — and rationed by `TOOL_RATE_SELFEDIT`, because a proposal a minute is not deliberation, it is a
@@ -3107,7 +3119,15 @@ reviewably.
   `CONSTITUTION.md` in its own right, and `USER.md` / `MEMORY.md` are absent from its list — those
   are the runtime's to write (§2.1), not hers to redraft. `content` is the whole new file; `find`
   (appearing exactly once) + `replace` is a patch the server realises into that whole file before
-  the shape check, so the host still only ever sees a complete file. She reads the current text
+  the shape check, so the host still only ever sees a complete file — and returns the `patch`
+  beside it for §23.2's ruling-time apply. A patch that leaves a heading stacked directly on an
+  identical one (only blank lines between) **MUST** be refused with that heading named; a heading
+  that recurs by design over its own text is not. The answer **MUST** lead with `status`, `queued`
+  and `reason` and carry `content` last, because the guard keeps a fact's 600 characters (§7.3)
+  and the whole file in front of `queued` used to be all she saw of it. The shape check
+  (`characters/soulfiles.py`) **MUST** also refuse a rewrite that has a heading `soul.yaml` points
+  at more times than the file already does: only the last section under a name reaches her
+  prompt, so a second copy silently drops the first. She reads the current text
   with `read_note("soul/<FILE>")`, read-only, whenever the door is open, including when the workspace
   is disabled; desk paths remain unavailable in that configuration. Nothing takes effect on the
   call.
@@ -3129,7 +3149,10 @@ The product half of autonomy: what converts an always-on process from creepy to 
   `POST /api/mind/edits/{id}` (`{"approve": bool, "content"?: str}` → a signal, §23.2). Each pending
   edit in the snapshot **MUST** carry `diff`, its changed lines against the file as it stands: a
   whole-file proposal whose change is two lines at the bottom must show those two lines, not the
-  file's opening. The browser page's chat column grows a second tab — **inner life**
+  file's opening. `content` is what approving it would write now (§23.2); a stale entry carries
+  `stale`, the reason, and the panel **MUST** say it and offer reject or your own version in place
+  of approve. A stale patch's `diff` is its `find` → `replace`; `draft` is what your version
+  starts from — her content, or for a stale patch the file as it is. The browser page's chat column grows a second tab — **inner life**
   (`web/js/mind.js`) — organized into three stable views rather than one growing feed: **Now**
   carries right-now state and budget, the §7.5 pending timers, work currently reading or held,
   and edits waiting on you (what each changes, the whole file folded under it, one-click
@@ -3373,7 +3396,7 @@ brain with fake models.
   sidecar and an `image_url` message in sim time; the announce cue offered and dropped when busy; a
   broken forge becomes a quiet message; a camera that can't run fails its shot by name and is
   never swapped for mock); timer scheduling
-  and queued announcements; every §4 op's event shape including `rain`/`music`; the hub (typed
+  and queued announcements; every §4 op's event shape including `rain`; the hub (typed
   fan-out, sticky replayed last-write-wins, a full queue drops without blocking, thread-safe publish);
   the SSE route and the world `/ws/voice` route (greeting-once, noise-drop, barge-in, ambient
   injection reaches the client and is not persisted, the transcript tee, expressions on the bus and
@@ -3381,7 +3404,7 @@ brain with fake models.
   dropped while a real one is taken); first audio precedes tool execution on a tool turn; the §3.4
   palette map (every brain palette name has a frontend catalog entry — source-scanned); the §2.5
   situation block (the stated time is the injected clock's and moves when it advances, the embodiment
-  truth present verbatim — never "no body", weather/music following the sticky scene state, pending
+  truth present verbatim — never "no body", weather following the sticky scene state, pending
   timers listed and leaving when they land); the desktop launcher and both bodies honouring the flag;
   and an end-to-end turn over the **real brain** proving one corpus line + one Vault commit. The mind:
   one intention per tick and the trace shape; REST majority over a quiet simulated day; the ENGAGED
@@ -3946,8 +3969,11 @@ the things she *is* and the wrong shape for the things she is *doing*.
   absolute path, any `..`, and any component beginning with `.` (`.git/`, `.gitignore` and `.env`
   are all within reach of a root that is otherwise hers, and none of them are notes). Symlinks
   **MUST** be resolved *before* the containment test, so a link planted inside the desk that points
-  at `soul/CONSTITUTION.md` fails the same check a `../` would. Per-file, whole-tree and file-count
-  ceilings **MUST** refuse rather than fill a disk.
+  at `soul/CONSTITUTION.md` fails the same check a `../` would. A top-level `soul/` **MUST** be
+  refused too, and left out of listings: `read_note("soul/…")` opens her real soul files (§23.3),
+  so a desk folder of that name would be one path meaning two files — a note written there
+  "succeeded", and reading it back handed her the soul file instead. Per-file, whole-tree and
+  file-count ceilings **MUST** refuse rather than fill a disk.
 
   The hands are `list_notes`, `read_note`, `write_note`, `append_note`, `delete_note`,
   `read_skill`, `write_skill`, `delete_skill`, advertised by the tool server only when `VAULT_DIR`

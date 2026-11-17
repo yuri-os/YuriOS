@@ -3,7 +3,7 @@
 The YuriOS shape (host/http_api.py), ported: frontends subscribe once and every
 host event — chat `message`s, streaming `draft`s, `avatar` puppet commands, the
 `hello` — arrives as one typed JSON object over SSE. Sticky scene state (rain,
-music, tints) replays to every new subscriber, so a reload doesn't reset the
+tints) replays to every new subscriber, so a reload doesn't reset the
 room. This route replaces the old `/ws/avatar` puppet socket.
 
 The SSE discipline is YuriOS's, verbatim in shape: an open stream must never

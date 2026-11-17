@@ -8,7 +8,7 @@
  *
  * `setIntensity(0..1)` follows the `rain` command (SPEC §4): drives streak
  * density and speed, drop count and opacity. The audible layer (the filtered
- * noise bed) lives in web/js/music.js and follows the same command, and the far
+ * noise bed) lives in web/js/rain-sound.js and follows the same command, and the far
  * rain over the Sprawl (stage/sanctuary/City.js) follows it too.
  */
 import {

@@ -25,6 +25,7 @@ the pen that rewrites them.
 from __future__ import annotations
 
 import difflib
+import hashlib
 from dataclasses import dataclass
 
 from yurios.app.memory import partner
@@ -39,6 +40,11 @@ LOW_RISK_PREFIXES = ("memory/", "world/", "knowledge/")
 #: The longest rewrite of a queued edit a person may hand back with an approval.
 #: A soul file is a few thousand characters; this is a ceiling, not a budget.
 MAX_REVISION_CHARS = 200_000
+
+
+def _fingerprint(text: str) -> str:
+    """Which version of a file a proposal was built against."""
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 
 
 class SoulShapeError(ValueError):
@@ -84,7 +90,16 @@ class SelfEdit:
         return shape_complaint(self.vault.vault / "soul",
                                surface.rsplit("/", 1)[-1], content)
 
-    def propose(self, surface: str, content: str, *, reason: str) -> EditResult:
+    def propose(self, surface: str, content: str, *, reason: str,
+                patch: dict | None = None) -> EditResult:
+        """Apply a low-risk edit, or queue a soul one for your ruling.
+
+        `patch` is the `{find, replace}` she sent when she changed one part of
+        the file rather than rewriting it; `content` is that patch already
+        applied to the file as it stood. Both are kept, together with a
+        fingerprint of the file they were built against (`base`), because the
+        queue is ruled on later — and by then another edit may have landed.
+        """
         surface = surface.replace("\\", "/")
         if surface.endswith("soul/CONSTITUTION.md"):
             raise ConstitutionReadOnly(surface)   # not even a queued proposal
@@ -98,13 +113,72 @@ class SelfEdit:
         if self.classify(surface) == "low":
             self.vault.write(surface, content, gate=True)
             return EditResult(edit_id, "applied", surface, reason)
+        entry: dict = {"id": edit_id, "surface": surface, "content": content,
+                       "reason": reason, "base": _fingerprint(self.vault.read(surface)),
+                       "proposed_at": iso_of(self.clock.now())}
+        if (isinstance(patch, dict) and isinstance(patch.get("find"), str)
+                and patch["find"] and isinstance(patch.get("replace", ""), str)):
+            entry["patch"] = {"find": patch["find"],
+                              "replace": patch.get("replace") or ""}
         pending = read_json(self.pending_path, []) or []
-        pending.append({"id": edit_id, "surface": surface, "content": content,
-                        "reason": reason,
-                        "proposed_at": iso_of(self.clock.now())})
+        pending.append(entry)
         write_json(self.pending_path, pending)
         self.vault.mark_dirty()
         return EditResult(edit_id, "queued", surface, reason)
+
+    # ----------------------------------------------------------- what applies
+
+    def realised(self, entry: dict) -> tuple[str, str]:
+        """What approving `entry` as she wrote it would write now, and why it
+        can't be approved as written ("" when it can).
+
+        A queued proposal was built against the file as it was when she asked.
+        Approve two in a row and the second, built against the file without
+        the first, used to write the first one back out — silently, because
+        each looked like a one-line change when it was proposed. So:
+
+          * the file is unchanged since she asked → her content, as queued;
+          * it changed, and she sent a patch → the patch again, against the
+            file as it is now, as long as her `find` still appears once and
+            the result still passes the shape check;
+          * it changed, and she sent the whole file → stale: approving it
+            would undo whatever landed in between.
+
+        An entry queued before `base` was recorded is taken as written, which
+        is how it would have been applied before.
+        """
+        content = str(entry.get("content", ""))
+        base = entry.get("base")
+        if not base:
+            return content, ""
+        current = self.vault.read(entry["surface"])
+        if _fingerprint(current) == base:
+            return content, ""
+        patch = entry.get("patch")
+        if not isinstance(patch, dict):
+            return content, ("the file has changed since she wrote this version of "
+                             "it — approving it as written would undo that change")
+        find = str(patch.get("find", ""))
+        hits = current.count(find) if find else 0
+        if hits != 1:
+            return content, (
+                "the file has changed since she asked, and the passage she "
+                "changed is no longer in it" if not hits else
+                f"the file has changed since she asked, and the passage she "
+                f"changed now appears {hits} times")
+        fresh = current.replace(find, str(patch.get("replace", "")), 1)
+        complaint = self._shape_complaint(entry["surface"], fresh)
+        if complaint:
+            return content, f"applied to the file as it is now, {complaint}"
+        return fresh, ""
+
+    def stale(self, edit_id: str) -> str:
+        """Why the queued edit can't be approved as she wrote it, "" if it can.
+        Raises KeyError for an edit no longer waiting."""
+        entry = next((p for p in self.pending() if p["id"] == edit_id), None)
+        if entry is None:
+            raise KeyError(edit_id)
+        return self.realised(entry)[1]
 
     # ----------------------------------------------------------------- decide
 
@@ -123,13 +197,25 @@ class SelfEdit:
         out = []
         for entry in self.pending():
             current = self.vault.read(entry["surface"])
-            diff = difflib.unified_diff(
-                current.splitlines(), str(entry.get("content", "")).splitlines(),
-                n=2, lineterm="")
-            lines = [line for line in diff
-                     if not line.startswith(("---", "+++"))]
-            out.append({**entry, "diff": ["…" if line.startswith("@@") else line
-                                          for line in lines]})
+            content, stale = self.realised(entry)
+            patch = entry.get("patch") if isinstance(entry.get("patch"), dict) else None
+            if stale and patch:
+                # Her patch no longer lands: show what she asked to change, not
+                # a diff of a file built on a version that is gone.
+                lines = ([f"-{x}" for x in str(patch.get("find", "")).splitlines()]
+                         + [f"+{x}" for x in str(patch.get("replace", "")).splitlines()])
+            else:
+                diff = difflib.unified_diff(
+                    current.splitlines(), content.splitlines(), n=2, lineterm="")
+                lines = [line for line in diff
+                         if not line.startswith(("---", "+++"))]
+            out.append({**entry, "content": content, "stale": stale or None,
+                        # what your own version starts from: hers when it still
+                        # applies or is whole, the file as it is when her patch
+                        # no longer lands on it
+                        "draft": current if stale and patch else content,
+                        "diff": ["…" if line.startswith("@@") else line
+                                 for line in lines]})
         return out
 
     def check_revision(self, edit_id: str, content: str) -> None:
@@ -173,6 +259,13 @@ class SelfEdit:
         revised = content if approve else None
         if revised is not None and self._shape_complaint(entry["surface"], revised):
             return None
+        applied = ""
+        if approve and revised is None:
+            # Hers, as it lands on the file NOW — a stale one stays queued for
+            # you to reject or rewrite, rather than undoing what came between.
+            applied, stale = self.realised(entry)
+            if stale:
+                return None
         write_json(self.pending_path, [p for p in pending if p["id"] != edit_id])
         self.vault.mark_dirty()
         if entry["surface"] == "soul/PERSONA.md":
@@ -186,7 +279,7 @@ class SelfEdit:
         if not approve:
             return EditResult(edit_id, "rejected", entry["surface"], entry["reason"])
         self.vault.write(entry["surface"],
-                         revised if revised is not None else entry["content"],
+                         revised if revised is not None else applied,
                          gate=True)
         return EditResult(edit_id, "applied", entry["surface"], entry["reason"],
                           revised=revised is not None)

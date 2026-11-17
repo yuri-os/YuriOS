@@ -25,8 +25,8 @@ So this module does for her *place* what `appearance.py` does for her face:
   is what tells the two apart.
 
 What it deliberately leaves out is everything the rest of the block already
-carries: the hour (the clock line), the weather and the music (the room's sticky
-scene state), her body (the embodiment truth). A setting that mentions the time
+carries: the hour (the clock line), the weather (the room's sticky scene
+state), her body (the embodiment truth). A setting that mentions the time
 of day would be a standing sentence arguing with a live one, every prompt.
 """
 from __future__ import annotations
@@ -244,7 +244,7 @@ def render_markdown(name: str, place: str) -> str:
         "is*, in\n"
         "     the second person and the present tense.\n"
         "\n"
-        "     Leave the hour, the weather and the music out — the runtime "
+        "     Leave the hour and the weather out — the runtime "
         "injects the\n"
         "     real ones every turn, and a standing sentence about the rain "
         "would argue\n"

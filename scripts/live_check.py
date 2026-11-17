@@ -116,10 +116,13 @@ OVERRIDES: dict = {
     # camera is reached the way a tick reaches it (§26); `create_goal` because
     # its tool server answers a contract the mind has to file (§22.1c);
     # `show_held_picture` because this list is the one rule for replies too
-    # (§26.1), and without it a stranded picture is a list she cannot act on
+    # (§26.1), and without it a stranded picture is a list she cannot act on;
+    # `propose_edit` because the self-edit door is only proven by walking
+    # through it (§23.2) — the mind's guard is built from this list at start,
+    # so a scenario cannot add a hand afterwards
     "mind_tools_enabled": True,
     "mind_tool_allowlist": ("take_selfie,write_note,append_note,read_note,"
-                            "list_notes,create_goal,show_held_picture"),
+                            "list_notes,create_goal,show_held_picture,propose_edit"),
     "mind_enabled": True, "utility_enabled": True,
     # DREAM would run a night in the middle of a scenario; nights have their own
     # tests and this rig is about the waking day
@@ -1464,6 +1467,113 @@ async def scenario_tool_round(rig: Rig) -> str:
     return f"{len(prompts)} passes, {len(said)} characters, one camera call"
 
 
+async def scenario_selfedit(rig: Rig) -> str:
+    """Two soul patches approved in a row both land; a third that collides waits (SPEC §23.2).
+
+    Live, `propose_edit` grew `find`/`replace`, realised into a whole file when
+    she asks — and a queue is ruled on later. Two patches proposed in a row were
+    each built without the other, so approving both wrote the first one back
+    out. Here the whole door runs for real: a goal step reads her persona
+    through the spawned tool server's `read_note`, proposes through its
+    `propose_edit`, the host queues it, and your rulings arrive as the signal
+    the route posts. The step's words are scripted; the hands are hers.
+    """
+    from yurios.mind.workspace import RESERVED
+    soul = rig.rt.cfg.vault_dir / "soul" / "PERSONA.md"
+    persona = soul.read_text(encoding="utf-8")
+    body = persona.split("---", 2)[-1] if persona.startswith("---") else persona
+    prose = [x for x in body.splitlines()
+             if len(x.strip()) > 20 and not x.lstrip().startswith(("#", "-", "*", ">"))
+             and persona.count(x) == 1]
+    # whole sentences at both ends, so neither patch makes prose she would
+    # (rightly — she did, live) spend her next tick proposing to repair
+    one = next((x for x in prose if x[:1].isupper()), "")
+    two = next((x for x in prose if x != one and x.rstrip().endswith(".")), "")
+    want(bool(one and two), f"no two usable prose lines in her persona:\n{persona}")
+    for other in rig.open_goals():
+        rig.mind.goals.set_state(other.id, "abandoned")
+    log = rig.rt.cfg.tool_log_dir / "calls.jsonl"
+    skip = len(log.read_text(encoding="utf-8").splitlines()) if log.is_file() else 0
+
+    def use(tool: str, **args) -> str:
+        return f"use {tool} {json.dumps(args, ensure_ascii=False)}"
+
+    def edit(find: str, replace: str, why: str) -> str:
+        return use("propose_edit", surface="PERSONA.md", find=find,
+                   replace=replace, reason=why)
+
+    steps = [
+        # read first, try the desk path that used to shadow her soul, then ask
+        [use("read_note", path="soul/PERSONA.md"),
+         use("write_note", path="soul/PERSONA.md", text="a desk copy"),
+         edit(one, "Lately, " + one[0].lower() + one[1:], "I've changed a little"),
+         "I asked for the first change."],
+        [edit(two, two.rstrip(".") + ", most days.", "a softer truth"),
+         "I asked for the second."],
+        [edit(one, "Something else entirely.", "second thoughts"),
+         "I asked again."],
+    ]
+    original = rig.rt.mind._utility
+    try:
+        for n, replies in enumerate(steps):
+            # TOOL_RATE_SELFEDIT is a proposal a minute, and that is the point
+            rig.later(rig.mind.cfg.mind_consider_cooldown_s + 61)
+            goal = rig.goal(f"tidy my persona, part {n + 1}")
+            rig.scripted_utility(*replies)
+            traces = await rig.tick_until(
+                lambda t: (t.get("acted") or {}).get("goal") == goal.id)
+            want((traces[-1].get("acted") or {}).get("goal") == goal.id,
+                 f"step {n + 1} never ran: {[t.get('decided') for t in traces]!r}")
+            rig.rt.mind._utility = original         # type: ignore[method-assign]
+            rig.mind.goals.set_state(goal.id, "abandoned")
+    finally:
+        rig.rt.mind._utility = original             # type: ignore[method-assign]
+
+    calls = [json.loads(x) for x in log.read_text(encoding="utf-8").splitlines()[skip:] if x]
+    verdicts = [(c.get("tool"), c.get("verdict")) for c in calls]
+    want(("read_note", "ok") in verdicts, f"her soul was never read: {verdicts!r}")
+    want(("write_note", "error") in verdicts, f"a desk soul/ write was not refused: {verdicts!r}")
+    want(not (rig.rt.cfg.vault_dir / "workspace" / RESERVED[0]).exists(),
+         "a workspace/soul/ folder was made")
+    pending = rig.mind.selfedit.pending()
+    want(len(pending) == 3 and all(p.get("patch") and p.get("base") for p in pending),
+         f"three patches with their base were not queued: {pending!r} / {verdicts!r}")
+    first, second, third = pending
+
+    async def ruled() -> None:
+        """One tick to land a ruling. SENSE applies it whatever DECIDE then
+        picks; what it picks (a muse over the goals just abandoned, live) is
+        minutes of a hosted model and none of this scenario's business."""
+        rig.scripted_utility(*["Nothing more for now."] * 8)
+        try:
+            await rig.tick()
+        finally:
+            rig.rt.mind._utility = original         # type: ignore[method-assign]
+
+    for entry in (first, second):
+        rig.rt.signals.post("selfedit_decision", {"id": entry["id"], "approve": True},
+                            source="user")
+    await ruled()
+    text = soul.read_text(encoding="utf-8")
+    want("Lately, " in text and "most days." in text,
+         f"approving two patches in a row did not land both:\n{text}")
+    stale = rig.mind.selfedit.stale(third["id"])
+    want("no longer in it" in stale, f"the colliding patch is not stale: {stale!r}")
+
+    rig.rt.signals.post("selfedit_decision", {"id": third["id"], "approve": True},
+                        source="user")
+    await ruled()
+    want(soul.read_text(encoding="utf-8") == text, "a stale approval changed the file")
+    want(third["id"] in [p["id"] for p in rig.mind.selfedit.pending()],
+         "a stale approval did not leave it queued")
+    rig.rt.signals.post("selfedit_decision", {"id": third["id"], "approve": False},
+                        source="user")
+    await ruled()
+    want(third["id"] not in [p["id"] for p in rig.mind.selfedit.pending()],
+         "rejecting the stale one did not clear it")
+    return "2 patches approved in a row both landed; the colliding third stayed queued, then rejected"
+
+
 SCENARIOS = {
     "waiting": scenario_waiting,
     "told": scenario_told,
@@ -1484,6 +1594,7 @@ SCENARIOS = {
     "length": scenario_length,
     "aboutuser": scenario_about_user,
     "toolround": scenario_tool_round,
+    "selfedit": scenario_selfedit,
 }
 
 

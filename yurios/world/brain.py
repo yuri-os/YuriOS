@@ -911,7 +911,8 @@ class ToolBrain(BrainAdapter):
             if self.selfedit is not None:
                 try:
                     self.selfedit.propose(data["surface"], data.get("content", ""),
-                                          reason=data.get("reason", ""))
+                                          reason=data.get("reason", ""),
+                                          patch=data.get("patch"))
                 except Exception:
                     log.exception("propose_edit: couldn't queue the proposal")
         elif call.tool == "read_page" and data.get("text"):

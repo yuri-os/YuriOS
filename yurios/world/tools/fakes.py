@@ -165,6 +165,12 @@ class FakeToolRunner:
             return json.dumps({"status": "ready",
                                "goal_id": str(args.get("goal_id") or "").strip(),
                                "picture_id": str(args.get("picture_id") or "").strip()})
+        if (tool in ("write_note", "append_note", "edit_note", "delete_note",
+                     "count_note_lines")
+                and str(args.get("path") or "").strip().lstrip("/").lower()
+                .startswith("soul/")):
+            # the real desk refuses it (mind/workspace.py `RESERVED`)
+            raise RuntimeError("soul/ is your soul, not a place on your desk")
         if tool == "list_notes":
             return json.dumps({"folder": args.get("folder") or "",
                                "notes": [{"path": "research/learning_you.md",
@@ -209,11 +215,13 @@ class FakeToolRunner:
                 content = FAKE_NOTE.replace(find, args.get("replace") or "", 1)
             if not content.strip():
                 raise RuntimeError("content must not be empty")
-            return json.dumps({"status": "proposed", "surface": f"soul/{name}",
-                               "content": content,
-                               "reason": args.get("reason") or "",
-                               "chars": len(content),
-                               "risk": "high", "queued": True})
+            out: dict = {"status": "proposed", "surface": f"soul/{name}",
+                         "queued": True, "risk": "high",
+                         "reason": args.get("reason") or "", "chars": len(content)}
+            if find:
+                out["patch"] = {"find": find, "replace": args.get("replace") or ""}
+            out["content"] = content            # last, as the real server sends it
+            return json.dumps(out)
         if tool == "take_selfie":
             return json.dumps({"id": f"fake{len(self.calls)}",
                                "look": args.get("look") or None,

@@ -5,11 +5,11 @@ import { ControlBridge } from '../js/bridge.js';
 
 it('passes a rain command to the room, the bed and the page', () => {
   const room = { setRain: vi.fn() };
-  const music = { setRainLevel: vi.fn() };
+  const sound = { setRainLevel: vi.fn() };
   const onRain = vi.fn();
-  new ControlBridge({}, { room, music, onRain }).dispatch({ op: 'rain', intensity: 0.4 });
+  new ControlBridge({}, { room, sound, onRain }).dispatch({ op: 'rain', intensity: 0.4 });
   expect(room.setRain).toHaveBeenCalledWith(0.4);
-  expect(music.setRainLevel).toHaveBeenCalledWith(0.4);
+  expect(sound.setRainLevel).toHaveBeenCalledWith(0.4);
   expect(onRain).toHaveBeenCalledWith(0.4);
 });
 

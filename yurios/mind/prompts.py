@@ -20,6 +20,7 @@ naming its type means importing `MindLoop`, and `tests/test_layering.py` reads a
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from contextvars import ContextVar
 
@@ -33,6 +34,19 @@ log = logging.getLogger("mind.prompts")
 #: mind/handwork.py): that round already opens with a one-line reminder of
 #: who she is, so `utility` leaves the card off it.
 FOLLOWUP: ContextVar[bool] = ContextVar("mind_compact_followup", default=False)
+
+
+class YieldedToChat(BaseException):
+    """A model call of her own thinking, given up for a conversation (SPEC §17.4).
+
+    The tick catches it around ACT, and it is the only place that catches it.
+    It is a `BaseException`, the way cancellation is, so the `except Exception`
+    on its way up does not read it as a failure. A failed promise review is
+    retried on a backoff. A failed night job is retried tomorrow. A failed goal
+    step goes into the goal's history. None of that happened here: she did not
+    fail, you started talking. A caller that changed something before its call
+    and must put it back catches this, puts it back and raises it again.
+    """
 
 
 def goal_history(goal) -> str:
@@ -152,6 +166,9 @@ async def utility(loop, messages: list[dict], *, soul: bool = False,
     utility = loop.brain.state.utility
     if utility is None:
         return ""
+    yields = loop.yields_to_chat()
+    if yields and loop.chat_has_model():
+        raise YieldedToChat                 # don't start what would be given up
     # A follow-up round already carries the one-line reminder (§22.4). Fusing
     # the card again here is the resend `MIND_COMPACT_FOLLOWUPS` exists to stop.
     if soul and not FOLLOWUP.get():
@@ -169,7 +186,8 @@ async def utility(loop, messages: list[dict], *, soul: bool = False,
     # that is waiting for the park.
     await loop.park_gate.wait(timeout_s=PATIENT_WAIT_S)
     async with loop.park_gate.hold():
-        text = await utility.complete(messages, **params)
+        call = utility.complete(messages, **params)
+        text = await (_yielding(loop, call) if yields else call)
     loop.budget.debit("".join(m.get("content", "") for m in messages), text)
     origin = correlate.current()
     loop.prompt_log.record(
@@ -178,3 +196,29 @@ async def utility(loop, messages: list[dict], *, soul: bool = False,
         messages=messages, completion=text, model=loop.cfg.utility_model,
         tier="utility")
     return text
+
+
+async def _yielding(loop, call) -> str:
+    """Run one model call that a user turn may take back (SPEC §17.4).
+
+    It runs as a task of its own, so `MindLoop.turn_started` can cancel it.
+    Cancelling the task cancels the request: LiteLLM's HTTP client drops the
+    connection, a local server stops generating, and the place this call held
+    in the process-wide inference queue goes to her reply.
+
+    A cancel can also come from outside, when the tick itself is cancelled at
+    shutdown. Only the cancel that `turn_started` asked for, while the tick
+    was not being cancelled, becomes `YieldedToChat`. Any other cancel goes
+    on as a cancel.
+    """
+    task = asyncio.ensure_future(call)
+    loop._model_call, loop._model_yielded = task, False
+    try:
+        return await task
+    except asyncio.CancelledError:
+        current = asyncio.current_task()
+        if loop._model_yielded and not (current and current.cancelling()):
+            raise YieldedToChat from None
+        raise
+    finally:
+        loop._model_call = None

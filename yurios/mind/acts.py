@@ -33,7 +33,7 @@ from .goals import (HANDED_GOAL, MUSE_GOAL, OWN_JUDGEMENT, STEP_GOAL, Goal, echo
                     promise_review_messages, timer_for_promise)
 from .hands import FILE_GOAL, strip_native_calls
 from .policy import DREAM, next_open, quiet_hour, score_interrupt
-from .prompts import goal_history
+from .prompts import YieldedToChat, goal_history
 from .signals import Signal, failure_of
 from .util import day_of, dt_of, iso_of, ts_of_iso
 from .workspace import desk_words
@@ -245,6 +245,11 @@ async def promise_review(loop, offer=None) -> tuple[dict, dict, list[str]]:
                 messages, soul=False, thinking=True, reasoning_effort="low",
                 response_format=PROMISE_REVIEW_RESPONSE_FORMAT)
         decision = parse_promise_review(raw, candidate_count=len(candidates))
+    except YieldedToChat:
+        # Given up for a conversation, not failed (§17.4): back where it was,
+        # with no attempt counted and no backoff.
+        loop.promise_reviews.insert(index, review)
+        raise
     except Exception as exc:  # noqa: BLE001 — a malformed review must not kill the tick
         if isinstance(exc, PromiseReviewError):
             # The utility model missing its contract is an ordinary outcome with

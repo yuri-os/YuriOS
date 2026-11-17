@@ -32,6 +32,8 @@ Usage
     .venv/bin/python scripts/live_check.py --list
     .venv/bin/python scripts/live_check.py --keep         # leave the scratch root
     .venv/bin/python scripts/live_check.py --hour 14      # place her day (Gate 2)
+    .venv/bin/python scripts/live_check.py yield --like yuri_copy
+                                    # her models, on a copy of her vault
 
 Not a gate stage: it wants a model, a few seconds of wall clock, and a spawned
 tool server. `./scripts/check.sh` stays the thing that has to be green.
@@ -149,8 +151,10 @@ class Rig:
     asked for.
     """
 
-    def __init__(self, root: Path, *, hour: int | None = None, quiet: bool = True):
+    def __init__(self, root: Path, *, hour: int | None = None, quiet: bool = True,
+                 like: str | None = None):
         self.root = root
+        self.like = like
         self.clock = ShiftedClock(hour)
         self.quiet = quiet
         self.rt: Runtime | None = None
@@ -164,7 +168,10 @@ class Rig:
         draft = template_draft()
         draft.name = "Livecheck"
         self.record = create_character(registry, draft, character_id="livecheck")
-        cfg = config_for_character(Config(), self.record).model_copy(update=OVERRIDES)
+        house = Config()
+        cfg = config_for_character(house, self.record).model_copy(update=OVERRIDES)
+        if self.like:
+            cfg = self._take_after(house, cfg)
         self.rt = Runtime(cfg, clock=self.clock)
         await self.rt.start_async()
         want(self.rt.mind is not None,
@@ -181,6 +188,28 @@ class Rig:
         # the rig waits where the host doesn't: a selfie dispatched before the
         # server is up is a scenario that fails for the wrong reason.
         await self.tools_ready()
+
+    def _take_after(self, house: Config, cfg: Config) -> Config:
+        """Her models, and a copy of her vault (`--like <id>`).
+
+        Read from the house registry and never written: the scratch character
+        gets its own copy of the vault, without `state/`, so a stale budget or
+        bus cursor of hers cannot decide what this rig's first tick does. The
+        rest of the scratch character, OVERRIDES included, is unchanged.
+        """
+        source = CharacterRegistry(house.data_dir).get(self.like)
+        want(source is not None, f"no character {self.like!r} in {house.data_dir}")
+        vault = Path(source.paths.vault)
+        vault = vault if vault.is_absolute() else house.data_dir / vault
+        want(vault.is_dir(), f"{self.like}'s vault is not at {vault}")
+        shutil.rmtree(cfg.vault_dir, ignore_errors=True)
+        shutil.copytree(vault, cfg.vault_dir,
+                        ignore=lambda folder, names: (
+                            ["state"] if Path(folder) == vault else []))
+        models = {key: value for key, value in (
+            ("chat_model", source.models.chat),
+            ("utility_model", source.models.utility)) if value}
+        return cfg.model_copy(update=models)
 
     async def tools_ready(self, timeout: float = 30.0) -> str:
         end = time.time() + timeout
@@ -1574,6 +1603,131 @@ async def scenario_selfedit(rig: Rig) -> str:
     return "2 patches approved in a row both landed; the colliding third stayed queued, then rejected"
 
 
+async def scenario_yield(rig: Rig) -> str:
+    """Your message takes the model back from her free time (SPEC §17.4).
+
+    The sitting of 2026-11-18 06:57, run twice on her local model. With
+    `MIND_TOOLS_DURING_CHAT=on` nothing gives way, and the reply waits behind
+    the sitting. On `auto` the call in flight is cancelled and the reply goes
+    first. Then: while you're talking her own work waits, and it comes back once
+    the conversation is over. Every model call is real.
+    """
+    from yurios.app.providers.admission import inference_admission
+    from yurios.mind.hands import stands_down_while_talking
+    from yurios.mind.loop import WAITS_FOR_CHAT
+    from yurios.mind.policy import ENGAGED, IDLE
+    from yurios.models import model_is_local
+
+    mind = rig.mind
+    want(model_is_local(mind.cfg.utility_model),
+         f"needs a local utility model, not {mind.cfg.utility_model!r} — "
+         "run with --like <a character on LM Studio or Ollama>")
+    house_cfg = mind.cfg
+    gate = inference_admission()
+    chat = rig.rt.brain.state.chat
+    real_stream = chat.stream
+    first_word: list[float] = []
+
+    async def timed(messages, **kw):
+        async for piece in real_stream(messages, **kw):
+            if not first_word:
+                first_word.append(time.monotonic())
+            yield piece
+
+    def free_time() -> None:
+        for goal in rig.open_goals():
+            mind.goals.set_state(goal.id, "abandoned")
+        mind.activity.state = IDLE
+        mind.activity.last_user_msg = rig.clock.now() - 6 * 3600
+        mind._last_turn_end = rig.clock.now() - 6 * 3600
+        mind.last_mused = 0.0
+
+    async def interrupted(mode: str) -> dict:
+        mind.cfg = house_cfg.model_copy(update={"mind_tools_during_chat": mode})
+        free_time()
+        tick = asyncio.create_task(rig.tick())
+        end = time.monotonic() + 60
+        while not gate._semaphore.locked() and not tick.done() \
+                and time.monotonic() < end:
+            await asyncio.sleep(0.05)
+        want(gate._semaphore.locked() and not tick.done(),
+             f"[{mode}] free time never reached the model")
+        await asyncio.sleep(1.5)                 # well into generating
+        first_word.clear()
+        sent = time.monotonic()
+        chat.stream = timed                      # type: ignore[method-assign]
+        try:
+            turn = asyncio.create_task(
+                rig.rt.turns.run("What you up to today?", channel="live-check"))
+            trace = await asyncio.wait_for(tick, 300)
+            tick_done = time.monotonic()
+            done = await asyncio.wait_for(turn, 300)
+            turn_done = time.monotonic()
+        finally:
+            chat.stream = real_stream            # type: ignore[method-assign]
+        said = str((done.get("message") or {}).get("text") or "")
+        want(said, f"[{mode}] no reply landed: {done!r}")
+        return {"trace": trace, "said": said,
+                "first": first_word[0] - sent if first_word else float("nan"),
+                "tick": tick_done - sent, "turn": turn_done - sent}
+
+    log_dir = Path.home() / ".lmstudio" / "server-logs" / time.strftime("%Y-%m")
+    server_log = log_dir / f"{time.strftime('%Y-%m-%d')}.1.log"
+    before = server_log.stat().st_size if server_log.is_file() else 0
+
+    kept = await interrupted("on")
+    want(not kept["trace"]["acted"]["result"].startswith("yielded"),
+         f"`on` gave way anyway: {kept['trace']['acted']!r}")
+    # The sitting sensed its signals before your message, so the next tick
+    # reads it and goes ENGAGED. Let one do that before setting up the next
+    # sitting, or free time is (rightly) never offered.
+    await rig.tick()
+
+    yielded = await interrupted("auto")
+    acted = yielded["trace"]["acted"]
+    want(acted.get("what") == "muse"
+         and acted.get("result") == f"yielded: {WAITS_FOR_CHAT}",
+         f"free time was not given up: {acted!r}")
+    want(mind.last_mused == 0.0, "the free-time cooldown started for a yield")
+    want(yielded["tick"] < 5.0,
+         f"the sitting took {yielded['tick']:.1f}s to give way")
+    stopped = []
+    if server_log.is_file():
+        with server_log.open("rb") as fh:
+            fh.seek(before)
+            stopped = [line for line in fh.read().decode(errors="replace").splitlines()
+                       if "Stopping generation" in line]
+
+    # while you are talking, her own work waits, in the trace with why
+    goal = rig.goal("look back over what we talked about today")
+    talking = await rig.tick()
+    want(talking["activity_state"] == ENGAGED and stands_down_while_talking(mind.cfg),
+         f"not ENGAGED after a turn: {talking['activity_state']}")
+    held = next((a for a in talking["appraised"] if goal.text[:40] in a["what"]), None)
+    want(held is not None and held["score_to_act"] == 0.0
+         and held["why"].endswith(WAITS_FOR_CHAT),
+         f"the goal did not wait while you talk: {held!r}")
+    want(talking["decided"]["intention"] == "REST",
+         f"she acted on something while you talk: {talking['decided']!r}")
+
+    # …and once the conversation is over, it comes back by itself
+    rig.later(mind.cfg.mind_engaged_timeout_s + 15)
+    await rig.tick()                             # ENGAGED → IDLE at its end
+    back = await rig.tick()
+    want(mind.activity.state != ENGAGED
+         and back["decided"]["intention"].startswith(("goal:", "tool_step:")),
+         f"the goal did not come back: {back['decided']!r}")
+    want(not back["acted"]["result"].startswith("yielded"),
+         f"the goal gave way with nobody talking: {back['acted']!r}")
+    mind.cfg = house_cfg
+    return (f"on: first word {kept['first']:.1f}s, reply done {kept['turn']:.1f}s, "
+            f"sitting ran to {kept['tick']:.1f}s ({kept['trace']['acted']['result']}) · "
+            f"auto: sitting gave way at {yielded['tick']:.2f}s, first word "
+            f"{yielded['first']:.1f}s, reply done {yielded['turn']:.1f}s · "
+            f"LM Studio stopped generating {len(stopped)}× · "
+            f"goal held while ENGAGED, worked after: {back['acted']['result'][:80]!r}")
+
+
 SCENARIOS = {
     "waiting": scenario_waiting,
     "told": scenario_told,
@@ -1595,6 +1749,7 @@ SCENARIOS = {
     "aboutuser": scenario_about_user,
     "toolround": scenario_tool_round,
     "selfedit": scenario_selfedit,
+    "yield": scenario_yield,
 }
 
 
@@ -1640,8 +1795,8 @@ async def _settle(rig: Rig, ready, *, timeout: float = 90.0) -> None:
 # ------------------------------------------------------------------------ main
 
 async def run(names: list[str], *, root: Path, hour: int | None,
-              keep: bool) -> int:
-    rig = Rig(root, hour=hour)
+              keep: bool, like: str | None = None) -> int:
+    rig = Rig(root, hour=hour, like=like)
     results: list[tuple[str, bool, str]] = []
     try:
         print(f"· building a scratch character under {root}")
@@ -1695,6 +1850,9 @@ def main(argv: list[str] | None = None) -> int:
                          "hours (default: 14; pass -1 for the real one)")
     ap.add_argument("--root", type=Path, default=None,
                     help="where the scratch character goes")
+    ap.add_argument("--like", metavar="ID", default=None,
+                    help="her models, and a scratch copy of her vault, from a "
+                         "character in the house registry (read, never written)")
     ap.add_argument("-v", "--verbose", action="store_true",
                     help="her own logs as well as the verdicts")
     args = ap.parse_args(argv)
@@ -1712,7 +1870,7 @@ def main(argv: list[str] | None = None) -> int:
                          / ".yurios" / "live-check" / time.strftime("%Y%m%d-%H%M%S"))
     return asyncio.run(run(list(args.scenarios) or list(SCENARIOS),
                            root=root, hour=None if args.hour < 0 else args.hour,
-                           keep=args.keep))
+                           keep=args.keep, like=args.like))
 
 
 if __name__ == "__main__":

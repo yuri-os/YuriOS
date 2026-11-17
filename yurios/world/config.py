@@ -317,7 +317,9 @@ class Config(VoiceConfig):
     # is local (`ollama/`, `lm_studio/`, `gguf/`). `on` keeps working through a
     # conversation even on a local model. `off` is the old rule: always stand
     # down while she is talking. The expensive class still waits for an empty
-    # room either way (SPEC §26.3).
+    # room either way (SPEC §26.3). When the hands stand down, her own model
+    # calls do too: your message cancels the one in flight, and her own
+    # thinking waits until the conversation is over (§17.4).
     mind_tools_during_chat: str = "auto"
     # `*` (the default) is every hand this installation can offer; otherwise
     # explicit names, comma-separated. Empty means none — that is what

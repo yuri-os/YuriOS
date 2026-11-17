@@ -336,7 +336,7 @@ Cadences, gates, DREAM hours, and the rest of `MIND_*` — the full table is in
 | Key | Default | |
 |---|---|---|
 | `MIND_TOOLS_ENABLED` | `true` | house switch: may anything on this machine reach for a tool unasked? |
-| `MIND_TOOLS_DURING_CHAT` | `auto` | `auto` stands down mid-conversation only when `UTILITY_MODEL` is local; `on` keeps working; `off` always stands down |
+| `MIND_TOOLS_DURING_CHAT` | `auto` | `auto` stands down mid-conversation only when `UTILITY_MODEL` is local; `on` keeps working; `off` always stands down. Standing down also cancels her own model call in flight when you speak, and holds her own thinking until the conversation is over (SPEC §17.4) |
 | `MIND_TOOL_ALLOWLIST` | `*` | every hand this build can offer; set explicit names or empty to narrow/disable. `yurios settings MIND_TOOL_ALLOWLIST` prints the vocabulary |
 | `MIND_TOOL_CALLS_PER_DAY` | `64` | a cap, checked before the call |
 | `MIND_TOOL_PRESSURE_CEILING` | `0.5` | over it, the expensive hands are not offered |

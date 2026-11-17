@@ -431,60 +431,64 @@ class DreamRunner:
         ceiling = {False: token_budget, True: research_budget}
         touched = False
 
-        for job in jobs:
-            ctx = self._context(day="", dry_run=dry_run, job=job.name,
-                                soul=job.soul, max_hands=job.max_hands)
-            try:
-                pending = [day] if day else job.backlog(ctx, self.ledger)
-            except Exception:  # noqa: BLE001
-                log.exception("DREAM job %s: backlog failed", job.name)
-                continue
-            lane = job.own_budget
-            for target in pending:
-                cost = job.cost(ctx, target)
-                # `spent` is 0 only for the very first item of this lane, which
-                # always runs however big it is — `dream.py` explains why at
-                # length, and the rule matters more here: with several jobs
-                # queued, a veto on the first one would starve every job behind
-                # it too.
-                if spent[lane] and spent[lane] + cost > ceiling[lane]:
-                    report.exhausted_budget = True
-                    break
-                ctx.day = target
-                out = await self._run_one(job, ctx, target)
-                report.jobs.append(out)
-                spent[lane] += cost
-                # `days` is handled, not produced — see JobReport. A job that
-                # decided there was nothing to write still finished with that
-                # day, and must not be asked about it again tomorrow.
-                if not out.failed and not dry_run:
-                    # Days live on the consolidator's own file when
-                    # `owns_ledger`; marking them here would double-ledger and
-                    # could re-run nights. last_run still belongs on this
-                    # ledger — without it the debug card reads "never run".
-                    if out.days and not job.owns_ledger:
-                        touched = True
-                        for finished in out.days:
-                            self.ledger.mark(job.name, finished)
-                    if out.days or (job.owns_ledger and out.changed):
-                        touched = True
-                        self.ledger.note_run(
-                            job.name, at=iso_of(self.clock.now()),
-                            result=out.result)
-            report.exchanges.extend(ctx.exchanges)
-            report.steps.extend(ctx.steps)
-            report.writes.extend(ctx.writes)
-            report.delivered.extend(ctx.delivered)
-            # No `break` on an exhausted budget: one expensive job hitting the
-            # ceiling on its next day says nothing about whether the cheap jobs
-            # behind it fit. They are each gated by the same check above, so
-            # nothing overruns — a costly diary simply stops deferring the
-            # strategy review and the selfie, which cost a few hundred tokens
-            # between them, to a night that may not come.
-
-        if touched:
-            self.ledger.save()
-            self.vault.mark_dirty()
+        try:
+            for job in jobs:
+                ctx = self._context(day="", dry_run=dry_run, job=job.name,
+                                    soul=job.soul, max_hands=job.max_hands)
+                try:
+                    pending = [day] if day else job.backlog(ctx, self.ledger)
+                except Exception:  # noqa: BLE001
+                    log.exception("DREAM job %s: backlog failed", job.name)
+                    continue
+                lane = job.own_budget
+                for target in pending:
+                    cost = job.cost(ctx, target)
+                    # `spent` is 0 only for the very first item of this lane, which
+                    # always runs however big it is — `dream.py` explains why at
+                    # length, and the rule matters more here: with several jobs
+                    # queued, a veto on the first one would starve every job behind
+                    # it too.
+                    if spent[lane] and spent[lane] + cost > ceiling[lane]:
+                        report.exhausted_budget = True
+                        break
+                    ctx.day = target
+                    out = await self._run_one(job, ctx, target)
+                    report.jobs.append(out)
+                    spent[lane] += cost
+                    # `days` is handled, not produced — see JobReport. A job that
+                    # decided there was nothing to write still finished with that
+                    # day, and must not be asked about it again tomorrow.
+                    if not out.failed and not dry_run:
+                        # Days live on the consolidator's own file when
+                        # `owns_ledger`; marking them here would double-ledger and
+                        # could re-run nights. last_run still belongs on this
+                        # ledger — without it the debug card reads "never run".
+                        if out.days and not job.owns_ledger:
+                            touched = True
+                            for finished in out.days:
+                                self.ledger.mark(job.name, finished)
+                        if out.days or (job.owns_ledger and out.changed):
+                            touched = True
+                            self.ledger.note_run(
+                                job.name, at=iso_of(self.clock.now()),
+                                result=out.result)
+                report.exchanges.extend(ctx.exchanges)
+                report.steps.extend(ctx.steps)
+                report.writes.extend(ctx.writes)
+                report.delivered.extend(ctx.delivered)
+                # No `break` on an exhausted budget: one expensive job hitting the
+                # ceiling on its next day says nothing about whether the cheap jobs
+                # behind it fit. They are each gated by the same check above, so
+                # nothing overruns — a costly diary simply stops deferring the
+                # strategy review and the selfie, which cost a few hundred tokens
+                # between them, to a night that may not come.
+        finally:
+            # What finished is kept even when the night stops partway — a
+            # user turn takes the model back between one job's calls (SPEC
+            # §17.4) — so a day already done is not done again.
+            if touched:
+                self.ledger.save()
+                self.vault.mark_dirty()
         report.nothing_to_do = not any(j.changed or j.failed for j in report.jobs)
         return report
 

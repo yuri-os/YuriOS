@@ -27,7 +27,7 @@ a section are folded into it.
 | **§14** — Extends to → superseded by §28 | — | — |
 | **§15** — The cognitive tick loop | `yurios/mind/loop.py`<br>`yurios/world/routes/voice_ws.py`<br>`yurios/world/main.py`<br>`yurios/mind/acts.py`<br>*+7 more* | `tests/test_config.py`<br>`tests/test_mind_loop.py`<br>`tests/test_mind_routes.py`<br>*+1 more* |
 | **§16** — The signal bus (inbound) | `yurios/mind/signals.py`<br>`yurios/mind/loop.py`<br>`yurios/world/main.py`<br>`scripts/live_check.py`<br>*+4 more* | `tests/test_mind_goals.py`<br>`tests/test_mind_loop.py`<br>`tests/test_signal_bus.py` |
-| **§17** — Activity states and the budget governor | `yurios/mind/policy.py`<br>`yurios/mind/budget.py`<br>`web/mind/mind.js`<br>`yurios/mind/prompts.py`<br>*+3 more* | `tests/test_host_debug.py`<br>`tests/test_mind_budget.py`<br>`tests/test_policy.py` |
+| **§17** — Activity states and the budget governor | `yurios/mind/policy.py`<br>`yurios/mind/budget.py`<br>`yurios/mind/prompts.py`<br>`web/mind/mind.js`<br>*+4 more* | `tests/test_dreamjobs.py`<br>`tests/test_host_debug.py`<br>`tests/test_mind_budget.py`<br>*+2 more* |
 | **§18** — The salience and interrupt model | `yurios/mind/policy.py`<br>`scripts/live_check.py`<br>`yurios/mind/acts.py`<br>`yurios/mind/goals.py`<br>*+19 more* | `tests/test_inbox.py`<br>`tests/test_tray.py`<br>`tests/test_gallery.py`<br>*+6 more* |
 | **§19** — The world model (the present tense) | `yurios/mind/world.py`<br>`yurios/world/brain.py`<br>`yurios/world/situation.py` | `tests/test_world_model.py` |
 | **§20** — The knowledge layer (drop-folder RAG) | `yurios/mind/knowledge.py`<br>`yurios/mind/documents.py`<br>`web/js/files.js`<br>`yurios/ctl/documents.py`<br>*+2 more* | `tests/test_mind_routes.py`<br>`tests/test_cli_documents.py`<br>`tests/test_knowledge.py`<br>*+1 more* |
@@ -51,4 +51,4 @@ a section are folded into it.
 | **§38** — How long her replies run | `web/js/chat.js`<br>`yurios/app/config.py`<br>`scripts/live_check.py`<br>`web/shared/reply-length.js`<br>*+4 more* | `tests/test_mind_soul.py`<br>`tests/test_reply_length.py` |
 | **§39** — Another reply in her last one's place | `yurios/desktop/brain.py`<br>`yurios/world/main.py`<br>`yurios/world/routes/chat.py`<br>`yurios/world/turns.py`<br>*+13 more* | `tests/test_swipes.py` |
 
-*1257 citation sites over 151 sections.*
+*1262 citation sites over 152 sections.*

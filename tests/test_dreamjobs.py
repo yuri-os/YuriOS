@@ -587,6 +587,37 @@ async def test_a_failed_job_keeps_its_day_and_retries(rig):
     assert calls == ["2026-07-04", "2026-07-04"]   # retried, not marked done
 
 
+
+async def test_a_night_given_up_for_you_keeps_what_it_finished(rig):
+    """A user turn takes the model back mid-night (SPEC §17.4). The jobs that
+    finished before it are on disk, so the next night does not do them again.
+    The one it stopped in the middle of keeps its day, as a failed job does."""
+    from yurios.mind.dreamjobs.context import JobLedger
+    from yurios.mind.prompts import YieldedToChat
+
+    runner, _clock, vault = rig
+    _day_file(vault, "2026-07-04", ["user: hello  ⇄  yuri: hi"])
+
+    class Steady(DreamJob):
+        name, title, priority = "steady", "Steady", 0.95
+
+        async def work(self, ctx, day):
+            return JobReport(name=self.name, days=[day], changed=True,
+                             result="done")
+
+    class Interrupted(DreamJob):
+        name, title, priority = "interrupted", "Interrupted", 0.9
+
+        async def work(self, ctx, day):
+            raise YieldedToChat
+
+    runner.jobs[:0] = [Steady(), Interrupted()]
+    with pytest.raises(YieldedToChat):
+        await runner.run(token_budget=40000)
+    on_disk = JobLedger(runner.ledger.path)
+    assert on_disk.done("steady") == {"2026-07-04"}
+    assert on_disk.done("interrupted") == set()
+
 # ---------------------------------------------------------------- the dry run
 
 async def test_a_dry_run_thinks_but_writes_nothing(rig):

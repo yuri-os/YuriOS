@@ -2040,6 +2040,28 @@ as a design driver: an always-on mind is affordable only because it is almost al
 - REGULATE **MAY** shorten the next heartbeat below the state cadence when a goal comes due sooner
   or when more than one appraisal crossed gate 1 this tick (the backlog drains one intention at a
   time, never piles into one tick).
+- §17.4 **Her own thinking gives the model back to the conversation.** When
+  `MIND_TOOLS_DURING_CHAT` says her hands stand down while she is talking (§26.3), her own model
+  calls do too. Her own thinking means a goal step, free time, a promise review, a sitting with a
+  handed document, a shelf reading and a DREAM job. Three rules follow:
+  1. While she is ENGAGED, or a user turn is under way, APPRAISE **MUST** score that work 0.0. It
+     stays in the trace with the reason it waits.
+  2. A user turn **MUST** cancel the tick's model call in flight, and a step **MUST NOT** start
+     another call once the turn has begun. Cancelling the request releases the inference slot to
+     her reply, and a local server stops generating. A proactive turn of her own takes nothing back.
+  3. A step given up this way is not a failure:
+     - the tick traces it as `yielded`;
+     - the goal's history does not record it, and neither its consider cooldown nor the free-time
+       cooldown starts;
+     - a promise review goes back unchanged, with no attempt counted;
+     - a handed document stays unread;
+     - a night keeps the days its jobs finished, and the job it stopped in keeps its day.
+
+  Anything her hands did before the yield stays done. Only calls on the tick's own task are covered.
+  Work already handed off, such as a research run, carries on. Live, 18 Nov: a free-time sitting on
+  LM Studio was one call into a three-call chain when a message arrived. The hand it reached for was
+  refused, but the chain kept going. Its two further calls each took the process's one inference
+  slot ahead of the reply, which landed 23 seconds after the message.
 
 ## §18 — The salience and interrupt model
 
@@ -3341,7 +3363,8 @@ needs a sandbox.
   `MIND_TOOLS_DURING_CHAT` says so: `off` always, `on` never, and `auto` (the default) exactly when
   `UTILITY_MODEL` names a local route (`ollama/`, `lm_studio/`, `gguf/`). A local utility model is
   the machine her reply is using, and it cannot do both; a hosted one can, so her hands keep
-  working through the conversation. An unrecognised value **MUST** be read as `auto`. **expensive**
+  working through the conversation. The same answer decides whether her own model calls give
+  way to the conversation (§17.4). An unrecognised value **MUST** be read as `auto`. **expensive**
   (`research`, `read_page`, `web_search`, the two cameras) is one whole tick's intention and
   additionally requires its backend to be configured and DORMANT/DREAM **or** the user absent —
   including while she is talking, when the cheap hands are not standing down. The web hands

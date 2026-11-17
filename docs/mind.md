@@ -827,6 +827,14 @@ they stand down only when `MIND_TOOLS_DURING_CHAT` says so: `off` always, `on` n
 (the default) exactly when `UTILITY_MODEL` is local (`ollama/`, `lm_studio/`, `gguf/`). A local
 utility model is the machine her reply is using, and it cannot do both; a hosted one can, so the
 desk keeps working through the conversation.
+
+When the hands stand down, her own model calls stand down with them (SPEC §17.4). Your message
+cancels the call her mind has in flight, whether it is free time, a goal step, a promise review,
+a handed document or a night job. That frees the one inference slot for her reply, so the reply
+doesn't wait behind it. A chain of calls doesn't make its next call. Until the conversation is over
+(ENGAGED times out), that work is scored 0.0 in the trace with the reason it waits. A step given up
+this way is traced as `yielded` and is not a failure. No step is counted, no cooldown starts and no
+review attempt is used, so it comes back as soon as you've stopped talking.
 Expensive ones (`research`, `read_page`, `web_search`, the cameras) take the whole tick, need
 their backend, and DORMANT/DREAM **or** you absent — including while she is talking. The web ones
 also need budget pressure under `MIND_TOOL_PRESSURE_CEILING`. The cameras don't: the budget counts

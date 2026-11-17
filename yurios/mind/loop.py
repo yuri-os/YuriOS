@@ -49,7 +49,8 @@ from .dream import DreamConsolidator
 from .dreamjobs import DreamRunner
 from .goals import (OWN_JUDGEMENT, Goal, GoalStore, discover_promise_candidates,
                     fallback_promises, timer_for_promise, told_of, trim)
-from .hands import (Hands, build_guard, strip_native_calls)
+from .hands import (Hands, build_guard, stands_down_while_talking,
+                    strip_native_calls)
 from .journal import Journal
 from .knowledge import KnowledgeStore
 from .promptlog import PromptLog
@@ -65,6 +66,9 @@ from .workspace import SkillStore, Workspace
 from .world import WorldModelStore
 
 log = logging.getLogger("mind.loop")
+
+#: Why her own thinking stands down, as the trace and the panel read it (§17.4).
+WAITS_FOR_CHAT = "she is mid-conversation — her own thinking waits until it is over"
 
 SUSPEND_GAP_S = 2 * 3600.0
 
@@ -267,6 +271,11 @@ class MindLoop:
         self._next_body_act = 0.0
         self._gaze_until = 0.0
         self._tick_id = ""
+        # Her own model call in flight on the tick's task, and whether a user
+        # turn asked for it back (SPEC §17.4, mind/prompts.py `_yielding`).
+        self._tick_task: asyncio.Task | None = None
+        self._model_call: asyncio.Future | None = None
+        self._model_yielded = False
 
     # ------------------------------------------------------------- host seams
 
@@ -357,7 +366,33 @@ class MindLoop:
         self._turns_in_flight += 1              # bookkeeping: always, both kinds
         if not proactive:
             self.activity.preempt_engaged()     # only a real user turn forces ENGAGED
+            self._yield_model()
         self.bus.wake.set()
+
+    def yields_to_chat(self) -> bool:
+        """Whether a model call made here gives way to a conversation (§17.4).
+
+        This is the rule her hands follow in a conversation
+        (`MIND_TOOLS_DURING_CHAT`, §26.3), applied to the call itself. It
+        covers only calls on the tick's own task. A research run or a reading
+        that was started and left running is work already given out, and its
+        caller has no way to take a yield back.
+        """
+        return (self._tick_task is not None
+                and asyncio.current_task() is self._tick_task
+                and stands_down_while_talking(self.cfg))
+
+    def chat_has_model(self) -> bool:
+        """You are talking to her: ENGAGED, or a turn on its way."""
+        return self.activity.state == ENGAGED or self._turns_in_flight > 0
+
+    def _yield_model(self) -> None:
+        """A user turn takes back her own call in flight (§17.4)."""
+        call = self._model_call
+        if call is None or call.done() or not stands_down_while_talking(self.cfg):
+            return
+        self._model_yielded = True
+        call.cancel()
 
     def turn_ended(self) -> None:
         self._turns_in_flight = max(0, self._turns_in_flight - 1)
@@ -383,12 +418,16 @@ class MindLoop:
     async def tick(self) -> dict:
         """One full pass. Returns the trace record (the tests assert over these)."""
         self._tick_id = new_id("t")
+        self._tick_task = asyncio.current_task()
         # Everything this tick reaches for — a model call, a tool, a prompt —
         # gets stamped with this id, so the debug page can put the tick trace
         # next to the prompt that phrased it and the audit line that ran it
         # (world/correlate.py). The ACT methods below refine `kind` in place.
-        with correlate.scope(kind=correlate.TICK, tick_id=self._tick_id):
-            return await self._tick()
+        try:
+            with correlate.scope(kind=correlate.TICK, tick_id=self._tick_id):
+                return await self._tick()
+        finally:
+            self._tick_task = None
 
     async def _tick(self) -> dict:
         now = self.clock.now()
@@ -633,6 +672,15 @@ class MindLoop:
         if free is not None:
             appraisals.append(free)
 
+        if stands_down_while_talking(self.cfg) and self.chat_has_model():
+            # Her own thinking waits for the conversation to end (§17.4). It
+            # stays in the trace with the reason it waits, the way a held
+            # hand does. If it were left to act, it would only be given up
+            # at the model's door.
+            appraisals = [Appraisal(a.subject, a.kind, 0.0,
+                                    f"{a.why} — waits: {WAITS_FOR_CHAT}")
+                          if self._thinks(a) else a for a in appraisals]
+
         # ---- DECIDE: exactly one intention, or REST ---------------------------
         appraisals.sort(key=lambda a: a.score, reverse=True)
         chosen = next((a for a in appraisals
@@ -654,16 +702,29 @@ class MindLoop:
         # ---- ACT: at most one act, through the host's own surfaces ------------
         acted: dict = {"what": None, "result": "rest"}
         interrupt: dict = {}
+        yielded = False
         if chosen is not None:
+            considered = dict(self.considered)
+            mused = self.last_mused
             try:
                 acted, interrupt, act_notes = await self._act(chosen, offer)
                 reflect_notes.extend(act_notes)
+            except prompts.YieldedToChat:
+                # Given up for you, not failed (§17.4). The goal's history does
+                # not record it and its cooldown does not start, so the step
+                # comes back as soon as the conversation is over. Anything her
+                # hands did before the yield happened, and stays done.
+                yielded = True
+                self.considered, self.last_mused = considered, mused
+                acted = {"what": self._describe(chosen),
+                         "result": f"yielded: {WAITS_FOR_CHAT}"}
             except Exception as e:  # noqa: BLE001 — a failed act never kills the loop
                 log.exception("ACT failed")
                 acted = {"what": "error", "result": f"error: {e}"}
 
         # ---- REFLECT: journal + trace, always ----------------------------------
-        if chosen is not None and chosen.kind in ("goal", "tool_step"):
+        if (chosen is not None and chosen.kind in ("goal", "tool_step")
+                and not yielded):
             goalwork.record_decision(self, chosen.subject, acted, interrupt)
         # Desk writes happened on the *turn's* task, outside this tick entirely
         # (§34.2). Drain them here so they are journalled in tick order with
@@ -705,6 +766,18 @@ class MindLoop:
                                   "tick": self._tick_id,
                                   "intention": decided["intention"]})
         return {"tick_id": self._tick_id, **trace_rec}
+
+    #: The impulses that are her own thinking, and so wait while you talk
+    #: (§17.4). Not `announce` or `self_talk`, which are things she says.
+    THINKING = ("promise_review", "ingest", "handed", "dream", "muse")
+
+    def _thinks(self, a: Appraisal) -> bool:
+        """Whether acting on this appraisal means a model call of her own."""
+        if a.kind == "goal":
+            return True
+        if a.kind == "tool_step":
+            return isinstance(a.subject, Goal)      # not the 0.0 blocked line
+        return isinstance(a.subject, str) and a.subject in self.THINKING
 
     def _describe(self, a: Appraisal | None) -> str:
         if a is None:

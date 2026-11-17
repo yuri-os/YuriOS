@@ -38,6 +38,7 @@ from .goalwork import takeaway
 from .hands import FILE_GOAL, Hands, Offer
 from .muse import REVIEW
 from .policy import ENGAGED, IDLE, Appraisal
+from .prompts import YieldedToChat
 from .signals import Signal
 from .util import iso_of
 
@@ -222,6 +223,7 @@ async def consider(loop, offer: Offer | None) -> tuple[dict, dict, list[str]]:
     """
     item = waiting(loop)[0]
     path, name = item["path"], item["name"]
+    unread = dict(item)
     item.update(state=READ, read_at=iso_of(loop.clock.now()))
     text: str | None = None
     try:
@@ -246,13 +248,19 @@ async def consider(loop, offer: Offer | None) -> tuple[dict, dict, list[str]]:
 
     messages = [{"role": "system", "content": system(loop, tools, path)},
                 {"role": "user", "content": context(loop, path, text)}]
-    with correlate.scope(kind=correlate.HANDED):
-        worked = await handwork.work(
-            loop, messages, offer=Offer(tools=tools), ask=ask, cap=MAX_CALLS,
-            file_goal=lambda args: acts.file_from_handed(loop, args, path=path),
-            # A later round keeps the document, which is what she is
-            # deciding about, and not her situation (§22.4).
-            anchor=document(path, text))
+    try:
+        with correlate.scope(kind=correlate.HANDED):
+            worked = await handwork.work(
+                loop, messages, offer=Offer(tools=tools), ask=ask, cap=MAX_CALLS,
+                file_goal=lambda args: acts.file_from_handed(loop, args, path=path),
+                # A later round keeps the document, which is what she is
+                # deciding about, and not her situation (§22.4).
+                anchor=document(path, text))
+    except YieldedToChat:
+        # Not read: she put it down for you (§17.4), and sits with it later.
+        item.clear()
+        item.update(unread)
+        raise
 
     notes: list[str] = []
     filed = None

@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import time
 import uuid
-from typing import Callable, Literal, get_args
+from typing import Callable, Literal
 
 import pydantic_core
 from mcp.server.fastmcp import FastMCP
@@ -40,14 +40,10 @@ LIST_NOTES_MAX_CHARS = RESULT_LIMITS["list_notes"]
 
 # The catalog lives in the *type*, not in prose: an annotated Literal becomes an
 # `enum` in the tool's JSON schema, which is the only form of the list a model
-# reliably obeys. A description that merely names the tracks is a suggestion —
-# she invented `ambient_rain_lullaby` against one. Everything else derives from
+# reliably obeys. A description that merely names the choices is a suggestion —
+# she once invented a music track against one. Everything else derives from
 # here, so the schema, the docstring and the error can never disagree.
-MusicAction = Literal["play", "stop"]
-MusicTrack = Literal["warm_pad", "night_piano"]
 GoalKind = Literal["task", "reach_out"]
-MUSIC_ACTIONS: tuple[str, ...] = get_args(MusicAction)
-MUSIC_TRACKS: tuple[str, ...] = get_args(MusicTrack)
 
 
 #: The soul surfaces `propose_edit` will name, in the order she is likeliest to
@@ -264,31 +260,6 @@ def build_server(*, max_minutes: float | None = None,
                 "seconds": seconds, "due": time.time() + seconds,
                 "goal_id": goal_id.strip() or None,
                 "completes_goal": bool(completes_goal)}
-
-    # Description BUILT from the catalog, the same way take_selfie's is built
-    # from the library below — the prose can't drift from the enum, and it says
-    # plainly that these two are the whole list (unlike the selfie book, this
-    # one IS a limit: only the frontend's two generators exist).
-    @mcp.tool(description=(
-        "Start or stop the room's ambient music. `action` is "
-        + " or ".join(f'"{a}"' for a in MUSIC_ACTIONS)
-        + f"; `track` is one of exactly these {len(MUSIC_TRACKS)} — "
-        + ", ".join(MUSIC_TRACKS)
-        + " — and no other track exists, so pick the nearer of the two rather "
-          "than naming one you'd prefer; `volume` is 0..1."))
-    def play_music(action: MusicAction, track: MusicTrack = "warm_pad",
-                   volume: float = 0.4) -> dict:
-        # The Literals are enforced by the schema before we get here; these keep
-        # the same answer for a direct in-process call (brain.py, tests).
-        if action not in MUSIC_ACTIONS:
-            raise ValueError(f"unknown action: {action} (have: {', '.join(MUSIC_ACTIONS)})")
-        if track not in MUSIC_TRACKS:
-            raise ValueError(f"unknown track: {track} (have: {', '.join(MUSIC_TRACKS)})")
-        if not (0.0 <= volume <= 1.0):
-            raise ValueError("volume must be 0..1")
-        return {"playing": action == "play",
-                "track": track if action == "play" else None,
-                "volume": volume}
 
     if goals:
 
@@ -524,6 +495,76 @@ def build_server(*, max_minutes: float | None = None,
                 "no names starting with a dot.")
         return ValueError(str(exc))
 
+    # Her soul files, read-only, by `read_note("soul/PERSONA.md")` (§23).
+    # `propose_edit` wants the file as it will be, and live she had no way to
+    # see the file as it is: the prompt carries a few of its lines, the desk
+    # carries none, so she proposed `"content": "..."` and gave up. Readable
+    # whenever the self-edit door is open — the constitution too, since "you
+    # can read every limit you run under" is its own promise. Only the fixed
+    # names are opened; nothing she writes picks a path under the Vault.
+    soul_readable = (set(PROPOSABLE) | {"CONSTITUTION.md"}
+                     if selfedit and vault_dir is not None else set())
+
+    def _soul_lines(path: str, start_line: int, end_line: int):
+        rel = (path or "").strip().replace("\\", "/").lstrip("/")
+        if not rel.lower().startswith("soul/"):
+            return None
+        if not soul_readable or vault_dir is None:
+            return None
+        name = rel.split("/", 1)[1]
+        if name not in soul_readable:
+            raise ValueError(f"soul files you can read: "
+                             f"{', '.join('soul/' + n for n in sorted(soul_readable))}")
+        try:
+            lines = (vault_dir / "soul" / name).read_text(
+                encoding="utf-8").splitlines(keepends=True)
+        except FileNotFoundError:
+            raise ValueError(f"soul/{name} does not exist yet") from None
+        count = len(lines)
+        if start_line < 1:
+            raise ValueError("start_line must be 1 or greater")
+        if count and start_line > count:
+            raise ValueError(f"start_line {start_line} is beyond the last line ({count})")
+        if not count:
+            return "", 0, 0
+        last = count if end_line == 0 else min(end_line, count)
+        if last < start_line:
+            raise ValueError("end_line must be 0 or no smaller than start_line")
+        return "".join(lines[start_line - 1:last]), start_line, count
+
+    if workspace is not None or soul_readable:
+
+        @mcp.tool()
+        def read_note(path: str, start_line: int = 1, end_line: int = 0) -> dict:
+            """Read one of your own notes back. `path` is what `list_notes`
+            showed you, like "research/paddleboards.md". For a guessed path,
+            first use `list_notes` with its folder to find what exists. A
+            known path can be read directly. `start_line` is a
+            1-based first line; `end_line` is an inclusive last line, or 0 for
+            the rest of the note. A long note comes back one page at a time:
+            when `next_start_line` is a number, read again with that as
+            `start_line` for the rest — never edit a note to get further
+            through it. Line ranges are also how to look at one part of a long
+            note before editing it. Your own soul files read the same way,
+            read-only: "soul/PERSONA.md" and the rest — read one before
+            `propose_edit` so you change what is really there. When the desk
+            is off, only soul files are available."""
+            soul = _soul_lines(path, start_line, end_line)
+            if soul is not None:
+                return _note_page(path, *soul)
+            if workspace is None:
+                raise ValueError('the desk is off — read a soul file like "soul/PERSONA.md"')
+            try:
+                text, first, _last, count = workspace.read_lines(
+                    path, start_line=start_line, end_line=end_line)
+            except FileNotFoundError:
+                raise ValueError(
+                    f"nothing on your desk at {path} — `list_notes` shows what "
+                    "is there") from None
+            except (OutsideTheDesk, ValueError) as e:
+                raise _refusal(e) from None
+            return _note_page(path, text, first, count)
+
     if workspace is not None:
 
         @mcp.tool()
@@ -549,29 +590,6 @@ def build_server(*, max_minutes: float | None = None,
                 entries = workspace.list()
             files = [e for e in entries if not e.is_dir]
             return _notes_listing(files, count, total)
-
-        @mcp.tool()
-        def read_note(path: str, start_line: int = 1, end_line: int = 0) -> dict:
-            """Read one of your own notes back. `path` is what `list_notes`
-            showed you, like "research/paddleboards.md". For a guessed path,
-            first use `list_notes` with its folder to find what exists. A
-            known path can be read directly. `start_line` is a
-            1-based first line; `end_line` is an inclusive last line, or 0 for
-            the rest of the note. A long note comes back one page at a time:
-            when `next_start_line` is a number, read again with that as
-            `start_line` for the rest — never edit a note to get further
-            through it. Line ranges are also how to look at one part of a long
-            note before editing it."""
-            try:
-                text, first, _last, count = workspace.read_lines(
-                    path, start_line=start_line, end_line=end_line)
-            except FileNotFoundError:
-                raise ValueError(
-                    f"nothing on your desk at {path} — `list_notes` shows what "
-                    "is there") from None
-            except (OutsideTheDesk, ValueError) as e:
-                raise _refusal(e) from None
-            return _note_page(path, text, first, count)
 
         @mcp.tool()
         def write_note(path: str, text: str) -> dict:
@@ -721,16 +739,20 @@ def build_server(*, max_minutes: float | None = None,
             "yourself worth keeping, a scene that no longer matches the room. "
             "`surface` is one of exactly these: "
             + ", ".join(PROPOSABLE)
-            + ". `content` is the COMPLETE new text of that file, not a patch "
-              "— read what is there first if you are changing rather than "
-              "replacing. `reason` is one sentence saying why, in your own "
+            + ". Read it first with read_note (path \"soul/PERSONA.md\" and so "
+              "on). To change part of it, give `find` — text copied exactly "
+              "from the file, appearing in it once — and `replace`, what it "
+              "becomes (empty to delete it). To rewrite the whole file "
+              "instead, give `content`, the COMPLETE new text. `reason` is "
+              "one sentence saying why, in your own "
               "words; it is what gets shown when the change is reviewed. "
               "Nothing takes effect when you call this: a proposal is queued "
               "for approval, and you will be told when it is decided. Your "
               "constitution is not on the list and never will be — you can "
               "read every limit you run under, and you do not hold the pen "
               "that rewrites them."))
-        def propose_edit(surface: str, content: str, reason: str) -> dict:
+        def propose_edit(surface: str, reason: str, content: str = "",
+                         find: str = "", replace: str = "") -> dict:
             name = (surface or "").strip().replace("\\", "/").split("/")[-1]
             if name == "CONSTITUTION.md":
                 raise ValueError(
@@ -741,6 +763,47 @@ def build_server(*, max_minutes: float | None = None,
                 raise ValueError(
                     f"{surface!r} is not a soul file you can propose against. "
                     f"Pick one of: {', '.join(PROPOSABLE)}")
+            if find and (content or "").strip():
+                raise ValueError(
+                    "give either `find` + `replace` (change one part) or "
+                    "`content` (the whole new file), not both")
+            if find:
+                # A patch, realised here into the whole file the host and the
+                # shape check both expect — so a 77-line persona is not
+                # retyped (and half-lost) to change one sentence.
+                if vault_dir is None:
+                    raise ValueError("`find` needs the file, and this server "
+                                     "has no vault — send `content` instead")
+                try:
+                    current = (vault_dir / "soul" / name).read_text(encoding="utf-8")
+                except FileNotFoundError:
+                    raise ValueError(f"soul/{name} does not exist yet — send "
+                                     "`content` to write it whole") from None
+                hits = current.count(find)
+                if hits != 1:
+                    raise ValueError(
+                        (f"`find` is not in soul/{name}" if not hits else
+                         f"`find` appears {hits} times in soul/{name}; include "
+                         "more of the surrounding text so it appears once")
+                        + f" — read_note(\"soul/{name}\") shows the exact text")
+                content = current.replace(find, replace or "", 1)
+                # Live, a `replace` carried the next heading along without the
+                # `find` reaching it, so the file came out with that heading
+                # twice. Say so while she can still fix it.
+                def heads(text: str) -> dict[str, int]:
+                    found: dict[str, int] = {}
+                    for line in text.splitlines():
+                        if line.startswith("#"):
+                            found[line.strip()] = found.get(line.strip(), 0) + 1
+                    return found
+                before, after = heads(current), heads(content)
+                doubled = [h for h, n in after.items() if n > 1 and n > before.get(h, 0)]
+                if doubled:
+                    raise ValueError(
+                        f"that would leave {doubled[0]!r} in soul/{name} twice — "
+                        "the file already has it right where your `find` ends. "
+                        "Leave headings out of `replace` unless `find` "
+                        "includes them too")
             if not (content or "").strip():
                 raise ValueError(
                     "`content` is the whole new file, and an empty one would "

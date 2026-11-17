@@ -277,7 +277,7 @@ the RMS amplitude of the audio actually playing, so mouth and voice cannot drift
 Live2D body is available on the same bus.
 
 **The hands** (`yurios/world/tools`) are a discovered tool surface exposed over a real Model Context
-Protocol server. The always-present calls are `set_timer` and `play_music`; camera, web, workspace,
+Protocol server. The always-present call is `set_timer`; camera, web, workspace,
 and skill calls are advertised only when their configured backends are enabled. Third-party MCP
 servers can add calls as well. Tools are emitted
 *in the token stream* (`[[tool {json}]]`), stripped from speech, and pass a guard (allowlist,

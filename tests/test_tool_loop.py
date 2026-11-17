@@ -390,19 +390,6 @@ async def test_detailed_selfie_look_reaches_runner(cfg, guard, timers, controlle
     assert runner.calls == [("take_selfie", {"look": look})]
 
 
-async def test_play_music_realised_on_the_controller(cfg, guard, timers, controller):
-    chat = ScriptedChat([
-        ['mm. [[play_music {"action": "play", "track": "night_piano"}]]'],
-        ["there."],
-    ])
-    tb = make_toolbrain(cfg, guard, timers, controller, chat,
-                        runner=FakeToolRunner())
-    await collect(tb._stream_with_tools([], []))
-    music = [c for c in controller.commands if c["type"] == "music"]
-    assert music == [{"type": "music", "action": "play",
-                      "track": "night_piano", "volume": 0.4}]
-
-
 async def test_result_truncated_before_the_continuation(cfg, guard, timers,
                                                         controller):
     chat = ScriptedChat([["x [[set_timer {\"minutes\": 1}]]"], ["ok"]])

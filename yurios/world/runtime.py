@@ -52,8 +52,7 @@ def tool_rates(cfg: Config) -> dict[str, int]:
     the same rule `list_tools` follows on the server side: no hand, not a dead
     one. So every `if` below decides existence, not a budget.
     """
-    rates = {"set_timer": cfg.tool_rate_timer,
-             "play_music": cfg.tool_rate_music}
+    rates = {"set_timer": cfg.tool_rate_timer}
     if cfg.mind_enabled:
         rates["create_goal"] = cfg.tool_rate_goal
         # Not behind the camera: a picture a goal already holds is in the
@@ -80,6 +79,8 @@ def tool_rates(cfg: Config) -> dict[str, int]:
     # is the one hand that reaches at who she is, and a proposal a minute
     # is not deliberation, it is a loop with a git history.
     if cfg.mind_enabled:
+        # Soul reads belong to the self-edit door even with the desk off (§23.3).
+        rates["read_note"] = cfg.tool_rate_desk
         rates["propose_edit"] = cfg.tool_rate_selfedit
     return rates
 

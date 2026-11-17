@@ -30,7 +30,7 @@ def test_absence_is_the_refusal_not_a_rate_of_zero():
     rates = runtime.tool_rates(conf(selfie_backend="off", search_backend="off",
                                     workspace_enabled=False, skills_enabled=False,
                                     mind_enabled=False))
-    assert set(rates) == {"set_timer", "play_music"}
+    assert set(rates) == {"set_timer"}
     assert all(v > 0 for v in rates.values())
 
 
@@ -57,7 +57,14 @@ def test_the_desk_and_the_skills_are_separately_switched():
     assert set(DESK_TOOLS) <= set(desk_only)
     assert not set(SKILL_TOOLS) & set(desk_only)
     assert set(SKILL_TOOLS) <= set(skills_only)
-    assert not set(DESK_TOOLS) & set(skills_only)
+    assert set(DESK_TOOLS) & set(skills_only) == {"read_note"}
+
+
+def test_soul_reads_remain_available_with_the_desk_off():
+    with_mind = runtime.tool_rates(conf(workspace_enabled=False, mind_enabled=True))
+    without = runtime.tool_rates(conf(workspace_enabled=False, mind_enabled=False))
+    assert with_mind["read_note"] == conf().tool_rate_desk
+    assert "read_note" not in without
 
 
 def test_the_self_edit_door_needs_a_mind_to_be_a_door():

@@ -900,7 +900,6 @@ to every new subscriber before its first live event. Malformed JSON is logged an
   |---|---|---|---|
   | `set_timer` | `minutes` (0 < m ≤ `TIMER_MAX_MINUTES`), `label?` | `{id, label, seconds, due}` | host schedules the announcement (§7.5) |
   | `create_goal` | `text`, `kind?` (`task` or `reach_out`) | validation contract, then `{status, id, text, kind, state}` after host realisation | host adds or deduplicates an authoritative standing goal (§7.5, §22.1) |
-  | `play_music` | `action`, `track?`, `volume?` | `{playing, track}` | `music` event to the stage (§4) |
   | `take_selfie` | `look?` (the whole picture in her own words), `scene?`, `framing?`, `lighting?`, `mood?`, `wardrobe?`, `avoid?` (template keys or free-form — carried verbatim, never refused; unnamed slots are left unnamed, never rolled) | `{id, look, scene, framing, lighting, mood, wardrobe, avoid, kind:"selfie", status:"started"}` | host renders off-turn, posts the photo (§7.6) |
   | `show_picture` | `subject` (required — the whole picture in her own words; no library, no slots), `avoid?` | `{id, subject, avoid, kind:"picture", status:"started"}` | host renders off-turn *without her likeness*, posts the picture (§7.6) |
   | `web_search` | `query`, `k?` (≤ `SEARCH_RESULTS`) | `{query, results:[{title, url, snippet}]}` | none (§7.7) |
@@ -1132,8 +1131,6 @@ to every new subscriber before its first live event. Malformed JSON is logged an
   realisation succeeds; a start-don't-await effect **MUST NOT** close it on `{status:"started"}`
   and closes only when its successful `task_completion` lands. An absent id or flag changes no
   goal state.
-  `play_music` drives the browser-side synthesized ambience (§6.2) —
-  a generative pad, not a media library; the seam is the point.
 - §7.6 **Her camera: `take_selfie` / `show_picture`, start-don't-await.** The two hands that
   share a camera teach the one lesson the others can't: **a slow tool must not sit inside the turn.** A hosted render takes 10–30 s;
   dead air after her lead-in would read as a hang. So the tool follows the *start work, never
@@ -3101,15 +3098,19 @@ reviewably.
   the ruling. It **MUST** pass the same shape check her proposal did, and the route **MUST** answer
   a rewrite that fails it with 422 before posting anything, so the refusal reaches you rather than a
   tick; the journal line says the edit was applied in your words.
-- §23.3 **The door has a caller: `propose_edit`.** A conversational MCP tool (`surface`, `content`,
-  `reason`), advertised only where the mind runs — the queue it writes into is only ever read there
+- §23.3 **The door has a caller: `propose_edit`.** A conversational MCP tool (`surface`, `reason`, and
+  `find`/`replace` or `content`), advertised only where the mind runs — the queue it writes into is only ever read there
   — and rationed by `TOOL_RATE_SELFEDIT`, because a proposal a minute is not deliberation, it is a
   loop with a git history. It follows the §7.5 split exactly: the **server** validates the surface
   against the editable set and returns the contract, and the **host** runs `SelfEdit.propose()`,
   where the queue, the approval UI, the journal line and the commit live. The tool **MUST** refuse
   `CONSTITUTION.md` in its own right, and `USER.md` / `MEMORY.md` are absent from its list — those
-  are the runtime's to write (§2.1), not hers to redraft. `content` is the whole new file, never a
-  patch; nothing takes effect on the call.
+  are the runtime's to write (§2.1), not hers to redraft. `content` is the whole new file; `find`
+  (appearing exactly once) + `replace` is a patch the server realises into that whole file before
+  the shape check, so the host still only ever sees a complete file. She reads the current text
+  with `read_note("soul/<FILE>")`, read-only, whenever the door is open, including when the workspace
+  is disabled; desk paths remain unavailable in that configuration. Nothing takes effect on the
+  call.
 
 ## §24 — The journal, the trace, and the inner-life surface
 
@@ -3256,7 +3257,7 @@ needs a sandbox.
   hers off takes them out of every prompt. The allowlist is `*` by default — every hand this
   machine can offer, including one a later build adds, and every tool a mounted server (§7.2)
   discovers — or explicit names; **empty means none**, because empty is what unticking every box
-  saves. The chat-only tools (`play_music`, `create_goal`, `propose_edit`, `delete_skill`) are rows
+  saves. The chat-only tools (`create_goal`, `propose_edit`, `delete_skill`) are rows
   in the table like the rest. What she does *on her own* stays metered by §26.3–§26.4; a reply to
   you is metered by §7.3. This replaces "default-off, empty by default": a room that had hands and
   a mind that did not was two people, and the switch that said which was not one anybody could

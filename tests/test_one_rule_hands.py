@@ -22,7 +22,7 @@ pytest.importorskip("fastapi")
 from yurios.desktop.voice.backends.fakes import FakeBrain  # noqa: E402
 from yurios.world.main import create_app, tool_notice_text  # noqa: E402
 
-#: The fixture guard's allowlist is set_timer, play_music and list_notes.
+#: The fixture guard's allowlist is set_timer, play_music (a retired name, kept as an arbitrary rated tool) and list_notes.
 LOOK = '[[list_notes {"folder": "notes"}]]'
 
 
@@ -33,7 +33,7 @@ def test_star_is_every_hand_this_machine_can_offer(cfg):
                                         "search_backend": "off"})
     assert configured_names(everything) is None
     names = Hands(cfg=everything, clock=None).allowlist  # type: ignore[arg-type]
-    assert "write_note" in names and "play_music" in names
+    assert "write_note" in names and "play_music" not in names
     assert "web_search" not in names, "a hand with its backend off is not offered"
     # …and a tool from somebody else's MCP server, which has no row in HANDS
     assert permits(everything, "their_tool")
@@ -51,7 +51,7 @@ def test_empty_is_none_and_a_list_is_exactly_that_list(cfg):
 
 
 def test_the_chat_only_tools_are_hands_now():
-    for name in ("play_music", "create_goal", "propose_edit", "delete_skill"):
+    for name in ("create_goal", "propose_edit", "delete_skill"):
         assert name in HANDS, f"{name} would be unreachable under one rule"
 
 

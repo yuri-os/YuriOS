@@ -139,7 +139,7 @@ class VrmController:
 
     def music(self, action: str, track: Optional[str] = None,
               volume: Optional[float] = None) -> None:
-        """Start/stop the generative ambience (play_music's realisation). Sticky."""
+        """Start/stop the generative ambience (no hand drives it since play_music was retired). Sticky."""
         cmd: Dict[str, Any] = {"type": "music", "action": action}
         if track is not None:
             cmd["track"] = track

@@ -18,7 +18,7 @@ from yurios.world.tools.client import (  # noqa: E402
     ToolSpec, build_directive, coerce_args, one_line, result_text)
 from yurios.world.tools.fetch import FakeFetcher  # noqa: E402
 from yurios.world.tools.search import FakeSearch  # noqa: E402
-from yurios.world.tools.server import MUSIC_TRACKS, build_server  # noqa: E402
+from yurios.world.tools.server import build_server  # noqa: E402
 
 
 def server(**kw):
@@ -34,7 +34,7 @@ async def test_list_tools_is_exactly_the_hands_she_has():
     async with create_connected_server_and_client_session(server()._mcp_server) as s:
         listed = await s.list_tools()
         assert sorted(t.name for t in listed.tools) == [
-            "play_music", "set_timer", "show_picture", "take_selfie"]
+            "set_timer", "show_picture", "take_selfie"]
         timer = next(t for t in listed.tools if t.name == "set_timer")
         assert "minutes" in timer.inputSchema["properties"]
         assert "minutes" in timer.inputSchema.get("required", [])
@@ -49,7 +49,7 @@ async def test_the_web_hands_appear_only_when_search_is_configured():
     async with create_connected_server_and_client_session(
             web_server()._mcp_server) as s:
         names = sorted(t.name for t in (await s.list_tools()).tools)
-    assert names == ["play_music", "read_page", "research", "set_timer",
+    assert names == ["read_page", "research", "set_timer",
                      "show_picture", "take_selfie", "web_search"]
 
 
@@ -147,7 +147,7 @@ async def test_selfies_off_is_not_advertised():
     srv = build_server(selfies=False)
     async with create_connected_server_and_client_session(srv._mcp_server) as s:
         listed = await s.list_tools()
-        assert sorted(t.name for t in listed.tools) == ["play_music", "set_timer"]
+        assert sorted(t.name for t in listed.tools) == ["set_timer"]
 
 
 async def test_take_selfie_contract_and_freeform_passthrough():
@@ -310,34 +310,12 @@ async def test_set_timer_default_label_and_bounds():
             assert r.isError                        # bounds enforced server-side
 
 
-async def test_play_music_validates_action_track_volume():
+async def test_there_is_no_music_hand():
+    """play_music was removed: the room's ambience is not hers to drive."""
     async with create_connected_server_and_client_session(server()._mcp_server) as s:
-        r = await s.call_tool("play_music", {"action": "play", "track": "night_piano"})
-        data = json.loads(result_text(r))
-        assert data["playing"] is True and data["track"] == "night_piano"
-
-        r = await s.call_tool("play_music", {"action": "stop"})
-        assert json.loads(result_text(r))["playing"] is False
-
-        assert (await s.call_tool("play_music", {"action": "blast"})).isError
-        assert (await s.call_tool("play_music",
-                                  {"action": "play", "track": "dubstep"})).isError
-        assert (await s.call_tool("play_music",
-                                  {"action": "play", "volume": 3.0})).isError
-
-
-async def test_play_music_puts_the_track_list_in_the_schema():
-    """A description that merely names the tracks is a suggestion — she invented
-    `ambient_rain_lullaby` against one. The catalog has to reach the model as an
-    `enum` on the parameter, and the prose has to be built from the same tuple
-    so the two can never drift."""
-    async with create_connected_server_and_client_session(server()._mcp_server) as s:
-        music = next(t for t in (await s.list_tools()).tools if t.name == "play_music")
-        props = music.inputSchema["properties"]
-        assert enum_of(music.inputSchema, props["track"]) == list(MUSIC_TRACKS)
-        assert enum_of(music.inputSchema, props["action"]) == ["play", "stop"]
-        for name in MUSIC_TRACKS:
-            assert name in music.description
+        names = {t.name for t in (await s.list_tools()).tools}
+        assert "play_music" not in names
+        assert (await s.call_tool("play_music", {"action": "play"})).isError
 
 
 def enum_of(schema, prop):
@@ -351,14 +329,6 @@ def enum_of(schema, prop):
             if found:
                 return found
     return prop.get("enum")
-
-
-def test_the_frontend_and_the_tool_agree_on_the_catalog():
-    """Three copies of the track list exist — the tool's, the controller's, and
-    web/js/music.js's TRACKS. The first two are importable, so pin them; a
-    silent split there is a tool that validates a track her room can't play."""
-    from yurios.world.avatar.controller import MUSIC_TRACKS as BODY_TRACKS
-    assert tuple(BODY_TRACKS) == tuple(MUSIC_TRACKS)
 
 
 def test_a_server_that_never_came_up_is_reported_by_its_leaf():
@@ -741,6 +711,7 @@ UNSHOWN_TO_THE_MIND = {
     "set_timer": {"goal_id", "completes_goal"},
     "read_note": {"end_line"},                    # `next_start_line` pages without it
     "edit_note": {"start_line", "end_line"},      # a repeat is refused with what to add
+    "propose_edit": {"content"},                  # find/replace is the reliable path
 }
 
 
@@ -791,3 +762,115 @@ async def test_propose_edit_refuses_a_rewrite_that_would_stop_her_booting(
             "reason": "I cut it"})
         assert not ok.isError
         assert json.loads(result_text(ok))["status"] == "proposed"
+
+
+def _soul_vault(tmp_path, monkeypatch):
+    soul = tmp_path / "soul"
+    soul.mkdir()
+    (soul / "soul.yaml").write_text(
+        'name: "T"\nfields:\n  description:\n    - PERSONA.md#Appearance\n')
+    (soul / "PERSONA.md").write_text(
+        "# Persona\n\n## Appearance\n\nDark hair.\n\n## Manner\n\n"
+        "Calls him darling. Calls him darling.\n")
+    (soul / "CONSTITUTION.md").write_text("# Constitution\n\nBe honest.\n")
+    monkeypatch.setenv("VAULT_DIR", str(tmp_path))
+    from yurios.mind.workspace import Workspace
+    return server(workspace=Workspace(tmp_path / "workspace"), selfedit=True)
+
+
+async def test_read_note_opens_her_soul_files_read_only(tmp_path, monkeypatch):
+    """Live, propose_edit wanted the whole file and nothing let her see it: she
+    sent `"content": "..."`. Soul files now read like notes — never written."""
+    async with create_connected_server_and_client_session(
+            _soul_vault(tmp_path, monkeypatch)._mcp_server) as s:
+        page = json.loads(result_text(await s.call_tool(
+            "read_note", {"path": "soul/PERSONA.md"})))
+        assert "Dark hair." in page["text"] and page["line_count"] == 9
+        assert "Be honest." in result_text(await s.call_tool(
+            "read_note", {"path": "soul/CONSTITUTION.md"}))
+        bad = await s.call_tool("read_note", {"path": "soul/soul.yaml"})
+        assert bad.isError and "soul/PERSONA.md" in result_text(bad)
+        assert (await s.call_tool("read_note", {"path": "soul/../../etc/passwd"})).isError
+        # a write to that path lands on her desk (workspace/soul/…), never the soul
+        await s.call_tool("write_note", {"path": "soul/PERSONA.md", "text": "x"})
+    assert "Dark hair." in (tmp_path / "soul" / "PERSONA.md").read_text()
+
+
+@pytest.mark.parametrize("mind_enabled", [True, False])
+async def test_soul_reads_follow_the_self_edit_door_with_the_desk_off(
+        tmp_path, monkeypatch, mind_enabled):
+    from yurios.world.config import Config
+    from yurios.world.runtime import tool_rates
+    from yurios.world.tools.spawn_env import ToolServerEnv
+
+    _soul_vault(tmp_path, monkeypatch)
+    cfg = Config(_env_file=None, vault_dir=tmp_path, workspace_enabled=False,
+                 skills_enabled=False, mind_enabled=mind_enabled)
+    settings = ToolServerEnv.from_environ(ToolServerEnv.from_config(cfg).to_environ())
+    srv = build_server(settings=settings)
+    async with create_connected_server_and_client_session(srv._mcp_server) as s:
+        names = {t.name for t in (await s.list_tools()).tools}
+        assert ("read_note" in names) is mind_enabled
+        assert ("read_note" in tool_rates(cfg)) is mind_enabled
+        assert not names & {"write_note", "list_notes", "edit_note"}
+        if mind_enabled:
+            page = json.loads(result_text(await s.call_tool("read_note", {
+                "path": "soul/PERSONA.md", "start_line": 3, "end_line": 5})))
+            assert page["text"] == "## Appearance\n\nDark hair.\n"
+            assert page["start_line"] == 3 and page["end_line"] == 5
+            assert page["line_count"] == 9 and page["next_start_line"] == 6
+            assert (await s.call_tool("read_note", {"path": "notes/x.md"})).isError
+
+
+async def test_fake_self_edit_patches_the_text_its_read_note_returns():
+    from yurios.world.tools.fakes import FakeToolRunner
+
+    runner = FakeToolRunner()
+    specs = await runner.start()
+    spec = next(t for t in specs if t.name == "propose_edit")
+    assert {"find", "replace"} <= set(spec.schema["properties"])
+    assert "content" not in spec.schema["required"]
+    current = json.loads(await runner.call("read_note", {"path": "soul/PERSONA.md"}))["text"]
+    args = {"surface": "PERSONA.md", "find": current, "replace": "# Revised\n",
+            "reason": "a change"}
+    proposal = json.loads(await runner.call("propose_edit", args))
+    assert proposal["content"] == "# Revised\n" and proposal["chars"] == 10
+    with pytest.raises(RuntimeError, match="exactly once"):
+        await runner.call("propose_edit", {**args, "find": "missing text"})
+
+
+async def test_propose_edit_find_replace_builds_the_whole_file(tmp_path, monkeypatch):
+    async with create_connected_server_and_client_session(
+            _soul_vault(tmp_path, monkeypatch)._mcp_server) as s:
+        ok = await s.call_tool("propose_edit", {
+            "surface": "PERSONA.md", "find": "Dark hair.", "replace": "Short dark hair.",
+            "reason": "I cut it"})
+        assert not ok.isError
+        out = json.loads(result_text(ok))
+        assert out["status"] == "proposed"
+        assert out["content"].startswith("# Persona") and "Short dark hair." in out["content"]
+        assert "## Manner" in out["content"]
+
+        twice = await s.call_tool("propose_edit", {
+            "surface": "PERSONA.md", "find": "Calls him darling.", "replace": "",
+            "reason": "he asked"})
+        assert twice.isError and "2 times" in result_text(twice)
+        missing = await s.call_tool("propose_edit", {
+            "surface": "PERSONA.md", "find": "Blonde.", "replace": "x", "reason": "r"})
+        assert missing.isError and 'read_note("soul/PERSONA.md")' in result_text(missing)
+        both = await s.call_tool("propose_edit", {
+            "surface": "PERSONA.md", "find": "Dark hair.", "replace": "x",
+            "content": "# Persona\n", "reason": "r"})
+        assert both.isError
+        # live: `replace` carried the next heading along without `find` reaching it
+        dup = await s.call_tool("propose_edit", {
+            "surface": "PERSONA.md", "find": "Dark hair.",
+            "replace": "Dark hair.\n\n## Manner", "reason": "r"})
+        assert dup.isError and "'## Manner'" in result_text(dup)
+        # a patch that drops a section the soul.yaml points at is still refused
+        gone = await s.call_tool("propose_edit", {
+            "surface": "PERSONA.md", "find": "## Appearance\n\nDark hair.\n\n",
+            "replace": "", "reason": "r"})
+        assert gone.isError and "## Appearance" in result_text(gone)
+    # nothing applied: a proposal is queued by the host, never written here
+    assert "Dark hair." in (tmp_path / "soul" / "PERSONA.md").read_text()

@@ -24,7 +24,6 @@ reports the truth (`"mcp"` / `"fake"` / `"off"` / `"failed: …"`).
 | Tool | Arguments | Effect | Available when |
 |---|---|---|---|
 | `set_timer` | `minutes` (0 < m <= `TIMER_MAX_MINUTES`), `label?` | schedules a spoken announcement | always |
-| `play_music` | `action`, `track?`, `volume?` | drives browser-side synthesized ambience | always |
 | `create_goal` | `text`, `kind?` | adds or deduplicates a standing goal and returns its exact ID | the mind is on |
 | `take_selfie` | `look?`, `scene?`, `framing?`, `lighting?`, `mood?`, `wardrobe?`, `avoid?` | starts a render off-turn | `SELFIE_BACKEND` is not `off` |
 | `show_picture` | `subject`, `avoid?` | starts a render of something other than Yuri | `SELFIE_BACKEND` is not `off` |
@@ -32,7 +31,7 @@ reports the truth (`"mcp"` / `"fake"` / `"off"` / `"failed: …"`).
 | `read_page` | `url` | reads one page and shelves it | `SEARCH_BACKEND` is not `off` |
 | `research` | `topic`, `depth?` | reads several pages off-turn and posts what she found | `SEARCH_BACKEND` is not `off` |
 | `list_notes` | `folder?` | lists files on Yuri's workspace desk | `WORKSPACE_ENABLED=true` |
-| `read_note` | `path`, `start_line?`, `end_line?` | reads all or an inclusive line range | `WORKSPACE_ENABLED=true` |
+| `read_note` | `path`, `start_line?`, `end_line?` | reads all or an inclusive line range | workspace enabled, or the mind is on for soul files |
 | `count_note_lines` | `path` | counts the lines in a workspace note | `WORKSPACE_ENABLED=true` |
 | `write_note` | `path`, `text` | replaces a workspace note | `WORKSPACE_ENABLED=true` |
 | `append_note` | `path`, `text` | adds text to a workspace note | `WORKSPACE_ENABLED=true` |
@@ -41,7 +40,7 @@ reports the truth (`"mcp"` / `"fake"` / `"off"` / `"failed: …"`).
 | `read_skill` | `name` | reads a skill's full instructions | `SKILLS_ENABLED=true` |
 | `write_skill` | `name`, `description`, `instructions` | saves or replaces a skill | `SKILLS_ENABLED=true` |
 | `delete_skill` | `name` | removes a skill | `SKILLS_ENABLED=true` |
-| `propose_edit` | `surface`, `content`, `reason` | queues a change to one of her soul files for your approval | the mind is on |
+| `propose_edit` | `surface`, `reason`, and `find` + `replace` or `content` | queues a change to one of her soul files for your approval | the mind is on |
 
 Third-party calls configured through `MCP_SERVERS` are discovered and admitted through the same
 guard, with `TOOL_RATE_EXTERNAL` as their default rate. The surface doesn't grow a shell. Heavy
@@ -80,23 +79,6 @@ one open per goal, and not from a goal filed that way (see [mind.md](mind.md#goa
 TOOL_RATE_GOAL=6
 ```
 
-### play_music
-
-Drives a generative ambient pad synthesized in the browser — not a media library. The seam is the
-point: it proves an effector that reaches the frontend, and it costs nothing to run.
-
-Because it is a synthesizer and not a library, `track` is a closed set — `warm_pad` and
-`night_piano` are the two generators `web/js/music.js` actually implements. It is annotated as a
-`Literal`, so the catalog reaches the model as an `enum` in the tool schema rather than as prose in
-the description; a description alone gets a made-up track name back. This is the opposite of
-`take_selfie`, where the library is deliberately a starting point and anything off-menu passes
-through — the difference is that a selfie prompt is free text all the way down, and a track name
-has to match a generator that exists.
-
-```ini
-TOOL_RATE_MUSIC=6
-```
-
 ### Workspace notes and skills
 
 The desk calls operate only inside `vault/workspace/`: relative paths only, no `..`, dotfiles, or
@@ -121,7 +103,7 @@ and its full instructions; `delete_skill` removes it. Skills are versioned. See 
 for the storage layout and prompt behavior.
 
 ```ini
-WORKSPACE_ENABLED=true             # false = no note calls or desk context
+WORKSPACE_ENABLED=true             # false = no desk calls or context; soul reads still work
 SKILLS_ENABLED=true                # false = no skill calls or catalog context
 TOOL_RATE_DESK=20                  # calls per minute across notes and skills
 ```
@@ -131,6 +113,13 @@ TOOL_RATE_DESK=20                  # calls per minute across notes and skills
 The one hand that reaches at her identity. The MCP server validates the surface and returns
 "asked", not "done"; the host queues the proposal for you. `CONSTITUTION.md` is not on the
 list and never will be. See [The mind → self-edits](mind.md#self-edits).
+
+She reads the file first with `read_note("soul/PERSONA.md")` — soul files are readable through
+`read_note` (never writable) whenever the self-edit door is open, even with the workspace disabled.
+A change to part of a file is
+`find` (text copied from it, appearing once) plus `replace`; the server realises the patch into the
+whole new file, so the host and the shape check see exactly what a full `content` rewrite would
+give them. `content` alone still rewrites the whole file.
 
 ```ini
 TOOL_RATE_SELFEDIT=1

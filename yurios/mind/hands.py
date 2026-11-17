@@ -136,9 +136,6 @@ HANDS: dict[str, Hand] = {
     "set_timer": Hand(
         "cheap", "leave herself a reminder to come back to this",
         '{"minutes": 10, "label": "..."}'),
-    "play_music": Hand(
-        "cheap", "start or stop the room's music",
-        '{"action": "play", "track": "warm_pad", "volume": 0.4}'),
     "create_goal": Hand(
         "cheap", "put a separate goal on her list, worked on its own turn",
         # The limit is in the example because this row is the one place every
@@ -146,8 +143,10 @@ HANDS: dict[str, Hand] = {
         f'{{"text": "what you\'ll do, one line of at most {GOAL_TEXT_MAX} '
         f'characters", "kind": "task"}}'),
     "propose_edit": Hand(
-        "cheap", "propose a change to one of her own soul files, for review",
-        '{"surface": "NOTES.md", "content": "...", "reason": "..."}'),
+        "cheap", "propose a change to one of her own soul files, for review; "
+        "first read it with read_note using a path like soul/PERSONA.md",
+        '{"surface": "PERSONA.md", "find": "exact text from the file", '
+        '"replace": "what it becomes", "reason": "..."}'),
     "research": Hand(
         "expensive", "read several pages on a topic and write up what she found",
         '{"topic": "...", "depth": 3}', needs="SEARCH_BACKEND"),

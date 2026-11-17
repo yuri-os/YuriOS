@@ -18,11 +18,6 @@ SPECS = [
                               "goal_id": {"type": "string"},
                               "completes_goal": {"type": "boolean"}},
               "required": ["minutes"]}),
-    ToolSpec("play_music", "Start or stop the room's ambient music.",
-             {"properties": {"action": {"type": "string"},
-                             "track": {"type": "string"},
-                             "volume": {"type": "number"}},
-              "required": ["action"]}),
     ToolSpec("create_goal", "Create a real standing goal in the authoritative "
              "goal list when the user explicitly asks to set or add one.",
              {"properties": {"text": {"type": "string"},
@@ -112,12 +107,15 @@ SPECS = [
                              "depth": {"type": "integer"}},
               "required": ["topic"]}),
     ToolSpec("propose_edit", "Propose a change to one of your own soul files. "
-             "`content` is the complete new text; nothing takes effect until "
-             "it is approved.",
+             "Read it with read_note first, then give `find` + `replace` for "
+             "a patch or `content` for the complete new text; nothing takes "
+             "effect until it is approved.",
              {"properties": {"surface": {"type": "string"},
                              "content": {"type": "string"},
+                             "find": {"type": "string"},
+                             "replace": {"type": "string"},
                              "reason": {"type": "string"}},
-              "required": ["surface", "content", "reason"]}),
+              "required": ["surface", "reason"]}),
 ]
 
 #: What the fake `read_page` returns as page text. Long enough that the guard's
@@ -159,10 +157,6 @@ class FakeToolRunner:
                                "seconds": round(float(args.get("minutes", 1)) * 60),
                                "due": 0, "goal_id": args.get("goal_id") or None,
                                "completes_goal": bool(args.get("completes_goal"))})
-        if tool == "play_music":
-            return json.dumps({"playing": args.get("action") == "play",
-                               "track": args.get("track", "warm_pad"),
-                                "volume": args.get("volume", 0.4)})
         if tool == "create_goal":
             return json.dumps({"status": "ready",
                                "text": " ".join(str(args.get("text") or "").split()),
@@ -205,10 +199,20 @@ class FakeToolRunner:
             name = surface.split("/")[-1]
             if name == "CONSTITUTION.md":
                 raise RuntimeError("your constitution is read-only, even to you")
+            content = args.get("content") or ""
+            find = args.get("find") or ""
+            if find:
+                if content.strip():
+                    raise RuntimeError("give either find + replace or content, not both")
+                if FAKE_NOTE.count(find) != 1:
+                    raise RuntimeError("find must appear exactly once — read_note shows the text")
+                content = FAKE_NOTE.replace(find, args.get("replace") or "", 1)
+            if not content.strip():
+                raise RuntimeError("content must not be empty")
             return json.dumps({"status": "proposed", "surface": f"soul/{name}",
-                               "content": args.get("content") or "",
+                               "content": content,
                                "reason": args.get("reason") or "",
-                               "chars": len(args.get("content") or ""),
+                               "chars": len(content),
                                "risk": "high", "queued": True})
         if tool == "take_selfie":
             return json.dumps({"id": f"fake{len(self.calls)}",

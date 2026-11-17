@@ -867,7 +867,6 @@ PAGES: list[dict] = [
              ("TOOL_RATE_SELFIE", "Selfie"),
              ("TOOL_RATE_PICTURE", "Show a picture"),
              ("TOOL_RATE_TIMER", "Timer"),
-             ("TOOL_RATE_MUSIC", "Music"),
              ("TOOL_RATE_GOAL", "Goal creation"),
              ("TOOL_RATE_SELFEDIT", "Self-edit proposals"),
              ("TOOL_RATE_EXTERNAL", "Third-party tools"),

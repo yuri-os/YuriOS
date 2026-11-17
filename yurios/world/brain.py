@@ -901,12 +901,6 @@ class ToolBrain(BrainAdapter):
             # standing goal. Close only after host realisation succeeded, and
             # only on the explicit id+flag contract the model supplied.
             self._complete_goal(data, completed_by="set_timer")
-        elif call.tool == "play_music":
-            if data.get("playing"):
-                self.controller.music("play", track=data.get("track"),
-                                      volume=data.get("volume"))
-            else:
-                self.controller.music("stop")
         elif call.tool == "propose_edit" and data.get("status") == "proposed":
             # The §7.5 split at its sharpest: the server said what she is asking
             # for, and the queue, the approval UI, the journal line and the git

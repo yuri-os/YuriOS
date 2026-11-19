@@ -48,6 +48,7 @@ from .budget import BudgetGovernor
 from .dream import DreamConsolidator
 from .dreamjobs import DreamRunner
 from .goals import (OWN_JUDGEMENT, Goal, GoalStore, discover_promise_candidates,
+                    settled_by_her_hands,
                     fallback_promises, timer_for_promise, told_of, trim)
 from .hands import (Hands, build_guard, stands_down_while_talking,
                     strip_native_calls)
@@ -486,6 +487,8 @@ class MindLoop:
                 assistant = [candidate for candidate in candidates
                              if candidate.confidence != "explicit"]
                 for candidate in explicit:
+                    if settled_by_her_hands(candidate.text, tool_outcomes):
+                        continue
                     timer = timer_for_promise(
                         tool_outcomes, candidate.text, candidate.source,
                         user_text, reply)
@@ -514,6 +517,8 @@ class MindLoop:
                         self._persist()
                 elif assistant:
                     for candidate in fallback_promises(assistant):
+                        if settled_by_her_hands(candidate.text, tool_outcomes):
+                            continue
                         timer = timer_for_promise(
                             tool_outcomes, candidate.text, candidate.source,
                             user_text, reply)

@@ -933,6 +933,59 @@ def promise_decision_grounded(decision: PromiseDecision, candidates: list[dict],
     return bool(_echo_words(decision.text) & _echo_words(source))
 
 
+def _stems(text: str) -> set[str]:
+    """`_echo_words` with the plural and -ing/-ed endings off ("calling" is "call")."""
+    out = set()
+    for word in _echo_words(text):
+        for suffix in ("ing", "ed", "es", "s"):
+            if word.endswith(suffix) and len(word) - len(suffix) >= 3:
+                word = word[:-len(suffix)]
+                break
+        out.add(word)
+    return out
+
+
+_EDIT_WORDS = frozenset({"edit", "persona", "soul", "patch", "propos", "propose",
+                         "constitution", "manner", "card"})
+
+
+def settled_by_her_hands(text: str, tool_outcomes: Iterable[dict]) -> str:
+    """Why a promise found in her reply is already kept by a call that same turn, or "".
+
+    The commitment review sees the turn's tool outcomes, yet live it refiled
+    what her own hands had just done: "remind me at 9pm to call my mom" got
+    her `create_goal` *and* a second reach-out from the review ("come find
+    Grant and nudge him toward calling his mom"), which `echoes` let through
+    because the two share only "grant" and "mom". A queued `propose_edit`
+    came back as a task to "apply the persona edit", and goal work proposed it
+    a second time. Both are the same commitment, so they are checked against
+    the same turn's calls here, more loosely than `echoes` checks the whole
+    list: the call and the promise come from one reply about one thing.
+    """
+    words = _stems(text)
+    for outcome in tool_outcomes or ():
+        if not isinstance(outcome, dict) or outcome.get("verdict") != "ok":
+            continue
+        raw = outcome.get("args")
+        args: dict = raw if isinstance(raw, dict) else {}
+        tool = outcome.get("tool")
+        if tool == "create_goal":
+            theirs = _stems(str(args.get("text", "")))
+            shared = words & theirs
+            if (len(shared) >= 2 and theirs and words
+                    and len(shared) / min(len(words), len(theirs)) >= 0.4):
+                return "her create_goal this turn already filed it"
+        elif tool == "propose_edit" and words & _EDIT_WORDS:
+            # The promise has to be ABOUT an edit. `replace` can be a whole
+            # paragraph of persona, and two words shared with it alone ("read",
+            # "poetry") would swallow an unrelated promise made in the same reply.
+            theirs = _stems(" ".join(str(args.get(k, "")) for k in
+                                     ("surface", "reason", "replace"))) | _EDIT_WORDS
+            if len(words & theirs) >= 2:
+                return "her propose_edit this turn is already waiting on review"
+    return ""
+
+
 #: Telling verbs: the promise whose whole substance is that *they* hear it.
 #:
 #: Anchored at the front of the captured predicate on purpose. "I'll read it and

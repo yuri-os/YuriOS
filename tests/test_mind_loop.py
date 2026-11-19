@@ -415,6 +415,68 @@ async def test_a_reviewed_timer_promise_keeps_the_timer_contract(
     assert goal.due == iso_of(due)
 
 
+async def test_a_review_does_not_refile_what_her_create_goal_just_filed(
+        cfg, seeded_vault):
+    """Live: "remind me at 9pm to call my mom" got her `create_goal` and then a
+    second reach-out from the review, worded differently enough that `echoes`
+    kept both — two reminders for one promise."""
+    utility = ReviewUtility(review_goal(
+        "At 9pm tonight, come find Grant and nudge him toward calling his mom.",
+        kind="reach_out"))
+    rig = make_mind(cfg, seeded_vault, utility=utility)
+    outcome = {"tool": "create_goal", "verdict": "ok",
+               "args": {"text": "Remind Grant at 9pm (21:00) to call his mom",
+                        "kind": "reach_out"},
+               "result": '{"status": "created", "id": "g-1"}'}
+    rig.say("remind me at 9pm tonight to call my mom",
+            reply="Nine o'clock tonight, then. I'll come find you.",
+            tool_outcomes=[outcome])
+
+    trace = await rig.mind.tick()
+
+    assert trace["acted"]["what"] == "promise_review"
+    assert trace["acted"]["result"].startswith("already kept")
+    assert rig.mind.goals.open_goals() == []
+
+
+async def test_a_review_does_not_turn_a_queued_soul_edit_into_a_task(
+        cfg, seeded_vault):
+    utility = ReviewUtility(review_goal(
+        "Apply the persona edit so Yuri hums quietly when concentrating"))
+    rig = make_mind(cfg, seeded_vault, utility=utility)
+    outcome = {"tool": "propose_edit", "verdict": "ok",
+               "args": {"surface": "PERSONA.md", "find": "she never judges",
+                        "replace": "she never judges. She hums when concentrating.",
+                        "reason": "Grant asked for a quiet hum"},
+               "result": '{"status": "proposed", "queued": true}'}
+    rig.say("make it part of you that you hum when you concentrate",
+            reply="It's proposed — I'll redo it cleanly if it needs it.",
+            tool_outcomes=[outcome])
+
+    await rig.mind.tick()
+
+    assert rig.mind.goals.open_goals() == []
+
+
+def test_settled_by_her_hands_needs_the_same_commitment():
+    from yurios.mind.goals import settled_by_her_hands
+    filed = [{"tool": "create_goal", "verdict": "ok",
+              "args": {"text": "Remind Grant at 9pm to call his mom"}}]
+    assert settled_by_her_hands("nudge Grant toward calling his mom at 9", filed)
+    assert not settled_by_her_hands("tell Grant how the interview notes read", filed)
+    assert not settled_by_her_hands(
+        "nudge Grant toward calling his mom at 9", [{**filed[0], "verdict": "error"}])
+    proposed = [{"tool": "propose_edit", "verdict": "ok",
+                 "args": {"surface": "PERSONA.md", "reason": "a quiet hum"}}]
+    assert not settled_by_her_hands("look up train times to Osaka for Grant", proposed)
+    # a promise that only shares words with the edit's text is not about the edit
+    persona = [{"tool": "propose_edit", "verdict": "ok",
+                "args": {"surface": "PERSONA.md", "reason": "she reads at night",
+                         "replace": "She loves reading poetry late at night."}}]
+    assert not settled_by_her_hands("read Grant some poetry tonight", persona)
+    assert settled_by_her_hands("apply the persona edit about poetry", persona)
+
+
 async def test_promise_reviews_are_fifo_and_survive_restart(cfg, seeded_vault):
     utility = ReviewUtility(
         review_goal("check the first source"),

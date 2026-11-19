@@ -30,7 +30,8 @@ from .goals import (HANDED_GOAL, MUSE_GOAL, OWN_JUDGEMENT, STEP_GOAL, Goal, echo
                     PROMISE_REVIEW_RESPONSE_FORMAT, PromiseCandidate,
                     PromiseReviewError, parse_promise_review,
                     promise_decision_grounded, promise_kind,
-                    promise_review_messages, timer_for_promise)
+                    promise_review_messages, settled_by_her_hands,
+                    timer_for_promise)
 from .hands import FILE_GOAL, strip_native_calls
 from .policy import DREAM, next_open, quiet_hour, score_interrupt
 from .prompts import YieldedToChat, goal_history
@@ -273,6 +274,12 @@ async def promise_review(loop, offer=None) -> tuple[dict, dict, list[str]]:
             decision, candidates, str(review.get("user_text", ""))):
         log.warning("promise review returned an ungrounded objective; discarded")
         return ({"what": "promise_review", "result": "ungrounded goal discarded"}, {}, [])
+    settled = settled_by_her_hands(
+        decision.text, review.get("tool_outcomes")
+        if isinstance(review.get("tool_outcomes"), list) else [])
+    if settled:
+        log.info("promise review: %s — not filed again", settled)
+        return ({"what": "promise_review", "result": f"already kept: {settled}"}, {}, [])
     selected = [candidates[index] for index in decision.candidates]
     primary = selected[0]
     candidate = PromiseCandidate(

@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 import httpx
+import pytest
 
 from yurios.app.main import UnconfiguredChatModel, build_chat_model
 from yurios.models import (DEFAULT_HUGGINGFACE_MODEL, NONE, ModelCheck,
                             RECOMMENDED_MODELS, gguf_connection_defaults,
+                            provider_connection, provider_model,
                             save_model_choice, validate_model)
 from yurios.world.config import Config
 
@@ -32,6 +34,25 @@ def test_saving_none_preserves_other_environment_configuration(tmp_path):
     assert "UTILITY_MODEL=NONE" in text
 
 
+def test_saving_replaces_the_live_line_not_a_commented_example_above_it(tmp_path):
+    """dotenv reads the last value, so writing into `# KEY=` above a live
+    `KEY=old` left the old value in force and the choice silently ignored."""
+    from dotenv import dotenv_values
+
+    from yurios.models import update_env
+
+    env = tmp_path / ".env"
+    env.write_text("# LMSTUDIO_API_KEY=\n# OLLAMA_BASE_URL=\nLMSTUDIO_API_KEY=old\n",
+                   encoding="utf-8")
+
+    update_env(env, {"LMSTUDIO_API_KEY": "new", "OLLAMA_BASE_URL": "http://o:11434"})
+
+    lines = env.read_text(encoding="utf-8").splitlines()
+    assert lines[:3] == ["# LMSTUDIO_API_KEY=", "OLLAMA_BASE_URL=http://o:11434",
+                         "LMSTUDIO_API_KEY=new"]
+    assert dotenv_values(env)["LMSTUDIO_API_KEY"] == "new"
+
+
 def test_gguf_recommendation_is_valid_without_contacting_a_remote_server():
     cfg = Config(_env_file=None)
     model = RECOMMENDED_MODELS[0]["id"]
@@ -52,16 +73,176 @@ def test_gguf_connection_defaults_choose_a_16_gb_profile():
     }
 
 
+def _scratch_env(monkeypatch, env):
+    """Point every route that reads or writes `.env` at a scratch one. The
+    panel reads the house as saved (`settings._as_saved`), so patching only the
+    writer would let the developer's own keys and addresses into the test."""
+    from yurios.desktop.routes import settings
+    from yurios.world.routes import onboarding
+
+    monkeypatch.setattr(onboarding, "ENV_PATH", env)
+    monkeypatch.setattr(settings, "ENV_PATH", env)
+
+
+def _first_run_client(cfg, tmp_path, monkeypatch, env_text="EMBED_BACKEND=sentence_tf\n"):
+    from starlette.testclient import TestClient
+
+    from yurios.desktop.voice.backends.fakes import FakeBrain
+    from yurios.world.main import create_app
+
+    env = tmp_path / ".env"
+    env.write_text(env_text, encoding="utf-8")
+    _scratch_env(monkeypatch, env)
+    app = create_app(cfg, brain=FakeBrain())
+    app.state.rt.model_configured = False
+    client = TestClient(app, base_url="http://127.0.0.1:8768", client=("127.0.0.1", 5555))
+    return client, env
+
+
+def test_provider_connection_keeps_what_it_is_not_given():
+    cfg = Config(_env_file=None, lmstudio_api_key="kept")
+
+    connection, used = provider_connection(cfg, "lmstudio")
+
+    assert connection == {"LMSTUDIO_BASE_URL": cfg.lmstudio_base_url,
+                          "LMSTUDIO_API_KEY": "kept"}
+    assert used.lmstudio_api_key == "kept" and cfg is not used
+
+
+def test_provider_connection_takes_a_typed_address_and_key():
+    cfg = Config(_env_file=None)
+
+    connection, used = provider_connection(cfg, "openai_compatible",
+                                           base_url="http://gw:4000/v1", api_key="k")
+
+    assert connection == {"OPENAI_COMPATIBLE_BASE_URL": "http://gw:4000/v1",
+                          "OPENAI_COMPATIBLE_API_KEY": "k"}
+    assert used.openai_compatible_base_url == "http://gw:4000/v1"
+    assert provider_model("openai_compatible", "m") == "openai_compatible/m"
+
+
+def test_provider_connection_refuses_a_gateway_with_no_address():
+    with pytest.raises(ValueError, match="OPENAI_COMPATIBLE_BASE_URL"):
+        provider_connection(Config(_env_file=None, openai_compatible_base_url=""),
+                            "openai_compatible")
+
+
+def test_first_run_panel_lists_every_way_to_connect_and_no_secret(cfg, tmp_path, monkeypatch):
+    client, _ = _first_run_client(cfg, tmp_path, monkeypatch,
+                                  "OPENROUTER_API_KEY=sk-secret\n")
+    with client:
+        shown = client.get("/api/onboarding").json()
+
+    ids = [row["id"] for row in shown["providers"]]
+    assert ids == ["gguf", "lmstudio", "ollama", "openrouter", "openai_compatible", "custom"]
+    openrouter = next(row for row in shown["providers"] if row["id"] == "openrouter")
+    assert openrouter["key_saved"] is True
+    assert "sk-secret" not in str(shown)
+
+
+def test_first_run_saves_a_hosted_model_with_the_key_typed_beside_it(
+        cfg, tmp_path, monkeypatch):
+    """OpenRouter refuses its check without a key, so a panel that could not
+    take one could never connect her to it — the terminal was the only way."""
+    from yurios.world.routes import onboarding
+
+    seen = {}
+
+    def check(cfg, model):
+        seen["key"], seen["model"] = cfg.openrouter_api_key, model
+        return ModelCheck(True, "reachable; API key authenticated")
+
+    monkeypatch.setattr(onboarding, "validate_model", check)
+    client, env = _first_run_client(cfg, tmp_path, monkeypatch)
+    with client:
+        saved = client.post("/api/onboarding", json={
+            "provider": "openrouter", "model": "vendor/model", "api_key": "sk-new"}).json()
+
+    assert seen == {"key": "sk-new", "model": "openrouter/vendor/model"}
+    assert saved["ok"] and saved["state"] == "ready"
+    assert saved["model"] == "openrouter/vendor/model"
+    text = env.read_text(encoding="utf-8")
+    assert "CHAT_MODEL=openrouter/vendor/model" in text
+    assert "OPENROUTER_API_KEY=sk-new" in text
+
+
+def test_first_run_keeps_a_saved_key_when_the_field_is_left_blank(
+        cfg, tmp_path, monkeypatch):
+    from yurios.world.routes import onboarding
+
+    seen = {}
+    monkeypatch.setattr(onboarding, "validate_model", lambda cfg, model: (
+        seen.setdefault("key", cfg.lmstudio_api_key), ModelCheck(True, "listed"))[1])
+    client, env = _first_run_client(cfg, tmp_path, monkeypatch,
+                                    "LMSTUDIO_API_KEY=saved-earlier\n")
+    with client:
+        client.post("/api/onboarding", json={
+            "provider": "lmstudio", "model": "qwen3", "base_url": "http://lms:1234/v1",
+            "api_key": ""})
+
+    assert seen["key"] == "saved-earlier"
+    text = env.read_text(encoding="utf-8")
+    assert "CHAT_MODEL=lm_studio/qwen3" in text
+    assert "LMSTUDIO_BASE_URL=http://lms:1234/v1" in text
+
+
+def test_first_run_refuses_what_the_server_does_not_serve(cfg, tmp_path, monkeypatch):
+    from yurios.world.routes import onboarding
+
+    monkeypatch.setattr(onboarding, "validate_model", lambda cfg, model: ModelCheck(
+        False, "reachable, but selected model qwen9 is absent"))
+    client, env = _first_run_client(cfg, tmp_path, monkeypatch)
+    with client:
+        answer = client.post("/api/onboarding", json={"provider": "ollama", "model": "qwen9"})
+
+    assert answer.status_code == 400 and "absent" in answer.json()["detail"]
+    assert "CHAT_MODEL" not in env.read_text(encoding="utf-8")
+
+
+def test_first_run_turns_a_hugging_face_repo_into_a_gguf_route(cfg, tmp_path, monkeypatch):
+    from yurios.world.routes import onboarding
+
+    monkeypatch.setattr(onboarding, "gguf_connection_defaults", lambda: {})
+    monkeypatch.setattr(onboarding, "download_gguf", lambda cfg, model: tmp_path / "m.gguf")
+    client, env = _first_run_client(cfg, tmp_path, monkeypatch)
+    with client:
+        saved = client.post("/api/onboarding", json={
+            "provider": "gguf", "model": "someone/Some-GGUF"}).json()
+
+    assert saved["model"] == "gguf/someone/Some-GGUF"
+    assert "CHAT_MODEL=gguf/someone/Some-GGUF" in env.read_text(encoding="utf-8")
+
+
+def test_first_run_lists_a_server_with_the_address_typed_and_saves_nothing(
+        cfg, tmp_path, monkeypatch):
+    from yurios.world.routes import onboarding
+
+    asked = {}
+
+    async def listing(cfg, provider):
+        asked["url"], asked["provider"] = cfg.ollama_base_url, provider
+        return {"models": ["qwen3:latest"]}
+
+    monkeypatch.setattr(onboarding, "provider_models", listing)
+    client, env = _first_run_client(cfg, tmp_path, monkeypatch)
+    with client:
+        listed = client.post("/api/onboarding/models", json={
+            "provider": "ollama", "base_url": "http://box:11434"}).json()
+
+    assert listed == {"models": ["qwen3:latest"]}
+    assert asked == {"url": "http://box:11434", "provider": "ollama"}
+    assert env.read_text(encoding="utf-8") == "EMBED_BACKEND=sentence_tf\n"
+
+
 def test_first_run_endpoint_exposes_recommendation_and_saves_none(cfg, tmp_path, monkeypatch):
     from starlette.testclient import TestClient
 
     from yurios.desktop.voice.backends.fakes import FakeBrain
     from yurios.world.main import create_app
-    from yurios.world.routes import onboarding
 
     env = tmp_path / ".env"
     env.write_text("EMBED_BACKEND=sentence_tf\n", encoding="utf-8")
-    monkeypatch.setattr(onboarding, "ENV_PATH", env)
+    _scratch_env(monkeypatch, env)
     app = create_app(cfg, brain=FakeBrain())
     # The injected test brain is operational, but this endpoint test represents
     # the normal fresh server, which has no configured model.
@@ -92,7 +273,7 @@ def test_first_run_endpoint_saves_the_same_gguf_profile_the_cli_does(
 
     env = tmp_path / ".env"
     env.write_text("EMBED_BACKEND=sentence_tf\n", encoding="utf-8")
-    monkeypatch.setattr(onboarding, "ENV_PATH", env)
+    _scratch_env(monkeypatch, env)
     monkeypatch.setattr(onboarding, "gguf_connection_defaults", lambda: {
         "GGUF_CONTEXT_LENGTH": "32768", "GGUF_N_GPU_LAYERS": "20",
         "GGUF_FLASH_ATTN": "true"})
@@ -123,7 +304,7 @@ def test_first_run_endpoint_writes_no_gguf_profile_for_a_hosted_model(
 
     env = tmp_path / ".env"
     env.write_text("EMBED_BACKEND=sentence_tf\n", encoding="utf-8")
-    monkeypatch.setattr(onboarding, "ENV_PATH", env)
+    _scratch_env(monkeypatch, env)
     monkeypatch.setattr(onboarding, "validate_model",
                         lambda cfg, model: ModelCheck(True, "connection verified"))
     app = create_app(cfg, brain=FakeBrain())
@@ -143,7 +324,8 @@ def test_installer_exposes_the_cli_without_activating_the_venv():
 
     assert "install_launcher() {" in installer
     assert '"$HOME/.local/bin/yurios" start </dev/null' in installer
-    assert "cat <<'EOF'\n\nYuriOS is running as a background daemon:" in installer
+    assert ("cat <<'EOF'\n\nYuriOS is running as a background daemon. "
+            "Open it in your browser:") in installer
     assert "source ${VENV_DIR#$ROOT_DIR}/bin/activate" not in installer
 
 

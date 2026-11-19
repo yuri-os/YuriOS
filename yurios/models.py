@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 from urllib.parse import urlsplit
 
 import httpx
@@ -73,6 +74,61 @@ def huggingface_gguf_model(model: str) -> str:
     return f"gguf/{model}" if model else ""
 
 
+#: The model servers a first-run choice can connect through ⇄ the LiteLLM
+#: route prefix the chosen id gets. `yurios configure --provider` and the
+#: browser's first-run panel both read this, so the two cannot disagree about
+#: which servers exist or what a model on one is called.
+PROVIDER_PREFIXES = {
+    "lmstudio": "lm_studio/",
+    "ollama": "ollama/",
+    "openai_compatible": "openai_compatible/",
+    "openrouter": "openrouter/",
+}
+
+#: What each provider's connection is made of, as (`.env` key, Config field)
+#: pairs: its address, then its key. An empty pair is a setting it does not take.
+PROVIDER_SETTINGS: dict[str, tuple[tuple[str, str], tuple[str, str]]] = {
+    "lmstudio": (("LMSTUDIO_BASE_URL", "lmstudio_base_url"),
+                 ("LMSTUDIO_API_KEY", "lmstudio_api_key")),
+    "ollama": (("OLLAMA_BASE_URL", "ollama_base_url"), ("", "")),
+    "openai_compatible": (("OPENAI_COMPATIBLE_BASE_URL", "openai_compatible_base_url"),
+                          ("OPENAI_COMPATIBLE_API_KEY", "openai_compatible_api_key")),
+    "openrouter": (("", ""), ("OPENROUTER_API_KEY", "openrouter_api_key")),
+}
+
+
+def provider_model(provider: str, model: str) -> str:
+    """*model* as a route on *provider*: the prefix added unless it is there."""
+    prefix = PROVIDER_PREFIXES[provider]
+    model = (model or "").strip()
+    return model if model.startswith(prefix) else prefix + model.removeprefix("/")
+
+
+def provider_connection(cfg, provider: str, *, base_url: str = "",
+                        api_key: str | None = None) -> tuple[dict[str, str], Any]:
+    """The `.env` lines *provider*'s connection needs, and *cfg* reading them.
+
+    A blank *base_url* keeps the address *cfg* already has; `None` for
+    *api_key* keeps its key (an empty string clears it). The returned config is
+    a copy, so a choice can be validated against the connection it will
+    actually use before anything is written. Raises `ValueError` for a
+    provider that needs an address and has none."""
+    (url_env, url_attr), (key_env, key_attr) = PROVIDER_SETTINGS[provider]
+    connection: dict[str, str] = {}
+    update: dict[str, str] = {}
+    if url_env:
+        base = (base_url or "").strip() or str(getattr(cfg, url_attr, "") or "")
+        if not base:
+            raise ValueError(f"{url_env} is required: the server's address, ending in /v1")
+        connection[url_env] = update[url_attr] = base
+    if key_env:
+        key = api_key if api_key is not None else str(getattr(cfg, key_attr, "") or "")
+        if key:
+            connection[key_env] = key
+        update[key_attr] = key
+    return connection, cfg.model_copy(update=update)
+
+
 def gguf_connection_defaults(*, gpu_memory_bytes: int | None = None) -> dict[str, str]:
     """Choose a direct-GGUF profile that leaves VRAM for its KV cache.
 
@@ -111,16 +167,22 @@ def update_env(path: Path, updates: dict[str, str], *, section: str = "# --- mod
     lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
     remaining = dict(updates)
 
-    def matches(line: str, key: str) -> bool:
+    def matches(line: str, key: str, *, commented: bool) -> bool:
         stripped = line.lstrip()
-        body = stripped[1:].lstrip() if stripped.startswith("#") else stripped
+        if stripped.startswith("#") != commented:
+            return False
+        body = stripped[1:].lstrip() if commented else stripped
         return "=" in body and body.split("=", 1)[0].strip() == key
 
-    for index, line in enumerate(lines):
-        for key in list(remaining):
-            if matches(line, key):
-                lines[index] = f"{key}={remaining.pop(key)}"
-                break
+    # A live line first, and a commented example only when there is none: dotenv
+    # reads the last value, so filling in `# KEY=` above a live `KEY=old` would
+    # leave the old value in force and the choice silently ignored.
+    for commented in (False, True):
+        for index, line in enumerate(lines):
+            for key in list(remaining):
+                if matches(line, key, commented=commented):
+                    lines[index] = f"{key}={remaining.pop(key)}"
+                    break
     if remaining:
         if lines and lines[-1].strip():
             lines.append("")

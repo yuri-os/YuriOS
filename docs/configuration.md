@@ -76,7 +76,7 @@ name of the variable holding it. The same fields are on the switchboard's profil
 
 | Key | Default | |
 |---|---|---|
-| `CHAT_MODEL` | `NONE` | her reply voice; select a model through onboarding or `yurios configure` |
+| `CHAT_MODEL` | `NONE` | her reply voice; select a model on the first-run page or with `yurios configure` |
 | `UTILITY_MODEL` | `NONE` | summaries, extraction, DREAM — the configurator normally sets it to the selected chat model |
 | `LMSTUDIO_BASE_URL` | `http://localhost:1234/v1` | the LM Studio server behind `lm_studio/…` |
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | routes `ollama/…` and lists your pulled models |

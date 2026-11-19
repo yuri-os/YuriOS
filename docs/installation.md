@@ -10,15 +10,17 @@ voice, camera, or desktop backend is still an extra.
 ```bash
 cd YuriOS
 ./install.sh
-yurios status                      # runtime health, characters, configuration, and address
+# then open http://localhost:8768
 ```
 
 With no options this installs her body, local memory, MCP tools and real voice (faster-whisper ears,
 the kokoro voice, silero turn-taking), then starts YuriOS as a background daemon. On a fresh install,
-its model setting is `NONE`: it makes no LLM connection until you choose one — with `yurios configure`
-or on the first dashboard load — and run `yurios restart`. Reruns preserve the existing `.env` and
-its model choice. Selecting the current direct GGUF recommendation downloads its Q4_K_M model
-automatically.
+its model setting is `NONE`: it makes no LLM connection until you choose one. The first page you
+open — the switchboard, a room or the text client — asks for it: a recommended GGUF, any Hugging
+Face GGUF repository, or a model on LM Studio, Ollama, OpenRouter or another OpenAI-compatible
+server, with its address and key. It checks the connection, waits out a GGUF download, restarts
+YuriOS and reloads onto her. `yurios configure` followed by `yurios restart` does the same from a
+terminal. Reruns preserve the existing `.env` and its model choice.
 A detected working NVIDIA driver preselects CUDA; otherwise the CPU-only Torch wheel is used.
 Nothing needs a cloud key.
 
@@ -205,7 +207,7 @@ is the `yurios` volume mounted at `/yurios`. Rebuilding the image or `docker com
 
 ```bash
 docker compose exec yurios yurios status
-docker compose exec yurios yurios configure       # then: docker compose restart
+docker compose exec yurios yurios configure       # or the first-run page; then: docker compose restart
 docker compose exec yurios yurios character list
 ```
 
@@ -332,7 +334,7 @@ If she will, the installer finds the route and saves it as `LMSTUDIO_BASE_URL`:
 - **LM Studio listens on localhost only:** the installer adds a Windows port forward and firewall
   rule scoped to the WSL subnet. This needs one UAC approval.
 
-Unattended installs skip the question. If `yurios configure` or the dashboard later can't reach
+Unattended installs skip the question. If `yurios configure` or the first-run page later can't reach
 LM Studio, it says to rerun `./install.sh --lmstudio-bridge`. Do the same if a working bridge stops
 answering after Windows restarts, because the address the bridge listens on can change.
 

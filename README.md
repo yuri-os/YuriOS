@@ -111,17 +111,16 @@ Supports Linux, macOS, and Windows through WSL.
 ```bash
 cd YuriOS
 ./install.sh
-yurios configure                      # choose her language model
-yurios restart                        # load it (starts the daemon if it is stopped)
-yurios status
 ```
+
+Then open `http://localhost:8768`. A fresh install selects no model, so the first page asks which
+one she should use — a GGUF to download, or a model on LM Studio, Ollama, OpenRouter or any
+OpenAI-compatible server, with its address and key — and starts her on it. There is nothing else
+to run. (`yurios configure` asks the same questions in the terminal if you prefer; `yurios restart`
+then loads the choice.)
 
 Or, with nothing but Docker, `docker compose up -d --build` and open the link
 `docker compose logs yurios` prints — see [Installation → Docker](docs/installation.md#docker).
-
-A fresh install selects no model, so she can't talk until you choose one and restart. Then open
-the address `yurios status` shows (normally `http://localhost:8768`). The dashboard offers the
-same model choice if you open it first; restart after it too.
 
 Use `yurios doctor` if something is not working.
 

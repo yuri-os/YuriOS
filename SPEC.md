@@ -1812,6 +1812,22 @@ what is saved but waiting for a restart.
 - §11.3.3 **The house scene overlay.** `SELFIE_TEMPLATES_EXTRA` is edited the same way: the YAML is
   checked with `selfiebook.parse_text` and written **verbatim**, comments kept, creating
   `data/selfie-extra.yaml` and naming it when nothing is named yet.
+- §11.3.4 **First run ends in a running house.** A fresh install selects no language model
+  (`CHAT_MODEL=NONE`), so the page you open first — the switchboard, a room or the text client —
+  **MUST** ask for one (`/shared/model-setup.js` over `/api/onboarding`), and `install.sh` **MUST**
+  send you there rather than to a terminal command. The panel **MUST** offer everything
+  `yurios configure` does: a recommended or any Hugging Face GGUF, or a model on LM Studio, Ollama,
+  OpenRouter or another OpenAI-compatible server with that server's address and key. The `.env`
+  lines a choice writes **MUST** come from `models.provider_connection`, the function the CLI
+  uses, so the two cannot drift; the choice is checked against the connection it will use — the
+  typed address and key over the house as saved, never the boot's values — before anything is
+  written, and a blank key keeps the saved one. `POST /api/onboarding/models` lists what a typed
+  address serves without writing. Once saved, the panel waits out a GGUF download and then takes
+  the §11.3.1 restart itself, reloading on a new `boot_id`; a page reopened mid-way resumes that
+  wait. When the house is not restartable it **MUST** say what to do instead — "restart to
+  activate" with nothing to press is the step this replaces. The choice is not hot-applied:
+  a model chosen from `NONE` also has a mind to start, and the boot is the one path that builds a
+  configured character end to end.
 - §11.5.7 **Variants.** A version often carries its weights more than once — fp16 and fp32, full and
   pruned, a Krea 2 INT4 beside its INT8. A card lists every weights file of its version, each judged
   as §11.5.2 judges the card, and **recommends** one: the best status, then the precision its

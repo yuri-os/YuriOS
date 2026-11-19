@@ -9,7 +9,7 @@
 /* The author `display:flex` above beats the UA's `[hidden]{display:none}`, so
    the attribute js/mind.js toggles needs its own rule or the shelf stays on
    screen behind every other tab — the same trap `.model-setup` documents in
-   sanctuary.css. `#innerlife` and `#files` are only spared it because neither
+   shared/model-setup.css. `#innerlife` and `#files` are only spared it because neither
    sets `display` at all. */
 #gallery[hidden]{ display:none; }
 

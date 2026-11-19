@@ -14,20 +14,16 @@ from pathlib import Path
 import httpx
 
 from yurios import daemon
-from yurios.models import (DEFAULT_HUGGINGFACE_MODEL, NONE, RECOMMENDED_MODELS,
-                            download_gguf, gguf_connection_defaults,
-                            huggingface_gguf_model, is_configured, normalize_model,
-                            save_model_choice, update_env, validate_model)
+from yurios.models import (DEFAULT_HUGGINGFACE_MODEL, NONE, PROVIDER_PREFIXES,
+                            RECOMMENDED_MODELS, download_gguf,
+                            gguf_connection_defaults, huggingface_gguf_model,
+                            is_configured, normalize_model, provider_connection,
+                            provider_model, save_model_choice, update_env,
+                            validate_model)
 from yurios import envfile, pairing, qr
 from yurios.security import generate_owner_token
 from yurios.world.config import Config
 
-_PROVIDER_PREFIXES = {
-    "lmstudio": "lm_studio/",
-    "ollama": "ollama/",
-    "openai_compatible": "openai_compatible/",
-    "openrouter": "openrouter/",
-}
 _SELFIE_BACKENDS = ("openrouter", "diffusers", "off")
 # How long `yurios start` waits for her to answer. NOT a wall clock on the whole
 # boot: a 27B model loading in LM Studio, an embedder pulling torch off a cold
@@ -228,9 +224,6 @@ def _prompt(label: str, default: str = "") -> str:
     return input(f"{label}{suffix}: ").strip() or default
 
 
-def _provider_model(provider: str, model: str) -> str:
-    prefix = _PROVIDER_PREFIXES[provider]
-    return model if model.startswith(prefix) else prefix + model.removeprefix("/")
 
 
 def _interactive_choice() -> str:
@@ -382,7 +375,7 @@ def command_configure(args) -> int:
             print("Invalid selection.", file=sys.stderr)
             return 2
     connection: dict[str, str] = {}
-    if provider in _PROVIDER_PREFIXES:
+    if provider in PROVIDER_PREFIXES:
         if not model:
             label = {"lmstudio": "LM Studio model id", "ollama": "Ollama model name",
                      "openai_compatible": "Model id, as the server names it",
@@ -394,56 +387,40 @@ def command_configure(args) -> int:
         if not model:
             print("A model id is required.", file=sys.stderr)
             return 2
-        model = _provider_model(provider, model)
+        model = provider_model(provider, model)
+        # Only what to ask; what the answers become in `.env` is
+        # `models.provider_connection`'s, shared with the first-run panel.
+        base, key = "", None
         if provider == "lmstudio":
             base = args.base_url or (interactive and _prompt(
-                "LM Studio base URL", cfg.lmstudio_base_url)) or cfg.lmstudio_base_url
-            connection["LMSTUDIO_BASE_URL"] = str(base)
+                "LM Studio base URL", cfg.lmstudio_base_url)) or ""
             # Only a server with "Require API key" on wants one; Enter skips it.
             key = args.api_key
             if key is None and interactive:
-                entered = getpass.getpass(
+                key = getpass.getpass(
                     "LM Studio API key, if its server requires one "
-                    "(Enter to keep the configured one, or for none): ")
-                key = entered or cfg.lmstudio_api_key
-            key = key if key is not None else cfg.lmstudio_api_key
-            if key:
-                connection["LMSTUDIO_API_KEY"] = key
-            cfg = cfg.model_copy(update={"lmstudio_base_url": str(base),
-                                         "lmstudio_api_key": key})
+                    "(Enter to keep the configured one, or for none): ") or None
         elif provider == "ollama":
             base = args.base_url or (interactive and _prompt(
-                "Ollama base URL", cfg.ollama_base_url)) or cfg.ollama_base_url
-            connection["OLLAMA_BASE_URL"] = str(base)
-            cfg = cfg.model_copy(update={"ollama_base_url": str(base)})
+                "Ollama base URL", cfg.ollama_base_url)) or ""
         elif provider == "openai_compatible":
             base = args.base_url or (interactive and _prompt(
-                "Server base URL (ending in /v1)", cfg.openai_compatible_base_url)) \
-                or cfg.openai_compatible_base_url
-            if not base:
+                "Server base URL (ending in /v1)", cfg.openai_compatible_base_url)) or ""
+            if not (base or cfg.openai_compatible_base_url):
                 print("--base-url is required with --provider openai_compatible",
                       file=sys.stderr)
                 return 2
-            connection["OPENAI_COMPATIBLE_BASE_URL"] = str(base)
             key = args.api_key
             if key is None and interactive:
-                entered = getpass.getpass(
-                    "Its API key (Enter to keep the configured one, or for none): ")
-                key = entered or cfg.openai_compatible_api_key
-            key = key if key is not None else cfg.openai_compatible_api_key
-            if key:
-                connection["OPENAI_COMPATIBLE_API_KEY"] = key
-            cfg = cfg.model_copy(update={"openai_compatible_base_url": str(base),
-                                         "openai_compatible_api_key": key})
+                key = getpass.getpass(
+                    "Its API key (Enter to keep the configured one, or for none): ") or None
         else:
             key = args.api_key
             if key is None and interactive:
-                entered = getpass.getpass("OpenRouter API key (Enter to keep configured key): ")
-                key = entered or cfg.openrouter_api_key
-            key = key if key is not None else cfg.openrouter_api_key
-            if key:
-                connection["OPENROUTER_API_KEY"] = key
-            cfg = cfg.model_copy(update={"openrouter_api_key": key})
+                key = getpass.getpass(
+                    "OpenRouter API key (Enter to keep configured key): ") or None
+        connection, cfg = provider_connection(cfg, provider, base_url=str(base or ""),
+                                              api_key=key)
     model = normalize_model(model)
     if model.startswith("gguf/"):
         connection.update(gguf_connection_defaults())
@@ -1350,7 +1327,7 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command")
     configure = sub.add_parser("configure", help="choose a language model or selfie backend")
     configure.add_argument("--model", help="model id, or NONE")
-    configure.add_argument("--provider", choices=tuple(_PROVIDER_PREFIXES),
+    configure.add_argument("--provider", choices=tuple(PROVIDER_PREFIXES),
                            help="connection to configure; interactive mode offers all providers")
     configure.add_argument("--base-url", help="LM Studio, Ollama or OpenAI-compatible "
                                               "endpoint URL")

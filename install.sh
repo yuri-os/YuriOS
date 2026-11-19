@@ -64,8 +64,9 @@ SEARXNG_PORT=8080
 # install that will use LM Studio. Empty = not chosen yet: if .env already
 # routes a model to lm_studio/ that answers it, otherwise select_lmstudio_bridge
 # asks when a terminal is attached. On a fresh install no model is chosen yet,
-# and `yurios configure` can't save an LM Studio model it can't reach, so the
-# question is the only way to learn about this setup in time.
+# and neither the first-run page nor `yurios configure` can save an LM Studio
+# model it can't reach, so the question is the only way to learn about this
+# setup in time.
 LMSTUDIO_BRIDGE=""
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -79,7 +80,8 @@ Set up YuriOS on WSL, native Linux, or macOS.
 With no options this installs YuriOS's body, local memory, MCP tools, and real
 voice — faster-whisper ears, the kokoro voice, silero turn-taking — plus the
 local Diffusers camera runtime. It starts as a background daemon with no LLM or
-camera selected; open the dashboard or run `yurios configure` to choose them. A
+camera selected; open http://localhost:8768 and the first page asks for her
+model (or run `yurios configure`). A
 detected working NVIDIA driver preselects CUDA; otherwise the CPU-only torch
 wheel is used. Nothing needs a cloud key.
 
@@ -988,23 +990,25 @@ log "Starting YuriOS daemon"
 printf '\nYuriOS setup is complete (extras: %s).\n' "$EXTRAS"
 cat <<'EOF'
 
-YuriOS is running as a background daemon:
+YuriOS is running as a background daemon. Open it in your browser:
+
+  http://localhost:8768
+
+A fresh install selects no language model, so the first page asks which one
+she should use — a GGUF to download, or LM Studio, Ollama, OpenRouter or any
+OpenAI-compatible server — and starts her on it. Nothing more to run here.
+(`yurios configure` asks the same in the terminal, if you would rather.)
+
+Managing the daemon:
   yurios status
   yurios stop
   yurios start                 # starts it again after a stop
   yurios restart               # reload settings saved in .env
   yurios start --foreground    # keep logs in this terminal
 
-A fresh install selects no language model. Choose one, then restart to load it:
-  yurios configure
-  yurios restart
-
-Then open http://localhost:8768. (The dashboard offers the same choice if you
-open it first; restart after choosing there too.)
-
-Selecting a gguf/ model automatically downloads its matching Q4_K_M GGUF before
-it is used. The default sentence-transformer embedder also downloads its small
-local model on first startup.
+A gguf/ model downloads its matching Q4_K_M GGUF once, before it is used. The
+default sentence-transformer embedder also downloads its small local model on
+first startup.
 EOF
 
 if [ "$INSTALL_VOICE" = true ]; then

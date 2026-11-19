@@ -1010,10 +1010,16 @@ class Runtime:
     def turn_started(self, proactive: bool = False) -> None:
         self._turns_in_flight += 1
         self.turns_idle.clear()
+        # Counted on the process-wide door too: a neighbour's camera may lend
+        # out the model this turn is streaming from (§7.6a), and it waits on
+        # the door's count, not on this runtime's.
+        self.park_gate.enter()
         if self.mind:
             self.mind.turn_started(proactive=proactive)
 
     def turn_ended(self) -> None:
+        if self._turns_in_flight > 0:      # a stray end must not spend a
+            self.park_gate.leave()         # neighbour's count on the door
         self._turns_in_flight = max(0, self._turns_in_flight - 1)
         if self._turns_in_flight == 0:
             self.turns_idle.set()

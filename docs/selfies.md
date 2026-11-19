@@ -227,6 +227,10 @@ your LM Studio LLM, the LLM is **parked** — evicted for the render's duration,
 The render drops from a ~70 s offload crawl to ~15 s resident, and her brain always comes back,
 even if the render fails.
 
+The loan covers whatever chat model LM Studio has loaded, not only hers. A character whose brain
+runs on OpenRouter still parks another character's local model when it is the one filling the
+card, and that model comes back in the context window it was loaded with.
+
 A park never happens mid-reply: evicting the model while a turn is streaming would kill that
 stream and the draft would vanish from the chat, so a render that needs a park waits for a quiet
 moment first. Set `SELFIE_LLM_PARK=false` to never touch LM Studio (renders use offload instead).

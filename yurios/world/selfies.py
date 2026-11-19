@@ -674,8 +674,12 @@ class SelfieLab:
             # brain first. Off the loop, because the answer is a file stat, and
             # on a FUSE drive a stat is not free.
             await asyncio.to_thread(self._ready)
-            if (self.parker is not None and self.quiet is not None
-                    and self.parker.applicable() and self.parker.needs_park()):
+            # Also off the loop: `applicable` may ask LM Studio what else it
+            # has loaded (a neighbour's brain is in the way too — world/vram).
+            parker = self.parker
+            if (parker is not None and self.quiet is not None
+                    and await asyncio.to_thread(
+                        lambda: parker.applicable() and parker.needs_park())):
                 log.info("selfie: parking needs the GPU — waiting for a quiet "
                          "moment before the render")
                 # The cleanup scope starts before this close: cancellation while

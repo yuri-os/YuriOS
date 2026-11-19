@@ -74,6 +74,17 @@ is process-wide, `_PARK_LOCK` serialises the park windows across characters
 (two resident pipelines on one card fit no better than a pipeline and a
 brain), and the door tracks *which* parker shut it, so a second camera
 deciding it need not park cannot open the window the first is standing in.
+
+**And the loan is the card's too, not just the door.** A parker used to lend
+out only the rendering character's *own* models — so a character whose brain
+is hosted (OpenRouter) had nothing to park, while a neighbour's LM Studio model
+sat on the very card she needed and the render died of OOM. The same render
+from the neighbour's camera worked, because *her* parker knew the model. So a
+park now lends every chat model LM Studio has loaded (`lmstudio.loaded_llms`),
+hers or not, and gives each back in the window it was in — the renderer's
+CONTEXT_LENGTH is no description of someone else's load. Turns are counted on
+the shared door for the same reason (`ParkGate.enter`): a neighbour's reply
+streaming from the model about to be lent is as much a reply as her own.
 """
 from __future__ import annotations
 
@@ -121,6 +132,10 @@ PATIENT_WAIT_S = 900.0
 # selfie ever renders again. Blowing it costs one dream job, which retries
 # tomorrow; not blowing it would cost every selfie after this one.
 _QUIET_WAIT_S = 240.0
+# How long asking LM Studio what else is loaded may take. The answer is a local
+# HTTP call that normally lands in milliseconds; a wedged server must not hold
+# a render (or the warm-pipeline decision) for the general query timeout.
+_NEIGHBOUR_PROBE_S = 3.0
 
 
 #: The one door and the one loan, for the whole process. A YuriOS host runs
@@ -385,27 +400,40 @@ class ParkGate:
         needs no hop — unlike the door, which the render worker slams from
         `asyncio.to_thread`.
         """
-        self._holders += 1
-        self._idle.clear()
+        self.enter()
         try:
             yield
         finally:
-            self._holders = max(0, self._holders - 1)
-            if self._holders == 0:
-                self._idle.set()
+            self.leave()
+
+    def enter(self) -> None:
+        """One caller is now talking to an LLM on the card. `hold()`'s body,
+        and `Runtime.turn_started`'s second counter: the door is process-wide,
+        so this is the one count of *every* character's live turns — a park
+        lends a neighbour's model as readily as her own, and must not pull it
+        out from under the neighbour's reply. Same rule as `hold()`: after
+        `wait()`, never before. Loop-thread only."""
+        self._holders += 1
+        self._idle.clear()
+
+    def leave(self) -> None:
+        """The mirror of `enter`. Never drops below zero."""
+        self._holders = max(0, self._holders - 1)
+        if self._holders == 0:
+            self._idle.set()
 
     async def wait_idle(self, *, timeout_s: float = _QUIET_WAIT_S) -> bool:
         """Block until no off-turn model call is running. False = the cap blew
         and the park is going ahead anyway (see `_QUIET_WAIT_S`)."""
         if self._idle.is_set():
             return True
-        log.info("park: waiting for %d off-turn model call(s) to finish before "
+        log.info("park: waiting for %d model call(s) to finish before "
                  "lending the GPU", self._holders)
         try:
             await asyncio.wait_for(self._idle.wait(), timeout_s)
             return True
         except asyncio.TimeoutError:
-            log.warning("park: an off-turn model call is still running after "
+            log.warning("park: a model call is still running after "
                         "%.0fs — parking under it (that call will fail)",
                         timeout_s)
             return False
@@ -451,6 +479,16 @@ class ParkGate:
             apply()
 
 
+def _lmstudio_neighbours(cfg, exclude: list[str]) -> dict[str, int]:
+    """What else LM Studio has loaded besides `exclude` (her own ids) — the
+    parker's default probe, module-level so the suite can stub it out and
+    never reach for localhost:1234."""
+    from yurios.app.providers.lmstudio import loaded_llms
+    return loaded_llms(cfg.lmstudio_base_url, exclude=exclude,
+                       api_key=getattr(cfg, "lmstudio_api_key", ""),
+                       timeout=_NEIGHBOUR_PROBE_S)
+
+
 def _torch_free_gib() -> Optional[float]:
     """Free VRAM in GiB, or None when there's no torch/CUDA to ask — which the
     parker reads as "can't measure, don't touch anything"."""
@@ -474,9 +512,13 @@ class LLMParker:
 
     def __init__(self, cfg, *, free_probe: Callable[[], Optional[float]] = None,
                  resident_free_gib: Optional[float] = _DEFAULT_FLOOR_GIB,
-                 gate: Optional[ParkGate] = None):
+                 gate: Optional[ParkGate] = None,
+                 neighbours: Optional[Callable[[], dict[str, int]]] = None):
         self.cfg = cfg
         self._free = free_probe or _torch_free_gib
+        # Who else is on the LM Studio server (key → loaded window). Injected
+        # by tests; the default asks the server, through `_lmstudio_neighbours`.
+        self._neighbour_probe = neighbours
         # Shared with the Runtime, which is where turns wait on it. Owning one
         # by default keeps the parker usable standalone (tests, scripts).
         self.gate = gate or ParkGate()
@@ -501,6 +543,18 @@ class LLMParker:
         ids = _lmstudio_ids(self.cfg, chat=True, embed=True)
         return list(dict.fromkeys(ids))      # chat and utility are often one model
 
+    def _neighbours(self) -> dict[str, int]:
+        """The chat models on her LM Studio server that are NOT hers — another
+        character's brain, or anything else loaded there — keyed to the window
+        each one is in. The card is shared, so they are as much in a render's
+        way as her own (see the module docstring). Empty when parking is off or
+        the camera keeps nothing on the card, without asking the server."""
+        if not getattr(self.cfg, "selfie_llm_park", False) or self.floor is None:
+            return {}
+        if self._neighbour_probe is not None:
+            return dict(self._neighbour_probe())
+        return _lmstudio_neighbours(self.cfg, self._ids())
+
     def _gguf_resident(self) -> int:
         """Her in-process llama.cpp contexts — the direct gguf/ route, direct
         or reached through the LM-Studio-down fallback. 0 when her brain lives
@@ -513,10 +567,16 @@ class LLMParker:
             return 0
 
     def applicable(self) -> bool:
-        """Is there anything to park, for a backend that benefits from it?"""
-        return (getattr(self.cfg, "selfie_llm_park", False)
-                and self.floor is not None
-                and (bool(self._ids()) or self._gguf_resident() > 0))
+        """Is there anything to park, for a backend that benefits from it?
+
+        Her own brain is checked first because it is free to check; only a
+        character with no local brain of her own pays the server round trip
+        that finds a neighbour's. May make that HTTP call — keep it off the
+        event loop."""
+        return bool(getattr(self.cfg, "selfie_llm_park", False)
+                    and self.floor is not None
+                    and (bool(self._ids()) or self._gguf_resident() > 0
+                         or bool(self._neighbours())))
 
     def needs_park(self) -> bool:
         """Free VRAM below the resident floor → parking buys a fast render."""
@@ -614,13 +674,17 @@ class LLMParker:
             from yurios.app.providers import gguf
             cfg = self.cfg
             ids = self._ids()
+            # Read once, inside the lock: what gets lent is exactly what gets
+            # given back, in the window it was in.
+            others = self._neighbours()
             before = self._free() or 0.0
             log.info("park: lending the GPU to one render — LM Studio %s, "
                      "%d in-process GGUF (%.1f GiB free, floor %.0f)",
-                     ids, self._gguf_resident(), before, self.floor)
+                     ids + list(others), self._gguf_resident(), before,
+                     self.floor)
             self.gate.close(self)    # usually already shut by the lab; idempotent
-            if ids:
-                evict(cfg.lmstudio_base_url, ids,
+            if ids or others:
+                evict(cfg.lmstudio_base_url, ids + list(others),
                       api_key=getattr(cfg, "lmstudio_api_key", ""))
             # Also runs with nothing resident: it drops the in-process load
             # gate for the whole render window, so no turn or mind tick can
@@ -633,14 +697,21 @@ class LLMParker:
                 # Her brain comes back even if the render died — and the reload
                 # is the same pinned, TTL-free residency the boot path builds.
                 log.info("park: restoring her brain (LM Studio %s, %d GGUF)",
-                         ids, len(handles))
+                         ids + list(others), len(handles))
                 try:
+                    timeout = getattr(cfg, "lmstudio_load_timeout_s", 600.0)
+                    key = getattr(cfg, "lmstudio_api_key", "")
                     if ids:
                         ensure_resident(
                             cfg.lmstudio_base_url, ids,
                             context_length=getattr(cfg, "context_length", 0),
-                            timeout=getattr(cfg, "lmstudio_load_timeout_s", 600.0),
-                            api_key=getattr(cfg, "lmstudio_api_key", ""))
+                            timeout=timeout, api_key=key)
+                    # A neighbour's model comes back in its own window, one
+                    # load each, so one that won't fit can't take the rest down.
+                    for other, ctx in others.items():
+                        ensure_resident(cfg.lmstudio_base_url, [other],
+                                        context_length=ctx, timeout=timeout,
+                                        api_key=key)
                 finally:
                     try:
                         gguf.unpark(handles)

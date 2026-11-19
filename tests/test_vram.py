@@ -12,7 +12,8 @@ import pytest
 from yurios.app.providers import gguf, lmstudio
 from yurios.forge.backends.diffusers import DiffusersBackend
 from yurios.forge.backends.krea2 import Krea2Backend
-from yurios.world.vram import LLMParker, ParkGate, _DEFAULT_FLOOR_GIB
+from yurios.world.vram import (LLMParker, ParkGate, _BRAIN_HEADROOM_GIB,
+                                _DEFAULT_FLOOR_GIB)
 
 _RESIDENT_FLOOR_GIB = _DEFAULT_FLOOR_GIB
 
@@ -207,6 +208,103 @@ def test_nothing_is_parked_for_a_non_local_backend(cfg, spied):
     with make_parker(cfg, 1.0, selfie_backend="mock").parked():
         spied.append(("render",))
     assert [c[0] for c in spied] == ["render"]
+
+
+# ---- a neighbour's brain: another character's model on the same card ----
+#
+# The bug: an OpenRouter character's camera found a neighbour's LM Studio model
+# filling the card, had nothing of its own to park, and rendered into OOM —
+# while the neighbour's own camera, whose parker knew that model, worked.
+
+def make_hosted_parker(cfg, free, neighbours, **over):
+    """A character whose brain is hosted, beside LM Studio models that aren't."""
+    cfg = cfg.model_copy(update={"chat_model": "openrouter/z-ai/glm-4.6",
+                                 "utility_model": "openrouter/z-ai/glm-4.6",
+                                 "embed_backend": "sentence_transformers",
+                                 "selfie_backend": "diffusers", **over})
+    return LLMParker(cfg, free_probe=lambda: free,
+                     resident_free_gib=_FLOORS.get(cfg.selfie_backend),
+                     neighbours=lambda: neighbours)
+
+
+@pytest.fixture
+def spied_windows(monkeypatch):
+    calls = []
+    monkeypatch.setattr(lmstudio, "evict",
+                        lambda base, ids, **kw: calls.append(("evict", tuple(ids))))
+    monkeypatch.setattr(lmstudio, "ensure_resident",
+                        lambda base, ids, **kw: calls.append(
+                            ("restore", tuple(ids), kw.get("context_length"))))
+    return calls
+
+
+def test_a_hosted_brain_parks_a_neighbours_model(cfg, spied_windows, monkeypatch):
+    p = make_hosted_parker(cfg, 5.0, {"qwen3-8b": 16384})
+    assert p._ids() == []                         # nothing of her own
+    assert p.applicable() is True                 # …and still something to park
+    monkeypatch.setattr(p, "_await_free", lambda before: None)
+
+    with p.parked() as borrowed:
+        spied_windows.append(("render",))
+    assert borrowed is True
+    assert spied_windows == [("evict", ("qwen3-8b",)), ("render",),
+                             ("restore", ("qwen3-8b",), 16384)]
+
+
+def test_a_neighbour_comes_back_in_its_own_window_not_hers(cfg, spied_windows,
+                                                           monkeypatch):
+    # Her CONTEXT_LENGTH describes a load SHE performs; the neighbour was
+    # loaded in 8192 and gets 8192 back. Each neighbour is its own load.
+    p = make_parker(cfg, 5.0, context_length=32768,
+                    selfie_backend="diffusers")
+    p._neighbour_probe = lambda: {"qwen3-8b": 8192, "mistral-7b": 0}
+    monkeypatch.setattr(p, "_await_free", lambda before: None)
+
+    with p.parked():
+        pass
+    evicted = spied_windows[0]
+    assert evicted[0] == "evict"
+    assert "qwen3-8b" in evicted[1] and "mistral-7b" in evicted[1]
+    restores = spied_windows[1:]
+    assert restores[0][2] == 32768                # hers, in her window
+    assert ("restore", ("qwen3-8b",), 8192) in restores
+    assert ("restore", ("mistral-7b",), 0) in restores
+
+
+def test_a_neighbour_does_not_park_a_card_with_room(cfg, spied_windows):
+    p = make_hosted_parker(cfg, 14.0, {"qwen3-8b": 16384})
+    with p.parked() as borrowed:
+        spied_windows.append(("render",))
+    assert borrowed is False
+    assert spied_windows == [("render",)]
+
+
+def test_no_neighbour_and_no_brain_of_her_own_is_nothing_to_park(cfg):
+    assert make_hosted_parker(cfg, 5.0, {}).applicable() is False
+
+
+def test_the_server_is_not_asked_when_parking_cannot_happen(cfg):
+    asked = []
+
+    def probe():
+        asked.append(1)
+        return {"qwen3-8b": 0}
+
+    for over in ({"selfie_llm_park": False}, {"selfie_backend": "mock"}):
+        p = make_hosted_parker(cfg, 5.0, {}, **over)
+        p._neighbour_probe = probe
+        assert p.applicable() is False
+    assert asked == []
+
+
+def test_a_neighbours_brain_needs_room_to_come_home_beside_a_warm_pipeline(cfg):
+    # The warm-pipeline test used to answer "yes forever" for a hosted brain;
+    # with a neighbour's model to bring back, it has to measure.
+    floor = _BRAIN_HEADROOM_GIB
+    assert make_hosted_parker(cfg, floor - 1, {"qwen3-8b": 0}
+                              ).can_keep_pipeline_warm() is False
+    assert make_hosted_parker(cfg, floor + 1, {"qwen3-8b": 0}
+                              ).can_keep_pipeline_warm() is True
 
 
 # ---- the wait-for-free poll ----

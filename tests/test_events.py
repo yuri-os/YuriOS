@@ -86,6 +86,28 @@ async def test_turns_idle_gates_on_the_turn_lifecycle(cfg):
     await asyncio.wait_for(rt.wait_turns_idle(), 1)   # returns at once when idle
 
 
+async def test_a_turn_is_counted_on_the_process_wide_door(cfg):
+    """A neighbour's camera may lend out the model THIS character's turn is
+    streaming from (§7.6a — the park lends every LLM LM Studio has loaded),
+    and it waits on the shared door's count, not on this runtime's
+    `turns_idle`. So a live turn must hold the door's idle flag too — and a
+    stray `turn_ended` must not spend somebody else's count."""
+    cfg = cfg.model_copy(update={"tools_backend": "off", "mind_enabled": False})
+    rt = create_app(cfg, brain=FakeBrain()).state.rt
+    rt.turn_ended()                            # stray: nothing to give back
+    rt.park_gate.enter()                       # a neighbour's live turn
+    rt.turn_started()
+    rt.turn_ended()
+    assert not rt.park_gate._idle.is_set()     # the neighbour's still counts
+    rt.park_gate.leave()
+    assert rt.park_gate._idle.is_set()
+    rt.turn_started()
+    with pytest.raises(asyncio.TimeoutError):
+        await asyncio.wait_for(rt.park_gate.wait_idle(timeout_s=5), 0.05)
+    rt.turn_ended()
+    await asyncio.wait_for(rt.park_gate.wait_idle(timeout_s=5), 1)
+
+
 # ---- the SSE route over the real app ---------------------------------------
 # Neither starlette's TestClient nor httpx's ASGITransport can read a response
 # that never ends (both buffer to completion), so the route is exercised with

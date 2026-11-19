@@ -17,6 +17,7 @@ that is not there: no pinning, no context probe, and an embedder that falls back
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 
 import httpx
 
@@ -340,3 +341,45 @@ def evict(base_url: str, model_ids: list[str], *, api_key: str = "",
             log.warning("LM Studio would not unload %s (%s) — the render keeps "
                         "its offload fallback", key, detail.strip()[:200])
     return evicted
+
+
+def loaded_llms(base_url: str, *, exclude: Sequence[str] = (), api_key: str = "",
+                timeout: float = _QUERY_TIMEOUT_S,
+                transport: httpx.BaseTransport | None = None) -> dict[str, int]:
+    """Every chat model LM Studio has in memory right now, minus `exclude`,
+    keyed to the window it is loaded in (0 = it didn't say). Never raises.
+
+    The VRAM parker's view of the server as a whole rather than of one
+    character's config. A host runs every character against one LM Studio,
+    so the model filling the card is often not the rendering character's at
+    all — a neighbour whose brain is local while hers is hosted, or anything
+    else someone loaded by hand. Lending the GPU means lending *those*, and
+    giving them back means giving them back in the window they were in, which
+    is why the window comes with the key: the renderer's CONTEXT_LENGTH says
+    nothing about someone else's load.
+
+    Embedding models are left out — a hundred megabytes is not what stands
+    between a render and the card, and evicting one only costs its owner a
+    reload. `exclude` takes configured ids (the CHAT_MODEL alphabet) and is
+    resolved through the same catalog, so a caller can pass its own models
+    without knowing LM Studio's keys for them."""
+    root = _api_root(base_url)
+    try:
+        with httpx.Client(timeout=timeout, transport=transport,
+                          headers=auth_headers(api_key)) as client:
+            r = client.get(f"{root}/api/v1/models")
+            r.raise_for_status()
+            catalog = r.json()["models"]
+    except Exception as e:
+        log.debug("LM Studio model list unavailable at %s (%s)", root, e)
+        return {}
+    skip = {_resolve_key(catalog, m) for m in exclude} - {None}
+    out: dict[str, int] = {}
+    for entry in catalog:
+        key = entry.get("key", "")
+        instances = entry.get("loaded_instances") or []
+        if (not key or key in skip or not instances
+                or entry.get("type", "llm") != "llm"):
+            continue
+        out[key] = max((_instance_ctx(i) for i in instances), default=0)
+    return out

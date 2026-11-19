@@ -54,6 +54,16 @@ def fresh_park_gate():
 
 
 @pytest.fixture(autouse=True)
+def no_lmstudio_neighbours(monkeypatch):
+    """The VRAM parker asks LM Studio what else is loaded on the card
+    (world/vram._lmstudio_neighbours). Offline (SPEC §27), the answer is
+    "nothing" — a developer's running LM Studio must not decide whether a test
+    parks. Tests about neighbours inject `LLMParker(neighbours=…)`."""
+    monkeypatch.setattr("yurios.world.vram._lmstudio_neighbours",
+                        lambda cfg, exclude: {})
+
+
+@pytest.fixture(autouse=True)
 def installation_elsewhere(_empty_installation, monkeypatch):
     """Keep the CLI's idea of "the installation" off this machine's real one.
 

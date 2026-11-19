@@ -1266,6 +1266,18 @@ to every new subscriber before its first live event. Malformed JSON is logged an
   process, of which the one call returned 13 GB. The rule is not the camera's alone: the voice
   stack's empty-room unload and the GGUF park drop weights the same way and **MUST** end with the
   same call.
+
+  The LLM park (`world/vram.LLMParker`) lends the card's chat models, not the rendering
+  character's. When it parks it **MUST** evict every LLM the LM Studio server has loaded — hers
+  and any other character's, or anything else loaded there (`lmstudio.loaded_llms`) — and **MUST**
+  give each back afterwards: hers as she is pinned at boot, anyone else's in the context window it
+  was loaded in, never in hers. Embedding models stay. A character whose brain is hosted is not
+  thereby exempt: observed as an OpenRouter character's selfie dying of OOM beside a neighbour's
+  LM Studio model, while the neighbour's own selfie parked that model and rendered. For the same
+  reason the park's quiet wait **MUST** count every character's live turns, not only the
+  renderer's — each turn is entered on the process-wide `ParkGate` after its `wait()` — so the
+  model is never pulled out from under a neighbour's reply. Asking the server what is loaded is an
+  HTTP call and **MUST** stay off the event loop.
 - §7.7 **The web: `web_search` / `read_page` / `research`, and what she reads she keeps.** The
   three hands arrive together or not at all — searching with no way to open what you found is half
   a capability — behind one `SEARCH_BACKEND` knob whose default is `off`.

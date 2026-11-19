@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import httpx
 
-from yurios.app.providers.lmstudio import evict
+from yurios.app.providers.lmstudio import evict, loaded_llms
 
 BASE = "http://localhost:1234/v1"
 
@@ -91,3 +91,31 @@ def test_a_failed_unload_is_logged_and_the_rest_carry_on(caplog):
                     transport=httpx.MockTransport(handler))
     assert out == []
     assert any("would not unload" in r.message for r in caplog.records)
+
+
+# ---- loaded_llms(): the parker's view of the whole server ----
+
+def test_loaded_llms_lists_every_loaded_chat_model_with_its_window():
+    catalog = [dict(m) for m in CATALOG["models"]]
+    catalog[0] = {**catalog[0], "loaded_instances": [
+        {"id": "a", "config": {"context_length": 8192}},
+        {"id": "b", "config": {"context_length": 16384}}]}
+    catalog.append({"key": "qwen3-8b", "type": "llm",
+                    "loaded_instances": [{"id": "q"}]})
+    out = loaded_llms(BASE, transport=server(catalog, []))
+    # embedders and unloaded models are not in a render's way
+    assert out == {"gemma-4-e4b-uncensored-hauhaucs-aggressive": 16384,
+                   "qwen3-8b": 0}
+
+
+def test_loaded_llms_leaves_out_her_own_by_configured_id():
+    out = loaded_llms(BASE, exclude=["HauhauCS/Gemma-4-E4B-Uncensored-HauhauCS-Aggressive"],
+                      transport=server(CATALOG["models"], []))
+    assert out == {}
+
+
+def test_loaded_llms_on_an_unreachable_server_is_nobody():
+    def boom(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("connection refused", request=request)
+
+    assert loaded_llms(BASE, transport=httpx.MockTransport(boom)) == {}

@@ -594,6 +594,14 @@ def _long_document() -> str:
         for i in range(1, 207))
 
 
+def test_remaining_names_a_single_line_left_as_one_line():
+    from yurios.world.tools.server import _note_page
+    assert _note_page("n.md", "a\nb\n", 1, 3)["remaining"].startswith(
+        "line 3 comes after this page")
+    assert _note_page("n.md", "a\n", 1, 3)["remaining"].startswith(
+        "lines 2–3 come after this page")
+
+
 async def test_a_long_note_reads_through_by_next_start_line(tmp_path):
     from yurios.mind.hands import bounded
     from yurios.world.tools.guard import RESULT_LIMITS
@@ -617,6 +625,10 @@ async def test_a_long_note_reads_through_by_next_start_line(tmp_path):
     assert len(pages) > 1
     assert pages[0]["truncated"] is True
     assert pages[-1]["truncated"] is False and pages[-1]["end_line"] == 206
+    # the same in words: a page that stops short says it is not the end
+    assert pages[0]["remaining"].startswith(f"lines {pages[0]['end_line'] + 1}–206 ")
+    assert "not where the note ends" in pages[0]["remaining"]
+    assert pages[-1]["remaining"] == "none — line 206 is the note's last line"
     assert "".join(p["text"] for p in pages) == doc
     assert (tmp_path / "workspace" / "inbox" / "archive.md").read_text() == doc
 

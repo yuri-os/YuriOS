@@ -94,7 +94,8 @@ is not on the desk says so rather than looking empty. It lists `workspace/` only
 memory is `memory/semantic/facts.md`, written by the night, not a desk folder.
 `read_note` returns one page — whole lines, up to 4,000 characters of them — with where it is
 first: `start_line`, `end_line`, `line_count`, and `next_start_line`, the line to read on from
-(null at the end). Reading a long note is reading again from `next_start_line`. Notes are scratch space, so they are not
+(null at the end), and `remaining`, which says the same in words ("lines 211–213 come after this
+page — it is not where the note ends"). Reading a long note is reading again from `next_start_line`. Notes are scratch space, so they are not
 versioned in the Vault.
 
 Skills live in `vault/skills/`. `read_skill` loads the instructions for one named skill, whole up to about 8,000 characters;

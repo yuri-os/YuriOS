@@ -4024,7 +4024,9 @@ the things she *is* and the wrong shape for the things she is *doing*.
   bound on the wire. Where she is **MUST** come before the text (`start_line`, `end_line`,
   `line_count`, `next_start_line`, `truncated`), and `next_start_line` **MUST** name the line the
   note goes on from, or be null at its end, so reading the rest is one more call and never an
-  edit. A single line longer than a page comes back as its start, with a `note` saying so.
+  edit. `remaining` **MUST** say the same in words — which lines come after the page, or that
+  the page holds the note's last line — because a number alone let her quote line 209 of 213 as
+  how a note ends. A single line longer than a page comes back as its start, with a `note` saying so.
   Both the conversational and autonomous descriptions of `read_note` **MUST** direct her to
   `list_notes` with the relevant folder before reading a guessed path when that hand is offered;
   a known path may be read directly. A missing file **MUST** remain an error, never an empty

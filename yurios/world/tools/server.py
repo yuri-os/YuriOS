@@ -145,12 +145,23 @@ def _note_page(path: str, text: str, first: int, count: int) -> dict:
     note goes on. Live, the page arrived cut inside its text with `end_line`
     after the cut, and with no line to read on from she deleted what she had
     read so the next read would start further in: 150 of an inbox document's
-    206 lines, gone over two ticks (SPEC §34.2)."""
+    206 lines, gone over two ticks (SPEC §34.2).
+
+    `remaining` says the same thing in words. A number alone was not enough:
+    asked how a 213-line note ends, she read to line 210, quoted line 209 as
+    its last, and never took the three lines `next_start_line` pointed at."""
     def page(shown: str, lines: int, partial: bool) -> dict:
         end = first + lines - 1 if lines else 0
+        more = bool(lines) and end < count
         body: dict = {"path": path, "start_line": first, "end_line": end,
                       "line_count": count,
-                      "next_start_line": end + 1 if lines and end < count else None,
+                      "next_start_line": end + 1 if more else None,
+                      "remaining": (
+                          (f"line {count} comes after" if end + 1 == count
+                           else f"lines {end + 1}–{count} come after")
+                          + " this page — it is not where the note ends" if more
+                          else f"none — line {count} is the note's last line"
+                          if lines else "none"),
                       "truncated": len(shown) < len(text)}
         if partial:
             body["note"] = (f"line {first} is longer than one read; this is "

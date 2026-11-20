@@ -578,3 +578,21 @@ async def test_finished_runs_are_kept_for_the_panel_but_not_forever(clock):
         r.start({**CONTRACT, "id": f"r{i}"})
         await drain(r)
     assert len(r.runs()) == Researcher.KEEP_RUNS
+
+
+async def test_task_completion_says_whether_it_was_told_and_what_was_found(clock):
+    """The mind owes a telling only when no voice took the cue (SPEC §7.7), and
+    it can only tell what it is handed: the opening of each page read."""
+    signals = []
+    r, _post, speak = make(clock, shelf=FakeShelf())
+    r.signal = lambda kind, payload, **kw: signals.append((kind, payload))
+
+    await r._job(dict(CONTRACT))
+    kind, done = signals[-1]
+    assert kind == "task_completion" and done["announced"] is False
+    assert done["found"] and all(f["url"] and f["title"] for f in done["found"])
+    assert all(len(f["excerpt"]) <= 702 for f in done["found"])
+
+    speak.connected = True
+    await r._job(dict(CONTRACT, id="r2"))
+    assert signals[-1][1]["announced"] is True

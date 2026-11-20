@@ -55,6 +55,36 @@ LATE_ANNOUNCE_CUE = (
     "it, without making a production of the apology — one short spoken "
     f"line, nothing else. {OWN_VOICE}))")
 
+#: A reading somebody asked for in the chat, finished with nobody to speak it
+#: to (§7.7). The run already posted its links; this is the telling — what the
+#: pages say, in her words. The excerpts ride in the cue because a compose has
+#: no shelf retrieval of its own; `read_page` is still in her hands.
+RESEARCH_TELL_CUE = (
+    "((Your reading on “{topic}” is done — {user} asked you to look into it, "
+    "and the links are already in the chat. What the pages say:\n{found}\n"
+    "Tell {user} what you found: the answer first, in your own words, two to "
+    "four sentences, and say plainly what the pages don't settle. No links, no "
+    f"list. {OWN_VOICE}))")
+
+
+def research_to_tell(payload: dict) -> bool:
+    """A finished `research` from the conversation that no voice has told yet.
+
+    A goal's own run comes back to the goal (`goal_id`), and a run whose product
+    lands in the Vault is Gate 2's to mention; neither is owed a telling here."""
+    return (payload.get("kind") == "research" and payload.get("deliver") == "chat"
+            and not payload.get("goal_id") and not payload.get("announced")
+            and int(payload.get("pages") or 0) > 0)
+
+
+def research_tell_cue(item: dict, user: str) -> str:
+    found = "\n".join(
+        f"- {f.get('title') or f.get('url')}: {f.get('excerpt') or '(no text came back)'}"
+        for f in item.get("found") or []) or "- (the pages came back without text)"
+    topic = str(item.get("task") or "").removeprefix("reading up on ").strip() or "it"
+    return RESEARCH_TELL_CUE.format(topic=trim(topic, 160), user=user, found=found)
+
+
 #: Under this a timer is simply "finished": the poll runs a minute apart and
 #: the announcement may queue a while for somebody to tell, so a small gap is
 #: the ordinary path and not a lateness worth narrating.
@@ -328,6 +358,8 @@ async def announce(loop) -> tuple[dict, dict, list[str]]:
     instead of the tick re-queuing it until someone walks in.
     """
     t = loop._pending_announce[0]
+    if t.get("kind") == "research":
+        return await _tell_research(loop, t)
     loop.controller.set_expression("surprised", 0.6, reset_ms=4000)
     late = float(t.get("late_s") or 0.0)
     if late >= LATE_ANNOUNCE_AFTER_S:
@@ -360,6 +392,28 @@ async def announce(loop) -> tuple[dict, dict, list[str]]:
              "result": "announced the timer (unheard)" if unheard
                        else "announced the timer"}, {},
             [f"told them the “{t.get('label')}” timer finished"])
+
+
+async def _tell_research(loop, item: dict) -> tuple[dict, dict, list[str]]:
+    """What a reading found, told — the same delivery as a timer (§7.5, §7.7):
+    spoken if a voice is free, else composed and posted, `unheard` in an empty
+    house so the inbox and the doorbell carry it."""
+    cue = research_tell_cue(item, loop.cfg.user_name)
+    topic = str(item.get("task") or "the reading").removeprefix("reading up on ")
+    with correlate.scope(kind=correlate.AMBIENT):
+        spoken = await loop.speak(cue)
+    unheard = False
+    if not spoken:
+        text = await loop._compose(cue)
+        if not text:
+            return ({"what": "speak", "result": "research telling queued (no line composed)"},
+                    {}, [])
+        unheard = not loop.hub.viewers
+        loop.post_message("assistant", text, proactive=True, unheard=unheard)
+    loop._pending_announce.pop(0)
+    return ({"what": "speak",
+             "result": "told them what the reading found" + (" (unheard)" if unheard else "")},
+            {}, [f"told them what I found reading up on {trim(topic, 120)}"])
 
 
 def _complete_timer_promises(loop, timer: dict) -> None:

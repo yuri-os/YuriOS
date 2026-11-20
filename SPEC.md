@@ -1347,6 +1347,14 @@ to every new subscriber before its first live event. Malformed JSON is logged an
   won't open **MUST** be skipped rather than failing the run, and a run where nothing opens **MUST**
   still end in words.
 
+  A conversational run (no `goal_id`, not Vault-bound) is a promise to say what came of it, and the
+  posted link list is not that telling. Its `task_completion` **MUST** carry `announced` (whether a
+  voice took the spoken line) and `found`, which holds the title, URL and opening excerpt of up to
+  four pages read. When `announced` is false, the mind **MUST** queue the telling as it queues a
+  landed timer (§7.5): spoken if a voice is free, otherwise composed from `found` and posted
+  `proactive`, stamped `unheard` in an empty house. A telling **MUST NOT** be owed twice: not for
+  a spoken run, a goal's own run, or a Vault-bound one.
+
   Before ingesting each fetched page, `research` **MUST** reserve its estimated model calls
   against the per-run `RESEARCH_MAX_CALLS` ceiling (default 100). Concurrent fetches **MUST NOT**
   admit pages whose combined estimates exceed that ceiling. A page that cannot be priced or would

@@ -52,6 +52,24 @@ HELD_BECAUSE = {
 }
 
 
+#: How much of each page the mind is handed for the telling (§7.7): enough to
+#: say what the reading found, small enough that a signal stays a signal.
+FOUND_PAGES = 4
+FOUND_CHARS = 700
+
+
+def found_excerpts(pages: list[dict]) -> list[dict]:
+    """Title, url and the opening of each page read — what the telling rests on."""
+    out = []
+    for p in pages[:FOUND_PAGES]:
+        text = " ".join(str(p.get("text") or "").split())
+        if len(text) > FOUND_CHARS:
+            text = text[:FOUND_CHARS].rsplit(" ", 1)[0] + " …"
+        out.append({"title": str(p.get("title") or p.get("url") or ""),
+                    "url": str(p.get("url") or ""), "excerpt": text})
+    return out
+
+
 def _to_vault(contract: dict) -> bool:
     """Does this run's product land in the Vault rather than in the chat?
 
@@ -470,19 +488,26 @@ class Researcher:
                              f"{HELD_BECAUSE[why].format(it=it)})")
         self._say(c, "\n".join(lines))
         self._status(c, "done")
+
+        # A product she went and got for herself is not a delivery (§18, the
+        # landing rule): the shelf has it, `task_completion` says so, and
+        # whether the user hears about it is Gate 2's call on a later tick.
+        spoken = False
+        if not _to_vault(c):
+            try:
+                spoken = bool(await self.speak(
+                    ANNOUNCE_CUE.format(topic=topic, count=len(pages))))
+            except Exception:
+                log.exception("research announce failed")
+        # `announced` and `found` are for the mind (§7.7): a run somebody asked
+        # for in the chat is a promise to say what came of it. The link list
+        # above is not that, so when no voice took the cue the loop composes
+        # the telling itself, from what the pages say (`found`).
         self._completed(c, {"pages": len(pages), "shelved": kept,
                             "held": sum(held.values()),
-                            "docs": [p.get("doc") for p in pages if p.get("doc")]})
-
-        if _to_vault(c):
-            # A product she went and got for herself is not a delivery (§18, the
-            # landing rule): the shelf has it, `task_completion` says so, and
-            # whether the user hears about it is Gate 2's call on a later tick.
-            return
-        try:
-            await self.speak(ANNOUNCE_CUE.format(topic=topic, count=len(pages)))
-        except Exception:
-            log.exception("research announce failed")
+                            "docs": [p.get("doc") for p in pages if p.get("doc")],
+                            "announced": spoken,
+                            "found": found_excerpts(pages)})
 
     def _say(self, c: dict, text: str) -> None:
         """One message into the chat the run came from. Mirrors the selfie

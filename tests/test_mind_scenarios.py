@@ -320,3 +320,62 @@ async def test_a_timer_delivered_before_review_still_closes_the_late_goal(
     goal = rig.mind.goals.all()[0]
     assert goal.state == "done"
     assert goal.meta["timer_id"] == "t-fast"
+
+
+# --- a reading asked for in the chat is a promise to say what came of it ---------
+
+def _research_done(rig, **extra):
+    payload = {"task": "reading up on silksong dlc", "kind": "research",
+               "id": "r1", "goal_id": None, "deliver": "chat", "pages": 2,
+               "shelved": 2, "held": 0, "docs": ["web-a.md", "web-b.md"],
+               "announced": False,
+               "found": [{"title": "Silksong DLC is officially coming",
+                          "url": "https://example.com/a",
+                          "excerpt": "Team Cherry confirmed Sea of Sorrow for 2027."}]}
+    payload.update(extra)
+    rig.mind.bus.post("task_completion", payload, source="research")
+
+
+async def test_finished_research_is_told_in_chat_when_nobody_could_hear_it(
+        cfg, seeded_vault):
+    """"Let me know when you find out": the run posts its links, but the
+    telling is what was promised (SPEC §7.7). With no voice it is composed from
+    what the pages said and lands unheard, like a timer (§7.5)."""
+    rig = make_mind(cfg, seeded_vault)
+    rig.speak.connected = False
+    _research_done(rig)
+    await rig.mind.tick()            # the first tick journals "task done"…
+    rig.clock.advance(max(rig.mind.cadence(), 1.0))
+    await rig.mind.tick()            # …and the next one tells it
+    assert not rig.mind._pending_announce, "the telling was delivered"
+    posted = rig.post.proactive()
+    assert posted and posted[-1].get("unheard") is True
+    cue = rig.chat.calls[-1][-1]["content"]
+    assert "Sea of Sorrow" in cue and "silksong dlc" in cue, \
+        "the compose is handed what the pages say"
+
+
+async def test_finished_research_is_spoken_when_a_voice_is_free(cfg, seeded_vault):
+    rig = make_mind(cfg, seeded_vault)
+    rig.speak.connected = True
+    _research_done(rig)
+    for _ in range(2):
+        await rig.mind.tick()
+        rig.clock.advance(max(rig.mind.cadence(), 1.0))
+    said = [c["cue"] for c in rig.speak.calls if c["delivered"]]
+    assert said and "Sea of Sorrow" in said[0]
+    assert not rig.post.proactive(), "spoken, so not posted a second time"
+
+
+async def test_research_already_told_or_owned_by_a_goal_is_not_told_again(
+        cfg, seeded_vault):
+    rig = make_mind(cfg, seeded_vault)
+    rig.speak.connected = False
+    _research_done(rig, announced=True)               # a voice took the cue
+    _research_done(rig, id="r2", goal_id="g-1")       # the goal reads its own
+    _research_done(rig, id="r3", deliver="vault")     # Gate 2's to mention
+    for _ in range(2):
+        await rig.mind.tick()
+        rig.clock.advance(max(rig.mind.cadence(), 1.0))
+    assert not rig.mind._pending_announce
+    assert not rig.post.proactive()

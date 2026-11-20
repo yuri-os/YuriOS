@@ -583,6 +583,10 @@ class MindLoop:
                 note = acts.land_dispatched(self, sig)
                 if note:
                     reflect_notes.append(note)
+                # A reading asked for in the chat that no voice told: owed the
+                # telling, delivered like a landed timer (§7.7, §7.5).
+                if acts.research_to_tell(sig.payload):
+                    self._pending_announce.append({"kind": "research", **sig.payload})
                 actionable.append(sig)
             elif sig.type in ("user_present", "user_absent"):
                 pass                           # observed above; greeting is the
@@ -608,8 +612,11 @@ class MindLoop:
         appraisals: list[Appraisal] = [
             appraise_signal(s, surprise=surprise) for s in actionable]
         if self._pending_announce and not self._engaged_now():
-            appraisals.append(Appraisal("announce", "impulse", 0.9,
-                                        "a timer landed — a promise due"))
+            appraisals.append(Appraisal(
+                "announce", "impulse", 0.9,
+                "a reading they asked for is done — they're owed what it found"
+                if self._pending_announce[0].get("kind") == "research"
+                else "a timer landed — a promise due"))
         eligible_reviews = acts.eligible_promise_reviews(self)
         if eligible_reviews and acts.promise_review_available(self):
             appraisals.append(Appraisal(

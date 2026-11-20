@@ -324,6 +324,18 @@ async def test_set_timer_default_label_and_bounds():
             assert r.isError                        # bounds enforced server-side
 
 
+async def test_a_timer_too_long_says_what_to_do_instead():
+    """Live, a 3-day "water the basil" timer was refused with the bound alone,
+    twice, and she worked round it with a daily "basil tick" timer."""
+    for goals, instead in ((True, "create_goal"), (False, "cannot hold it")):
+        srv = build_server(max_minutes=1440, goals=goals)
+        async with create_connected_server_and_client_session(srv._mcp_server) as s:
+            r = await s.call_tool("set_timer", {"minutes": 4320, "label": "basil"})
+            assert r.isError
+            said = result_text(r)
+            assert "1440 minutes (24 hours)" in said and instead in said, said
+
+
 async def test_there_is_no_music_hand():
     """play_music was removed: the room's ambience is not hers to drive."""
     async with create_connected_server_and_client_session(server()._mcp_server) as s:
@@ -471,6 +483,19 @@ async def test_read_note_teaches_discovery_and_keeps_missing_files_as_errors(tmp
         assert result.isError
         assert "nothing on your desk" in result_text(result)
     assert not (tmp_path / "workspace" / "diary" / "2026-11-13.md").exists()
+
+
+async def test_read_note_from_line_zero_reads_from_the_start(tmp_path):
+    """`end_line` 0 means "the rest", so a 0 start is the same guess about the
+    other end — refused live, it cost a call in the middle of a chat turn."""
+    async with create_connected_server_and_client_session(
+            desk_server(tmp_path)._mcp_server) as s:
+        await s.call_tool("write_note", {"path": "notes/a.md", "text": "one\ntwo\n"})
+        page = json.loads(result_text(await s.call_tool(
+            "read_note", {"path": "notes/a.md", "start_line": 0, "end_line": 0})))
+        assert page["start_line"] == 1 and page["text"] == "one\ntwo\n"
+        assert (await s.call_tool(
+            "read_note", {"path": "notes/a.md", "start_line": -1})).isError
 
 
 async def test_list_notes_says_when_the_folder_is_not_on_the_desk(tmp_path):
@@ -816,6 +841,17 @@ async def test_read_note_opens_her_soul_files_read_only(tmp_path, monkeypatch):
             "read_note", {"path": "soul/CONSTITUTION.md"}))
         bad = await s.call_tool("read_note", {"path": "soul/soul.yaml"})
         assert bad.isError and "soul/PERSONA.md" in result_text(bad)
+        # a soul file looked for on the desk is pointed home: live she tried
+        # both of these, and `list_notes` — the old pointer — never lists it
+        for guess in ("notes/PERSONA.md", "PERSONA.md"):
+            miss = await s.call_tool("read_note", {"path": guess})
+            assert miss.isError and 'did you mean "soul/PERSONA.md"' in result_text(miss)
+        other = await s.call_tool("read_note", {"path": "notes/basil.md"})
+        assert "did you mean" not in result_text(other)
+        assert "`list_notes` shows what is there" in result_text(other)
+        page = json.loads(result_text(await s.call_tool(
+            "read_note", {"path": "soul/PERSONA.md", "start_line": 0})))
+        assert page["start_line"] == 1
         assert (await s.call_tool("read_note", {"path": "soul/../../etc/passwd"})).isError
         # …and the desk will not take the path at all: a note written there
         # used to "succeed", and reading it back handed her the soul file

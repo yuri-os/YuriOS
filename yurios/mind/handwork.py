@@ -163,9 +163,11 @@ EARLIER_CHARS = 300
 #: `read_note` page kept its JSON head and lost its text — "…prinsessa.com w…"
 #: — and a step reading a note in order to edit it read 171–204, then
 #: 205–213, then 171–204 again and 205–213 again, each read hiding the one
-#: before it, until its four hands were spent. Both are already bounded by
-#: the guard (`RESULT_LIMITS`), so a step holds at most a few pages.
-KEPT_WHOLE = ("read_note", "read_skill")
+#: before it, until its four hands were spent. A listing cut the same way
+#: sent her back to `list_notes` for the desk she had just been shown. All
+#: three are already bounded by the guard (`RESULT_LIMITS`), so a step holds
+#: at most a few pages.
+KEPT_WHOLE = ("read_note", "read_skill", "list_notes")
 
 #: What a later round is told above the step's own instructions. The name
 #: sentence goes in front when her card is on; `off` sends this alone.

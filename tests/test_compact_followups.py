@@ -115,7 +115,7 @@ def test_an_earlier_read_goes_back_whole():
     body = out[1]["content"]
     earlier = body.split("WHAT YOU HAVE ALREADY DONE IN THIS STEP", 1)[1] \
                   .split("WHAT YOU JUST SAID", 1)[0]
-    assert set(KEPT_WHOLE) == {"read_note", "read_skill"}
+    assert set(KEPT_WHOLE) == {"read_note", "read_skill", "list_notes"}
     # The first page and the skill are there in full, not cut to their heads…
     assert earlier.count("HEADWORD") == 400
     assert "k" * 3000 in earlier
@@ -230,15 +230,36 @@ async def test_a_goal_step_can_still_finish_after_a_hand(tmp_path, cfg):
         f"think it's written — {MindLoop.DONE_MARK}",
         allow="read_note", companion_name="Yuri")
     goal = rig.mind.goals.add("tidy the shed notes", kind="task", priority=0.95)
+    # the anchor as the step saw it: its desk file is written when it ends
+    held = goalwork.anchor(rig.mind, goal)
     await work(rig)
     utility = rig.mind.brain.state.utility
     second = utility.calls[-1]
     assert rig.mind.DONE_MARK in second[0]["content"]
     assert "VOICE LAW" not in second[0]["content"]
     body = second[1]["content"]
-    assert body.startswith(goalwork.anchor(rig.mind, rig.mind.goals.get(goal.id)))
+    assert body.startswith(held)
     assert "THE SITUATION RIGHT NOW" not in body
     assert rig.mind.goals.get(goal.id).state == "done"
+
+
+async def test_a_first_steps_later_rounds_are_told_its_desk_file_is_not_there(tmp_path, cfg):
+    """Named bare in the anchor, a first step's later rounds read the desk file
+    the opening had said did not exist yet: 14 such errors in one log."""
+    vault = _write_card(tmp_path / "yuri", "yuri")
+    rig = rig_with_hands(
+        cfg, vault, 'think look first\nuse list_notes {"folder": "notes"}',
+        "think nothing there yet", allow="list_notes", companion_name="Yuri")
+    goal = rig.mind.goals.add("sort the shed notes", kind="task", priority=0.95)
+    held = goalwork.anchor(rig.mind, goal)
+    assert f"{goalwork.desk_path(rig.mind, goal)} — no progress file exists yet; " \
+           "do not read it" in held
+    await work(rig)
+    second = rig.mind.brain.state.utility.calls[-1][1]["content"]
+    assert "no progress file exists yet; do not read it" in second
+    # once a step has concluded the file is there, and the anchor says so
+    assert f"{goalwork.desk_path(rig.mind, goal)} — exists" in goalwork.anchor(
+        rig.mind, rig.mind.goals.get(goal.id))
 
 
 async def test_a_night_job_keeps_its_output_format_and_its_input(tmp_path, cfg):

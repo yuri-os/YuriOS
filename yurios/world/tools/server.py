@@ -297,6 +297,17 @@ def build_server(*, max_minutes: float | None = None,
         "those only when this successful call satisfies the entire goal."))
     def set_timer(minutes: float, label: str = "", goal_id: str = "",
                   completes_goal: bool = False) -> dict:
+        if minutes > max_minutes > 0:
+            # Live, a 3-day "water the basil" timer was refused with the bound
+            # alone, twice, and she worked round it with a daily "basil tick".
+            # A refusal says what to do instead.
+            further = ("file it with `create_goal` (kind `reach_out`) and say "
+                       "when in its text" if goals else
+                       "a timer cannot hold it")
+            raise ValueError(
+                f"a timer runs at most {max_minutes:g} minutes "
+                f"({max_minutes / 60:g} hours) — for a reminder further off, "
+                f"{further}")
         if not (0 < minutes <= max_minutes):
             raise ValueError(f"minutes must be in (0, {max_minutes:g}]")
         if completes_goal and not goal_id.strip():
@@ -611,6 +622,10 @@ def build_server(*, max_minutes: float | None = None,
             read-only: "soul/PERSONA.md" and the rest — read one before
             `propose_edit` so you change what is really there. When the desk
             is off, only soul files are available."""
+            # "0 for the rest" is how `end_line` reads, so a 0 start is the
+            # same guess about the other end: the first line (SPEC §34.2).
+            if start_line == 0:
+                start_line = 1
             soul = _soul_lines(path, start_line, end_line)
             if soul is not None:
                 return _note_page(path, *soul)
@@ -620,12 +635,21 @@ def build_server(*, max_minutes: float | None = None,
                 text, first, _last, count = workspace.read_lines(
                     path, start_line=start_line, end_line=end_line)
             except FileNotFoundError:
-                raise ValueError(
-                    f"nothing on your desk at {path} — `list_notes` shows what "
-                    "is there") from None
+                raise ValueError(f"nothing on your desk at {path} — "
+                                 + _elsewhere(path)) from None
             except (OutsideTheDesk, ValueError) as e:
                 raise _refusal(e) from None
             return _note_page(path, text, first, count)
+
+        def _elsewhere(path: str) -> str:
+            """Where a missing note might be instead. `notes/PERSONA.md` and
+            a bare `PERSONA.md` were both tried live for `soul/PERSONA.md`,
+            and the answer pointed only at `list_notes`, which never lists
+            soul files."""
+            name = (path or "").replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
+            if name in soul_readable and vault_dir is not None:
+                return f'did you mean "soul/{name}"? Your soul files read there'
+            return "`list_notes` shows what is there"
 
     if workspace is not None:
 

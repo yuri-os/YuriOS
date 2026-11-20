@@ -1080,7 +1080,9 @@ to every new subscriber before its first live event. Malformed JSON is logged an
   cue that points at something she would need a hand to see is how DeepSeek's own call markup
   became a message on 24 Sep (§18.3).
 - §7.5 **Semantics.** The MCP server is the *contract and audit point* for `set_timer` — it
-  validates and records — but the **host** schedules the wake (`yurios/world/tools/timers.py`,
+  validates and records, and a request past `TIMER_MAX_MINUTES` **MUST** be refused with what
+  to do instead (a `reach_out` goal, when `create_goal` is offered), since the bound alone sent a
+  3-day reminder round a daily workaround timer — but the **host** schedules the wake (`yurios/world/tools/timers.py`,
   on the injected clock), because only the host owns her voice; when a timer elapses she
   **MUST** announce it through the ambient seam (§9), queued until deliverable.
   A timer is a promise, so it **MUST** outlive the process: the board is written to
@@ -3028,12 +3030,14 @@ optional due time, **provenance**, and a **commitment strategy**; lifecycle
   carries what the step is about — the goal, the exchange that made it and her plan for a goal
   step; the document for a handed one; a night job's whole input; otherwise the head of the step,
   bounded — every earlier hand of the step with its result cut short, her previous answer, and the
-  newest result whole, including how many hands she has left. An earlier `read_note` or
-  `read_skill` result **MUST** go back whole all the same (it is already bounded by the guard,
+  newest result whole, including how many hands she has left. An earlier `read_note`,
+  `read_skill` or `list_notes` result **MUST** go back whole all the same (it is already bounded by the guard,
   §7.3): what she read is what the rest of the step is written from, and a page cut to its header
   is a page she reads again. On 21 Nov a step reading a note in order to edit it read lines 171–204,
   then 205–213, then both again — each read pushing the one before it into the cut — and spent all
-  four hands that way. `false` resends the whole step and
+  four hands that way. A goal step's anchor **MUST** carry whether its desk file exists yet, as
+  the opening does (§22.3): named bare, a first step's later rounds read the file the opening had
+  told her was not there. `false` resends the whole step and
   fuses the preamble again on every round. **Including what the goal was about**: a promise is scanned as the predicate
   after "I'll", so the subject stays behind in their sentence, and a step handed "find out which one
   is faster" alone invents a subject for it with total confidence. A goal filed from an exchange
@@ -4072,7 +4076,10 @@ the things she *is* and the wrong shape for the things she is *doing*.
   Both the conversational and autonomous descriptions of `read_note` **MUST** direct her to
   `list_notes` with the relevant folder before reading a guessed path when that hand is offered;
   a known path may be read directly. A missing file **MUST** remain an error, never an empty
-  successful read.
+  successful read — and when the missing path's file name is one of her readable soul files
+  (`notes/PERSONA.md`, a bare `PERSONA.md`), the error **MUST** name `soul/<name>`, because
+  `list_notes`, the usual pointer, never lists soul files. A `start_line` of 0 reads from line 1:
+  `end_line`'s 0 means "the rest", and refusing the same guess at the other end cost a call.
 
   The tool server is a separate process writing straight to disk, so a desk write **MUST** be
   reported back to the host (`_realise` → `MindLoop._desk_written`), which marks the Vault dirty

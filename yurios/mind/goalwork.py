@@ -57,6 +57,22 @@ def desk_path(loop, goal: Goal) -> str:
     return loop.GOAL_DESK.format(id=goal.id)
 
 
+def desk_availability(loop, goal: Goal) -> str:
+    """Whether the goal's desk file is there to read yet (§22.3).
+
+    It is created by a step's conclusion, so a first step has none — and
+    must be told so on every round of that step, not only the first."""
+    if loop.workspace is None:
+        return "desk unavailable"
+    try:
+        return ("exists" if loop.workspace.exists(desk_path(loop, goal)) else
+                "no progress file exists yet; do not read it; "
+                "this step's conclusion will create it")
+    except OSError:
+        log.warning("goal desk availability check failed", exc_info=True)
+        return "availability could not be checked"
+
+
 def desk_read(loop, goal: Goal, *, limit: int = 3000) -> str:
     """What she has already worked out about this goal, newest at the end."""
     if loop.workspace is None:
@@ -254,9 +270,15 @@ def anchor(loop, goal: Goal) -> str:
     The goal, the exchange that made it and her plan for it: what the step is
     about. The situation, the desk, the facts and the recall are what the
     first call already looked at, and they are most of the cost.
+
+    The desk file goes with whether it exists yet. Named bare, a first step's
+    later rounds read a file the opening had told her was not there: 14
+    `nothing on your desk at goals/…` errors in one character's log, ten of
+    them after a first round, some twice in one step.
     """
     parts: list[str] = [f"THE GOAL\n\n{goal.text}",
-                        f"Its desk file: {desk_path(loop, goal)}"]
+                        f"Its desk file: {desk_path(loop, goal)} — "
+                        f"{desk_availability(loop, goal)}"]
     about = str(goal.meta.get("about") or "").strip()
     if about:
         parts.append(f"WHERE THIS CAME FROM\n\nThey said: “{about}”")
@@ -289,16 +311,7 @@ async def context(loop, goal: Goal) -> str:
     # the desk digest looked like it: live, 4 Oct, a skill goal's first step
     # read the finished diary goal's file as its own and appended to it twice.
     path = desk_path(loop, goal)
-    availability = "desk unavailable"
-    if loop.workspace is not None:
-        try:
-            availability = ("exists" if loop.workspace.exists(path) else
-                            "no progress file exists yet; do not read it; "
-                            "this step's conclusion will create it")
-        except OSError:
-            availability = "availability could not be checked"
-            log.warning("goal desk availability check failed", exc_info=True)
-    meta.append(f"its desk file: {path} — {availability}; what each step "
+    meta.append(f"its desk file: {path} — {desk_availability(loop, goal)}; what each step "
                 "works out is written there for you when the step ends, so you "
                 "never need to log your progress yourself; every other goals/… "
                 "file on your desk belongs to a different goal")

@@ -216,6 +216,15 @@ def file_promise_candidate(loop, candidate: PromiseCandidate, *,
             goal.id, state="done",
             meta={"completed_by": "timer_announcement",
                   "completion_id": str(timer["id"])})
+    elif timer and loop.timers.was_cancelled(str(timer["id"])):
+        # Cancelled before REFLECT got to it — the same turn, or the room's
+        # button while the review was running. Let go at once, and no "I took
+        # that on" journal line for a promise already withdrawn (§7.5).
+        loop.goals.update(
+            goal.id, state="abandoned",
+            meta={"completed_by": "timer_cancelled",
+                  "completion_id": str(timer["id"])})
+        return ""
     if goal.id in before:
         return ""
     return (f"I promised: {goal.text}" if goal_kind == "reach_out"

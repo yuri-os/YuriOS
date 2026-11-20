@@ -41,6 +41,13 @@ anywhere in that stretch kept it zero times. Now `poll` only marks it `landed`
 `ack` after delivery is what removes it. A boot restores it as already due, and
 the first poll lands it again. A crash between delivering and `ack` announces it
 twice, which is a small window and the better failure than never.
+
+**And a promise can be taken back.** `cancel` takes a still-running countdown
+off the board — from her `cancel_timer` hand (the host resolves which one with
+`match`, world/brain.py) or the room's button (`POST /api/timers/{id}/cancel`).
+A landed one is past cancelling: it already went off. The goal REFLECT may have
+filed for the same promise goes with it (`abandon_timer_goals`), or it would sit
+on her list owed by a countdown that no longer exists.
 """
 from __future__ import annotations
 
@@ -70,6 +77,28 @@ GITIGNORE = (
     "timers.json\n")
 
 
+def abandon_timer_goals(goals, timer_id: str) -> list:
+    """Let go of every open goal that mirrors this countdown (SPEC §7.5).
+
+    REFLECT files "say hi in five minutes" as a promise owned by the timer
+    (`meta.timer_id`), and only the board ever closes it — so a cancelled timer
+    must close it too, or the promise stays on her list owed forever by a
+    countdown that no longer exists. `goals` is the GoalStore, duck-typed so
+    this module stays below `yurios.mind`; None (no mind) closes nothing.
+    """
+    if goals is None or not timer_id:
+        return []
+    closed = []
+    for goal in goals.open_goals():
+        if str(goal.meta.get("timer_id") or "") != timer_id:
+            continue
+        closed.append(goals.update(
+            goal.id, state="abandoned",
+            meta={"completed_by": "timer_cancelled",
+                  "completion_id": timer_id}) or goal)
+    return closed
+
+
 @dataclass
 class Timer:
     id: str
@@ -91,6 +120,9 @@ class TimerBoard:
     due: asyncio.Queue = field(default_factory=asyncio.Queue)
     _wake: asyncio.Event = field(default_factory=asyncio.Event)
     on_change: Callable[[], None] | None = None
+    #: Ids taken off the board by `cancel`, newest last, bounded — the join
+    #: REFLECT reads so a mirrored promise is not filed for a timer already gone.
+    cancelled: list[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         self.vault = Path(self.vault) if self.vault else None
@@ -144,6 +176,50 @@ class TimerBoard:
                 self._save()
                 return True
         return False
+
+    def cancel(self, id: str) -> Timer | None:
+        """Take one countdown that is still running off the board (SPEC §7.5).
+
+        Only a pending one: a landed timer has already gone off and is on its
+        way to being said, so "cancel" is too late for it — the caller reports
+        that rather than silently swallowing an announcement in flight. The id
+        is remembered (`was_cancelled`), so a promise REFLECT files after the
+        turn that cancelled it is not filed as still owed.
+        """
+        for t in self._timers:
+            if not t.landed and t.id == id:
+                self._timers.remove(t)
+                self.cancelled.append(t.id)
+                del self.cancelled[:-100]
+                self._save()
+                self._wake.set()
+                self._changed()
+                return t
+        return None
+
+    def match(self, ref: str) -> list[Timer]:
+        """The running countdowns `ref` names, for a hand that speaks in words.
+
+        An exact id wins outright; then a label, case-folded — whole first, a
+        part of one only when no whole label matches. An empty `ref` names
+        every running timer, so "cancel it" with one running is unambiguous and
+        with two is a question back, never a guess.
+        """
+        pending = self.pending()
+        ref = " ".join((ref or "").split())
+        if not ref:
+            return pending
+        exact = [t for t in pending if t.id == ref]
+        if exact:
+            return exact
+        folded = ref.casefold().strip("\"'“”‘’")
+        whole = [t for t in pending if t.label.casefold() == folded]
+        if whole:
+            return whole
+        return [t for t in pending if folded and folded in t.label.casefold()]
+
+    def was_cancelled(self, id: str) -> bool:
+        return bool(id) and id in self.cancelled
 
     def _changed(self) -> None:
         if self.on_change is not None:

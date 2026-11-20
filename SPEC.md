@@ -900,6 +900,7 @@ to every new subscriber before its first live event. Malformed JSON is logged an
   | tool | args | returns | side effect |
   |---|---|---|---|
   | `set_timer` | `minutes` (0 < m ≤ `TIMER_MAX_MINUTES`), `label?` | `{id, label, seconds, due}` | host schedules the announcement (§7.5) |
+  | `cancel_timer` | `timer?` (a running timer's id or label; empty when exactly one is running) | validation contract, then `{status:"cancelled", id, label}` after host realisation | host takes the countdown off the board and lets go of any goal mirroring it (§7.5) |
   | `create_goal` | `text`, `kind?` (`task` or `reach_out`) | validation contract, then `{status, id, text, kind, state}` after host realisation | host adds or deduplicates an authoritative standing goal (§7.5, §22.1) |
   | `take_selfie` | `look?` (the whole picture in her own words), `scene?`, `framing?`, `lighting?`, `mood?`, `wardrobe?`, `avoid?` (template keys or free-form — carried verbatim, never refused; unnamed slots are left unnamed, never rolled) | `{id, look, scene, framing, lighting, mood, wardrobe, avoid, kind:"selfie", status:"started"}` | host renders off-turn, posts the photo (§7.6) |
   | `show_picture` | `subject` (required — the whole picture in her own words; no library, no slots), `avoid?` | `{id, subject, avoid, kind:"picture", status:"started"}` | host renders off-turn *without her likeness*, posts the picture (§7.6) |
@@ -1100,6 +1101,18 @@ to every new subscriber before its first live event. Malformed JSON is logged an
   route. Every add and landing **MUST** publish that complete snapshot as sticky `timers` state
   on the §10 bus, including the empty snapshot when the last countdown leaves the board; a room
   that opens late must not need to reconstruct promises from tool-call history.
+  A pending timer **MUST** be cancellable, both by her and from the room. `cancel_timer` is
+  advertised wherever `set_timer` is; the server only validates which one, and the host
+  resolves it against the board — an exact id, else a whole label, else part of one — and
+  **MUST** refuse, naming what is running, when that is not exactly one pending timer, so she
+  can neither claim a cancellation that did not happen nor pick one of two for herself.
+  `POST /api/timers/{id}/cancel` is the room's door, and the inner-life panel's timers list
+  **MUST** carry a cancel control on every row. Either door removes the timer from the board at
+  once (not on the next tick), saves the file and publishes the snapshot. A landed timer is
+  past cancelling: it has already gone off and its announcement is on its way. A goal mirroring
+  the cancelled timer (`meta.timer_id`) **MUST** be abandoned rather than left owed by a
+  countdown that no longer exists — directly from her hand, as a `goal_decision` from the
+  room's — and a promise REFLECT files after its timer was cancelled is filed abandoned.
   Deliverable is a voice injector **or** a chat viewer (a text room or the
   terminal, which do not open `/ws/voice` while muted). With no injector the
   announcement **MUST** land as a proactive chat line on the EventHub rather

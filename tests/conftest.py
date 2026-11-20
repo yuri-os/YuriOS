@@ -121,7 +121,8 @@ def cfg(tmp_path) -> Config:
 
 @pytest.fixture
 def guard(cfg, clock) -> Guard:
-    return Guard(rates_per_min={"set_timer": 6, "play_music": 6, "list_notes": 20},
+    return Guard(rates_per_min={"set_timer": 6, "cancel_timer": 6, "play_music": 6,
+                                "list_notes": 20},
                  log_dir=cfg.tool_log_dir, clock=clock)
 
 

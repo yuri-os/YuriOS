@@ -30,7 +30,7 @@ def test_absence_is_the_refusal_not_a_rate_of_zero():
     rates = runtime.tool_rates(conf(selfie_backend="off", search_backend="off",
                                     workspace_enabled=False, skills_enabled=False,
                                     mind_enabled=False))
-    assert set(rates) == {"set_timer"}
+    assert set(rates) == {"set_timer", "cancel_timer"}
     assert all(v > 0 for v in rates.values())
 
 

@@ -193,3 +193,68 @@ def test_no_vault_is_a_working_in_memory_board(clock):
     b = TimerBoard(clock)
     b.add(id="t1", label="tea", seconds=60)
     assert [t.id for t in b.pending()] == ["t1"] and b.path is None
+
+
+# ---- a promise can be taken back (§7.5) --------------------------------------
+
+from yurios.world.tools.timers import abandon_timer_goals          # noqa: E402
+
+
+def test_cancel_takes_a_running_timer_off_the_board_and_the_file(tmp_path, clock):
+    board = TimerBoard(clock, vault=tmp_path)
+    snapshots = []
+    board.on_change = lambda: snapshots.append(board.snapshot())
+    board.add(id="tea", label="tea", seconds=600)
+    board.add(id="oven", label="the oven", seconds=900)
+
+    cancelled = board.cancel("tea")
+
+    assert cancelled is not None and cancelled.label == "tea"
+    assert [t.id for t in board.pending()] == ["oven"]
+    assert snapshots[-1] == {"timers": [{"id": "oven", "label": "the oven",
+                                         "due": clock.now() + 900}]}
+    assert [t.id for t in TimerBoard(clock, vault=tmp_path).pending()] == ["oven"]
+    assert board.was_cancelled("tea") and not board.was_cancelled("oven")
+    clock.advance(600)
+    assert board.poll() == [], "a cancelled timer never goes off"
+
+
+def test_a_timer_that_already_went_off_is_past_cancelling(clock, timers):
+    timers.add(id="tea", label="tea", seconds=60)
+    clock.advance(60)
+    timers.poll()
+    assert timers.cancel("tea") is None
+    assert timers.cancel("nope") is None
+    assert not timers.due.empty(), "its announcement is still on its way"
+
+
+def test_match_resolves_an_id_a_label_or_the_only_one(clock, timers):
+    timers.add(id="a1", label="Tea", seconds=60)
+    assert [t.id for t in timers.match("")] == ["a1"]      # "cancel it", one running
+    timers.add(id="b2", label="the green tea", seconds=120)
+    timers.add(id="c3", label="the oven", seconds=180)
+
+    assert [t.id for t in timers.match("c3")] == ["c3"]
+    assert [t.id for t in timers.match(" tea ")] == ["a1"], "a whole label wins"
+    assert [t.id for t in timers.match("“oven”")] == ["c3"]
+    assert [t.id for t in timers.match("green")] == ["b2"]
+    assert len(timers.match("the")) == 2                    # ambiguous, never a guess
+    assert len(timers.match("")) == 3
+    assert timers.match("bath") == []
+
+
+def test_cancelling_a_timer_lets_go_of_the_promise_it_owned(tmp_path, clock):
+    from yurios.mind.goals import GoalStore
+    from yurios.mind.vaultio import MindVault
+    goals = GoalStore(MindVault(tmp_path / "vault"), clock)
+    owned = goals.add("say hi when the timer fires", kind="reach_out",
+                      meta={"timer_id": "t-hi"})
+    other = goals.add("finish the reading list")
+
+    closed = abandon_timer_goals(goals, "t-hi")
+
+    assert [g.id for g in closed] == [owned.id]
+    assert goals.get(owned.id).state == "abandoned"
+    assert goals.get(owned.id).meta["completed_by"] == "timer_cancelled"
+    assert goals.get(other.id).state == "pending"
+    assert abandon_timer_goals(None, "t-hi") == []

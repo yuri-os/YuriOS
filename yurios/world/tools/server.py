@@ -307,6 +307,20 @@ def build_server(*, max_minutes: float | None = None,
                 "goal_id": goal_id.strip() or None,
                 "completes_goal": bool(completes_goal)}
 
+    # The other half of the countdown (SPEC §7.5). This process never saw the
+    # board — the host owns it — so the contract is only "which one"; the host
+    # finds it, takes it off, and hands her back what it actually cancelled.
+    @mcp.tool(description=(
+        "Cancel a countdown timer that is still running, when the user asks to "
+        "stop, clear or cancel one. `timer` is its id or its label as shown in "
+        "\"Timers you have running\"; leave it empty when only one is running. "
+        "Never just say a timer is cancelled without calling this."))
+    def cancel_timer(timer: str = "") -> dict:
+        ref = " ".join((timer or "").split())
+        if len(ref) > 200:
+            raise ValueError("timer must be an id or a label, 200 characters or fewer")
+        return {"status": "ready", "timer": ref}
+
     if goals:
 
         @mcp.tool(description=(

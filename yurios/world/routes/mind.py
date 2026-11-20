@@ -87,6 +87,30 @@ async def timer_state(request: Request, response: Response) -> dict:
     return request.app.state.rt.timers.snapshot()
 
 
+@router.post("/api/timers/{timer_id}/cancel")
+async def cancel_timer(timer_id: str, request: Request) -> dict:
+    """Take one running countdown off her board, from the room (SPEC §7.5).
+
+    The board's own write, not a signal: a timer is the host's, not the mind's,
+    and it must stop *now* rather than on the next tick — a countdown left
+    running until a DORMANT tick comes round could go off in between. The
+    `timers` snapshot it publishes is what every open room redraws from. A goal
+    mirroring the promise is the mind's, so that half is a `goal_decision`
+    exactly as the goal's own "let go" button sends.
+    """
+    rt = request.app.state.rt
+    timer = rt.timers.cancel(timer_id)
+    if timer is None:
+        raise HTTPException(404, f"no running timer {timer_id}")
+    mind = getattr(rt, "mind", None)
+    if mind is not None:
+        for goal in mind.goals.open_goals():
+            if str(goal.meta.get("timer_id") or "") == timer.id:
+                rt.signals.post("goal_decision", {"id": goal.id, "abandon": True},
+                                source="user")
+    return {"cancelled": True, "id": timer.id, "label": timer.label}
+
+
 @router.get("/api/mind/workspace")
 async def workspace_list(request: Request) -> dict:
     """The file index for the user's editable desk."""

@@ -34,7 +34,7 @@ async def test_list_tools_is_exactly_the_hands_she_has():
     async with create_connected_server_and_client_session(server()._mcp_server) as s:
         listed = await s.list_tools()
         assert sorted(t.name for t in listed.tools) == [
-            "set_timer", "show_picture", "take_selfie"]
+            "cancel_timer", "set_timer", "show_picture", "take_selfie"]
         timer = next(t for t in listed.tools if t.name == "set_timer")
         assert "minutes" in timer.inputSchema["properties"]
         assert "minutes" in timer.inputSchema.get("required", [])
@@ -49,7 +49,7 @@ async def test_the_web_hands_appear_only_when_search_is_configured():
     async with create_connected_server_and_client_session(
             web_server()._mcp_server) as s:
         names = sorted(t.name for t in (await s.list_tools()).tools)
-    assert names == ["read_page", "research", "set_timer",
+    assert names == ["cancel_timer", "read_page", "research", "set_timer",
                      "show_picture", "take_selfie", "web_search"]
 
 
@@ -147,7 +147,7 @@ async def test_selfies_off_is_not_advertised():
     srv = build_server(selfies=False)
     async with create_connected_server_and_client_session(srv._mcp_server) as s:
         listed = await s.list_tools()
-        assert sorted(t.name for t in listed.tools) == ["set_timer"]
+        assert sorted(t.name for t in listed.tools) == ["cancel_timer", "set_timer"]
 
 
 async def test_take_selfie_contract_and_freeform_passthrough():
@@ -257,6 +257,20 @@ async def test_set_timer_returns_the_contract():
             "completes_goal": True})
         data = json.loads(result_text(r))
         assert data["goal_id"] == "g-timer" and data["completes_goal"] is True
+
+
+async def test_cancel_timer_only_says_which_one():
+    """The board is the host's (§7.5): the server cannot see it, so its whole
+    contract is the reference, whitespace-folded, for the host to resolve."""
+    async with create_connected_server_and_client_session(server()._mcp_server) as s:
+        tools = {tool.name: tool for tool in (await s.list_tools()).tools}
+        assert set(tools["cancel_timer"].inputSchema["properties"]) == {"timer"}
+        assert not tools["cancel_timer"].inputSchema.get("required")
+        r = await s.call_tool("cancel_timer", {"timer": "  the   tea "})
+        assert json.loads(result_text(r)) == {"status": "ready", "timer": "the tea"}
+        r = await s.call_tool("cancel_timer", {})
+        assert json.loads(result_text(r)) == {"status": "ready", "timer": ""}
+        assert (await s.call_tool("cancel_timer", {"timer": "x" * 201})).isError
 
 
 async def test_create_goal_validates_a_host_realisation_contract():

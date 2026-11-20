@@ -520,7 +520,7 @@ svg{ width:1.1em; height:1.1em; fill:none; stroke:currentColor; stroke-width:1.7
 
 .il-timers{ list-style:none; padding:0; margin:0; }
 .il-timers li{
-  display:grid; grid-template-columns:minmax(0,1fr) auto; gap:2px 12px;
+  display:grid; grid-template-columns:minmax(0,1fr) auto auto; gap:2px 12px;
   margin-bottom:8px; padding:12px 13px; border:1px solid var(--rule);
   border-left:2px solid var(--amber); background:var(--panel);
 }
@@ -529,8 +529,10 @@ svg{ width:1.1em; height:1.1em; fill:none; stroke:currentColor; stroke-width:1.7
   color:var(--amber); font:10px var(--font-mono); font-weight:400;
   font-variant-numeric:tabular-nums; white-space:nowrap;
 }
+.il-timers .il-cancel{ grid-column:3; grid-row:1 / span 2; align-self:center; margin-left:0; }
+.il-timers .il-cancel:disabled{ cursor:default; }
 .il-timers time{
-  grid-column:1 / -1; color:var(--dim); font:9px var(--font-mono);
+  grid-column:1 / 3; color:var(--dim); font:9px var(--font-mono);
   font-variant-numeric:tabular-nums;
 }
 
@@ -582,14 +584,14 @@ svg{ width:1.1em; height:1.1em; fill:none; stroke:currentColor; stroke-width:1.7
 /* the switch, on the list it governs — two states side by side, the live one
    marked, so "off" is never a checkbox you have to read twice */
 .il-filing{ margin:0 0 12px; color:var(--soft); font-size:12px; }
-.il-sw,.il-drop,.il-look{
+.il-sw,.il-drop,.il-look,.il-cancel{
   min-height:22px; display:inline-flex; align-items:center; padding:0 9px;
   margin-left:6px; border:1px solid var(--rule); border-radius:2px;
   background:transparent; color:var(--dim); cursor:pointer;
   font:9px var(--font-mono); letter-spacing:.08em; text-transform:uppercase;
   transition:.18s ease;
 }
-.il-sw:hover,.il-drop:hover,.il-look:hover{ border-color:var(--soft); color:var(--ink); }
+.il-sw:hover,.il-drop:hover,.il-look:hover,.il-cancel:hover{ border-color:var(--soft); color:var(--ink); }
 .il-goal-actions{
   display:flex; flex-wrap:wrap; gap:6px; margin:6px 0 4px;
 }

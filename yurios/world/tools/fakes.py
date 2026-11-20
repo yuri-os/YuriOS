@@ -18,6 +18,8 @@ SPECS = [
                               "goal_id": {"type": "string"},
                               "completes_goal": {"type": "boolean"}},
               "required": ["minutes"]}),
+    ToolSpec("cancel_timer", "Cancel a countdown timer that is still running.",
+             {"properties": {"timer": {"type": "string"}}, "required": []}),
     ToolSpec("create_goal", "Create a real standing goal in the authoritative "
              "goal list when the user explicitly asks to set or add one.",
              {"properties": {"text": {"type": "string"},
@@ -157,6 +159,9 @@ class FakeToolRunner:
                                "seconds": round(float(args.get("minutes", 1)) * 60),
                                "due": 0, "goal_id": args.get("goal_id") or None,
                                "completes_goal": bool(args.get("completes_goal"))})
+        if tool == "cancel_timer":
+            return json.dumps({"status": "ready",
+                               "timer": " ".join(str(args.get("timer") or "").split())})
         if tool == "create_goal":
             return json.dumps({"status": "ready",
                                "text": " ".join(str(args.get("text") or "").split()),

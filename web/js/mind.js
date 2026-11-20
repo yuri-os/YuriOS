@@ -36,6 +36,10 @@ import { detailMessage } from '../shared/http.js';
   let refreshTimer = null;
   let busy = false;               // is she reading? decides the refresh cadence
   const droppingGoals = new Set();
+  // A timer you cancelled: id -> what its button says while the request is out
+  // (or why it failed). Kept here because the panel is rebuilt on every
+  // `timers` event, and a rebuilt live button would read as a click that missed.
+  const cancellingTimers = new Map();
   const openDesks = new Set();    // goal ids whose desk file is unfolded
   const deskCache = new Map();    // id -> { text, missing }
   const deskPending = new Map();  // id -> request token; superseded fetches are ignored
@@ -102,13 +106,22 @@ import { detailMessage } from '../shared/http.js';
     const timers = [...(timerState?.timers || [])]
       .filter(timer => Number.isFinite(Number(timer.due)))
       .sort((a, b) => a.due - b.due);
+    const listed = new Set(timers.map(timer => String(timer.id)));
+    for (const id of cancellingTimers.keys()) {
+      if (!listed.has(id)) cancellingTimers.delete(id);
+    }
     const body = timers.length
       ? '<ol class="il-timers">' + timers.map(timer => {
           const at = new Date(Number(timer.due) * 1000);
           const clock = Number.isFinite(at.getTime())
             ? at.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '';
-          return `<li><span class="il-timer-label">${esc(timer.label || 'timer')}</span>` +
+          const label = timer.label || 'timer';
+          const pending = cancellingTimers.get(String(timer.id));
+          return `<li><span class="il-timer-label">${esc(label)}</span>` +
             `<strong>${esc(remaining(timer.due))}</strong>` +
+            `<button type="button" class="il-cancel" data-timer="${esc(timer.id)}"` +
+            ` aria-label="${esc(`cancel timer: ${label}`)}"` +
+            `${pending === 'cancelling…' ? ' disabled' : ''}>${esc(pending || 'cancel')}</button>` +
             (clock ? `<time datetime="${at.toISOString()}">${esc(clock)}</time>` : '') +
             '</li>';
         }).join('') + '</ol>'
@@ -822,6 +835,29 @@ import { detailMessage } from '../shared/http.js';
     }
     // A dropped goal lands on her next tick; the switch has already landed.
     setTimeout(render, goal !== undefined ? 1500 : 300);
+  });
+
+  // Cancelling a countdown (SPEC §7.5). The board's own write, so it is gone
+  // the moment the route answers; the `timers` event that follows is what
+  // takes the row away, in this room and every other one open.
+  panel.addEventListener('click', async (ev) => {
+    const el = ev.target.closest?.('button.il-cancel');
+    const id = el?.dataset.timer;
+    if (!id || el.disabled) return;
+    cancellingTimers.set(id, 'cancelling…');
+    el.disabled = true;
+    el.textContent = 'cancelling…';
+    try {
+      await runtimeReady;
+      const res = await fetch(apiPath(`/api/timers/${encodeURIComponent(id)}/cancel`), {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+      });
+      if (res.ok) cancellingTimers.delete(id);
+      else cancellingTimers.set(id, res.status === 404 ? 'already gone' : 'that didn’t take');
+    } catch {
+      cancellingTimers.set(id, 'no answer from her');
+    }
+    render();
   });
 
   // One timer, re-pitched every render: a progress bar that only moves every

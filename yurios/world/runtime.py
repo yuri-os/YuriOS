@@ -52,7 +52,9 @@ def tool_rates(cfg: Config) -> dict[str, int]:
     the same rule `list_tools` follows on the server side: no hand, not a dead
     one. So every `if` below decides existence, not a budget.
     """
-    rates = {"set_timer": cfg.tool_rate_timer}
+    # Cancelling is the same hand turned round, so it shares the bucket's size:
+    # whoever may set a countdown may take one back (§7.5).
+    rates = {"set_timer": cfg.tool_rate_timer, "cancel_timer": cfg.tool_rate_timer}
     if cfg.mind_enabled:
         rates["create_goal"] = cfg.tool_rate_goal
         # Not behind the camera: a picture a goal already holds is in the

@@ -172,6 +172,21 @@ def test_pending_timers_have_a_read_route_and_sticky_state(client):
     assert rt.hub.sticky["timers"] == {"type": "timers", "timers": []}
 
 
+def test_the_room_can_cancel_a_running_timer(client):
+    """§7.5: the panel's cancel button. The board's own write, at once, and the
+    sticky snapshot every open room redraws from goes with it."""
+    rt = client.app.state.rt
+    rt.timers.add(id="t1", label="tea", seconds=600)
+    rt.timers.add(id="t2", label="the oven", seconds=900)
+
+    response = client.post("/api/timers/t1/cancel")
+
+    assert response.json() == {"cancelled": True, "id": "t1", "label": "tea"}
+    assert [t["id"] for t in client.get("/api/timers").json()["timers"]] == ["t2"]
+    assert [t["id"] for t in rt.hub.sticky["timers"]["timers"]] == ["t2"]
+    assert client.post("/api/timers/t1/cancel").status_code == 404
+
+
 def test_a_message_posted_before_attach_is_in_the_sticky_free_backfill(client):
     """Chat history is /api/history's job, not the stream's: a late page gets
     hello + sticky scene only, and backfills the transcript over HTTP."""

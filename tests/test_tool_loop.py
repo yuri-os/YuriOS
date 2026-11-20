@@ -596,3 +596,57 @@ async def test_a_reply_that_switches_format_mid_turn_still_runs_the_call(
         [{"role": "user", "content": "tea, then my diary"}], [], [])))
     assert [c[0] for c in runner.calls] == ["set_timer", "list_notes"]
     assert "DSML" not in spoken and spoken.endswith("Five diary files.")
+
+
+async def test_she_cancels_a_running_timer_and_hears_which(cfg, guard, timers,
+                                                           controller):
+    """§7.5: the server says which one; the host takes it off the board and
+    the continuation carries what was actually cancelled."""
+    timers.add(id="t-tea", label="tea", seconds=600)
+    timers.add(id="t-oven", label="the oven", seconds=900)
+    chat = ScriptedChat([
+        ["Okay — ", '[[cancel_timer {"timer": "tea"}]]'],
+        ["Tea's off."],
+    ])
+    runner = FakeToolRunner()
+    tb = make_toolbrain(cfg, guard, timers, controller, chat, runner=runner)
+
+    raw: list[str] = []
+    outcomes: list[dict] = []
+    spoken = "".join(await collect(tb._stream_with_tools(
+        [{"role": "user", "content": "cancel the tea timer"}], raw, outcomes)))
+
+    assert spoken == "Okay — Tea's off."
+    assert [t.id for t in timers.pending()] == ["t-oven"]
+    assert outcomes[0]["verdict"] == "ok"
+    result = json.loads(outcomes[0]["result"])
+    assert result["status"] == "cancelled" and result["id"] == "t-tea"
+    assert '"cancelled"' in chat.calls[1][-1]["content"]
+
+
+async def test_an_ambiguous_cancel_is_a_question_back_not_a_guess(
+        cfg, guard, timers, controller):
+    timers.add(id="t-tea", label="tea", seconds=600)
+    timers.add(id="t-oven", label="the oven", seconds=900)
+    chat = ScriptedChat([["Which one? ", "[[cancel_timer {}]]"], ["Which?"]])
+    tb = make_toolbrain(cfg, guard, timers, controller, chat,
+                        runner=FakeToolRunner())
+
+    outcomes: list[dict] = []
+    await collect(tb._stream_with_tools(
+        [{"role": "user", "content": "cancel my timer"}], [], outcomes))
+
+    assert outcomes[0]["verdict"] == "error"
+    assert "say which" in outcomes[0]["result"]
+    assert "t-tea" in outcomes[0]["result"] and "t-oven" in outcomes[0]["result"]
+    assert len(timers.pending()) == 2, "nothing cancelled on a guess"
+
+    timers.cancel("t-tea")
+    timers.cancel("t-oven")
+    chat = ScriptedChat([["", '[[cancel_timer {"timer": "tea"}]]'], ["None."]])
+    tb = make_toolbrain(cfg, guard, timers, controller, chat,
+                        runner=FakeToolRunner())
+    outcomes = []
+    await collect(tb._stream_with_tools(
+        [{"role": "user", "content": "cancel the tea timer"}], [], outcomes))
+    assert "no timers are running" in outcomes[0]["result"]

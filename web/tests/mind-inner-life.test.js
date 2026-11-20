@@ -83,6 +83,53 @@ it('organizes live state, plans, and history into persistent subviews', async ()
   expect(document.querySelector('[data-il-page="history"]').hidden).toBe(false);
 });
 
+it('cancels a running timer from its own row', async () => {
+  const state = {
+    state: 'IDLE', cadence_s: 60, interrupts_today: 0, dream_backlog: [],
+    budget: { spent_tokens: 0, daily_tokens: 1000 }, pending_edits: [], goals: [],
+    goal_filing: { enabled: true, open: 0, max: 3 }, shelf: [],
+  };
+  let timerState = { timers: [
+    { id: 'tea id', label: 'tea', due: 1_000_000 + 120 },
+    { id: 'oven', label: 'the oven', due: 1_000_000 + 600 },
+  ] };
+  const posts = [];
+  vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+    if (init?.method === 'POST') {
+      posts.push(url);
+      if (url === '/api/timers/tea%20id/cancel') {
+        timerState = { timers: timerState.timers.filter(t => t.id !== 'tea id') };
+        return { ok: true, status: 200, json: async () => ({ cancelled: true }) };
+      }
+      return { ok: false, status: 404, json: async () => ({}) };
+    }
+    if (url === '/api/mind') return { ok: true, json: async () => state };
+    if (url === '/api/mind/journal?days=3') return { ok: true, json: async () => ({ days: [] }) };
+    if (url === '/api/mind/reading') return {
+      ok: true, json: async () => ({ reading: null, runs: [], held: [] }),
+    };
+    if (url === '/api/timers') return { ok: true, json: async () => timerState };
+    throw new Error(`unexpected request: ${url}`);
+  }));
+
+  await import('../js/mind.js');
+  document.getElementById('tab-mind').click();
+  await vi.waitFor(() => expect(document.querySelectorAll('.il-timers li')).toHaveLength(2));
+  const buttons = [...document.querySelectorAll('.il-timers .il-cancel')];
+  expect(buttons.map(b => b.getAttribute('aria-label')))
+    .toEqual(['cancel timer: tea', 'cancel timer: the oven']);
+
+  buttons[0].click();
+  await vi.waitFor(() => expect([...document.querySelectorAll('.il-timer-label')]
+    .map(el => el.textContent)).toEqual(['the oven']));
+  expect(posts).toEqual(['/api/timers/tea%20id/cancel']);
+
+  // gone already (it went off, or another room cancelled it): say so on the row
+  document.querySelector('.il-timers .il-cancel').click();
+  await vi.waitFor(() => expect(document.querySelector('.il-timers .il-cancel').textContent)
+    .toBe('already gone'));
+});
+
 it('lists documents handed to her, newest first, read and not yet', async () => {
   const state = {
     state: 'DORMANT', cadence_s: 900, interrupts_today: 0, dream_backlog: [],

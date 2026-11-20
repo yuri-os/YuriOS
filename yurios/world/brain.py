@@ -44,7 +44,7 @@ from .situation import render_situation
 from .tools.client import (
     ToolRunner, ToolSpec, arg_names_from_specs, build_directive)
 from .tools.guard import Guard, Turn, failure
-from .tools.timers import TimerBoard
+from .tools.timers import TimerBoard, abandon_timer_goals
 from .tooltags import ToolCall, ToolTagParser, native_to_markers
 
 log = logging.getLogger("world.brain")
@@ -702,10 +702,12 @@ class ToolBrain(BrainAdapter):
                                  "verdict": "error", "result": result})
             return result
         goal_created = False
-        if call.tool in ("create_goal", self.SHOW_HELD):
+        if call.tool in ("create_goal", self.SHOW_HELD, "cancel_timer"):
             try:
                 if call.tool == "create_goal":
                     text, goal_created = self._create_goal(text, about=goal_about)
+                elif call.tool == "cancel_timer":
+                    text = self._cancel_timer(text)
                 else:
                     text = self._show_held_picture(text)
             except Exception as e:                     # malformed contract/store failure
@@ -775,6 +777,40 @@ class ToolBrain(BrainAdapter):
                               "id": goal.id, "text": goal.text, "kind": goal.kind,
                               "state": goal.state}, ensure_ascii=False)
         return payload, created
+
+    def _cancel_timer(self, result: str) -> str:
+        """Realise `cancel_timer` against the host-owned board (SPEC §7.5).
+
+        The server only said which one; the board is here, so this is where it
+        is found and taken off — and the payload she reads is what was actually
+        cancelled. Anything that is not exactly one running timer raises, and
+        `_execute` turns that into an error naming what *is* running: she must
+        never say "cancelled" over a countdown that is still going, and must
+        never pick one of two for herself.
+        """
+        data = json.loads(result)
+        if data.get("status") != "ready":
+            raise RuntimeError("the timer board is unavailable")
+        ref = str(data.get("timer") or "")
+        found = self.timers.match(ref)
+        if len(found) != 1:
+            running = self.timers.pending()
+            listed = "; ".join(f'"{t.label}" (id {t.id})' for t in running[:6])
+            if not running:
+                raise ValueError("no timers are running — nothing to cancel")
+            if not found:
+                raise ValueError(f"no running timer matches {ref!r} — "
+                                 f"running: {listed}")
+            raise ValueError("more than one timer is running — say which: "
+                             + listed)
+        t = found[0]
+        if self.timers.cancel(t.id) is None:
+            raise ValueError(f'the "{t.label}" timer just went off — '
+                             "too late to cancel it")
+        abandon_timer_goals(self.goals, t.id)
+        return json.dumps({"status": "cancelled", "id": t.id, "label": t.label,
+                           "note": "it is off the board and will not go off"},
+                          ensure_ascii=False)
 
     def _show_held_picture(self, result: str) -> str:
         """Put the picture a goal is holding into the chat, and close the goal.

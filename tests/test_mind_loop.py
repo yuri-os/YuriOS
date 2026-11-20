@@ -415,6 +415,31 @@ async def test_a_reviewed_timer_promise_keeps_the_timer_contract(
     assert goal.due == iso_of(due)
 
 
+async def test_a_promise_whose_timer_was_cancelled_is_filed_let_go(
+        cfg, seeded_vault):
+    """§7.5: cancelled before REFLECT got to it — the same turn, or the room's
+    button while the review ran — so the promise is not left owed."""
+    utility = ReviewUtility(review_goal(
+        "say hi when the five-minute timer fires", kind="reach_out"))
+    rig = make_mind(cfg, seeded_vault, utility=utility)
+    rig.mind.timers.add(id="timer-hi", label="say hi", seconds=300)
+    rig.mind.timers.cancel("timer-hi")
+    outcome = {
+        "tool": "set_timer", "args": {"minutes": 5, "label": "say hi"},
+        "verdict": "ok",
+        "result": json.dumps({"id": "timer-hi", "label": "say hi",
+                              "seconds": 300, "due": 1_800_000_300.0}),
+    }
+    rig.say("say hi to me in five minutes", reply="Five minutes. I'll find you.",
+            tool_outcomes=[outcome])
+
+    await rig.mind.tick()
+
+    assert rig.mind.goals.open_goals() == []
+    filed = [g for g in rig.mind.goals.all() if g.meta.get("timer_id") == "timer-hi"]
+    assert [g.state for g in filed] == ["abandoned"]
+
+
 async def test_a_review_does_not_refile_what_her_create_goal_just_filed(
         cfg, seeded_vault):
     """Live: "remind me at 9pm to call my mom" got her `create_goal` and then a

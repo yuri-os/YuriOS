@@ -158,6 +158,15 @@ ANCHOR_CHARS = 1500
 #: cut to this. The newest result goes back whole (SPEC §22.4).
 EARLIER_CHARS = 300
 
+#: Earlier hands whose result goes back whole all the same: what she read is
+#: what the rest of the step is written from. Cut to 300 characters, a
+#: `read_note` page kept its JSON head and lost its text — "…prinsessa.com w…"
+#: — and a step reading a note in order to edit it read 171–204, then
+#: 205–213, then 171–204 again and 205–213 again, each read hiding the one
+#: before it, until its four hands were spent. Both are already bounded by
+#: the guard (`RESULT_LIMITS`), so a step holds at most a few pages.
+KEPT_WHOLE = ("read_note", "read_skill")
+
 #: What a later round is told above the step's own instructions. The name
 #: sentence goes in front when her card is on; `off` sends this alone.
 _FOLLOWUP_TASK = (
@@ -192,6 +201,20 @@ _COUNT = re.compile(r"\s*(?:You have \d+ hands? left|Your hands are spent) "
                     r"for this step\b.*?(?=\)\)\s*$)", re.S)
 
 
+#: The tool a result came from, as `_returned` writes it.
+_FROM = re.compile(r"\(\((\w+) returned: ")
+
+
+def _earlier(back: str) -> str:
+    """An earlier result as a follow-up repeats it: without its hands-left
+    count, cut short unless it is something she read (`KEPT_WHOLE`)."""
+    back = _COUNT.sub("", back)
+    tool = _FROM.match(back.strip())
+    if tool and tool.group(1) in KEPT_WHOLE:
+        return back.strip()
+    return _cut(back, EARLIER_CHARS)
+
+
 def _cut(text: str, limit: int, *, tail: bool = False) -> str:
     text = text.strip()
     if len(text) <= limit:
@@ -205,7 +228,9 @@ def compact_followup(loop, messages: list[dict], *, anchor: str | None = None,
 
     The step's instructions, without her card. The anchor the caller named —
     what the step is *about* — or the head of its opening message. Every
-    earlier hand, cut short, so she knows what she has already read. Her
+    earlier hand, cut short, so she knows what she has already done — except
+    what she read, which goes back whole, because a page reduced to its
+    header is a page she has to read again (`KEPT_WHOLE`). Her
     previous answer and the newest result, whole. The rest of the opening
     message — the situation, the desk, the facts, the recall — stays on the
     first call.
@@ -231,9 +256,10 @@ def compact_followup(loop, messages: list[dict], *, anchor: str | None = None,
         parts.append(anchor.strip())
     earlier, last = pairs[:-1], (pairs[-1] if pairs else ("", ""))
     if earlier:
-        parts.append("WHAT YOU HAVE ALREADY DONE IN THIS STEP (cut short)\n\n"
+        parts.append("WHAT YOU HAVE ALREADY DONE IN THIS STEP (cut short, "
+                     "except what you read: that is here whole)\n\n"
                      + "\n".join(f"- you: {_cut(said, EARLIER_CHARS, tail=True)}"
-                                 f"\n  back: {_cut(_COUNT.sub('', back), EARLIER_CHARS)}"
+                                 f"\n  back: {_earlier(back)}"
                                  for said, back in earlier))
     if last[0].strip():
         parts.append("WHAT YOU JUST SAID\n\n" + last[0].strip())

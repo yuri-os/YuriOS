@@ -3028,7 +3028,12 @@ optional due time, **provenance**, and a **commitment strategy**; lifecycle
   carries what the step is about — the goal, the exchange that made it and her plan for a goal
   step; the document for a handed one; a night job's whole input; otherwise the head of the step,
   bounded — every earlier hand of the step with its result cut short, her previous answer, and the
-  newest result whole, including how many hands she has left. `false` resends the whole step and
+  newest result whole, including how many hands she has left. An earlier `read_note` or
+  `read_skill` result **MUST** go back whole all the same (it is already bounded by the guard,
+  §7.3): what she read is what the rest of the step is written from, and a page cut to its header
+  is a page she reads again. On 21 Nov a step reading a note in order to edit it read lines 171–204,
+  then 205–213, then both again — each read pushing the one before it into the cut — and spent all
+  four hands that way. `false` resends the whole step and
   fuses the preamble again on every round. **Including what the goal was about**: a promise is scanned as the predicate
   after "I'll", so the subject stays behind in their sentence, and a step handed "find out which one
   is faster" alone invents a subject for it with total confidence. A goal filed from an exchange

@@ -3,9 +3,9 @@
 The first call of a chain carries the card and the whole step. Every call after
 it keeps the step's instructions — what her answer is read against — and drops
 only the card and the bulk of the opening message: the situation, the desk, the
-facts. It keeps what the step is about, every earlier hand cut short, her
-previous answer and the newest result. `MIND_COMPACT_FOLLOWUPS=false` resends
-the transcript, card included.
+facts. It keeps what the step is about, every earlier hand cut short (except
+what she read, which goes back whole), her previous answer and the newest
+result. `MIND_COMPACT_FOLLOWUPS=false` resends the transcript, card included.
 """
 from __future__ import annotations
 
@@ -17,7 +17,8 @@ from yurios.mind.dreamjobs.builtins import STRATEGY_OUTPUT, StrategyJob
 from yurios.mind import handwork
 from yurios.mind.handed import document
 from yurios.mind.hands import Offer
-from yurios.mind.handwork import EARLIER_CHARS, LoopHands, compact_followup
+from yurios.mind.handwork import (EARLIER_CHARS, KEPT_WHOLE, LoopHands,
+                                  compact_followup)
 from yurios.mind.loop import MindLoop
 
 from .conftest import ScriptedUtility
@@ -66,8 +67,8 @@ def test_a_followup_keeps_the_instructions_and_every_hand_cut_short():
         {"role": "user", "content": "((read_note returned: page one. You have 1 hand "
                                     "left for this step — use another if you need "
                                     "one, or give your answer.))"},
-        {"role": "assistant", "content": 'use read_note {"path": "c.md"}'},
-        {"role": "user", "content": "((read_note returned: page three " + "p" * 900 + "))"},
+        {"role": "assistant", "content": 'use web_search {"query": "c"}'},
+        {"role": "user", "content": "((web_search returned: page three " + "p" * 900 + "))"},
         {"role": "assistant", "content": 'use read_note {"path": "b.md"}'},
         {"role": "user", "content": "((read_note returned: page two "
                                     + "q" * 900 + ". hands are spent))"},
@@ -89,6 +90,39 @@ def test_a_followup_keeps_the_instructions_and_every_hand_cut_short():
     assert "q" * 900 + ". hands are spent" in body
     assert body.split("WHAT YOU JUST SAID\n\n", 1)[1].startswith(
         'use read_note {"path": "b.md"}')
+
+
+def test_an_earlier_read_goes_back_whole():
+    """Live, a page cut to 300 characters kept its JSON head and lost its
+    text, and a step reading a note to edit it read 171–204, 205–213, then
+    both again, each read hiding the one before it."""
+    def page(first: int, last: int, word: str) -> str:
+        body = json.dumps({"path": "notes/n.md", "start_line": first,
+                           "end_line": last, "line_count": 213,
+                           "text": (word + " ") * 400}, indent=2)
+        return (f"((read_note returned: {body}. You have 2 hands left for this "
+                "step — use another if you need one, or give your answer.))")
+    out = compact_followup(_Loop(), [
+        {"role": "system", "content": "Write FINISHED-MARK when done."},
+        {"role": "user", "content": "THE GOAL\n\nedit the note"},
+        {"role": "assistant", "content": 'use read_note {"path": "notes/n.md", "start_line": 171}'},
+        {"role": "user", "content": page(171, 204, "HEADWORD")},
+        {"role": "assistant", "content": 'use read_skill {"name": "s"}'},
+        {"role": "user", "content": "((read_skill returned: " + "k" * 3000 + "))"},
+        {"role": "assistant", "content": 'use read_note {"path": "notes/n.md", "start_line": 205}'},
+        {"role": "user", "content": page(205, 212, "TAILWORD")},
+    ], anchor="THE GOAL\n\nedit the note")
+    body = out[1]["content"]
+    earlier = body.split("WHAT YOU HAVE ALREADY DONE IN THIS STEP", 1)[1] \
+                  .split("WHAT YOU JUST SAID", 1)[0]
+    assert set(KEPT_WHOLE) == {"read_note", "read_skill"}
+    # The first page and the skill are there in full, not cut to their heads…
+    assert earlier.count("HEADWORD") == 400
+    assert "k" * 3000 in earlier
+    # …without the count that was true then and is not now…
+    assert "hands left" not in earlier
+    # …and the newest page is still the one she just got.
+    assert body.count("TAILWORD") == 400 and "2 hands left" in body
 
 
 def test_without_an_anchor_a_followup_keeps_the_head_not_a_heading():

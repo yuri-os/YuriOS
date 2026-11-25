@@ -608,6 +608,18 @@ order they reached the page: the opening backfill, the live stream and a reconne
 race, and a line you sent is confirmed before the history above it may have loaded. A backfill
 that arrives after the page stopped waiting for it is laid down in its place, not dropped.
 
+**Waiting is hers to show.** Between your line and her first word sits a turn — the prompt's
+prefill, her reasoning pass, her hands — and on a local model that is where a minute goes. The
+column **MUST** say so as hers: a typing indicator in her column (her name and animated dots, in
+her draft's own bubble) from the moment the turn starts until her first `draft` or committed
+`message`, or until that turn ends without one. It **MUST NOT** be the composer's busy button
+alone, because that says "your line went out", not "she is writing": the host publishes
+`typing {on}` on the bus — sticky, last-write-wins — so every room draws the same indicator for a
+turn any of them started (§10), and the composer raises it locally the instant it takes a
+request. The dots are decoration: the indicator **MUST** still name her to a screen reader, and
+honouring `prefers-reduced-motion` **MUST NOT** take it away — three steady dots say the same
+thing without moving.
+
 **The column survives a restart.** Every committed entry is *also* written to
 `<vault>/state/conversation.jsonl` (`app/conversation.py`) and the ring is seeded from its tail
 at boot, so a daemon that restarted overnight opens onto the end of the last conversation rather
@@ -1516,7 +1528,8 @@ keeps a socket of its own is sound.
 
 - **`EventHub`** (`yurios/kernel/hub.py`) — the single outbound fan-out. Every host→frontend
   event is one typed JSON dict: `hello` (her name), `message` (chat entries, including
-  `image_url` selfies, and the originating `channel`), `draft` / `draft_cancel`, `avatar` (§4,
+  `image_url` selfies, and the originating `channel`), `draft` / `draft_cancel`, `typing` (she is
+  composing — sticky, §2.6), `avatar` (§4,
   scene channels included), `timers` (the sticky pending-countdown snapshot, §7.5), `rating`
   (§37), `reply_length` (the sticky rung, §38), `swipe` (her last line, redrawn, §39), and — with
   the mind — `journal` and `mind` (§24). Publishes are
@@ -1558,7 +1571,11 @@ a frontend:
   direction, a consumed `[[tool …]]` marker — leaves only its newlines behind, so the runner
   **MUST** collapse a run of blank lines to one: the break she wrote survives, the hole does not)
   → verbatim persist → `message` commit
-  + `turn_committed` signal. A `draft` carries the whole reply so far rather than a delta, so the
+  + `turn_committed` signal. The runner **MUST** announce the wait as hers (§2.6): `typing {on:
+  true}` on the bus when the stream starts, and `{on: false}` either at her first `draft` — the
+  wait is over the moment there is something to read — or when the turn ends without one, since a
+  sticky `on` left standing shows her typing at a turn nobody is running, in every open room. A
+  `draft` carries the whole reply so far rather than a delta, so the
   runner **MUST NOT** publish one per token: it accumulates per token and publishes on a sentence,
   a line break, or a bounded run of neither. Per-token drafts are quadratic in bytes on a bus whose
   per-subscriber queues are bounded and drop when full (§4), and the drop lands on whatever is

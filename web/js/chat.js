@@ -50,6 +50,7 @@
   const getFresh = (path) => fetch(apiPath(path), { cache: 'no-store' });
   const messages = document.getElementById('messages');
   let draftEl = null;
+  let typingEl = null;
   let charName = '';
   const pending = new Map();
   const pendingExpiry = new Map();
@@ -119,6 +120,38 @@
 
   function dropDraft() {
     if (draftEl) { draftEl.remove(); draftEl = null; settleControls(); }
+  }
+
+  /* She is typing (SPEC §2.6) — the dead air between your line and her first
+   * word, which on a local model is where the minute goes: prefill, the reasoning
+   * pass, the hands. The host says it on the bus (`typing`, sticky, so a room
+   * opened mid-turn knows too) and the composer says it locally the moment it
+   * takes a request; both arrive here as one bubble of dots. Taken down the
+   * moment there is something to read: her first `draft`, her committed
+   * `message`, the end of the turn, or `typing {on: false}` from the host.
+   *
+   * `role="status"` rather than a bare div: a screen reader hears "Yuri is
+   * typing" once, and the dots themselves are decoration. */
+  function addTyping() {
+    if (!messages || typingEl) return;
+    typingEl = document.createElement('div');
+    typingEl.className = 'msg her typing';
+    typingEl.setAttribute('role', 'status');
+    typingEl.setAttribute('aria-label', `${herName()} is typing`);
+    // `herName()` is markup, not text — a `data-char-name` span the `hello`
+    // renames afterwards. Escaped into `innerHTML` it printed the tag itself.
+    typingEl.innerHTML =
+      `<span class="who">${herName()}</span>` +
+      '<span class="typing-dots" aria-hidden="true">' +
+      '<span></span><span></span><span></span></span>';
+    messages.insertBefore(typingEl, draftAnchor());
+    scroll();
+  }
+
+  function dropTyping() {
+    if (!typingEl) return;
+    typingEl.remove();
+    typingEl = null;
   }
 
   const seen = new Set();               // a message can arrive live AND in the
@@ -469,6 +502,9 @@
   function againDraft(id, text) {
     const div = lineOf(id);
     if (!div) return;
+    // a redo streams into her line, so the dots come down with its first
+    // draft too — not only at the commit (SPEC §2.6, §39.5)
+    dropTyping();
     if (!againLines.has(id)) {
       againLines.set(id, { html: div.innerHTML, cls: div.className });
     }
@@ -1123,6 +1159,7 @@
 
   function addDraft(text) {
     if (!messages) return;
+    dropTyping();                       // her first words are here; the dots' job is done
     if (!draftEl) {
       draftEl = document.createElement('div');
       draftEl.className = 'msg her draft';
@@ -1146,6 +1183,8 @@
   let recoveryPending = false;
 
   function receiveMessage(message) {
+    // her line landing is the end of the waiting, whichever room sent it
+    if (message.role === 'assistant') dropTyping();
     // A locally submitted line is already visible. Confirm it immediately,
     // even while old history is still loading, instead of hiding its receipt
     // behind the backfill queue for up to five seconds.
@@ -1481,6 +1520,10 @@
         if (m.again) againDraft(m.again, m.text); else addDraft(m.text);
       } else if (m.type === 'draft_cancel') {
         if (m.again) releaseLine(m.again); else dropDraft();
+      } else if (m.type === 'typing') {
+        // She is composing — or stopped (SPEC §2.6). Sticky, so this also
+        // arrives for a turn another room, a phone or Telegram started.
+        if (m.on) addTyping(); else dropTyping();
       }
     };
   }
@@ -1497,6 +1540,9 @@
       es.close();
       es = null;
       dropDraft();
+      // …and the dots: a turn that ended while the tab was frozen published its
+      // `typing {on: false}` into a socket nobody was reading (SPEC §2.6)
+      dropTyping();
       // …and a redo another room was streaming: its end may be what was missed
       // (one of ours ends with its own answer). A redo still going re-marks
       // the line with its next draft.
@@ -1544,5 +1590,8 @@
     beginAgain,
     beginResend,
     setBusy,
+    // the composer's own half of "she is typing" (SPEC §2.6): the host's
+    // `typing` event covers every other room and every other sender
+    typing: (on) => (on ? addTyping() : dropTyping()),
   };
 })();

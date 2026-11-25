@@ -143,8 +143,9 @@ describe('a desk path named in the chat', () => {
       }),
     });
     expect(document.querySelector('.msg-file')).toBeNull();
-    expect(document.querySelector('.draft').textContent)
-      .toContain('goals/g-7517a5363d42.md');
+    // drafts unfold over a few frames now (js/chat.js); wait for the words
+    await vi.waitFor(() => expect(document.querySelector('.draft').textContent)
+      .toContain('goals/g-7517a5363d42.md'));
   });
 });
 

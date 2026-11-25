@@ -90,8 +90,8 @@ it('her first draft takes the dots down — the wait is over when there is somet
   es.onmessage({ data: JSON.stringify({ type: 'draft', text: 'I am here' }) });
 
   expect(withDots()).toBeNull();
-  expect(document.querySelector('.msg.her.draft').textContent)
-    .toContain('I am here');
+  await vi.waitFor(() => expect(document.querySelector('.msg.her.draft').textContent)
+    .toContain('I am here'));
 });
 
 it('her committed line takes the dots down too', async () => {

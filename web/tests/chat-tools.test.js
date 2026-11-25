@@ -77,7 +77,8 @@ it('puts a chip that lands mid-reply above the words still arriving', async () =
 
   const rows = [...document.querySelectorAll('#messages > *')];
   expect(rows.map((el) => el.className)).toEqual(['msg tool', 'msg her draft']);
-  expect(rows[1].textContent).toContain('Let me look');
+  // the draft unfolds over a few frames (js/chat.js), so wait for its words
+  await vi.waitFor(() => expect(rows[1].textContent).toContain('Let me look'));
 });
 
 /* A chip on one of her notes opens it (SPEC §7.3): the path is the control,

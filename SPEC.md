@@ -620,6 +620,15 @@ request. The dots are decoration: the indicator **MUST** still name her to a scr
 honouring `prefers-reduced-motion` **MUST NOT** take it away — three steady dots say the same
 thing without moving.
 
+**A draft is unfolded, not swapped in.** The runner publishes a `draft` a sentence or a line at a
+time, on purpose (§10.5) — but replacing the bubble's whole text in one frame reads as a new
+message arriving, and on a local model each one lands seconds apart. So the column **SHOULD**
+grow the bubble to the new text over a few frames, showing exactly the characters the host
+published and never ahead of them: it is a cadence, not a typewriter. A reply long enough that
+unfolding it would be a scroll, and a reader who asked for `prefers-reduced-motion`, both get the
+text whole. Nothing about the draft's *content* changes — the last frame is the sentence the
+runner sent, and a commit still replaces the bubble in one move.
+
 **The column survives a restart.** Every committed entry is *also* written to
 `<vault>/state/conversation.jsonl` (`app/conversation.py`) and the ring is seeded from its tail
 at boot, so a daemon that restarted overnight opens onto the end of the last conversation rather

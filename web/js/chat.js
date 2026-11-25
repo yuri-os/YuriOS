@@ -118,7 +118,52 @@
     el.scrollTop = el.scrollHeight;
   }
 
+  /* A draft arrives a sentence at a time (SPEC §10.5) and the bus means it: a
+   * `draft` carries the whole reply so far, so per-token drafts would be
+   * quadratic traffic on queues that *drop* when full (`test_draft_cadence.py`
+   * guards that). Swapping the sentence in whole, though, reads as a pop —
+   * especially on a local model, where each one lands seconds apart and looks
+   * like a new message arriving. So the bubble is *unfolded* to the new text
+   * over a few frames: nothing invented, nothing reordered, the target is
+   * always exactly what the host published, and a client that never paints a
+   * frame (a screen reader, a reduced-motion setting) gets it whole.
+   *
+   * Two bounds keep it a cadence rather than a feature: a reply long enough
+   * that unfolding it would be a scroll snaps in, and so does anything the
+   * reader cannot see anyway. */
+  const REVEAL_FRAMES = 8;         // a sentence unfolds in ~130 ms at 60 fps
+  const REVEAL_MAX_CHARS = 1200;   // past this nobody is watching the unfold
+
+  const raf = (cb) => (typeof window.requestAnimationFrame === 'function'
+    ? window.requestAnimationFrame(cb) : setTimeout(() => cb(0), 16));
+  const unraf = (id) => (typeof window.cancelAnimationFrame === 'function'
+    ? window.cancelAnimationFrame(id) : clearTimeout(id));
+  const reducedMotion = () =>
+    window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches === true;
+
+  let draftText = '';              // what the host has published so far
+  let draftShown = 0;              // how much of it the bubble holds
+  let draftStep = 1;               // characters per frame, this unfold
+  let draftFrame = null;
+
+  function paintDraft() {
+    if (!draftEl) return;
+    draftEl.innerHTML = `<span class="who">${herName()} · …</span>` +
+                        esc(draftText.slice(0, draftShown));
+    scroll();
+  }
+
+  function unfold() {
+    draftFrame = null;
+    draftShown = Math.min(draftText.length, draftShown + draftStep);
+    paintDraft();
+    if (draftShown < draftText.length) draftFrame = raf(unfold);
+  }
+
   function dropDraft() {
+    if (draftFrame !== null) { unraf(draftFrame); draftFrame = null; }
+    draftText = '';
+    draftShown = 0;
     if (draftEl) { draftEl.remove(); draftEl = null; settleControls(); }
   }
 
@@ -1165,9 +1210,23 @@
       draftEl.className = 'msg her draft';
       messages.appendChild(draftEl);
       settleControls();
+      paintDraft();                   // her name at once, so the bubble is never blank
     }
-    draftEl.innerHTML = `<span class="who">${herName()} · …</span>` + esc(text);
-    scroll();
+    // a reply that does not extend what is on screen is a different reply
+    if (!text.startsWith(draftText)) {
+      if (draftFrame !== null) { unraf(draftFrame); draftFrame = null; }
+      draftShown = 0;
+    }
+    draftText = text;
+    const pending = draftText.length - draftShown;
+    if (pending <= 0) { paintDraft(); return; }
+    if (reducedMotion() || pending > REVEAL_MAX_CHARS) {
+      draftShown = draftText.length;
+      paintDraft();
+      return;
+    }
+    draftStep = Math.max(1, Math.ceil(pending / REVEAL_FRAMES));
+    if (draftFrame === null) draftFrame = raf(unfold);
   }
 
   let es = null;

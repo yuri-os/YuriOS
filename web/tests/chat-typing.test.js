@@ -62,7 +62,7 @@ it('draws her typing dots while the host says she is composing', async () => {
   // three dots, and a label a screen reader can hear — the dots are decoration
   expect(dots.querySelectorAll('.typing-dots span')).toHaveLength(3);
   expect(dots.getAttribute('role')).toBe('status');
-  expect(dots.getAttribute('aria-label')).toMatch(/is typing/);
+  expect(dots.getAttribute('aria-label')).toBe('She is typing');
 
   es.onmessage({ data: JSON.stringify({ type: 'typing', on: false }) });
   expect(withDots()).toBeNull();
@@ -78,6 +78,9 @@ it('names her with live text, not with the markup that carries the name', async 
   // too — escaped into innerHTML it would print `<span data-char-name>Yuri…`
   expect(who.querySelector('[data-char-name]')).not.toBeNull();
   expect(who.textContent).toBe('Yuri');
+  expect(withDots().getAttribute('aria-label')).toBe('Yuri is typing');
+  es.onmessage({ data: JSON.stringify({ type: 'hello', character: 'Mira' }) });
+  expect(withDots().getAttribute('aria-label')).toBe('Mira is typing');
   expect(withDots().textContent).not.toContain('<');
 });
 

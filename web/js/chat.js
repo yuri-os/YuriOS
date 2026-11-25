@@ -137,7 +137,7 @@
     typingEl = document.createElement('div');
     typingEl.className = 'msg her typing';
     typingEl.setAttribute('role', 'status');
-    typingEl.setAttribute('aria-label', `${herName()} is typing`);
+    typingEl.setAttribute('aria-label', `${charName || 'She'} is typing`);
     // `herName()` is markup, not text — a `data-char-name` span the `hello`
     // renames afterwards. Escaped into `innerHTML` it printed the tag itself.
     typingEl.innerHTML =
@@ -1032,7 +1032,7 @@
       }
       if (first) { messages.insertBefore(div, first); return; }
     }
-    messages.insertBefore(div, draftAnchor());
+    messages.insertBefore(div, typingEl || draftAnchor());
   }
 
   // the bottom of the column: above her draft while one is arriving, since the
@@ -1499,6 +1499,7 @@
         // every label that names her at once — the chat head, the masthead, the
         // gate. One attribute, so a page can add a fourth without touching this.
         if (charName) {
+          typingEl?.setAttribute('aria-label', `${charName} is typing`);
           for (const el of document.querySelectorAll('[data-char-name]'))
             el.textContent = charName;
           // …and the tab, which says which of her rooms this is: three pages run

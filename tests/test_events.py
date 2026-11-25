@@ -86,6 +86,42 @@ async def test_turns_idle_gates_on_the_turn_lifecycle(cfg):
     await asyncio.wait_for(rt.wait_turns_idle(), 1)   # returns at once when idle
 
 
+async def test_a_text_turn_says_she_is_typing_until_her_first_word(cfg):
+    """SPEC §2.6: the wait between your line and her first draft is hers to
+    show. Sticky `typing` on when the stream starts, off the moment the first
+    draft lands — so a room opened mid-turn draws it and no room is left with
+    dots for a turn nobody is running."""
+    cfg = cfg.model_copy(update={"tools_backend": "off", "mind_enabled": False})
+    rt = create_app(cfg, brain=FakeBrain()).state.rt
+    q = rt.hub.subscribe()
+    await rt.turns.run("hello", channel="web")
+    events = []
+    while not q.empty():
+        events.append(q.get_nowait())
+    wire = [(e["type"], e.get("on")) for e in events
+            if e["type"] in ("typing", "draft", "message")]
+    assert wire[0] == ("message", None)           # your line is drawn first
+    typing_on = wire.index(("typing", True))
+    first_draft = wire.index(("draft", None))
+    assert typing_on < first_draft                # before a word of hers
+    # and gone the instant there is something to read, not at the commit
+    assert wire[first_draft + 1] == ("typing", False)
+    assert rt.hub.sticky["typing"] == {"type": "typing", "on": False}
+
+
+async def test_a_turn_that_says_nothing_does_not_leave_her_typing(cfg):
+    """The `on` is sticky, so it is the turn's job to take it down on every
+    path — a reply that never came must not leave every open room showing her
+    typing forever (§2.6)."""
+    from yurios.world.turns import EmptyReply
+
+    cfg = cfg.model_copy(update={"tools_backend": "off", "mind_enabled": False})
+    rt = create_app(cfg, brain=FakeBrain(reply="")).state.rt
+    with pytest.raises(EmptyReply):
+        await rt.turns.run("hello", channel="web")
+    assert rt.hub.sticky["typing"] == {"type": "typing", "on": False}
+
+
 async def test_a_turn_is_counted_on_the_process_wide_door(cfg):
     """A neighbour's camera may lend out the model THIS character's turn is
     streaming from (§7.6a — the park lends every LLM LM Studio has loaded),

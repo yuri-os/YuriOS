@@ -96,7 +96,8 @@ class _Drafts:
     which is the cadence a reader perceives anyway.
     """
 
-    def __init__(self, hub, *, enabled: bool = True, again: str | None = None):
+    def __init__(self, hub, *, enabled: bool = True, again: str | None = None,
+                 first_word=None):
         self.hub = hub
         self.enabled = enabled          # a cold open shows its own text instead
         # the line a redo is streaming into (SPEC §39.5): every room draws the
@@ -104,6 +105,9 @@ class _Drafts:
         self.tag = {"again": again} if again else {}
         self.shown: list[str] = []      # clean text, tags stripped, breaks kept
         self._unpublished = 0
+        # called once, as her first words reach the room: the typing dots have
+        # done their job the moment there is something to read (§2.6)
+        self._first_word = first_word
 
     def push(self, speakable: str) -> None:
         """Accumulate one token's shown text, publishing if it closes a beat."""
@@ -118,6 +122,9 @@ class _Drafts:
         commit waits behind a memory-extractor call."""
         if self._unpublished and self.enabled:
             self.hub.publish("draft", {"text": self.text, **self.tag})
+            if self._first_word is not None:
+                first, self._first_word = self._first_word, None
+                first()
         self._unpublished = 0
 
     @property
@@ -159,6 +166,29 @@ class TextTurns:
     def __init__(self, rt):
         self.rt = rt
         self._lock = asyncio.Lock()
+        #: the last `typing` we published, so one turn announces itself once (§2.6)
+        self._typing_on = False
+
+    def _typing(self, on: bool) -> None:
+        """Say that she is composing, and stop saying it (SPEC §2.6).
+
+        The dead air between your line and her first word is where a slow local
+        model lives: a CPU spends a minute on prefill and a reasoning pass
+        before the first `draft`, and the only thing saying so used to be the
+        composer's own busy button — which means "your line went out", not "she
+        is writing". So the turn says it, on the bus, as a `typing` event: every
+        room shows the same dots, and a room opened mid-turn learns it from the
+        sticky replay instead of guessing.
+
+        Published only when it changes, so the two callers (the stream starting,
+        and her first words landing) cannot put two `off`s on the wire for one
+        turn. It is sticky, so the `finally` in `_pump` is load bearing: an `on`
+        with no matching `off` would show her typing at a turn nobody is running,
+        in every open room, until the next one."""
+        if on == self._typing_on:
+            return
+        self._typing_on = on
+        self.rt.hub.publish("typing", {"on": on}, sticky="typing")
 
     async def greet(self, *, channel: str,
                     session_id: str | None = None) -> dict:
@@ -375,7 +405,9 @@ class TextTurns:
         parser = EmotionParser(default=rt.cfg.expression_default,
                                strip_narration=False)
         raw: list[str] = []          # model output verbatim (tags kept, for persist)
-        drafts = _Drafts(rt.hub, again=again)   # clean text, tags stripped, breaks kept
+        # clean text, tags stripped, breaks kept; her first word ends the dots
+        drafts = _Drafts(rt.hub, again=again,
+                         first_word=lambda: self._typing(False))
         prev_events = 0
         turn_context = getattr(rt.brain, "turn_context", None)
         context = turn_context(channel=channel, client_id=client_id,
@@ -383,6 +415,9 @@ class TextTurns:
             if turn_context else nullcontext()
         LAST_STREAM.set(None)        # this turn's reason, not an earlier one's
         ACTED.set(False)
+        # She is composing (§2.6): from here until her first draft, or until
+        # this turn ends without one — every path below runs the `finally`.
+        self._typing(True)
         try:
             with context:
                 async for token in agen:
@@ -414,6 +449,7 @@ class TextTurns:
             log.exception("text turn failed mid-stream (channel %s)", channel)
             raise
         finally:
+            self._typing(False)
             rt.turn_ended()
         return raw, drafts
 

@@ -245,6 +245,22 @@ svg{ width:1.1em; height:1.1em; fill:none; stroke:currentColor; stroke-width:1.7
    unprompted line is legible as one at a glance */
 .msg.her.proactive{ border-left:2px solid var(--amber); }
 .msg.her.draft{ opacity:.6; }
+/* She is typing (SPEC §2.6): prefill plus a reasoning pass can be a minute of
+   nothing on a local model, and the composer's busy button says "your line went
+   out", not "she is writing". Her draft's bubble and name, three dots where the
+   first word will be. The host's `typing` event and the composer both drive it. */
+.msg.her.typing{ display:flex; align-items:center; gap:9px; opacity:.6; }
+.msg.her.typing .who{ margin-bottom:0; }
+.typing-dots{ display:inline-flex; align-items:center; gap:4px; }
+.typing-dots span{
+  width:5px; height:5px; border-radius:50%; background:currentColor;
+  animation:typing-dot 1.2s ease-in-out infinite;
+}
+.typing-dots span:nth-child(2){ animation-delay:.16s; }
+.typing-dots span:nth-child(3){ animation-delay:.32s; }
+@keyframes typing-dot{ 0%, 60%, 100%{ opacity:.25; } 30%{ opacity:1; } }
+/* No motion, still a signal: three steady dots read as "waiting" without it */
+@media (prefers-reduced-motion:reduce){ .typing-dots span{ animation:none; opacity:.55; } }
 /* what she said while nobody was in the room (SPEC §18.4) — she reached out,
    passed Gate 2, and spent one of two or three interrupts a day on an empty
    chair. The amber bar says "unprompted"; this says "and you weren't here". */

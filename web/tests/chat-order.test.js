@@ -110,6 +110,7 @@ it('places a late line among the ones already drawn, above her draft', async () 
   stream.deliver({ id: 't1', role: 'tool', tool: 'read_page', text: 'read a page',
     ts: '2026-10-28T08:59:59' });
 
-  expect(column()).toEqual(said('yesterday, me', 'yesterday, her', 'read a page',
-    'later', 'and then'));
+  // the draft unfolds over a few frames (js/chat.js); its place is decided now
+  await vi.waitFor(() => expect(column()).toEqual(
+    said('yesterday, me', 'yesterday, her', 'read a page', 'later', 'and then')));
 });

@@ -414,6 +414,10 @@ export function initVoice({ viseme, els }) {
     llmDone = false;
     activeSelfies = new Set();
     completedSelfies = new Set();
+    // She is typing until her first word lands (SPEC §2.6). The composer knows
+    // the moment a request goes out, which on a local model is the whole wait;
+    // the host's own `typing` event covers every room that did not send it.
+    window.WorldChat?.typing?.(true);
     renderProcessing();
   }
 
@@ -425,6 +429,7 @@ export function initVoice({ viseme, els }) {
     activeSelfies.clear();
     completedSelfies.clear();
     aborter = null;
+    window.WorldChat?.typing?.(false);
     renderProcessing();
     if (!wantsVoice()) disconnectVoice();
     // Only reclaim focus if the composer still has it — if the user dismissed

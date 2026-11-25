@@ -12,7 +12,7 @@ a section are folded into it.
 | Section | Implemented in | Also cited by |
 |---|---|---|
 | **§1** — Goal and properties | `yurios/world/channels/telegram.py`<br>`yurios/desktop/config.py`<br>`yurios/world/main.py` | — |
-| **§2** — The brain, the voice, and the seam | `web/js/chat.js`<br>`yurios/world/main.py`<br>`yurios/app/providers/openrouter.py`<br>`yurios/app/providers/sentence_tf.py`<br>*+48 more* | `tests/test_situation.py`<br>`tests/test_utility_schema_fallback.py`<br>`tests/test_embedder_fallback.py`<br>*+18 more* |
+| **§2** — The brain, the voice, and the seam | `web/js/chat.js`<br>`yurios/world/main.py`<br>`yurios/app/providers/openrouter.py`<br>`yurios/app/providers/sentence_tf.py`<br>*+48 more* | `tests/test_events.py`<br>`tests/test_situation.py`<br>`tests/test_utility_schema_fallback.py`<br>*+18 more* |
 | **§3** — The body: the VRM stage | `yurios/desktop/voice/protocols.py`<br>`yurios/app/providers/openrouter.py`<br>`web/js/stage/EmoteController.js`<br>`yurios/desktop/config.py`<br>*+23 more* | `tests/test_doctor.py`<br>`tests/test_lmstudio_preload.py`<br>`tests/test_model_setup.py`<br>*+4 more* |
 | **§4** — The control channel (`avatar` events on the bus) | `yurios/world/avatar/controller.py`<br>`web/js/bridge.js`<br>`yurios/desktop/routes/voice_ws.py`<br>`yurios/desktop/voice/turn.py`<br>*+12 more* | `tests/test_avatar_controller.py`<br>`tests/test_events.py` |
 | **§5** — Visemes: real lip-sync | `yurios/desktop/voice/fillers.py`<br>`web/js/stage/VrmStage.js`<br>`web/js/voice.js`<br>`scripts/seed_vault.py`<br>*+6 more* | `tests/test_bootstrap_greeting.py`<br>`tests/test_mind_goals.py`<br>`tests/test_studio_routes.py` |
@@ -51,4 +51,4 @@ a section are folded into it.
 | **§38** — How long her replies run | `web/js/chat.js`<br>`yurios/app/config.py`<br>`scripts/live_check.py`<br>`web/shared/reply-length.js`<br>*+4 more* | `tests/test_mind_soul.py`<br>`tests/test_reply_length.py` |
 | **§39** — Another reply in her last one's place | `yurios/desktop/brain.py`<br>`yurios/world/main.py`<br>`yurios/world/routes/chat.py`<br>`yurios/world/turns.py`<br>*+13 more* | `tests/test_swipes.py` |
 
-*1277 citation sites over 153 sections.*
+*1285 citation sites over 153 sections.*

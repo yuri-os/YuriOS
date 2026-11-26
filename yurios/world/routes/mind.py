@@ -11,11 +11,15 @@ from __future__ import annotations
 
 import asyncio
 import datetime
+import os
+import stat
 from pathlib import Path
 
+import yaml
 from fastapi import APIRouter, File, HTTPException, Request, Response, UploadFile
 from pydantic import BaseModel, Field, StrictInt, field_validator
 
+from yurios.characters.soulfiles import RETIRED_BOOTSTRAP, SoulReader
 from yurios.mind.dreamjobs import (BUILTIN_NAMES, JOB_KINDS, JOB_NAME_RE,
                                   DreamRunner, load_job_files,
                                   validate_job_file)
@@ -69,6 +73,109 @@ def _research_file(request: Request, name: str) -> Path:
     if root not in path.parents or not path.is_file():
         raise HTTPException(404, "that research document is not on the shelf")
     return path
+
+
+# The owner's read-only SOUL volume (SPEC §23.4).
+_SOUL_PURPOSES = {
+    "CONSTITUTION.md": "Core identity, history, values, limits, and voice rules.",
+    "PERSONA.md": "Appearance, personality, manner, inner life, and growth.",
+    "SCENARIO.md": "The setting and greetings for returning conversations.",
+    "EXAMPLES.md": "Sample conversations that demonstrate the character's voice.",
+    "WORLD.md": "Lore and background that can be recalled when relevant.",
+    "NOTES.md": "Creator notes about the character and how to use the card.",
+    "USER.md": "Private notes about you, your preferences, and your relationship.",
+    "MEMORY.md": "Private memory seed and things you asked the character to forget.",
+    "BOOTSTRAP.md": "The opening and guidance for the first conversation.",
+    RETIRED_BOOTSTRAP.as_posix(): "The archived opening and guidance from the first conversation.",
+    "soul.yaml": "The manifest that maps these files to prompts and character card fields.",
+}
+_SOUL_PREVIEW_BYTES = 512 * 1024
+
+
+def _soul_path(root: Path, rel: str) -> Path | None:
+    if root.is_symlink():
+        return None
+    if rel == RETIRED_BOOTSTRAP.as_posix():
+        if (root / RETIRED_BOOTSTRAP.parent).is_symlink():
+            return None
+    else:
+        name = Path(rel)
+        if (name.name != rel or rel.startswith(".") or "\\" in rel or "\x00" in rel
+                or name.suffix.lower() not in {".md", ".yaml", ".yml"}):
+            return None
+    return root / rel
+
+
+def _soul_fields(root: Path) -> dict[str, list[str]]:
+    manifest = _soul_path(root, "soul.yaml")
+    if manifest is None:
+        return {}
+    try:
+        if not stat.S_ISREG(manifest.lstat().st_mode):
+            return {}
+        with manifest.open("rb") as source:
+            raw = source.read(_SOUL_PREVIEW_BYTES + 1)
+        if len(raw) > _SOUL_PREVIEW_BYTES:
+            return {}
+        data = yaml.safe_load(raw)
+    except (OSError, yaml.YAMLError, ValueError, RecursionError):
+        return {}
+    fields = data.get("fields") if isinstance(data, dict) else None
+    if not isinstance(fields, dict):
+        return {}
+    uses: dict[str, list[str]] = {}
+    reader = SoulReader(root)
+    for field, refs in fields.items():
+        if isinstance(field, str):
+            for name in reader.referenced_files({field: refs}):
+                uses.setdefault(name, []).append(field.replace("_", " "))
+    return uses
+
+
+@router.get("/api/mind/soul")
+def soul_list(request: Request, response: Response) -> dict:
+    """List the current character's SOUL documents without reading their bodies."""
+    response.headers["Cache-Control"] = "no-store"
+    root = request.app.state.rt.cfg.vault_dir / "soul"
+    if root.is_symlink() or not root.is_dir():
+        return {"files": []}
+    uses = _soul_fields(root)
+    files = []
+    for rel in [*(child.name for child in root.iterdir()), RETIRED_BOOTSTRAP.as_posix()]:
+        path = _soul_path(root, rel)
+        if path is None:
+            continue
+        try:
+            info = path.lstat()
+        except OSError:
+            continue
+        if not stat.S_ISREG(info.st_mode):
+            continue
+        description = _SOUL_PURPOSES.get(rel)
+        if description is None:
+            description = (f"Supplies {', '.join(uses[rel])} in soul.yaml." if rel in uses
+                           else "Additional SOUL document.")
+        files.append({"path": rel, "bytes": info.st_size,
+                      "mtime": info.st_mtime, "description": description})
+    return {"files": files}
+
+
+@router.get("/api/mind/soul/file")
+def soul_file(request: Request, response: Response, path: str = "") -> dict:
+    """Preview one SOUL document on the same read-only surface as the index."""
+    response.headers["Cache-Control"] = "no-store"
+    target = _soul_path(request.app.state.rt.cfg.vault_dir / "soul", path)
+    try:
+        if target is not None and stat.S_ISREG(target.lstat().st_mode):
+            with target.open("rb") as source:
+                info = os.fstat(source.fileno())
+                raw = source.read(_SOUL_PREVIEW_BYTES + 1)
+            return {"path": path, "bytes": info.st_size, "mtime": info.st_mtime,
+                    "text": raw[:_SOUL_PREVIEW_BYTES].decode("utf-8", errors="replace"),
+                    "truncated": len(raw) > _SOUL_PREVIEW_BYTES}
+    except OSError:
+        pass
+    raise HTTPException(404, "that SOUL file is unavailable")
 
 
 @router.get("/api/mind")

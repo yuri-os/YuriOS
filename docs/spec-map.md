@@ -33,7 +33,7 @@ a section are folded into it.
 | **§20** — The knowledge layer (drop-folder RAG) | `yurios/mind/knowledge.py`<br>`yurios/mind/documents.py`<br>`web/js/files.js`<br>`yurios/ctl/documents.py`<br>*+2 more* | `tests/test_mind_routes.py`<br>`tests/test_cli_documents.py`<br>`tests/test_knowledge.py`<br>*+1 more* |
 | **§21** — DREAM consolidation | `yurios/mind/dreamjobs/research.py`<br>`yurios/mind/dream.py`<br>`yurios/mind/dreamjobs/builtins.py`<br>`yurios/mind/dreamjobs/context.py`<br>*+6 more* | `tests/test_dreamjobs.py`<br>`tests/test_mind_routes.py`<br>`tests/test_cli_dreams.py`<br>*+1 more* |
 | **§22** — Goals and intentions | `yurios/mind/goals.py`<br>`yurios/mind/handwork.py`<br>`yurios/mind/goalwork.py`<br>`scripts/live_check.py`<br>*+13 more* | `tests/test_mind_goals.py`<br>`tests/test_mind_hands.py`<br>`tests/test_mind_routes.py`<br>*+7 more* |
-| **§23** — The SOUL split and gated self-edits | `yurios/mind/workspace.py`<br>`scripts/live_check.py`<br>`web/tests/mind-stale-edit.test.js`<br>`yurios/mind/selfedit.py`<br>*+1 more* | `tests/test_selfedit.py`<br>`tests/test_mcp_contract.py`<br>`tests/test_mind_goals.py`<br>*+1 more* |
+| **§23** — The SOUL split and gated self-edits | `yurios/mind/workspace.py`<br>`scripts/live_check.py`<br>`web/js/files.js`<br>`web/tests/mind-stale-edit.test.js`<br>*+3 more* | `tests/test_selfedit.py`<br>`tests/test_mcp_contract.py`<br>`tests/test_mind_goals.py`<br>*+1 more* |
 | **§24** — The journal, the trace, and the inner-life surface | `yurios/world/debug.py`<br>`yurios/world/host/debug.py`<br>`yurios/world/main.py`<br>`yurios/world/routes/mind.py`<br>*+24 more* | `tests/test_host_debug.py`<br>`tests/test_mind_routes.py`<br>`tests/test_correlate.py`<br>*+3 more* |
 | **§25** — Config (the mind's knobs) | — | — |
 | **§26** — Omissions (normative) | `yurios/mind/hands.py`<br>`yurios/mind/loop.py`<br>`yurios/mind/handwork.py`<br>`yurios/world/config.py`<br>*+7 more* | `tests/test_mind_hands.py`<br>`tests/test_boot.py`<br>`tests/test_characters_registry.py`<br>*+2 more* |
@@ -51,4 +51,4 @@ a section are folded into it.
 | **§38** — How long her replies run | `web/js/chat.js`<br>`yurios/app/config.py`<br>`scripts/live_check.py`<br>`web/shared/reply-length.js`<br>*+4 more* | `tests/test_mind_soul.py`<br>`tests/test_reply_length.py` |
 | **§39** — Another reply in her last one's place | `yurios/desktop/brain.py`<br>`yurios/world/main.py`<br>`yurios/world/routes/chat.py`<br>`yurios/world/turns.py`<br>*+13 more* | `tests/test_swipes.py` |
 
-*1285 citation sites over 153 sections.*
+*1287 citation sites over 154 sections.*

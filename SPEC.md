@@ -3237,6 +3237,15 @@ reviewably.
   with `read_note("soul/<FILE>")`, read-only, whenever the door is open, including when the workspace
   is disabled; desk paths remain unavailable in that configuration. Nothing takes effect on the
   call.
+- §23.4 **The chat's Files tab can browse the SOUL.** The first volume is `fs://soul`, backed
+  by the current character's `vault/soul/`. It **MUST** list the existing top-level Markdown and
+  YAML files and the retired bootstrap, when present. Each entry **MUST** show its purpose and
+  filesystem modification time, and open a read-only preview with its size. Custom documents can
+  identify their role through `soul.yaml`'s field mappings. `GET /api/mind/soul` lists metadata
+  and `GET /api/mind/soul/file?path=…` reads one listed file. Both **MUST** work with the mind or
+  workspace disabled and **MUST NOT** follow symlinks or expose other Vault paths. This is an
+  owner-facing view, so it includes local runtime files such as `USER.md` and `MEMORY.md` when
+  present. The card export boundary still applies (§30.5).
 
 ## §24 — The journal, the trace, and the inner-life surface
 

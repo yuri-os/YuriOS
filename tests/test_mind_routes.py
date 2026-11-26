@@ -127,6 +127,40 @@ def test_workspace_routes_list_read_and_write_through_the_desk(client_with_mind,
     assert c.get("/api/mind/workspace/file", params={"path": "../soul/USER.md"}).status_code == 400
 
 
+def test_soul_volume_previews_current_files_without_mind_or_workspace(cfg, seeded_vault):
+    soul = seeded_vault / "soul"
+    (soul / "EXTRA.md").write_text("# A custom identity\n", encoding="utf-8")
+    (soul / "soul.yaml").write_text(
+        "fields:\n  description: EXTRA.md#Identity\n", encoding="utf-8")
+    retired = soul / "onboarded" / "BOOTSTRAP.done.md"
+    retired.parent.mkdir()
+    (soul / "BOOTSTRAP.md").rename(retired)
+    outside = seeded_vault / "outside.md"
+    outside.write_text("outside the SOUL", encoding="utf-8")
+    (soul / "LINK.md").symlink_to(outside)
+    app = create_app(cfg.model_copy(update={"tools_backend": "off", "mind_enabled": False,
+                                           "workspace_enabled": False}), brain=FakeBrain())
+    with TestClient(app) as c:
+        assert c.get("/api/mind/workspace").status_code == 409
+        response = c.get("/api/mind/soul")
+        assert response.headers["cache-control"] == "no-store"
+        files = {file["path"]: file for file in response.json()["files"]}
+        assert {"CONSTITUTION.md", "PERSONA.md", "USER.md", "soul.yaml",
+                "onboarded/BOOTSTRAP.done.md"} <= files.keys()
+        assert not {"BOOTSTRAP.md", "LINK.md"} & files.keys()
+        assert files["EXTRA.md"] == {
+            "path": "EXTRA.md", "description": "Supplies description in soul.yaml.",
+            "mtime": (soul / "EXTRA.md").stat().st_mtime, "bytes": 20,
+        }
+        for name in ("PERSONA.md", "USER.md", "onboarded/BOOTSTRAP.done.md"):
+            preview = c.get("/api/mind/soul/file", params={"path": name}).json()
+            assert preview["text"] == (soul / name).read_text(encoding="utf-8")
+            assert preview["mtime"] == files[name]["mtime"]
+        for name in ("LINK.md", "../outside.md", str(outside), "onboarded/../USER.md"):
+            assert c.get("/api/mind/soul/file", params={"path": name}).status_code == 404
+        assert c.put("/api/mind/soul/file", params={"path": "PERSONA.md"}).status_code == 405
+
+
 def test_research_routes_list_and_read_sources_without_exposing_paths(client_with_mind):
     c, rig = client_with_mind
     source = rig.mind.vault.vault / "knowledge" / "reference" / "web-rain.md"

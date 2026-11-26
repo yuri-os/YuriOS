@@ -1,6 +1,6 @@
-/* The files tab is a small local terminal dressed as an OS volume browser, not
- * a second Vault debugger. It can write only workspace scratch; research
- * sources stay intact and can be copied to the desk before changing them. The
+/* The files tab browses the character's SOUL (SPEC §23.4), workspace, and
+ * research shelf. It can write only workspace scratch; research sources stay
+ * intact and can be copied to the desk before changing them. The
  * one way onto the shelf is adding a document of your own for her to look
  * things up in (SPEC §20.1) — a new source, never an edit to one already there.
  * The desk takes one too, into inbox/: not searched, but read on purpose and
@@ -13,15 +13,16 @@
   const panel = document.getElementById('files');
   if (!panel) return;
 
-  // The two mounted volumes. `id` is what appears in fs:// paths, `kind` is
+  // `id` is what appears in fs:// paths, `kind` is
   // the API namespace the volume's files live under.
   const VOLUMES = [
+    { id: 'soul', kind: 'soul', mode: 'ro', desc: 'identity, persona & memory' },
     { id: 'workspace', kind: 'workspace', mode: 'rw', desc: 'scratch · editable' },
     { id: 'shelf', kind: 'research', mode: 'ro', desc: 'sources · preserved' },
   ];
 
   const state = {
-    workspace: [], research: [],
+    soul: [], workspace: [], research: [], errors: {},
     active: null, dirty: false, loading: false,
     cwd: [], // fs path segments, e.g. ['workspace', 'research']; [] is the mount table
     adding: false,
@@ -29,11 +30,13 @@
     addNotes: { research: [], workspace: [] },
   };
   let serial = 0;
+  let refreshSerial = 0;
+  let renderedDirectory;
 
   function esc(value) {
     const node = document.createElement('div');
     node.textContent = value ?? '';
-    return node.innerHTML;
+    return node.innerHTML.replaceAll('"', '&quot;');
   }
 
   function bytes(value = 0) {
@@ -48,6 +51,15 @@
     return Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString([], {
       month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
     });
+  }
+
+  function soulStamp(value, long = false) {
+    if (!Number.isFinite(value)) return '';
+    const date = new Date(value * 1000);
+    const label = long
+      ? `Last updated ${date.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}`
+      : date.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    return `<time class="fs-mtime" datetime="${date.toISOString()}">${esc(label)}</time>`;
   }
 
   async function request(path, init) {
@@ -78,11 +90,11 @@
   }
 
   function filesOf(kind) {
-    return kind === 'workspace' ? state.workspace : state.research;
+    return state[kind];
   }
 
   function fileName(file, kind) {
-    return kind === 'workspace' ? file.path : file.name;
+    return kind === 'research' ? file.name : file.path;
   }
 
   // Inside the current directory. Folders are derived from path prefixes so a
@@ -145,10 +157,11 @@
       // Mount table: the root of the virtual file system.
       const mounts = VOLUMES.map(v => {
         const count = filesOf(v.kind).filter(f => !f.dir).length;
+        const status = state.errors[v.kind] ? 'unavailable' : `${count} obj`;
         return `<button class="fs-vol" data-vol="${v.id}">` +
           `<span class="fs-icon">${ICON.drive}</span>` +
           `<span class="fs-vol-name">${esc(v.id)}<small>${esc(v.desc)}</small></span>` +
-          `<span class="fs-vol-meta"><em>${v.mode}</em>${count} obj</span></button>`;
+          `<span class="fs-vol-meta"><em>${v.mode}</em>${status}</span></button>`;
       }).join('');
       return `<div class="fs-list">${mounts}</div>` +
         `<div class="fs-status">${VOLUMES.length} volumes mounted</div>`;
@@ -157,6 +170,10 @@
     const rows = [];
     if (state.cwd.length) {
       rows.push(row(ICON.up, '..', '<small></small>', ' data-up="1"'));
+    }
+    if (state.errors[vol.kind]) {
+      return `<div class="fs-list">${rows.join('')}<p class="fs-empty fs-error">` +
+        `${esc(state.errors[vol.kind])}</p></div>`;
     }
     const items = [
       ...dirs.map(dir => ({ kind: 'dir', name: dir.name, mtime: dir.mtime || 0 })),
@@ -175,9 +192,12 @@
       const path = fileName(doc, vol.kind);
       const name = path.slice(path.lastIndexOf('/') + 1);
       const active = state.active?.kind === vol.kind && state.active?.path === path;
-      rows.push(row(ICON.file, name,
-        `<small>${bytes(doc.bytes)}</small><small class="fs-mtime">${stamp(doc.mtime)}</small>`,
-        ` data-path="${esc(path)}"${active ? ' data-on="1"' : ''}`));
+      const meta = vol.kind === 'soul'
+        ? `${soulStamp(doc.mtime)}<span class="fs-purpose">${esc(doc.description)}</span>`
+        : `<small>${bytes(doc.bytes)}</small><small class="fs-mtime">${stamp(doc.mtime)}</small>`;
+      rows.push(row(ICON.file, name, meta,
+        ` data-path="${esc(path)}"${active ? ' data-on="1"' : ''}`,
+        vol.kind === 'soul' ? ' fs-soul-row' : ''));
     }
     const body = rows.length
       ? rows.join('')
@@ -251,61 +271,81 @@
       return `<section class="fs-detail fs-idle"><span class="fs-cursor">_</span>` +
         `<h2>opening ${esc(active.path)}</h2><p>reading the local file system…</p></section>`;
     }
-    const meta = `${bytes(active.bytes)}${active.mtime ? ` · ${stamp(active.mtime)}` : ''}`;
+    const soul = active.kind === 'soul';
+    const meta = `${bytes(active.bytes)}${soul ? ` · ${soulStamp(active.mtime, true)}`
+      : active.mtime ? ` · ${stamp(active.mtime)}` : ''}`;
     const vol = VOLUMES.find(v => v.kind === active.kind);
     const fsPath = `fs://${vol ? vol.id : active.kind}/${active.path}`;
-    const mode = active.kind === 'workspace' ? 'workspace / editable' : 'research / source file';
+    const mode = { workspace: 'workspace / editable', research: 'research / source file',
+      soul: 'soul / read-only' }[active.kind];
     const action = active.kind === 'workspace'
       ? `<button class="fs-save"${state.dirty ? '' : ' disabled'}>save file</button>`
-      : '<button class="fs-fork">edit a working copy</button>';
+      : active.kind === 'research' ? '<button class="fs-fork">edit a working copy</button>' : '';
     const body = active.kind === 'workspace'
       ? `<textarea class="fs-editor" spellcheck="false" aria-label="${esc(active.path)}">${esc(active.text)}</textarea>`
       : `<pre class="fs-source">${esc(active.text)}</pre>`;
+    const foot = active.kind === 'workspace'
+      ? `<span class="fs-write-state">${state.dirty ? 'unsaved changes' : 'saved to local workspace'}</span>`
+      : soul
+        ? (active.truncated ? '<span>preview truncated</span>' : '')
+        : '<span>source files stay original · make a working copy to edit</span>';
     return `<section class="fs-detail"><header class="fs-file-head">` +
       `<div><p class="fs-breadcrumb">${mode} · ${esc(fsPath)}</p><h2>${esc(active.path)}</h2>` +
+      (soul ? `<p class="fs-purpose">${esc(active.description)}</p>` : '') +
       `<small>${meta}</small></div>${action}</header>${body}` +
-      `<footer class="fs-foot">${active.kind === 'workspace'
-        ? `<span class="fs-write-state">${state.dirty ? 'unsaved changes' : 'saved to local workspace'}</span>`
-        : '<span>source files stay original · make a working copy to edit</span>'}</footer></section>`;
+      (foot ? `<footer class="fs-foot">${foot}</footer>` : '') + '</section>';
   }
 
   function render() {
+    const directory = state.cwd.join('/');
+    const scroll = directory === renderedDirectory ? panel.querySelector('.fs-list')?.scrollTop : 0;
     panel.innerHTML = `<div class="fs-shell">${browser()}${detail()}</div>`;
+    if (scroll) panel.querySelector('.fs-list').scrollTop = scroll;
+    renderedDirectory = directory;
   }
 
   async function refresh({ reload = false } = {}) {
     // Do not let an SSE refresh erase text the person is still composing.
     if (state.dirty) return;
-    try {
-      const [workspace, research] = await Promise.all([
-        request('/api/mind/workspace'), request('/api/mind/research'),
-      ]);
-      state.workspace = workspace.files || [];
-      state.research = research.files || [];
-      render();
-      if (reload && state.active && !state.dirty) openFile(state.active.kind, state.active.path);
-    } catch (error) {
-      panel.innerHTML = `<div class="fs-shell"><section class="fs-detail fs-idle">` +
-        `<span class="fs-cursor">_</span><h2>files unavailable</h2>` +
-        `<p>${esc(error.message || 'the local service did not answer')}</p></section></div>`;
+    const token = ++refreshSerial;
+    const results = await Promise.allSettled(VOLUMES.map(({ kind }) => request(`/api/mind/${kind}`)));
+    if (token !== refreshSerial || state.dirty) return;
+    for (const [i, { kind }] of VOLUMES.entries()) {
+      const result = results[i];
+      state[kind] = result.status === 'fulfilled' ? result.value.files || [] : [];
+      state.errors[kind] = result.status === 'rejected'
+        ? reason(result.reason) || 'the local service did not answer' : '';
     }
+    if (reload && state.active) {
+      const { kind, path } = state.active;
+      if (filesOf(kind).some(file => fileName(file, kind) === path && !file.dir)) {
+        return openFile(kind, path);
+      }
+      ++serial;
+      state.active = null;
+      state.loading = false;
+    }
+    render();
   }
 
   async function openFile(kind, path) {
-    const token = ++serial;
-    const from = filesOf(kind).find(file =>
-      (kind === 'workspace' ? file.path : file.name) === path);
+    const from = filesOf(kind).find(file => fileName(file, kind) === path);
     if (!from || from.dir) return;
-    state.active = { kind, path, text: '', bytes: from.bytes, mtime: from.mtime };
+    const token = ++serial;
+    state.active = { ...from, kind, path, text: '' };
     state.dirty = false;
     state.loading = true;
     render();
     try {
-      const query = kind === 'workspace' ? `path=${encodeURIComponent(path)}` :
-        `name=${encodeURIComponent(path)}`;
+      const query = `${kind === 'research' ? 'name' : 'path'}=${encodeURIComponent(path)}`;
       const data = await request(`/api/mind/${kind}/file?${query}`);
       if (token !== serial) return;
       state.active.text = data.text;
+      if (kind === 'soul') {
+        state.active.bytes = data.bytes;
+        state.active.mtime = data.mtime;
+        state.active.truncated = data.truncated;
+      }
       state.loading = false;
       render();
     } catch (error) {

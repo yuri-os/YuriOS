@@ -23,6 +23,47 @@ function names() {
     .map((el) => el.textContent);
 }
 
+it('shows the character’s SOUL documents even with the workspace disabled', async () => {
+  document.body.innerHTML = '<div id="files"></div>';
+  window.YuriOSRuntime = { apiPath: (path) => path.replace('/api/', '/api/characters/yuri/') };
+  const mtime = 1795676400;
+  const documentInfo = { path: 'PERSONA.md', mtime, bytes: 12,
+    description: 'Appearance, personality, and growth.' };
+  vi.stubGlobal('fetch', vi.fn(async (url) => {
+    if (url === '/api/characters/yuri/mind/workspace') {
+      return { ok: false, text: async () => JSON.stringify({ detail: 'workspace disabled' }) };
+    }
+    if (url === '/api/characters/yuri/mind/research') {
+      return { ok: true, json: async () => ({ files: [] }) };
+    }
+    if (url === '/api/characters/yuri/mind/soul') {
+      return { ok: true, json: async () => ({ files: [documentInfo] }) };
+    }
+    if (url === '/api/characters/yuri/mind/soul/file?path=PERSONA.md') {
+      return { ok: true, json: async () => ({ ...documentInfo, mtime: mtime + 60,
+        text: '# Persona\n', truncated: false }) };
+    }
+    throw new Error(`unexpected request: ${url}`);
+  }));
+
+  await import('../js/files.js');
+  window.dispatchEvent(new Event('files-open'));
+  await vi.waitFor(() => expect(document.querySelector('.fs-vol')?.dataset.vol).toBe('soul'));
+  document.querySelector('[data-vol="soul"]').click();
+  const row = document.querySelector('[data-path="PERSONA.md"]');
+  expect(row.querySelector('.fs-purpose').textContent).toBe(documentInfo.description);
+  expect(row.querySelector('time').dateTime).toBe(new Date(mtime * 1000).toISOString());
+  expect(document.querySelector('.fs-add')).toBeNull();
+
+  row.click();
+  await vi.waitFor(() => expect(document.querySelector('.fs-source')?.textContent).toBe('# Persona\n'));
+  expect(document.querySelector('.fs-file-head .fs-purpose').textContent).toBe(documentInfo.description);
+  const updated = document.querySelector('.fs-file-head time');
+  expect(updated.textContent).toMatch(/^Last updated /);
+  expect(updated.dateTime).toBe(new Date((mtime + 60) * 1000).toISOString());
+  expect(document.querySelector('.fs-editor, .fs-save, .fs-fork')).toBeNull();
+});
+
 it('stamps a folder with the newest content change and lists newest first', async () => {
   document.body.innerHTML = '<div id="files"></div>';
   window.YuriOSRuntime = { apiPath: (path) => path };
@@ -40,7 +81,7 @@ it('stamps a folder with the newest content change and lists newest first', asyn
         }),
       };
     }
-    if (url === '/api/mind/research') {
+    if (url === '/api/mind/research' || url === '/api/mind/soul') {
       return { ok: true, json: async () => ({ files: [] }) };
     }
     throw new Error(`unexpected request: ${url}`);
@@ -95,6 +136,7 @@ it('adds documents to the shelf one at a time and says what each came to', async
         json: async () => ({ name, calls: 4, replaced: false, digested: false }),
       };
     }
+    if (url === '/api/mind/soul') return { ok: true, json: async () => ({ files: [] }) };
     if (url === '/api/mind/research') {
       return { ok: true, json: async () => ({ files: [...shelf] }) };
     }
@@ -150,7 +192,9 @@ it('hands a document to her desk inbox and says when she will read it', async ()
       };
     }
     if (url === '/api/mind/workspace') return { ok: true, json: async () => ({ files: [...desk] }) };
-    if (url === '/api/mind/research') return { ok: true, json: async () => ({ files: [] }) };
+    if (url === '/api/mind/research' || url === '/api/mind/soul') {
+      return { ok: true, json: async () => ({ files: [] }) };
+    }
     throw new Error(`unexpected request: ${url}`);
   }));
 

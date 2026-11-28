@@ -55,10 +55,13 @@ class MindVault:
         self._commit_lock = threading.Lock()
 
     def _check(self, rel: str, *, gate: bool) -> Path:
+        base = self.vault.resolve()
         p = (self.vault / rel).resolve()
-        if not str(p).startswith(str(self.vault.resolve())):
+        # Containment by path parts, not string prefix: "/data/vault-backup"
+        # starts with "/data/vault" but is not inside it.
+        if not p.is_relative_to(base):
             raise PermissionError(f"path escapes the vault: {rel}")
-        parts = p.relative_to(self.vault.resolve()).parts
+        parts = p.relative_to(base).parts
         if parts and parts[0] == "soul":
             name = parts[-1] if len(parts) > 1 else ""
             if name == "CONSTITUTION.md":

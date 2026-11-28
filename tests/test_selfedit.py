@@ -92,6 +92,19 @@ def test_paths_cannot_escape_the_vault(rig):
         vault.write("../outside.md", "nope")
 
 
+@pytest.mark.parametrize("write", ["write", "append"])
+def test_a_sibling_sharing_the_vaults_prefix_is_still_outside_it(rig, write):
+    # "<tmp>/vault-backup" starts with the string "<tmp>/vault"; a prefix test
+    # would wave it through. It must be refused as an escape, gate or no gate.
+    _, vault = rig
+    sibling = vault.vault.parent / "vault-backup"
+    sibling.mkdir()
+    for gate in (False, True):
+        with pytest.raises(PermissionError, match="escapes the vault"):
+            getattr(vault, write)("../vault-backup/x.md", "nope", gate=gate)
+    assert not (sibling / "x.md").exists()
+
+
 # --- a rewrite that would stop her booting (SPEC §23) ------------------------------
 
 SOUL_YAML = """\

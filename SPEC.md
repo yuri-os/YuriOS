@@ -3966,6 +3966,46 @@ changes; a runtime does not know it has neighbours.
   `chat_thinking` through the same brain API, applies to subsequent replies, and **MUST NOT**
   display a changed value before the host accepts the save. Before opening the bus, the
   room **MAY** seed those controls with a single read of that API.
+- §31.5 **Whether her model's server answers is said, and a local one is started.** A
+  character whose server is down **MUST NOT** open her room as if nothing were wrong.
+  `providers/reach.py` names the servers behind the seams a runtime actually builds — chat,
+  utility, and a server-backed embedder, one entry per (provider, endpoint), carrying the roles it
+  serves; an injected model reaches no server and is never asked — and asks each with one request
+  that costs no tokens: a local or OpenAI-compatible server's model listing (and whether each model
+  she names is in it; for LM Studio the developer catalog of what is on disk too, since `/v1/models`
+  may list only what is loaded), OpenRouter's key check. The states are `ok`, `down` (nothing
+  answered), `refused` (a 401/403 — a key the server wants, never "unreachable", §31.1), `missing`
+  (it answered without her model), `failed` (a turn through it failed for a reason the probe
+  could not explain), `starting`, and `unchecked` (a hosted route with no free check; her turns
+  are the check). A model listing that is empty or unavailable **MUST NOT** be reported as a
+  missing model.
+  - **Order at boot.** The check **MUST** run before her providers are built: an `lm_studio/…`
+    model built while LM Studio is away becomes the GGUF fallback (§2.4) and stays one. A server
+    that is `down`, on a loopback address, and one this machine has a command for — LM Studio's
+    `lms server start --port <port>`, Ollama's `ollama serve` (detached, `OLLAMA_HOST` from the
+    configured url) — is started and waited for when `MODEL_SERVER_AUTOSTART` (default on) allows.
+    The command **MUST** be built only from a binary found on this machine and the configured
+    url's port, never from anything a request carries; a remote server **MUST NOT** be started.
+    One start per server at a time, process-wide, so characters sharing a server start it once.
+    The boot board carries the check as `server` ("mind · model server"), and the pin step
+    (§2.4) is skipped as "waiting for LM Studio" while that server is down.
+  - **One sticky `connection` event** (`state` — the worst link's — `detail`, `links`, `busy`,
+    `fallback`) is published at boot and whenever any of it changes; every room **MUST** show a
+    banner from it while the state is `down`, `refused`, `missing` or `failed`, or a server is
+    starting, offering "Start <server>" for a startable `down` link and "Check again" always. A
+    dismissed banner **MUST** return when the state changes. `fallback` names what she answers
+    through meanwhile (the GGUF runner, when it took over). Keys **MUST NOT** appear in the event.
+  - **Keeping it true.** A turn that fails with an error from the model's own stack (LiteLLM,
+    httpx, the providers) records why and re-asks the servers; a successful turn clears it; a
+    failure from anything else (a tool) **MUST NOT** become a connection state. While a server is
+    `down` it is re-asked on a slow beat, so one opened by hand clears the banner by itself. A
+    server that comes back **MUST** put her back on it: providers that are the GGUF fallback are
+    rebuilt (§31.4's path) and her LM Studio models pinned, behind the answer. A live model swap
+    re-asks, since the new model may live elsewhere.
+  - **Surface.** `GET /api/connection` (the snapshot), `POST /api/connection/check`, and
+    `POST /api/connection/start`, which runs a command on the host and so **MUST** be the owner's
+    alone (the §11 local/owner guard). `/api/health` carries the snapshot as `connection` and lists
+    trouble in `degraded` as `model server: <detail>`.
 
 ## §32 — The switchboard
 

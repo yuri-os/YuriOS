@@ -311,6 +311,13 @@ class Runtime:
         # leaves a companion who talks and never remembers; /api/health is where
         # "why is she silent?" gets asked, so it has to be sayable there.
         self.memory_status = "off"
+        # Whether her model's server answers (SPEC §31.5) — asked by
+        # runtime.build_brain before it builds anything on that server, then
+        # kept true by failed turns and, while one is down, a slow re-ask.
+        from .connection import ConnectionWatch
+        self.connection = ConnectionWatch(cfg, self.hub,
+                                          fallback=self._fallback_line,
+                                          on_recovered=self._server_recovered)
         # `brain` is injectable for the same reason as B2's: the route tests run
         # against a FakeBrain (no Vault, no SQLite). The real one is a ToolBrain,
         # and building it loads models — runtime.build_brain.
@@ -1080,6 +1087,8 @@ class Runtime:
         # the render thread closes/opens the gate from off-loop; tell it where
         self.park_gate.bind(self.loop)
         self._publish_brain()
+        # A server boot found down is watched from here on (SPEC §31.5)
+        self.connection.bind(self.loop)
         # Can she be shown a picture? (SPEC §35) Her provider is asked once, at
         # boot, and the answer rides the `hello` event to every room — that is
         # what puts the paperclip in the composer, or leaves it out. Never fatal:
@@ -1283,6 +1292,7 @@ class Runtime:
             if task not in self._committing:
                 task.cancel()
         await asyncio.gather(*live, return_exceptions=True)
+        await self.connection.stop()
         await self.voice.close()               # cancel a pending unload; free the weights
         await self.channels.stop_all()
         if self.selfies is not None:
@@ -1357,6 +1367,12 @@ class Runtime:
             # the swap, so the composer's paperclip appears or disappears with
             # the model rather than at the next restart.
             await self._probe_image_input()
+        if applied and self._owns_models:
+            # a new model may live on a different server (SPEC §31.5)
+            asked = asyncio.create_task(self.connection.recheck(quiet=True),
+                                        name="connection-recheck")
+            self._tasks.append(asked)
+            asked.add_done_callback(self._forget_task)
         if applied and self.cfg.chat_model.startswith("lm_studio/"):
             task = asyncio.create_task(self._repin_lmstudio(), name="lmstudio-repin")
             self._tasks.append(task)           # cancelled with the rest on shutdown…
@@ -1406,6 +1422,45 @@ class Runtime:
             raise
         except Exception:
             log.exception("could not pin the newly selected model in LM Studio")
+
+    def _fallback_line(self) -> str:
+        """What she is answering through while her server is away, if not it.
+
+        Only the GGUF fallback (SPEC §2.4) does this: an lm_studio/… model built
+        while LM Studio was down runs on the built-in llama.cpp runner instead.
+        Said beside the banner, because it is why a turn is slow, or fails on a
+        download, rather than failing on the server."""
+        # asked from the build thread too, before `self.brain` exists
+        chat = getattr(getattr(getattr(self, "brain", None), "state", None), "chat", None)
+        if (type(chat).__name__ == "GGUFChatModel"
+                and self.cfg.chat_model.startswith("lm_studio/")):
+            return "her replies are going to the built-in GGUF runner until it is back"
+        return ""
+
+    async def _server_recovered(self, links) -> None:
+        """A server that was down answers again: put her back on it (SPEC §31.5).
+
+        Two things a boot without it left undone. Her providers may be the GGUF
+        fallback — rebuilt here, so the next token comes from LM Studio again —
+        and nothing was pinned, so her models are loaded and pinned now, behind
+        the answer, exactly as a live model swap does it (§31.4)."""
+        if not self._owns_models or getattr(self.brain, "state", None) is None:
+            return
+        if not any(link.provider == "lmstudio" for link in links):
+            return
+        from . import rewire
+        if self._fallback_line():
+            await asyncio.to_thread(rewire.rebuild, self.brain.state, self.cfg,
+                                    meter=self.context)
+            log.info("LM Studio is back — her replies leave the GGUF fallback")
+        if self.cfg.lmstudio_preload:
+            from yurios.app.main import _preload_lmstudio
+            pinned = await asyncio.to_thread(
+                _preload_lmstudio, self.cfg, chat=True,
+                embed=self.cfg.embed_backend == "lm_studio")
+            if pinned and "models" in self.boot:
+                self.boot.done("models", detail=f"{len(pinned)} resident · no idle unload")
+        await asyncio.to_thread(runtime.probe_context_window, self, self.cfg)
 
     async def set_mind_enabled(self, enabled: bool) -> None:
         """Pause/resume autonomy without taking conversation offline."""
@@ -1594,8 +1649,9 @@ def create_app(cfg: Config | None = None, *, brain=None, chat_model=None,
     from yurios.desktop.routes import settings as b2_settings
 
     from .routes import channels, chat, events, health, live2d, mind, voice_ws
-    from .routes import camera, gallery, inbox, onboarding, rate, uploads
+    from .routes import camera, connection, gallery, inbox, onboarding, rate, uploads
     app.include_router(health.router)
+    app.include_router(connection.router)
     app.include_router(onboarding.router)
     app.include_router(events.router)
     app.include_router(voice_ws.router)

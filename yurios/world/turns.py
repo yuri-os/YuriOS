@@ -37,6 +37,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import sys
 from contextlib import nullcontext
 from typing import NoReturn
 
@@ -77,6 +78,18 @@ _BOUNDARY = re.compile(r"[.!?…\n]")
 #: punctuation — still streams instead of arriving whole at commit.
 DRAFT_FLUSH_CHARS = 120
 
+
+
+def report_turn(rt, what: str, *args) -> None:
+    """Tell her connection watch how a turn through her model went (SPEC §31.5).
+    A route test's runtime may have none; a watch that fails never fails a turn."""
+    watch = getattr(rt, "connection", None)
+    if watch is None:
+        return
+    try:
+        getattr(watch, what)(*args)
+    except Exception:              # noqa: BLE001
+        log.exception("connection watch: %s", what)
 
 class _Drafts:
     """The draft cadence: what the room sees while she is still typing (§10.5).
@@ -434,6 +447,7 @@ class TextTurns:
                 if tail:
                     drafts.shown.append(tail)
                 drafts.flush()
+            report_turn(rt, "turn_ok")
         except asyncio.CancelledError:
             rt.hub.publish("draft_cancel", drafts.tag)
             rt.brain.abandon(session_id)
@@ -447,6 +461,8 @@ class TextTurns:
             rt.hub.publish("draft_cancel", drafts.tag)
             rt.brain.abandon(session_id)
             log.exception("text turn failed mid-stream (channel %s)", channel)
+            # was it her server? the banner asks it, and says (SPEC §31.5)
+            report_turn(rt, "turn_failed", sys.exc_info()[1])
             raise
         finally:
             self._typing(False)

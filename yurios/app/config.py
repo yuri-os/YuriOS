@@ -53,6 +53,11 @@ class Config(BaseSettings):
     # turn. The timeout only has to cover a cold load off disk.
     lmstudio_preload: bool = True
     lmstudio_load_timeout_s: float = 600.0
+    # Start her model server when it is on this machine and not running (SPEC
+    # §31.5): LM Studio through its `lms` CLI, Ollama through `ollama serve`.
+    # Asked at boot, before her providers are built, and from the room's banner
+    # whenever it says the server is down. Off = only ever report it.
+    model_server_autostart: bool = True
     # When an lm_studio/ route cannot reach LM Studio, run its matching GGUF
     # directly through llama.cpp instead. The configured model id after
     # `lm_studio/` is its Hugging Face repo unless gguf_repo overrides it.

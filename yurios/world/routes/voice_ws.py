@@ -82,6 +82,7 @@ from yurios.desktop.voice.ws_session import (
     Utterance, encode_event, loads_frame, make_sender, open_session, serve,
     stop_turn, turn_controller,
 )
+from yurios.world.turns import report_turn
 
 log = logging.getLogger("world.ws")
 router = APIRouter()
@@ -236,8 +237,9 @@ async def _in_the_room(ws: WebSocket, rt, session_id: str, safe_send,
                     if not await safe_send(payload):
                         controller.cancel()        # client vanished → tear the turn down
                         return
-        except Exception:
+        except Exception as e:
             log.exception("turn stream failed")
+            report_turn(rt, "turn_failed", e)      # her server? (SPEC §31.5)
             rt.hub.publish("draft_cancel", {})
             await safe_send({"type": "error", "message": "turn failed",
                              "client_id": client_id})

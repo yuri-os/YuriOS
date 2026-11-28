@@ -743,6 +743,7 @@ PAGES: list[dict] = [
              ("LMSTUDIO_PRELOAD", "Keep LM Studio models loaded"),
              ("LMSTUDIO_LOAD_TIMEOUT_S", "LM Studio load timeout (s)"),
              ("OLLAMA_BASE_URL", "Ollama address"),
+             ("MODEL_SERVER_AUTOSTART", "Start a local model server that isn't running"),
          ]},
          {"title": "Built-in GGUF runner — gguf/… models", "advanced": True, "fields": [
              ("GGUF_FALLBACK", "Fall back to GGUF when LM Studio is away"),

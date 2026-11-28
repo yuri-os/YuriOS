@@ -168,6 +168,14 @@ def build_brain(rt, *, chat_model, utility_model, embedder) -> ToolBrain:
     """
     from yurios.app.main import _default_embedder    # lazy: torch lives behind it
     cfg = rt.cfg
+    # Her model server first (SPEC §31.5): asked — and, when it is a local one
+    # that is down, started — before anything is built on it. A provider built
+    # while LM Studio was away is the GGUF fallback, and it stays one.
+    watch = getattr(rt, "connection", None)     # a bare test runtime has none
+    if watch is not None:
+        watch.boot(chat=chat_model is None, utility=utility_model is None,
+                   embed=embedder is None, board=rt.boot,
+                   autostart=cfg.model_server_autostart)
     pin_lmstudio(rt, chat_model, utility_model, embedder)
     if not rt.model_configured:
         rt.boot.declare("models", "mind · language model", state="skipped",
@@ -244,6 +252,12 @@ def pin_lmstudio(rt, chat_model, utility_model, embedder) -> None:
     if not ids:
         return
     rt.boot.declare("models", "mind · language models")
+    watch = getattr(rt, "connection", None)
+    if watch is not None and watch.is_down("lmstudio"):
+        # nothing to pin them in; the connection watch pins them when it is
+        # back (SPEC §31.5), and the line above already says why
+        rt.boot.done("models", state="skipped", detail="waiting for LM Studio")
+        return
     rt.boot.start("models", detail=f"{len(ids)} on LM Studio")
     pinned = _preload_lmstudio(cfg, chat=chat, embed=embedder is None)
     # the window they were loaded with — the number the masthead gauge and

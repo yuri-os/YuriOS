@@ -24,6 +24,12 @@ def _degradations(rt) -> list[str]:
     out: list[str] = []
     if not rt.model_configured:
         out.append("no language model configured")
+    else:
+        # configured, and her server isn't answering — the commonest reason of
+        # all for a silent companion (SPEC §31.5)
+        watch = getattr(rt, "connection", None)
+        if watch is not None:
+            out.extend(watch.degradations())
     for label, status in (("channels", rt.channels_status), ("tools", rt.tools_status),
                           ("mind", rt.mind_status), ("web", rt.research_status),
                           ("selfies", rt.selfies_status),
@@ -48,6 +54,9 @@ async def health(request: Request) -> dict:
         # mid-conversation (§31.4), so this reads the live Config, not the file.
         "model": rt.cfg.chat_model,
         "model_configured": rt.model_configured,
+        # does the server behind that model answer, and can we start it (§31.5)
+        "connection": (rt.connection.snapshot()
+                       if getattr(rt, "connection", None) is not None else None),
         "utility_model": rt.cfg.utility_model if rt.cfg.utility_enabled else None,
         "channels": rt.channels_status,    # "off" | "telegram · @bot" | "… failed: …" (§10.5)
         # loaded/listeners are the on-demand stack (§9.9): "unloaded" backends

@@ -64,6 +64,27 @@ def no_lmstudio_neighbours(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def no_model_servers(monkeypatch):
+    """Her connection check (providers/reach.py, SPEC §31.5) asks real servers
+    and can start real ones. Offline (SPEC §27), nothing answers and nothing
+    starts: a developer's open LM Studio must not decide a test, and no test may
+    launch `lms` or `ollama` on their machine. Tests about reaching a server
+    pass their own transport and launcher."""
+    import httpx
+
+    def refuse(request):
+        raise httpx.ConnectError("offline test suite", request=request)
+
+    def no_launch(argv, env, detach):
+        raise RuntimeError("the test suite starts no servers")
+
+    monkeypatch.setattr("yurios.app.providers.reach.default_transport",
+                        lambda: httpx.MockTransport(refuse))
+    monkeypatch.setattr("yurios.app.providers.reach.default_launcher",
+                        lambda: no_launch)
+
+
+@pytest.fixture(autouse=True)
 def installation_elsewhere(_empty_installation, monkeypatch):
     """Keep the CLI's idea of "the installation" off this machine's real one.
 

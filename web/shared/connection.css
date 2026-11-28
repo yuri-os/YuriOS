@@ -1,0 +1,44 @@
+/* The model-server banner (shared/connection.js, SPEC §31.5): a strip across
+   the top of every room, above the stage and the chat column, that leaves when
+   the server answers. */
+.connection-banner {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 30;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px;
+  padding: 9px 16px;
+  font: 13px/1.4 var(--font-mono, "IBM Plex Mono", "SFMono-Regular", Consolas, monospace);
+  color: var(--ink, #edf2e8);
+  background: rgb(36 14 12 / .94);
+  border-bottom: 1px solid var(--red, #ef786f);
+  box-shadow: 0 8px 30px rgb(0 0 0 / .4);
+}
+.connection-banner[hidden] { display: none; }
+.connection-banner[data-tone="warn"] { background: rgb(36 27 10 / .94); border-color: var(--amber, #f4bd62); }
+.connection-banner[data-tone="busy"] { background: rgb(12 24 20 / .94); border-color: var(--mint, #76e8bd); }
+.connection-banner-dot {
+  width: 8px; height: 8px; border-radius: 50%; flex: none;
+  background: var(--red, #ef786f);
+}
+.connection-banner[data-tone="warn"] .connection-banner-dot { background: var(--amber, #f4bd62); }
+.connection-banner[data-tone="busy"] .connection-banner-dot {
+  background: var(--mint, #76e8bd); animation: connection-pulse 1s ease-in-out infinite alternate;
+}
+.connection-banner-text { flex: 1 1 22em; min-width: 0; overflow-wrap: anywhere; }
+.connection-banner-note { flex: 1 1 100%; order: 3; color: var(--soft, #a5afa6); font-size: 12px; }
+.connection-banner-note[hidden] { display: none; }
+.connection-banner-actions { display: flex; gap: 8px; flex: none; }
+.connection-banner button {
+  font: inherit; color: inherit; cursor: pointer;
+  padding: 3px 10px; border-radius: 4px;
+  background: rgb(255 255 255 / .06); border: 1px solid rgb(255 255 255 / .22);
+}
+.connection-banner button[data-act="start"] {
+  color: var(--void, #070a09); background: var(--acid, #d7ff58); border-color: var(--acid, #d7ff58);
+}
+.connection-banner button[data-act="dismiss"] { padding: 3px 8px; }
+.connection-banner button[hidden] { display: none; }
+.connection-banner button:disabled { opacity: .5; cursor: default; }
+.connection-banner button:focus-visible { outline: 2px solid var(--acid, #d7ff58); outline-offset: 2px; }
+@keyframes connection-pulse { from { opacity: .35; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .connection-banner[data-tone="busy"] .connection-banner-dot { animation: none; }
+}

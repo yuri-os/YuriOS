@@ -41,7 +41,7 @@ a section are folded into it.
 | **§28** — Extends to | `web/dashboard/dashboard.js`<br>`yurios/world/host/hosting.py`<br>`web/dashboard/model.js`<br>`web/studio/studio.js`<br>*+9 more* | `tests/test_card_roundtrip.py`<br>`tests/test_characters_exporter.py`<br>`tests/test_host.py` |
 | **§29** — The host and the character registry | `yurios/world/host/switchboard.py`<br>`yurios/world/host/app.py`<br>`yurios/characters/backup.py`<br>`yurios/world/main.py`<br>*+12 more* | `tests/test_character_backup.py`<br>`tests/test_host.py`<br>`tests/test_voice_handshake.py` |
 | **§30** — Character cards: import, review, edit, export | `scripts/bench_cards.py`<br>`web/dashboard/dashboard.js`<br>`web/dashboard/model.js`<br>`web/studio/optimize.js`<br>*+3 more* | `tests/test_studio_routes.py` |
-| **§31** — Connections and per-character bindings | `yurios/world/host/hosting.py`<br>`yurios/world/host/switchboard.py`<br>`yurios/world/main.py`<br>`web/dashboard/dashboard.js`<br>*+9 more* | `tests/test_host.py`<br>`tests/test_character_overrides.py`<br>`tests/test_house_settings.py`<br>*+3 more* |
+| **§31** — Connections and per-character bindings | `yurios/world/host/hosting.py`<br>`yurios/world/main.py`<br>`yurios/world/host/switchboard.py`<br>`web/dashboard/dashboard.js`<br>*+18 more* | `tests/test_host.py`<br>`tests/conftest.py`<br>`tests/test_character_overrides.py`<br>*+6 more* |
 | **§32** — The switchboard | `yurios/world/host/hosting.py`<br>`yurios/world/host/pages.py`<br>`web/dashboard/dashboard.js`<br>`web/dashboard/model.js`<br>*+2 more* | `tests/test_host.py`<br>`tests/test_raw_assets.py` |
 | **§33** — The 0.1 → 0.2 migration | `yurios/migrate.py` | — |
 | **§34** — Her desk and her skills | `yurios/mind/workspace.py`<br>`yurios/world/tools/server.py`<br>`yurios/desktop/brain.py`<br>`web/js/mind.js`<br>*+7 more* | `tests/test_workspace.py`<br>`tests/test_handed.py`<br>`tests/test_mcp_contract.py`<br>*+1 more* |
@@ -51,4 +51,4 @@ a section are folded into it.
 | **§38** — How long her replies run | `web/js/chat.js`<br>`yurios/app/config.py`<br>`scripts/live_check.py`<br>`web/shared/reply-length.js`<br>*+4 more* | `tests/test_mind_soul.py`<br>`tests/test_reply_length.py` |
 | **§39** — Another reply in her last one's place | `yurios/desktop/brain.py`<br>`yurios/world/main.py`<br>`yurios/world/routes/chat.py`<br>`yurios/world/turns.py`<br>*+13 more* | `tests/test_swipes.py` |
 
-*1287 citation sites over 154 sections.*
+*1307 citation sites over 155 sections.*

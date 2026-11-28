@@ -1553,6 +1553,8 @@
       // same way: sticky, replayed on open, read by a listener that came late
       if (m.type === 'reply_length') window.WorldChat.replyLength = m;
       if (m.type === 'brain') window.WorldChat.brain = m;
+      // …and whether her model's server answers (shared/connection.js, §31.5)
+      if (m.type === 'connection') window.WorldChat.connection = m;
       if (m.type === 'hello') {
         charName = m.character || '';
         // every label that names her at once — the chat head, the masthead, the
